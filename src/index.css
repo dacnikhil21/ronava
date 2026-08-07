@@ -61,11 +61,11 @@
   --transition-slow: 550ms var(--ease-apple);
 
   /* Fluid Responsive Spacing System */
-  --section-pad-top: 2.25rem;
-  --section-pad-bottom: 2.25rem;
+  --section-pad-top: 3.5rem;
+  --section-pad-bottom: 3.5rem;
   --scroll-margin-top: 4.5rem;
-  --card-padding: 1.125rem;
-  --grid-gap: 0.875rem;
+  --card-padding: 1.375rem;
+  --grid-gap: 1.25rem;
   --nav-padding: 0.5rem;
   --logo-height: 48px;
   
@@ -694,20 +694,21 @@ p, h1, h2, h3, h4, h5, h6, span, a, button, label, li, td, th {
 .mobile-app-quick-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 0.5rem;
+  gap: 0.75rem;
   width: 100%;
 }
 
 @media (max-width: 359px) {
   .mobile-app-quick-grid {
     grid-template-columns: repeat(2, 1fr);
+    gap: 0.625rem;
   }
 }
 
 .mobile-app-services-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 0.5rem;
+  gap: 0.75rem;
   width: 100%;
 }
 
@@ -1028,5 +1029,34 @@ input:-webkit-autofill:active {
 @media (max-width: 768px) {
   .profile-info-text {
     display: none !important;
+  }
+}
+
+/* Mobile-only full-width button utility to prevent shortened buttons and empty margins */
+@media (max-width: 640px) {
+  .btn-mobile-full {
+    width: 100% !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    box-sizing: border-box !important;
+  }
+}
+
+/* Responsive hero CTA buttons wrapper */
+.hero-ctas {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+@media (max-width: 640px) {
+  .hero-ctas {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.75rem !important;
+    width: 100% !important;
   }
 }

@@ -222,8 +222,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       </header>
 
       {/* Main Operational Dashboard Workspace */}
-      <main className="flex-grow" style={{ paddingTop: '0.875rem', width: '100%' }}>
-        <div className="container" style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+      <main className="flex-grow" style={{ paddingTop: '1rem', width: '100%' }}>
+        <div className="container" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           
           {/* Virtual Wallet Hero Card */}
           <div style={{ padding: '1rem 1.125rem', borderRadius: '18px', background: 'linear-gradient(135deg, #0A192F 0%, #0F52BA 60%, #1E64EC 100%)', color: '#FFFFFF', boxShadow: '0 12px 32px -4px rgba(15,23,42,0.25), inset 0 1px 0 rgba(255,255,255,0.2)', width: '100%', boxSizing: 'border-box' }}>
@@ -272,33 +272,33 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           <div>
             <h3 style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.375rem' }}>Quick Actions</h3>
             <div className="mobile-app-quick-grid">
-              <button className="card card-hover" style={{ textAlign: 'center', padding: '0.5rem 0.25rem', border: '1px solid #E2E8F0', cursor: 'pointer', backgroundColor: '#FFFFFF' }}>
-                <div className="icon-badge" style={{ margin: '0 auto 0.25rem', background: '#EFF6FF', color: '#0F52BA', width: '30px', height: '30px' }}>
-                  <PlusCircle style={{ width: '16px', height: '16px' }} />
+              <button className="card card-hover" style={{ textAlign: 'center', padding: '0.75rem 0.375rem', border: '1px solid #E2E8F0', cursor: 'pointer', backgroundColor: '#FFFFFF' }}>
+                <div className="icon-badge" style={{ margin: '0 auto 0.375rem', background: '#EFF6FF', color: '#0F52BA', width: '36px', height: '36px' }}>
+                  <PlusCircle style={{ width: '18px', height: '18px' }} />
                 </div>
                 <h4 style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0F172A', margin: 0, whiteSpace: 'nowrap' }}>Record Sale</h4>
                 <p style={{ fontSize: '0.5rem', color: '#64748B', margin: 0, whiteSpace: 'nowrap' }}>Collect Payment</p>
               </button>
 
-              <button className="card card-hover" style={{ textAlign: 'center', padding: '0.5rem 0.25rem', border: '1px solid #E2E8F0', cursor: 'pointer', backgroundColor: '#FFFFFF' }}>
-                <div className="icon-badge" style={{ margin: '0 auto 0.25rem', background: '#ECFDF5', color: '#059669', width: '30px', height: '30px' }}>
-                  <Send style={{ width: '16px', height: '16px' }} />
+              <button className="card card-hover" style={{ textAlign: 'center', padding: '0.75rem 0.375rem', border: '1px solid #E2E8F0', cursor: 'pointer', backgroundColor: '#FFFFFF' }}>
+                <div className="icon-badge" style={{ margin: '0 auto 0.375rem', background: '#ECFDF5', color: '#059669', width: '36px', height: '36px' }}>
+                  <Send style={{ width: '18px', height: '18px' }} />
                 </div>
                 <h4 style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0F172A', margin: 0, whiteSpace: 'nowrap' }}>Withdraw</h4>
                 <p style={{ fontSize: '0.5rem', color: '#64748B', margin: 0, whiteSpace: 'nowrap' }}>Send to Bank</p>
               </button>
 
-              <button className="card card-hover" style={{ textAlign: 'center', padding: '0.5rem 0.25rem', border: '1px solid #E2E8F0', cursor: 'pointer', backgroundColor: '#FFFFFF' }}>
-                <div className="icon-badge" style={{ margin: '0 auto 0.25rem', background: '#FEF3C7', color: '#D97706', width: '30px', height: '30px' }}>
-                  <Users style={{ width: '16px', height: '16px' }} />
+              <button className="card card-hover" style={{ textAlign: 'center', padding: '0.75rem 0.375rem', border: '1px solid #E2E8F0', cursor: 'pointer', backgroundColor: '#FFFFFF' }}>
+                <div className="icon-badge" style={{ margin: '0 auto 0.375rem', background: '#FEF3C7', color: '#D97706', width: '36px', height: '36px' }}>
+                  <Users style={{ width: '18px', height: '18px' }} />
                 </div>
                 <h4 style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0F172A', margin: 0, whiteSpace: 'nowrap' }}>Beneficiaries</h4>
                 <p style={{ fontSize: '0.5rem', color: '#64748B', margin: 0, whiteSpace: 'nowrap' }}>Accounts</p>
               </button>
 
-              <button className="card card-hover" style={{ textAlign: 'center', padding: '0.5rem 0.25rem', border: '1px solid #E2E8F0', cursor: 'pointer', backgroundColor: '#FFFFFF' }}>
-                <div className="icon-badge" style={{ margin: '0 auto 0.25rem', background: '#F1F5F9', color: '#475569', width: '30px', height: '30px' }}>
-                  <History style={{ width: '16px', height: '16px' }} />
+              <button className="card card-hover" style={{ textAlign: 'center', padding: '0.75rem 0.375rem', border: '1px solid #E2E8F0', cursor: 'pointer', backgroundColor: '#FFFFFF' }}>
+                <div className="icon-badge" style={{ margin: '0 auto 0.375rem', background: '#F1F5F9', color: '#475569', width: '36px', height: '36px' }}>
+                  <History style={{ width: '18px', height: '18px' }} />
                 </div>
                 <h4 style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0F172A', margin: 0, whiteSpace: 'nowrap' }}>Txn History</h4>
                 <p style={{ fontSize: '0.5rem', color: '#64748B', margin: 0, whiteSpace: 'nowrap' }}>View Ledger</p>
@@ -307,31 +307,31 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           </div>
 
           {/* Financial Services Grid */}
-          <div className="card" style={{ padding: '0.75rem', backgroundColor: '#FFFFFF' }}>
-            <h3 style={{ fontSize: '0.8125rem', fontWeight: 800, color: '#0F172A', marginBottom: '0.5rem' }}>Our Financial Services</h3>
+          <div className="card" style={{ padding: '1rem', backgroundColor: '#FFFFFF' }}>
+            <h3 style={{ fontSize: '0.8125rem', fontWeight: 800, color: '#0F172A', marginBottom: '0.75rem' }}>Our Financial Services</h3>
             <div className="mobile-app-services-grid">
-              <div style={{ padding: '0.375rem 0.125rem', borderRadius: '8px', background: '#F8FAFC', border: '1px solid #E2E8F0', textAlign: 'center', cursor: 'pointer' }}>
-                <Receipt style={{ width: '16px', height: '16px', color: '#0F52BA', margin: '0 auto 0.125rem' }} />
+              <div style={{ padding: '0.625rem 0.25rem', borderRadius: '10px', background: '#EFF6FF', border: '1px solid #BFDBFE', textAlign: 'center', cursor: 'pointer' }}>
+                <Receipt style={{ width: '18px', height: '18px', color: '#0F52BA', margin: '0 auto 0.25rem' }} />
                 <p style={{ fontSize: '0.625rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>BBPS</p>
               </div>
-              <div style={{ padding: '0.375rem 0.125rem', borderRadius: '8px', background: '#F8FAFC', border: '1px solid #E2E8F0', textAlign: 'center', cursor: 'pointer' }}>
-                <CreditCard style={{ width: '16px', height: '16px', color: '#D97706', margin: '0 auto 0.125rem' }} />
+              <div style={{ padding: '0.625rem 0.25rem', borderRadius: '10px', background: '#FFFBEB', border: '1px solid #FDE68A', textAlign: 'center', cursor: 'pointer' }}>
+                <CreditCard style={{ width: '18px', height: '18px', color: '#D97706', margin: '0 auto 0.25rem' }} />
                 <p style={{ fontSize: '0.625rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>PG & POS</p>
               </div>
-              <div style={{ padding: '0.375rem 0.125rem', borderRadius: '8px', background: '#F8FAFC', border: '1px solid #E2E8F0', textAlign: 'center', cursor: 'pointer' }}>
-                <Landmark style={{ width: '16px', height: '16px', color: '#059669', margin: '0 auto 0.125rem' }} />
+              <div style={{ padding: '0.625rem 0.25rem', borderRadius: '10px', background: '#ECFDF5', border: '1px solid #A7F3D0', textAlign: 'center', cursor: 'pointer' }}>
+                <Landmark style={{ width: '18px', height: '18px', color: '#059669', margin: '0 auto 0.25rem' }} />
                 <p style={{ fontSize: '0.625rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>Loans</p>
               </div>
-              <div style={{ padding: '0.375rem 0.125rem', borderRadius: '8px', background: '#F8FAFC', border: '1px solid #E2E8F0', textAlign: 'center', cursor: 'pointer' }}>
-                <Building2 style={{ width: '16px', height: '16px', color: '#4F46E5', margin: '0 auto 0.125rem' }} />
+              <div style={{ padding: '0.625rem 0.25rem', borderRadius: '10px', background: '#EEF2FF', border: '1px solid #C7D2FE', textAlign: 'center', cursor: 'pointer' }}>
+                <Building2 style={{ width: '18px', height: '18px', color: '#4F46E5', margin: '0 auto 0.25rem' }} />
                 <p style={{ fontSize: '0.625rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>ATM/CDM</p>
               </div>
-              <div style={{ padding: '0.375rem 0.125rem', borderRadius: '8px', background: '#F8FAFC', border: '1px solid #E2E8F0', textAlign: 'center', cursor: 'pointer' }}>
-                <BarChart3 style={{ width: '16px', height: '16px', color: '#0F52BA', margin: '0 auto 0.125rem' }} />
+              <div style={{ padding: '0.625rem 0.25rem', borderRadius: '10px', background: '#F8FAFC', border: '1px solid #E2E8F0', textAlign: 'center', cursor: 'pointer' }}>
+                <BarChart3 style={{ width: '18px', height: '18px', color: '#0F52BA', margin: '0 auto 0.25rem' }} />
                 <p style={{ fontSize: '0.625rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>Reports</p>
               </div>
-              <div style={{ padding: '0.375rem 0.125rem', borderRadius: '8px', background: '#F8FAFC', border: '1px solid #E2E8F0', textAlign: 'center', cursor: 'pointer' }}>
-                <Headphones style={{ width: '16px', height: '16px', color: '#DC2626', margin: '0 auto 0.125rem' }} />
+              <div style={{ padding: '0.625rem 0.25rem', borderRadius: '10px', background: '#FEF2F2', border: '1px solid #FECACA', textAlign: 'center', cursor: 'pointer' }}>
+                <Headphones style={{ width: '18px', height: '18px', color: '#DC2626', margin: '0 auto 0.25rem' }} />
                 <p style={{ fontSize: '0.625rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>Support</p>
               </div>
             </div>

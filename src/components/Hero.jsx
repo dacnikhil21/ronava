@@ -80,10 +80,10 @@ export default function Hero({ onOpenLogin, onShowToast }) {
           </div>
 
           {/* Action CTAs */}
-          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '0.5rem' }}>
+          <div className="hero-ctas">
             <button 
               onClick={() => onOpenLogin('merchant')}
-              className="btn btn-primary btn-lg"
+              className="btn btn-primary btn-lg btn-mobile-full"
               style={{ fontWeight: 800, backgroundColor: '#0F52BA', minHeight: '50px', padding: '0 1.75rem', boxShadow: '0 8px 24px rgba(15, 82, 186, 0.45)' }}
             >
               <span>Become a Merchant</span>
@@ -92,8 +92,8 @@ export default function Hero({ onOpenLogin, onShowToast }) {
 
             <a 
               href="#services"
-              className="btn btn-lg"
-              style={{ fontWeight: 700, minHeight: '50px', padding: '0 1.5rem', backgroundColor: 'rgba(255, 255, 255, 0.08)', color: '#FFFFFF', border: '1px solid rgba(255, 255, 255, 0.2)', backdropFilter: 'blur(8px)' }}
+              className="btn btn-lg btn-mobile-full"
+              style={{ fontWeight: 700, minHeight: '50px', padding: '0 1.5rem', backgroundColor: 'rgba(255, 255, 255, 0.08)', color: '#FFFFFF', border: '1px solid rgba(255, 255, 255, 0.2)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               Explore Services
             </a>

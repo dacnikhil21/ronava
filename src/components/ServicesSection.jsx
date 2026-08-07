@@ -70,11 +70,11 @@ export default function ServicesSection({ onOpenLogin, onShowToast }) {
               </ul>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '1rem', borderTop: '1px solid #A7F3D0' }}>
-              <a href="#contact" className="btn btn-primary btn-sm" style={{ backgroundColor: '#059669', borderColor: '#047857' }}>
+            <div style={{ paddingTop: '1rem', borderTop: '1px solid #A7F3D0' }}>
+              <span style={{ display: 'block', fontSize: '0.625rem', fontWeight: 800, color: '#047857', marginBottom: '0.625rem', letterSpacing: '0.05em' }}>RONAV SECURE</span>
+              <a href="#contact" className="btn btn-primary btn-sm btn-mobile-full" style={{ backgroundColor: '#059669', borderColor: '#047857', width: '100%', justifyContent: 'center' }}>
                 Apply for Loan Credit →
               </a>
-              <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#047857' }}>RONAV SECURE</span>
             </div>
           </div>
 
@@ -123,11 +123,11 @@ export default function ServicesSection({ onOpenLogin, onShowToast }) {
               </ul>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '1rem', borderTop: '1px solid #BFDBFE' }}>
-              <a href="#contact" className="btn btn-primary btn-sm" style={{ backgroundColor: '#0F52BA' }}>
+            <div style={{ paddingTop: '1rem', borderTop: '1px solid #BFDBFE' }}>
+              <span style={{ display: 'block', fontSize: '0.625rem', fontWeight: 800, color: '#1D4ED8', marginBottom: '0.625rem', letterSpacing: '0.05em' }}>HIGH MARGIN</span>
+              <a href="#contact" className="btn btn-primary btn-sm btn-mobile-full" style={{ backgroundColor: '#0F52BA', width: '100%', justifyContent: 'center' }}>
                 Setup ATM/CDM Outlet →
               </a>
-              <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1D4ED8' }}>HIGH MARGIN</span>
             </div>
           </div>
 
@@ -176,11 +176,11 @@ export default function ServicesSection({ onOpenLogin, onShowToast }) {
               </ul>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '1rem', borderTop: '1px solid #FDE68A' }}>
-              <a href="#contact" className="btn btn-primary btn-sm" style={{ backgroundColor: '#D97706', borderColor: '#B45309' }}>
+            <div style={{ paddingTop: '1rem', borderTop: '1px solid #FDE68A' }}>
+              <span style={{ display: 'block', fontSize: '0.625rem', fontWeight: 800, color: '#B45309', marginBottom: '0.625rem', letterSpacing: '0.05em' }}>INSTANT PAY</span>
+              <a href="#contact" className="btn btn-primary btn-sm btn-mobile-full" style={{ backgroundColor: '#D97706', borderColor: '#B45309', width: '100%', justifyContent: 'center' }}>
                 Access BBPS Services →
               </a>
-              <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#B45309' }}>INSTANT PAY</span>
             </div>
           </div>
 
@@ -229,11 +229,11 @@ export default function ServicesSection({ onOpenLogin, onShowToast }) {
               </ul>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '1rem', borderTop: '1px solid #C7D2FE' }}>
-              <a href="#contact" className="btn btn-primary btn-sm" style={{ backgroundColor: '#4F46E5', borderColor: '#3730A3' }}>
+            <div style={{ paddingTop: '1rem', borderTop: '1px solid #C7D2FE' }}>
+              <span style={{ display: 'block', fontSize: '0.625rem', fontWeight: 800, color: '#4338CA', marginBottom: '0.625rem', letterSpacing: '0.05em' }}>FAST SETTLE</span>
+              <a href="#contact" className="btn btn-primary btn-sm btn-mobile-full" style={{ backgroundColor: '#4F46E5', borderColor: '#3730A3', width: '100%', justifyContent: 'center' }}>
                 Get POS Machine & Gateway →
               </a>
-              <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#4338CA' }}>FAST SETTLE</span>
             </div>
           </div>
 
