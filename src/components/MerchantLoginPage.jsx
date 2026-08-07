@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Lock, Eye, EyeOff, LogIn, UserPlus, ShieldCheck, Headphones, Zap, TrendingUp, Phone, Mail, X, Menu, ArrowRight } from 'lucide-react';
 
 export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
@@ -10,6 +10,14 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
   const [forgotMobile, setForgotMobile] = useState('');
   const [forgotSuccess, setForgotSuccess] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [animated, setAnimated] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setAnimated(true);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -43,19 +51,95 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
           {/* Logo */}
           <button 
             onClick={onBackToHome}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}
+            style={{ 
+              background: 'none', 
+              border: 'none', 
+              cursor: 'pointer', 
+              padding: 0, 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.5rem',
+              textAlign: 'left'
+            }}
           >
-            <img 
-              src="/ronav_official_logo.png" 
-              alt="RONAV Technologies Official Logo" 
-              style={{ 
-                height: 'var(--logo-height)', 
-                maxHeight: 'var(--logo-height)', 
-                width: 'auto', 
-                display: 'block', 
-                objectFit: 'contain'
-              }}
-            />
+            {/* Transparent Vector TR Monogram Symbol */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg 
+                viewBox="0 0 100 100" 
+                fill="none" 
+                xmlns="http://www.w3.org/2000/svg" 
+                style={{ 
+                  height: 'var(--logo-height)', 
+                  width: 'var(--logo-height)', 
+                  flexShrink: 0 
+                }}
+              >
+                <defs>
+                  <linearGradient id="logoGradLogin" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#0F52BA" />
+                    <stop offset="100%" stopColor="#0052CC" />
+                  </linearGradient>
+                </defs>
+                <rect x="15" y="20" width="70" height="12" rx="4" fill="url(#logoGradLogin)" />
+                <rect x="44" y="32" width="12" height="48" rx="4" fill="url(#logoGradLogin)" />
+                <path d="M44 32 H64 C74 32 74 52 64 52 H44" fill="none" stroke="url(#logoGradLogin)" strokeWidth="12" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M56 52 L72 80" fill="none" stroke="url(#logoGradLogin)" strokeWidth="12" strokeLinecap="round" />
+              </svg>
+            </div>
+
+            {/* Letter-by-Letter Writing Animation Naming */}
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+              <div 
+                style={{ 
+                  fontSize: 'clamp(1.1rem, 3.5vw, 1.375rem)', 
+                  fontWeight: 900, 
+                  color: '#0F172A', 
+                  letterSpacing: '-0.02em', 
+                  lineHeight: 1, 
+                  display: 'flex' 
+                }}
+              >
+                {"RONAV".split('').map((char, idx) => (
+                  <span
+                    key={idx}
+                    style={{
+                      display: 'inline-block',
+                      opacity: animated ? 1 : 0,
+                      transform: animated ? 'translateX(0)' : 'translateX(-5px)',
+                      transition: `opacity 250ms cubic-bezier(0.16, 1, 0.3, 1) ${idx * 40}ms, transform 250ms cubic-bezier(0.16, 1, 0.3, 1) ${idx * 40}ms`
+                    }}
+                  >
+                    {char}
+                  </span>
+                ))}
+              </div>
+              
+              <div 
+                style={{ 
+                  fontSize: 'clamp(0.5rem, 1.5vw, 0.625rem)', 
+                  fontWeight: 800, 
+                  color: '#0F52BA', 
+                  letterSpacing: '0.12em', 
+                  marginTop: '2px', 
+                  lineHeight: 1, 
+                  display: 'flex' 
+                }}
+              >
+                {"TECHNOLOGIES".split('').map((char, idx) => (
+                  <span
+                    key={idx}
+                    style={{
+                      display: 'inline-block',
+                      opacity: animated ? 1 : 0,
+                      transform: animated ? 'translateX(0)' : 'translateX(-3px)',
+                      transition: `opacity 200ms cubic-bezier(0.16, 1, 0.3, 1) ${(idx * 20) + 150}ms, transform 200ms cubic-bezier(0.16, 1, 0.3, 1) ${(idx * 20) + 150}ms`
+                    }}
+                  >
+                    {char}
+                  </span>
+                ))}
+              </div>
+            </div>
           </button>
 
           {/* Right Action Icons */}
