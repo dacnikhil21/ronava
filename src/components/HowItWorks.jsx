@@ -1,8 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { UserPlus, ShieldCheck, Key, Zap, CheckCircle2, ArrowRight } from 'lucide-react';
 
 export default function HowItWorks() {
   const [activeStep, setActiveStep] = useState(0);
+  const sectionRef = useRef(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => { entries.forEach((e) => { if (e.isIntersecting) e.target.classList.add('visible'); }); },
+      { threshold: 0.08, rootMargin: '0px 0px -40px 0px' }
+    );
+    const els = sectionRef.current?.querySelectorAll('.reveal, .reveal-scale');
+    els?.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, []);
 
   const steps = [
     {
@@ -48,13 +59,16 @@ export default function HowItWorks() {
   ];
 
   return (
-    <section className="section-padding bg-slate-50" style={{ width: '100%' }}>
+    <section ref={sectionRef} className="section-padding bg-slate-50" style={{ width: '100%' }}>
       <div className="container">
         
         {/* Section Header */}
-        <div className="section-header">
+        <div className="section-header reveal">
           <span className="section-tag">GUIDED ONBOARDING PROTOCOL</span>
-          <h2 className="section-title">How to Get Started as a RONAV Partner</h2>
+          <h2 className="section-title">
+            How to Get Started as a{' '}
+            <span className="text-gradient-blue">RONAV Partner</span>
+          </h2>
           <p className="section-subtitle">
             From application to active transactions in four simple, guided steps.
           </p>

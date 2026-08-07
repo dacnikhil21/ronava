@@ -1,8 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ChevronDown, ChevronUp, HelpCircle, CheckCircle2 } from 'lucide-react';
 
 export default function FAQSection() {
   const [openIndex, setOpenIndex] = useState(0);
+  const sectionRef = useRef(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => { entries.forEach((e) => { if (e.isIntersecting) e.target.classList.add('visible'); }); },
+      { threshold: 0.08, rootMargin: '0px 0px -40px 0px' }
+    );
+    const els = sectionRef.current?.querySelectorAll('.reveal, .reveal-scale');
+    els?.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, []);
 
   const faqs = [
     {
@@ -32,20 +43,23 @@ export default function FAQSection() {
   ];
 
   return (
-    <section className="section-padding bg-slate-50" style={{ width: '100%' }}>
+    <section ref={sectionRef} className="section-padding bg-slate-50" style={{ width: '100%' }}>
       <div className="container" style={{ maxWidth: '840px' }}>
         
         {/* Section Header */}
-        <div className="section-header">
-          <span className="section-tag">KNOWLEDGE BASE & SUPPORT</span>
-          <h2 className="section-title">Frequently Asked Questions</h2>
+        <div className="section-header reveal">
+          <span className="section-tag">KNOWLEDGE BASE &amp; SUPPORT</span>
+          <h2 className="section-title">
+            Frequently Asked{' '}
+            <span className="text-gradient-blue">Questions</span>
+          </h2>
           <p className="section-subtitle">
             Get instant answers regarding merchant onboarding, loan credit, BBPS, and franchise terms.
           </p>
         </div>
 
         {/* Interactive Accordion Cards */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+        <div className="reveal-scale" style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
           {faqs.map((faq, idx) => (
             <div 
               key={idx}

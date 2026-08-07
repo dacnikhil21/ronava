@@ -1,8 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Network, ShieldCheck, ArrowRight, Award, CheckCircle2 } from 'lucide-react';
 
 export default function BusinessNetwork({ onOpenLogin }) {
   const [activeRole, setActiveRole] = useState(0);
+  const sectionRef = useRef(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => { entries.forEach((e) => { if (e.isIntersecting) e.target.classList.add('visible'); }); },
+      { threshold: 0.08, rootMargin: '0px 0px -40px 0px' }
+    );
+    const els = sectionRef.current?.querySelectorAll('.reveal, .reveal-scale');
+    els?.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, []);
 
   const roles = [
     {
@@ -40,13 +51,26 @@ export default function BusinessNetwork({ onOpenLogin }) {
   ];
 
   return (
-    <section id="network" className="section-padding" style={{ backgroundColor: '#F8FAFC', width: '100%' }}>
+    <section 
+      id="network" 
+      ref={sectionRef} 
+      className="section-padding" 
+      style={{ 
+        backgroundColor: '#F8FAFC', 
+        backgroundImage: 'radial-gradient(rgba(15, 82, 186, 0.07) 1px, transparent 0)', 
+        backgroundSize: '24px 24px', 
+        width: '100%' 
+      }}
+    >
       <div className="container">
         
         {/* Section Header */}
-        <div className="section-header">
+        <div className="section-header reveal">
           <span className="section-tag">4-TIER BUSINESS NETWORK</span>
-          <h2 className="section-title">Integrated Network Architecture</h2>
+          <h2 className="section-title">
+            Integrated{' '}
+            <span className="text-gradient-blue">Network Architecture</span>
+          </h2>
           <p className="section-subtitle">
             Connecting Super Distributors, Distributors, Retailers, and Merchants in a unified financial ecosystem.
           </p>
@@ -79,7 +103,7 @@ export default function BusinessNetwork({ onOpenLogin }) {
 
         {/* Highlighted Selected Role Card */}
         <div 
-          className="card card-hover"
+          className="card card-glow reveal-scale"
           style={{
             backgroundColor: roles[activeRole].bg,
             borderColor: roles[activeRole].border,
@@ -108,10 +132,11 @@ export default function BusinessNetwork({ onOpenLogin }) {
 
             <button 
               onClick={() => onOpenLogin('merchant')}
-              className="btn btn-primary btn-sm" 
-              style={{ backgroundColor: roles[activeRole].color }}
+              className="btn btn-primary btn-sm btn-slide-arrow" 
+              style={{ backgroundColor: roles[activeRole].color, display: 'flex', alignItems: 'center', gap: '0.375rem' }}
             >
-              Join as {roles[activeRole].title} →
+              <span>Join as {roles[activeRole].title}</span>
+              <span className="btn-arrow-icon" style={{ display: 'inline-block' }}><ArrowRight style={{ width: '14px', height: '14px' }} /></span>
             </button>
           </div>
 

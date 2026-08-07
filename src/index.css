@@ -1060,3 +1060,207 @@ input:-webkit-autofill:active {
     width: 100% !important;
   }
 }
+
+/* ============================================================
+   VISUAL UPGRADE SYSTEM — Anti-Documentation Overhaul
+   Making RONAV feel alive, layered, and immersive
+   ============================================================ */
+
+/* ---- 1. SCROLL-REVEAL ANIMATIONS ---- */
+.reveal {
+  opacity: 0;
+  transform: translateY(32px);
+  transition: opacity 700ms cubic-bezier(0.16, 1, 0.3, 1),
+              transform 700ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.reveal-left {
+  opacity: 0;
+  transform: translateX(-28px);
+  transition: opacity 700ms cubic-bezier(0.16, 1, 0.3, 1),
+              transform 700ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.reveal-left.visible { opacity: 1; transform: translateX(0); }
+
+.reveal-scale {
+  opacity: 0;
+  transform: scale(0.94);
+  transition: opacity 600ms cubic-bezier(0.16, 1, 0.3, 1),
+              transform 600ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.reveal-scale.visible { opacity: 1; transform: scale(1); }
+
+/* Stagger delays for grid children */
+.reveal-stagger > *:nth-child(1) { transition-delay: 0ms; }
+.reveal-stagger > *:nth-child(2) { transition-delay: 80ms; }
+.reveal-stagger > *:nth-child(3) { transition-delay: 160ms; }
+.reveal-stagger > *:nth-child(4) { transition-delay: 240ms; }
+.reveal-stagger > *:nth-child(5) { transition-delay: 320ms; }
+.reveal-stagger > *:nth-child(6) { transition-delay: 400ms; }
+
+/* ---- 2. GRADIENT TEXT UTILITY ---- */
+.text-gradient-blue {
+  background: linear-gradient(135deg, #0066FF 0%, #003399 60%, #0066FF 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradient-shift 4s ease infinite;
+}
+
+.text-gradient-gold {
+  background: linear-gradient(135deg, #F59E0B 0%, #D97706 50%, #F59E0B 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+@keyframes gradient-shift {
+  0% { background-position: 0% center; }
+  50% { background-position: 100% center; }
+  100% { background-position: 0% center; }
+}
+
+/* ---- 3. ENHANCED CARD HOVER — Border Glow Effect ---- */
+.card-glow {
+  transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 280ms cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 280ms ease;
+  border: 1.5px solid var(--border);
+}
+.card-glow:hover {
+  transform: translateY(-4px) scale(1.01);
+  box-shadow: 0 12px 40px -8px rgba(15, 82, 186, 0.18),
+              0 0 0 1px rgba(15, 82, 186, 0.12);
+  border-color: rgba(15, 82, 186, 0.35);
+}
+
+/* Dark card variant for dark section */
+.card-dark-glow {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 280ms cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 280ms ease,
+              background 280ms ease;
+}
+.card-dark-glow:hover {
+  transform: translateY(-4px);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(99, 179, 237, 0.4);
+  box-shadow: 0 0 0 1px rgba(99, 179, 237, 0.2),
+              0 16px 40px -8px rgba(0, 0, 0, 0.4),
+              0 0 60px -20px rgba(15, 82, 186, 0.3);
+}
+
+/* ---- 4. BUTTON SLIDE ARROW ANIMATION ---- */
+.btn-slide-arrow {
+  position: relative;
+  overflow: hidden;
+  transition: all 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.btn-slide-arrow .btn-arrow-icon {
+  transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
+}
+.btn-slide-arrow:hover .btn-arrow-icon {
+  transform: translateX(5px);
+}
+.btn-slide-arrow:active {
+  transform: scale(0.97);
+}
+
+/* ---- 5. CINEMATIC DARK SECTION ---- */
+.section-cinematic {
+  background: linear-gradient(160deg, #060d1a 0%, #0a192f 40%, #0f2345 70%, #060d1a 100%);
+  position: relative;
+  overflow: hidden;
+}
+
+.section-cinematic::before {
+  content: '';
+  position: absolute;
+  top: -40%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80%;
+  height: 80%;
+  background: radial-gradient(ellipse at center, rgba(15, 82, 186, 0.12) 0%, transparent 65%);
+  pointer-events: none;
+}
+
+.section-cinematic::after {
+  content: '';
+  position: absolute;
+  bottom: -20%;
+  right: -10%;
+  width: 50%;
+  height: 60%;
+  background: radial-gradient(ellipse at center, rgba(79, 70, 229, 0.07) 0%, transparent 65%);
+  pointer-events: none;
+}
+
+/* ---- 6. CURVED SECTION DIVIDER SHAPES ---- */
+.section-curve-top {
+  position: relative;
+  margin-top: -2px;
+}
+.section-curve-top::before {
+  content: '';
+  display: block;
+  height: 48px;
+  background: inherit;
+  clip-path: ellipse(70% 100% at 50% 0%);
+  margin-top: -48px;
+}
+
+/* ---- 7. GLOW PULSE DOT (status indicator upgrade) ---- */
+.glow-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  background: #10B981;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5);
+  animation: glow-pulse 2s infinite;
+}
+
+@keyframes glow-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
+  70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+/* ---- 8. SECTION BIG NUMBER STAT DISPLAY ---- */
+.stat-number {
+  font-size: clamp(2.5rem, 8vw, 4rem);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-feature-settings: "tnum", "cv02";
+}
+
+/* ---- 9. DRAMATIC HEADING UTILITY ---- */
+.heading-display {
+  font-size: clamp(1.875rem, 5.5vw, 3.5rem);
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+/* ---- 10. HORIZONTAL RULE WITH GRADIENT ---- */
+.hr-glow {
+  border: none;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(15, 82, 186, 0.5), transparent);
+  margin: 0;
+}
+

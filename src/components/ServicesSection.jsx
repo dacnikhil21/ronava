@@ -1,33 +1,51 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Landmark, Building2, Receipt, CreditCard, ArrowRight, ShieldCheck, Zap, Calculator } from 'lucide-react';
 
 export default function ServicesSection({ onOpenLogin, onShowToast }) {
-  const [loanAmount, setLoanAmount] = useState(500000); // 5 Lakhs default
+  const [loanAmount, setLoanAmount] = useState(500000);
   const [dailyTxns, setDailyTxns] = useState(50);
+  const sectionRef = useRef(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) entry.target.classList.add('visible');
+        });
+      },
+      { threshold: 0.08, rootMargin: '0px 0px -40px 0px' }
+    );
+    const els = sectionRef.current?.querySelectorAll('.reveal, .reveal-scale');
+    els?.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, []);
 
   // Dynamic calculations
   const estimatedCommission = Math.round((loanAmount * 0.015) + (dailyTxns * 12 * 30));
   const disbursalDays = loanAmount <= 200000 ? '24 Hours' : '48–72 Hours';
 
   return (
-    <section id="services" className="section-padding bg-white" style={{ width: '100%' }}>
+    <section id="services" ref={sectionRef} className="section-padding bg-white" style={{ width: '100%' }}>
       <div className="container">
         
         {/* Section Header */}
-        <div className="section-header">
+        <div className="section-header reveal">
           <span className="section-tag">COMPREHENSIVE FINTECH ECOSYSTEM</span>
-          <h2 className="section-title">All Merchant Financial Solutions Under One Roof</h2>
+          <h2 className="section-title">
+            All Merchant Financial Solutions{' '}
+            <span className="text-gradient-blue">Under One Roof</span>
+          </h2>
           <p className="section-subtitle">
             Empowering business owners, retailers, and distributors with comprehensive, high-commission financial services since 2021.
           </p>
         </div>
 
         {/* Core Services 2x2 Grid with Distinct Color Systems */}
-        <div className="services-grid" style={{ marginBottom: '2.5rem' }}>
+        <div className="services-grid reveal-scale" style={{ marginBottom: '2.5rem' }}>
           
           {/* Service 1: Loans (Emerald Green Theme) */}
           <div 
-            className="card card-hover" 
+            className="card card-glow" 
             style={{ 
               backgroundColor: '#ECFDF5', 
               borderColor: '#A7F3D0',

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Phone, MessageSquare, Mail, MapPin, Send, CheckCircle2 } from 'lucide-react';
 
 export default function ContactSection({ onOpenOfficeModal }) {
@@ -10,6 +10,17 @@ export default function ContactSection({ onOpenOfficeModal }) {
     message: ''
   });
   const [submitted, setSubmitted] = useState(false);
+  const sectionRef = useRef(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => { entries.forEach((e) => { if (e.isIntersecting) e.target.classList.add('visible'); }); },
+      { threshold: 0.08, rootMargin: '0px 0px -40px 0px' }
+    );
+    const els = sectionRef.current?.querySelectorAll('.reveal, .reveal-left, .reveal-scale');
+    els?.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, []);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -18,14 +29,14 @@ export default function ContactSection({ onOpenOfficeModal }) {
   };
 
   return (
-    <section id="contact" className="section-padding" style={{ backgroundColor: '#FFFFFF', borderTop: '1px solid #E2E8F0' }}>
+    <section ref={sectionRef} id="contact" className="section-padding" style={{ backgroundColor: '#FFFFFF', borderTop: '1px solid #E2E8F0' }}>
       <div className="container">
         
         {/* Header */}
-        <div className="section-header">
+        <div className="section-header reveal">
           <span className="section-tag">DIRECT CONTACT MATRIX</span>
           <h2 className="section-title">
-            Get in Touch with <span style={{ color: '#0F52BA' }}>RONAV Technologies</span>
+            Get in Touch with <span className="text-gradient-blue">RONAV Technologies</span>
           </h2>
           <p className="section-subtitle">
             Have questions about loans, BBPS, or franchise setup? Reach our team directly or submit your inquiry below.
@@ -35,11 +46,11 @@ export default function ContactSection({ onOpenOfficeModal }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '2.5rem' }}>
           
           {/* Direct Contact Cards */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          <div className="reveal-left" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
               
-              <a href="tel:9966203053" className="card card-hover" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', backgroundColor: '#F8FAFC' }}>
+              <a href="tel:9966203053" className="card card-glow" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', backgroundColor: '#F8FAFC' }}>
                 <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#0F52BA', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <Phone style={{ width: '24px', height: '24px' }} />
                 </div>
@@ -50,7 +61,7 @@ export default function ContactSection({ onOpenOfficeModal }) {
                 </div>
               </a>
 
-              <a href="https://wa.me/919966203053" target="_blank" rel="noopener noreferrer" className="card card-hover" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', backgroundColor: '#F8FAFC' }}>
+              <a href="https://wa.me/919966203053" target="_blank" rel="noopener noreferrer" className="card card-glow" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', backgroundColor: '#F8FAFC' }}>
                 <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#059669', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <MessageSquare style={{ width: '24px', height: '24px' }} />
                 </div>
@@ -61,14 +72,14 @@ export default function ContactSection({ onOpenOfficeModal }) {
                 </div>
               </a>
 
-              <a href="mailto:rosenavaneethamenterprises@gmail.com" className="card card-hover" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', backgroundColor: '#F8FAFC' }}>
+              <a href="mailto:rosenavaneethamenterprises@gmail.com" className="card card-glow" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', backgroundColor: '#F8FAFC' }}>
                 <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#4F46E5', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <Mail style={{ width: '24px', height: '24px' }} />
                 </div>
                 <div style={{ overflow: 'hidden' }}>
                   <p style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>Official Email</p>
                   <h4 style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0F172A', margin: 0, wordBreak: 'break-all' }}>rosenavaneethamenterprises@gmail.com</h4>
-                  <p style={{ fontSize: '0.75rem', color: '#4F46E5', fontWeight: 700 }}>Corporate & Partnership Queries</p>
+                  <p style={{ fontSize: '0.75rem', color: '#4F46E5', fontWeight: 700 }}>Corporate &amp; Partnership Queries</p>
                 </div>
               </a>
 
@@ -80,13 +91,13 @@ export default function ContactSection({ onOpenOfficeModal }) {
               style={{ width: '100%', justifyContent: 'center', fontWeight: 800, color: '#0F52BA' }}
             >
               <MapPin style={{ width: '18px', height: '18px' }} />
-              View Office Locations & Map
+              View Office Locations &amp; Map
             </button>
 
           </div>
 
           {/* Quick Contact Form */}
-          <div>
+          <div className="reveal-scale">
             <div className="card" style={{ padding: '2rem', backgroundColor: '#F8FAFC', boxShadow: '0 12px 28px rgba(15,23,42,0.06)' }}>
               
               <div style={{ marginBottom: '1.5rem' }}>
@@ -175,9 +186,9 @@ export default function ContactSection({ onOpenOfficeModal }) {
                     ></textarea>
                   </div>
 
-                  <button type="submit" className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
-                    <Send style={{ width: '16px', height: '16px' }} />
-                    Submit Partner Inquiry
+                  <button type="submit" className="btn btn-primary btn-slide-arrow" style={{ width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span>Submit Partner Inquiry</span>
+                    <span className="btn-arrow-icon" style={{ display: 'inline-block' }}><Send style={{ width: '14px', height: '14px' }} /></span>
                   </button>
 
                   <p style={{ fontSize: '0.6875rem', color: '#94A3B8', textAlign: 'center' }}>
