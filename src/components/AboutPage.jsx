@@ -1,13 +1,45 @@
 import React from 'react';
-import { Award, Users, ShieldCheck, Landmark } from 'lucide-react';
+import { Award, Users, ShieldCheck, Landmark, ArrowLeft } from 'lucide-react';
 
-export default function AboutPage({ onOpenLogin }) {
+export default function AboutPage({ onOpenLogin, onBack }) {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans" style={{ width: '100%' }}>
       
       {/* About Us Content */}
-      <main className="flex-grow section-padding" style={{ padding: '3rem 0' }}>
+      <main className="flex-grow section-padding" style={{ padding: '2rem 0 3rem' }}>
         <div className="container">
+          
+          {/* Back Navigation Action */}
+          <div style={{ marginBottom: '1.25rem' }}>
+            <button 
+              onClick={onBack}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                background: 'none',
+                border: 'none',
+                color: '#0F52BA',
+                fontWeight: 800,
+                fontSize: '0.875rem',
+                cursor: 'pointer',
+                padding: '0.375rem 0.75rem 0.375rem 0',
+                borderRadius: '8px',
+                transition: 'all 200ms ease'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = '#0052CC';
+                e.currentTarget.style.transform = 'translateX(-3px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = '#0F52BA';
+                e.currentTarget.style.transform = 'none';
+              }}
+            >
+              <ArrowLeft style={{ width: '16px', height: '16px' }} />
+              <span>Go Back to Home</span>
+            </button>
+          </div>
           
           {/* Hero Header with Dedicated Image */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem', alignItems: 'center', marginBottom: '3rem' }}>

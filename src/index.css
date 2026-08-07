@@ -1023,3 +1023,10 @@ input:-webkit-autofill:active {
   -webkit-text-fill-color: var(--text-main) !important;
   transition: background-color 5000s ease-in-out 0s;
 }
+
+/* Hide desktop profile text on mobile dashboard header to prevent layout cut-off */
+@media (max-width: 768px) {
+  .profile-info-text {
+    display: none !important;
+  }
+}

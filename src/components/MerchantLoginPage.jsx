@@ -293,7 +293,6 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
                 <User style={{ width: '18px', height: '18px', color: '#0F52BA', position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
                 <input
                   type="text"
-                  required
                   placeholder="Enter User ID"
                   value={userId}
                   onChange={(e) => setUserId(e.target.value)}
@@ -322,7 +321,6 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
                 <Lock style={{ width: '18px', height: '18px', color: '#0F52BA', position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
                 <input
                   type={showPassword ? 'text' : 'password'}
-                  required
                   placeholder="Enter Password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -410,12 +408,11 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                justify: 'center',
+                justifyContent: 'center',
                 gap: '0.375rem',
                 transition: 'all 200ms ease'
               }}
             >
-              <UserPlus style={{ width: '16px', height: '16px' }} />
               <span>New Merchant? Sign Up</span>
             </button>
 

@@ -172,12 +172,14 @@ export default function App() {
         {currentView === 'about' && (
           <AboutPage 
             onOpenLogin={handleOpenLogin}
+            onBack={() => setCurrentView('home')}
           />
         )}
 
         {currentView === 'services' && (
           <ServicesPage 
             onOpenLogin={handleOpenLogin}
+            onBack={() => setCurrentView('home')}
           />
         )}
       </main>

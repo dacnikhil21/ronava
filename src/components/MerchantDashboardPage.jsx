@@ -43,14 +43,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
             </div>
           </div>
 
-          {/* Action Tools (Support, Notifications, Profile Avatar) */}
+          {/* Action Tools (Notifications, Profile Avatar) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexShrink: 0 }}>
-            
-            {/* Direct Support Dialer */}
-            <a href="tel:9966203053" className="btn btn-secondary btn-sm" style={{ color: '#0F52BA', fontWeight: 800, padding: '0.25rem 0.5rem', minHeight: '32px', height: '32px' }} title="Call Support: 9966203053">
-              <Phone style={{ width: '14px', height: '14px' }} />
-              <span className="hidden sm:inline">Support</span>
-            </a>
 
             {/* Notification Bell with Badge */}
             <div style={{ position: 'relative' }}>
@@ -65,13 +59,13 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
             {/* Merchant Profile Avatar Pill */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.125rem 0.375rem', borderRadius: '20px', background: '#F8FAFC', border: '1px solid #E2E8F0', whiteSpace: 'nowrap' }}>
               <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: '#0F52BA', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.75rem', flexShrink: 0 }}>
-                R
+                {user?.name?.charAt(0).toUpperCase() || 'R'}
               </div>
-              <div className="hidden md:block text-left" style={{ whiteSpace: 'nowrap', paddingRight: '0.25rem' }}>
+              <div className="profile-info-text text-left" style={{ whiteSpace: 'nowrap', paddingRight: '0.25rem' }}>
                 <p style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0F172A', lineHeight: 1.1, margin: 0 }}>{user?.name || 'Ravi Store'}</p>
                 <p style={{ fontSize: '0.5rem', fontWeight: 700, color: '#64748B', margin: 0 }}>MID: {user?.mid || 'RONAV12345'}</p>
               </div>
-              <button onClick={onLogout} className="btn btn-ghost btn-sm" title="Log Out" style={{ padding: '0.125rem', color: '#DC2626', minHeight: 'auto' }}>
+              <button onClick={onLogout} className="btn btn-ghost btn-sm" title="Log Out" style={{ padding: '0.125rem', color: '#DC2626', minHeight: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <LogOut style={{ width: '14px', height: '14px' }} />
               </button>
             </div>
