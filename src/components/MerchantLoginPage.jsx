@@ -86,34 +86,34 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
                 </defs>
                 
                 {/* Scattered Pixel Blocks */}
-                <rect x="15" y="22" width="6" height="6" fill="#0066FF" />
-                <rect x="23" y="29" width="6" height="6" fill="#0066FF" />
-                <rect x="31" y="31" width="8" height="7" fill="#0066FF" />
-                <rect x="17" y="36" width="6" height="6" fill="#0066FF" />
-                <rect x="25" y="41" width="8" height="7" fill="#0066FF" />
+                <rect x="12" y="24" width="5.5" height="5.5" fill="#0066FF" />
+                <rect x="20" y="31.5" width="5.5" height="5.5" fill="#0066FF" />
+                <rect x="28.5" y="33" width="7" height="6.5" fill="#0066FF" />
+                <rect x="14" y="38.5" width="5.5" height="5.5" fill="#0066FF" />
+                <rect x="22" y="44" width="7" height="6.5" fill="#0066FF" />
 
-                {/* T Horizontal Bar (with slanted right cut) */}
-                <path d="M32 38 H90 L80 50 H32 Z" fill="url(#logoTGrad)" />
+                {/* T Horizontal Bar (Ends nicely inside the loop, slanted) */}
+                <path d="M30 40 H74 L66 52 H30 Z" fill="url(#logoTGrad)" />
                 
                 {/* T Vertical Stem */}
-                <path d="M55 50 H67 V90 H55 Z" fill="url(#logoTGrad)" />
+                <path d="M52 52 H64 V90 H52 Z" fill="url(#logoTGrad)" />
 
-                {/* R Upper Monogram Curve */}
+                {/* R Upper Monogram Curve (Starts left of stem, curves over T, loops back) */}
                 <path 
-                  d="M57 22 H82 C96 22 106 34 106 48 C106 62 96 74 82 74 H67" 
+                  d="M34 22 H80 C95 22 105 34 105 48 C105 62 95 72 80 72 H64" 
                   fill="none" 
                   stroke="url(#logoRGrad)" 
-                  strokeWidth="12" 
+                  strokeWidth="11" 
                   strokeLinecap="round" 
                   strokeLinejoin="round" 
                 />
 
                 {/* R Leg */}
                 <path 
-                  d="M74 72 L98 94" 
+                  d="M72 70 L96 92" 
                   fill="none" 
                   stroke="url(#logoRGrad)" 
-                  strokeWidth="12" 
+                  strokeWidth="11" 
                   strokeLinecap="round" 
                 />
               </svg>
@@ -377,7 +377,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                justify: 'center',
+                justifyContent: 'center',
                 gap: '0.5rem',
                 boxShadow: '0 4px 14px rgba(15, 82, 186, 0.3)',
                 transition: 'all 200ms ease'
