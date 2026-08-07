@@ -107,24 +107,24 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
           backgroundImage: 'radial-gradient(circle at 50% 30%, rgba(15, 82, 186, 0.25) 0%, rgba(7, 15, 30, 0.95) 80%), url("/hero_bg.png")',
           backgroundSize: 'cover',
           backgroundPosition: 'center',
-          padding: '3rem 1rem 5.5rem', 
+          padding: '3.5rem 1rem 6.5rem', 
           textAlign: 'center', 
           color: '#FFFFFF', 
           position: 'relative',
-          clipPath: 'polygon(0 0, 100% 0, 100% 84%, 0 100%)'
+          clipPath: 'ellipse(130% 100% at 50% 0%)'
         }}
       >
-        <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#FFFFFF', marginBottom: '0.375rem' }}>
+        <h1 style={{ fontSize: 'var(--text-h1)', fontWeight: 900, color: '#FFFFFF', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>
           Merchant Login
         </h1>
-        <p style={{ fontSize: '0.875rem', color: '#93C5FD' }}>
+        <p style={{ fontSize: '0.875rem', color: 'rgba(255, 255, 255, 0.85)', fontWeight: 500 }}>
           Access your Merchant Portal
         </p>
         <div style={{ width: '36px', height: '4px', background: '#0F52BA', borderRadius: '2px', margin: '0.75rem auto 0' }} />
       </div>
 
       {/* 3. Main Login Form Card (Overlaps Banner with Negative Top Margin) */}
-      <main className="flex-grow container" style={{ marginTop: '-2.5rem', marginBottom: '2.5rem', maxWidth: '440px' }}>
+      <main className="flex-grow container" style={{ marginTop: '-4rem', marginBottom: '2.5rem', maxWidth: '440px', position: 'relative', zIndex: 10 }}>
         
         <div className="card" style={{ backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0', padding: '1.75rem 1.5rem', borderRadius: '18px', boxShadow: '0 12px 32px -4px rgba(15,23,42,0.1)' }}>
           
@@ -246,22 +246,22 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
               onClick={onBackToHome}
               style={{
                 width: '100%',
-                height: '48px',
+                height: '42px',
                 borderRadius: '10px',
                 backgroundColor: '#FFFFFF',
                 color: '#0F52BA',
                 border: '1.5px solid #0F52BA',
-                fontWeight: 800,
-                fontSize: '0.875rem',
+                fontWeight: 700,
+                fontSize: '0.8125rem',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justify: 'center',
-                gap: '0.5rem',
+                gap: '0.375rem',
                 transition: 'all 200ms ease'
               }}
             >
-              <UserPlus style={{ width: '18px', height: '18px' }} />
+              <UserPlus style={{ width: '16px', height: '16px' }} />
               <span>New Merchant? Sign Up</span>
             </button>
 
