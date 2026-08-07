@@ -1,10 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Wallet, Eye, EyeOff, Plus, Send, Users, History, Receipt, CreditCard, Landmark, Building2, BarChart3, Headphones, Calendar, ChevronRight, LogOut, PlusCircle, Home, User, Bell, Phone, QrCode } from 'lucide-react';
 
 export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   const [showBalance, setShowBalance] = useState(true);
   const [activeTab, setActiveTab] = useState('home');
   const [selectedDate, setSelectedDate] = useState('16 May 2025');
+  const [animated, setAnimated] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setAnimated(true);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, []);
 
   const transactions = [
     { id: 'TXN: BBPS25051600124', title: 'BBPS Electricity Bill', amount: '₹1,250.00', status: 'Success', time: '10:45 AM' },
@@ -28,18 +36,156 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', width: '100%', boxSizing: 'border-box' }}>
           
           {/* Brand Logo & Merchant Portal Scope */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
-            <div className="brand-icon-box" style={{ width: '32px', height: '32px', borderRadius: '8px' }}>
-              <span>R</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+            {/* Symmetrical Vector TR Monogram Symbol (Official Shape) */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg 
+                viewBox="0 0 120 100" 
+                fill="none" 
+                xmlns="http://www.w3.org/2000/svg" 
+                style={{ 
+                  height: '34px', 
+                  width: 'auto', 
+                  flexShrink: 0 
+                }}
+              >
+                <defs>
+                  <linearGradient id="logoTGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#0066FF" />
+                    <stop offset="100%" stopColor="#003399" />
+                  </linearGradient>
+                  <linearGradient id="logoRGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#0A1E3F" />
+                    <stop offset="100%" stopColor="#051024" />
+                  </linearGradient>
+                </defs>
+                
+                {/* Scattered Pixel Blocks */}
+                <rect x="12" y="24" width="5.5" height="5.5" fill="#0066FF" />
+                <rect x="20" y="31.5" width="5.5" height="5.5" fill="#0066FF" />
+                <rect x="28.5" y="33" width="7" height="6.5" fill="#0066FF" />
+                <rect x="14" y="38.5" width="5.5" height="5.5" fill="#0066FF" />
+                <rect x="22" y="44" width="7" height="6.5" fill="#0066FF" />
+
+                {/* T Horizontal Bar */}
+                <path d="M30 40 H74 L66 52 H30 Z" fill="url(#logoTGrad)" />
+                
+                {/* T Vertical Stem */}
+                <path d="M52 52 H64 V90 H52 Z" fill="url(#logoTGrad)" />
+
+                {/* R Upper Monogram Curve */}
+                <path 
+                  d="M34 22 H80 C95 22 105 34 105 48 C105 62 95 72 80 72 H64" 
+                  fill="none" 
+                  stroke="url(#logoRGrad)" 
+                  strokeWidth="11" 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round" 
+                />
+
+                {/* R Leg */}
+                <path 
+                  d="M72 70 L96 92" 
+                  fill="none" 
+                  stroke="url(#logoRGrad)" 
+                  strokeWidth="11" 
+                  strokeLinecap="round" 
+                />
+              </svg>
             </div>
-            <div style={{ whiteSpace: 'nowrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', whiteSpace: 'nowrap' }}>
-                <span style={{ fontWeight: 800, fontSize: '0.875rem', color: '#0F172A', letterSpacing: '-0.02em' }}>RONAV</span>
-                <span className="brand-tag" style={{ fontSize: '0.5rem', padding: '0.0625rem 0.25rem' }}>MERCHANT</span>
+
+            {/* Letter-by-Letter Writing Animation Naming */}
+            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+              <div 
+                style={{ 
+                  fontSize: 'clamp(1.05rem, 3.2vw, 1.25rem)', 
+                  fontWeight: 900, 
+                  color: '#0A192F', 
+                  letterSpacing: '0.04em', 
+                  lineHeight: 1, 
+                  display: 'flex',
+                  alignItems: 'center'
+                }}
+              >
+                {/* R */}
+                <span style={{
+                  display: 'inline-block',
+                  opacity: animated ? 1 : 0,
+                  transform: animated ? 'translateX(0)' : 'translateX(-6px)',
+                  transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 300ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 300ms`
+                }}>R</span>
+                {/* O */}
+                <span style={{
+                  display: 'inline-block',
+                  opacity: animated ? 1 : 0,
+                  transform: animated ? 'translateX(0)' : 'translateX(-6px)',
+                  transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 370ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 370ms`
+                }}>O</span>
+                {/* N */}
+                <span style={{
+                  display: 'inline-block',
+                  opacity: animated ? 1 : 0,
+                  transform: animated ? 'translateX(0)' : 'translateX(-6px)',
+                  transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 440ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 440ms`
+                }}>N</span>
+                {/* A (Inverted V Chevron) */}
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    opacity: animated ? 1 : 0,
+                    transform: animated ? 'translateX(0)' : 'translateX(-6px)',
+                    transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 510ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 510ms`,
+                    width: 'clamp(0.8rem, 2.5vw, 0.95rem)',
+                    height: 'clamp(0.8rem, 2.5vw, 0.95rem)',
+                    marginRight: '2px',
+                    marginLeft: '2px',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', height: '100%', display: 'block' }}>
+                    <path d="M12 90 L50 15 L88 90" stroke="url(#logoTGrad)" strokeWidth="22" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </span>
+                {/* V */}
+                <span style={{
+                  display: 'inline-block',
+                  opacity: animated ? 1 : 0,
+                  transform: animated ? 'translateX(0)' : 'translateX(-6px)',
+                  transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 580ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 580ms`
+                }}>V</span>
+
+                <span className="brand-tag" style={{ fontSize: '0.45rem', padding: '0.0625rem 0.2rem', marginLeft: '0.25rem', alignSelf: 'center' }}>MERCHANT</span>
               </div>
-              <p className="hidden sm:block" style={{ fontSize: '0.5625rem', fontWeight: 700, color: '#64748B', letterSpacing: '0.03em', whiteSpace: 'nowrap', margin: 0 }}>
-                OPERATIONAL WORKSPACE
-              </p>
+              
+              {/* TECHNOLOGIES with gradient accent lines */}
+              <div 
+                style={{ 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                  opacity: animated ? 1 : 0,
+                  transform: animated ? 'translateY(0)' : 'translateY(3px)',
+                  transition: `opacity 400ms cubic-bezier(0.16, 1, 0.3, 1) 750ms, transform 400ms cubic-bezier(0.16, 1, 0.3, 1) 750ms`,
+                  marginTop: '2px'
+                }}
+              >
+                {/* Accent Line Left */}
+                <div style={{ height: '1.5px', width: '8px', background: 'linear-gradient(90deg, transparent, #0066FF)', borderRadius: '1px' }} />
+                <span 
+                  style={{ 
+                    fontSize: 'clamp(0.4rem, 1.2vw, 0.5rem)', 
+                    fontWeight: 800, 
+                    color: '#64748B', 
+                    letterSpacing: '0.14em', 
+                    lineHeight: 1
+                  }}
+                >
+                  TECHNOLOGIES
+                </span>
+                {/* Accent Line Right */}
+                <div style={{ height: '1.5px', width: '8px', background: 'linear-gradient(90deg, #0066FF, transparent)', borderRadius: '1px' }} />
+              </div>
             </div>
           </div>
 
