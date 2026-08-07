@@ -67,7 +67,7 @@
   --card-padding: 1.125rem;
   --grid-gap: 0.875rem;
   --nav-padding: 0.5rem;
-  --logo-height: 38px;
+  --logo-height: 48px;
   
   /* Fluid Typography (clamp limits for seamless reflow) */
   --text-h1: clamp(1.75rem, 5.5vw, 3.25rem);
@@ -86,7 +86,7 @@
     --card-padding: 1.5rem;
     --grid-gap: 1.25rem;
     --nav-padding: 0.625rem;
-    --logo-height: 48px;
+    --logo-height: 58px;
   }
 }
 

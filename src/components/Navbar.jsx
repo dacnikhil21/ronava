@@ -53,32 +53,64 @@ export default function Navbar({ onOpenLogin, onNavigate }) {
             padding: 0, 
             display: 'flex', 
             alignItems: 'center', 
-            gap: '0.5rem',
+            gap: '0.625rem',
             textAlign: 'left'
           }}
         >
-          {/* Transparent Vector TR Monogram Symbol */}
+          {/* Symmetrical Vector TR Monogram Symbol (Official Shape) */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg 
-              viewBox="0 0 100 100" 
+              viewBox="0 0 120 100" 
               fill="none" 
               xmlns="http://www.w3.org/2000/svg" 
               style={{ 
                 height: 'var(--logo-height)', 
-                width: 'var(--logo-height)', 
+                width: 'auto', 
                 flexShrink: 0 
               }}
             >
               <defs>
-                <linearGradient id="logoGradNav" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#0F52BA" />
-                  <stop offset="100%" stopColor="#0052CC" />
+                <linearGradient id="logoTGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#0066FF" />
+                  <stop offset="100%" stopColor="#003399" />
+                </linearGradient>
+                <linearGradient id="logoRGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#0A1E3F" />
+                  <stop offset="100%" stopColor="#051024" />
                 </linearGradient>
               </defs>
-              <rect x="15" y="20" width="70" height="12" rx="4" fill="url(#logoGradNav)" />
-              <rect x="44" y="32" width="12" height="48" rx="4" fill="url(#logoGradNav)" />
-              <path d="M44 32 H64 C74 32 74 52 64 52 H44" fill="none" stroke="url(#logoGradNav)" strokeWidth="12" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M56 52 L72 80" fill="none" stroke="url(#logoGradNav)" strokeWidth="12" strokeLinecap="round" />
+              
+              {/* Scattered Pixel Blocks */}
+              <rect x="15" y="22" width="6" height="6" fill="#0066FF" />
+              <rect x="23" y="29" width="6" height="6" fill="#0066FF" />
+              <rect x="31" y="31" width="8" height="7" fill="#0066FF" />
+              <rect x="17" y="36" width="6" height="6" fill="#0066FF" />
+              <rect x="25" y="41" width="8" height="7" fill="#0066FF" />
+
+              {/* T Horizontal Bar (with slanted right cut) */}
+              <path d="M32 38 H90 L80 50 H32 Z" fill="url(#logoTGrad)" />
+              
+              {/* T Vertical Stem */}
+              <path d="M55 50 H67 V90 H55 Z" fill="url(#logoTGrad)" />
+
+              {/* R Upper Monogram Curve */}
+              <path 
+                d="M57 22 H82 C96 22 106 34 106 48 C106 62 96 74 82 74 H67" 
+                fill="none" 
+                stroke="url(#logoRGrad)" 
+                strokeWidth="12" 
+                strokeLinecap="round" 
+                strokeLinejoin="round" 
+              />
+
+              {/* R Leg */}
+              <path 
+                d="M74 72 L98 94" 
+                fill="none" 
+                stroke="url(#logoRGrad)" 
+                strokeWidth="12" 
+                strokeLinecap="round" 
+              />
             </svg>
           </div>
 
@@ -86,53 +118,91 @@ export default function Navbar({ onOpenLogin, onNavigate }) {
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
             <div 
               style={{ 
-                fontSize: 'clamp(1.1rem, 3.5vw, 1.375rem)', 
+                fontSize: 'clamp(1.2rem, 3.8vw, 1.5rem)', 
                 fontWeight: 900, 
-                color: '#0F172A', 
-                letterSpacing: '-0.02em', 
+                color: '#0A192F', 
+                letterSpacing: '0.04em', 
                 lineHeight: 1, 
-                display: 'flex' 
+                display: 'flex',
+                alignItems: 'center'
               }}
             >
-              {"RONAV".split('').map((char, idx) => (
-                <span
-                  key={idx}
-                  style={{
-                    display: 'inline-block',
-                    opacity: animated ? 1 : 0,
-                    transform: animated ? 'translateX(0)' : 'translateX(-5px)',
-                    transition: `opacity 250ms cubic-bezier(0.16, 1, 0.3, 1) ${idx * 40}ms, transform 250ms cubic-bezier(0.16, 1, 0.3, 1) ${idx * 40}ms`
-                  }}
-                >
-                  {char}
-                </span>
-              ))}
+              {/* R */}
+              <span style={{
+                display: 'inline-block',
+                opacity: animated ? 1 : 0,
+                transform: animated ? 'translateX(0)' : 'translateX(-6px)',
+                transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 300ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 300ms`
+              }}>R</span>
+              {/* O */}
+              <span style={{
+                display: 'inline-block',
+                opacity: animated ? 1 : 0,
+                transform: animated ? 'translateX(0)' : 'translateX(-6px)',
+                transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 370ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 370ms`
+              }}>O</span>
+              {/* N */}
+              <span style={{
+                display: 'inline-block',
+                opacity: animated ? 1 : 0,
+                transform: animated ? 'translateX(0)' : 'translateX(-6px)',
+                transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 440ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 440ms`
+              }}>N</span>
+              {/* A (Inverted V Chevron) */}
+              <span
+                style={{
+                  display: 'inline-flex',
+                  opacity: animated ? 1 : 0,
+                  transform: animated ? 'translateX(0)' : 'translateX(-6px)',
+                  transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 510ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 510ms`,
+                  width: 'clamp(0.95rem, 3vw, 1.15rem)',
+                  height: 'clamp(0.95rem, 3vw, 1.15rem)',
+                  marginRight: '2px',
+                  marginLeft: '2px',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', height: '100%', display: 'block' }}>
+                  <path d="M12 90 L50 15 L88 90" stroke="url(#logoTGrad)" strokeWidth="22" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+              {/* V */}
+              <span style={{
+                display: 'inline-block',
+                opacity: animated ? 1 : 0,
+                transform: animated ? 'translateX(0)' : 'translateX(-6px)',
+                transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 580ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 580ms`
+              }}>V</span>
             </div>
             
+            {/* TECHNOLOGIES with gradient accent lines */}
             <div 
               style={{ 
-                fontSize: 'clamp(0.5rem, 1.5vw, 0.625rem)', 
-                fontWeight: 800, 
-                color: '#0F52BA', 
-                letterSpacing: '0.12em', 
-                marginTop: '2px', 
-                lineHeight: 1, 
-                display: 'flex' 
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+                opacity: animated ? 1 : 0,
+                transform: animated ? 'translateY(0)' : 'translateY(3px)',
+                transition: `opacity 400ms cubic-bezier(0.16, 1, 0.3, 1) 750ms, transform 400ms cubic-bezier(0.16, 1, 0.3, 1) 750ms`,
+                marginTop: '3px'
               }}
             >
-              {"TECHNOLOGIES".split('').map((char, idx) => (
-                <span
-                  key={idx}
-                  style={{
-                    display: 'inline-block',
-                    opacity: animated ? 1 : 0,
-                    transform: animated ? 'translateX(0)' : 'translateX(-3px)',
-                    transition: `opacity 200ms cubic-bezier(0.16, 1, 0.3, 1) ${(idx * 20) + 150}ms, transform 200ms cubic-bezier(0.16, 1, 0.3, 1) ${(idx * 20) + 150}ms`
-                  }}
-                >
-                  {char}
-                </span>
-              ))}
+              {/* Accent Line Left */}
+              <div style={{ height: '2px', width: '12px', background: 'linear-gradient(90deg, transparent, #0066FF)', borderRadius: '1px' }} />
+              <span 
+                style={{ 
+                  fontSize: 'clamp(0.45rem, 1.4vw, 0.58rem)', 
+                  fontWeight: 800, 
+                  color: '#475569', 
+                  letterSpacing: '0.16em', 
+                  lineHeight: 1
+                }}
+              >
+                TECHNOLOGIES
+              </span>
+              {/* Accent Line Right */}
+              <div style={{ height: '2px', width: '12px', background: 'linear-gradient(90deg, #0066FF, transparent)', borderRadius: '1px' }} />
             </div>
           </div>
         </button>
