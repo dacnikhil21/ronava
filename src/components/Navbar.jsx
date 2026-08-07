@@ -44,7 +44,7 @@ export default function Navbar({ onOpenLogin, onNavigate }) {
         transition: 'transform 350ms cubic-bezier(0.16, 1, 0.3, 1), opacity 350ms ease'
       }}
     >
-      <div className="container navbar-container" style={{ padding: '0.625rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div className="container navbar-container" style={{ padding: 'var(--nav-padding) 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         
         <button 
           onClick={() => handleNavClick('home')}
@@ -54,8 +54,8 @@ export default function Navbar({ onOpenLogin, onNavigate }) {
             src="/ronav_official_logo.png" 
             alt="RONAV Technologies Official Logo" 
             style={{ 
-              height: '48px', 
-              maxHeight: '48px', 
+              height: 'var(--logo-height)', 
+              maxHeight: 'var(--logo-height)', 
               width: 'auto', 
               display: 'block', 
               objectFit: 'contain'

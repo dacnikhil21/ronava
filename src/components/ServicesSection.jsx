@@ -32,7 +32,7 @@ export default function ServicesSection({ onOpenLogin, onShowToast }) {
               backgroundColor: '#ECFDF5', 
               borderColor: '#A7F3D0',
               borderWidth: '1.5px',
-              padding: '1.5rem',
+              padding: 'var(--card-padding)',
               display: 'flex',
               flexDirection: 'column',
               justify: 'space-between'
@@ -85,7 +85,7 @@ export default function ServicesSection({ onOpenLogin, onShowToast }) {
               backgroundColor: '#EFF6FF', 
               borderColor: '#BFDBFE',
               borderWidth: '1.5px',
-              padding: '1.5rem',
+              padding: 'var(--card-padding)',
               display: 'flex',
               flexDirection: 'column',
               justify: 'space-between'
@@ -138,7 +138,7 @@ export default function ServicesSection({ onOpenLogin, onShowToast }) {
               backgroundColor: '#FFFBEB', 
               borderColor: '#FDE68A',
               borderWidth: '1.5px',
-              padding: '1.5rem',
+              padding: 'var(--card-padding)',
               display: 'flex',
               flexDirection: 'column',
               justify: 'space-between'
@@ -191,7 +191,7 @@ export default function ServicesSection({ onOpenLogin, onShowToast }) {
               backgroundColor: '#EEF2FF', 
               borderColor: '#C7D2FE',
               borderWidth: '1.5px',
-              padding: '1.5rem',
+              padding: 'var(--card-padding)',
               display: 'flex',
               flexDirection: 'column',
               justify: 'space-between'

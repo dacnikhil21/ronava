@@ -42,11 +42,11 @@ export default function WhyChooseUs() {
   ];
 
   return (
-    <section id="why-us" className="section-padding bg-white" style={{ width: '100%', padding: '2.5rem 0' }}>
+    <section id="why-us" className="section-padding bg-white">
       <div className="container">
         
         {/* Section Header */}
-        <div className="section-header" style={{ marginBottom: '1.5rem' }}>
+        <div className="section-header">
           <span className="section-tag">INSTITUTIONAL TRUST PILLARS</span>
           <h2 className="section-title">Why Merchants Choose RONAV Technologies</h2>
           <p className="section-subtitle">
@@ -54,8 +54,8 @@ export default function WhyChooseUs() {
           </p>
         </div>
 
-        {/* Side-by-Side 4-Column Grid on Desktop, 2x2 Grid on Mobile */}
-        <div className="mobile-app-sales-grid" style={{ gap: '1rem' }}>
+        {/* Side-by-Side 4-Column Grid on Desktop, 1-Column on Mobile, 2-Column on Tablet */}
+        <div className="mobile-app-sales-grid">
           {pillars.map((p, idx) => (
             <div 
               key={idx}
@@ -64,7 +64,7 @@ export default function WhyChooseUs() {
                 backgroundColor: '#FFFFFF',
                 borderColor: p.border,
                 borderWidth: '1.5px',
-                padding: '1.125rem',
+                padding: 'var(--card-padding)',
                 borderRadius: '16px',
                 display: 'flex',
                 flexDirection: 'column',
@@ -77,19 +77,19 @@ export default function WhyChooseUs() {
                   <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: p.bg, color: p.color, border: `1px solid ${p.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <p.icon style={{ width: '18px', height: '18px' }} />
                   </div>
-                  <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '0.125rem 0.5rem', background: p.bg, color: p.color, borderRadius: '12px', border: `1px solid ${p.border}` }}>
+                  <span style={{ fontSize: 'var(--text-caption)', fontWeight: 800, padding: '0.125rem 0.5rem', background: p.bg, color: p.color, borderRadius: '12px', border: `1px solid ${p.border}` }}>
                     {p.metric}
                   </span>
                 </div>
 
-                <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#0F172A', marginBottom: '0.625rem' }}>
+                <h3 style={{ fontSize: 'var(--text-card-title)', fontWeight: 800, color: '#0F172A', marginBottom: '0.625rem' }}>
                   {p.title}
                 </h3>
 
                 {/* Feature Chips */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
                   {p.chips.map((chip, cIdx) => (
-                    <div key={cIdx} style={{ fontSize: '0.6875rem', fontWeight: 700, padding: '0.25rem 0.5rem', background: p.bg, color: p.color, borderRadius: '6px', border: `1px solid ${p.border}`, display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                    <div key={cIdx} style={{ fontSize: 'var(--text-caption)', fontWeight: 700, padding: '0.25rem 0.5rem', background: p.bg, color: p.color, borderRadius: '6px', border: `1px solid ${p.border}`, display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
                       <CheckCircle2 style={{ width: '12px', height: '12px', flexShrink: 0 }} />
                       <span>{chip}</span>
                     </div>
@@ -98,7 +98,7 @@ export default function WhyChooseUs() {
               </div>
 
               {/* Status Indicator */}
-              <div style={{ marginTop: '0.75rem', paddingTop: '0.5rem', borderTop: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>
+              <div style={{ marginTop: '0.75rem', paddingTop: '0.5rem', borderTop: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 'var(--text-caption)', color: '#059669', fontWeight: 800 }}>
                 <span>● 24x7 OPERATIONAL</span>
               </div>
             </div>

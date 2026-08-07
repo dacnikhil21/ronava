@@ -7,7 +7,7 @@ export default function Hero({ onOpenLogin, onShowToast }) {
       className="hero-section" 
       style={{ 
         width: '100%', 
-        minHeight: 'calc(100vh - 72px)', 
+        minHeight: 'calc(100vh - var(--scroll-margin-top))', 
         display: 'flex', 
         flexDirection: 'column', 
         justify: 'space-between',
@@ -15,12 +15,12 @@ export default function Hero({ onOpenLogin, onShowToast }) {
         backgroundImage: 'radial-gradient(circle at 75% 30%, rgba(15, 82, 186, 0.25) 0%, rgba(6, 11, 30, 0.95) 70%), url("/hero_bg.png")',
         backgroundSize: 'cover',
         backgroundPosition: 'center',
-        paddingTop: '2.5rem',
-        paddingBottom: '2.5rem',
+        paddingTop: 'var(--section-pad-top)',
+        paddingBottom: 'var(--section-pad-bottom)',
         color: '#FFFFFF'
       }}
     >
-      <div className="container hero-grid" style={{ width: '100%', flexGrow: 1, alignItems: 'center', gap: '3rem' }}>
+      <div className="container hero-grid" style={{ width: '100%', flexGrow: 1, alignItems: 'center', gap: 'var(--grid-gap)' }}>
         
         {/* Left Column: Hero Content & CTAs */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', maxWidth: '580px' }}>
@@ -34,18 +34,18 @@ export default function Hero({ onOpenLogin, onShowToast }) {
           </div>
 
           {/* Main Headline */}
-          <h1 style={{ fontSize: 'clamp(2.25rem, 6vw, 3.75rem)', fontWeight: 900, color: '#FFFFFF', lineHeight: 1.1, margin: 0, letterSpacing: '-0.03em' }}>
+          <h1 style={{ fontSize: 'var(--text-h1)', fontWeight: 900, color: '#FFFFFF', lineHeight: 1.1, margin: 0, letterSpacing: '-0.03em' }}>
             Empowering Businesses.<br />
             <span style={{ color: '#38BDF8' }}>Enriching Lives.</span>
           </h1>
 
           {/* Subtitle */}
-          <p style={{ fontSize: '1rem', lineHeight: 1.6, color: '#94A3B8', fontWeight: 400, margin: 0 }}>
+          <p style={{ fontSize: 'var(--text-body)', lineHeight: 1.6, color: '#94A3B8', fontWeight: 400, margin: 0 }}>
             India's most reliable digital platform for Distributors, Retailers & Merchants with high-margin financial services and instant settlements.
           </p>
 
           {/* 4 Stat Items Grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', marginTop: '0.5rem', marginBottom: '0.5rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--grid-gap)', marginTop: '0.5rem', marginBottom: '0.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
               <ShieldCheck style={{ width: '22px', height: '22px', color: '#0F52BA', flexShrink: 0, marginTop: '2px' }} />
               <div>

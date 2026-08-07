@@ -21,7 +21,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans" style={{ width: '100%', overflowX: 'hidden', paddingBottom: '4.5rem' }}>
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans" style={{ width: '100%', overflowX: 'hidden', paddingBottom: 'calc(4.5rem + env(safe-area-inset-bottom, 0px))' }}>
       
       {/* Tier-1 Enterprise Connected Navigation Bar */}
       <header className="navbar-header" style={{ backgroundColor: '#FFFFFF', width: '100%', borderBottom: '1px solid #E2E8F0', padding: '0.5rem 0' }}>
@@ -306,7 +306,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       </main>
 
       {/* Native App Bottom Navigation Bar with Center Floating Action Button */}
-      <nav style={{ position: 'fixed', bottom: 0, left: 0, right: 0, width: '100%', zIndex: 50, backgroundColor: 'rgba(255, 255, 255, 0.96)', backdropFilter: 'blur(16px)', borderTop: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'space-around', padding: '0.375rem 0', boxShadow: '0 -4px 16px rgba(15,23,42,0.08)', boxSizing: 'border-box' }}>
+      <nav style={{ position: 'fixed', bottom: 0, left: 0, right: 0, width: '100%', zIndex: 50, backgroundColor: 'rgba(255, 255, 255, 0.96)', backdropFilter: 'blur(16px)', borderTop: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'space-around', padding: '0.375rem 0 calc(0.375rem + env(safe-area-inset-bottom, 0px))', boxShadow: '0 -4px 16px rgba(15,23,42,0.08)', boxSizing: 'border-box' }}>
         <button onClick={() => setActiveTab('home')} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.125rem', background: 'none', border: 'none', color: activeTab === 'home' ? '#0F52BA' : '#64748B', cursor: 'pointer', fontSize: '0.625rem', fontWeight: 700 }}>
           <Home style={{ width: '18px', height: '18px' }} />
           Home

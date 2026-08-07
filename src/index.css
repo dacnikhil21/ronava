@@ -59,7 +59,37 @@
   --transition-fast: 150ms var(--ease-apple);
   --transition-normal: 280ms var(--ease-apple);
   --transition-slow: 550ms var(--ease-apple);
+
+  /* Fluid Responsive Spacing System */
+  --section-pad-top: 2.25rem;
+  --section-pad-bottom: 2.25rem;
+  --scroll-margin-top: 4.5rem;
+  --card-padding: 1.125rem;
+  --grid-gap: 0.875rem;
+  --nav-padding: 0.5rem;
+  --logo-height: 38px;
+  
+  /* Fluid Typography (clamp limits for seamless reflow) */
+  --text-h1: clamp(1.75rem, 5.5vw, 3.25rem);
+  --text-h2: clamp(1.375rem, 4.5vw, 2.25rem);
+  --text-h3: clamp(1.05rem, 3vw, 1.25rem);
+  --text-body: clamp(0.8125rem, 2.5vw, 0.9375rem);
+  --text-card-title: clamp(0.95rem, 3vw, 1.125rem);
+  --text-caption: clamp(0.6875rem, 2vw, 0.8125rem);
 }
+
+@media (min-width: 768px) {
+  :root {
+    --section-pad-top: 3.75rem;
+    --section-pad-bottom: 3.75rem;
+    --scroll-margin-top: 5.5rem;
+    --card-padding: 1.5rem;
+    --grid-gap: 1.25rem;
+    --nav-padding: 0.625rem;
+    --logo-height: 48px;
+  }
+}
+
 
 /* Global Reset & Zero-Overflow Foundation */
 *, *::before, *::after {
@@ -689,12 +719,18 @@ p, h1, h2, h3, h4, h5, h6, span, a, button, label, li, td, th {
 
 .mobile-app-sales-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.75rem;
+  grid-template-columns: 1fr;
+  gap: var(--grid-gap);
   width: 100%;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 500px) {
+  .mobile-app-sales-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
   .mobile-app-sales-grid {
     grid-template-columns: repeat(4, 1fr);
   }
@@ -702,14 +738,11 @@ p, h1, h2, h3, h4, h5, h6, span, a, button, label, li, td, th {
 
 /* Section Padding & Spacing */
 .section-padding {
-  padding: 2.5rem 0;
+  padding-top: var(--section-pad-top);
+  padding-bottom: var(--section-pad-bottom);
+  scroll-margin-top: var(--scroll-margin-top);
   width: 100%;
-}
-
-@media (min-width: 768px) {
-  .section-padding {
-    padding: 3.5rem 0;
-  }
+  box-sizing: border-box;
 }
 
 .section-header {
