@@ -12,7 +12,7 @@ import HowItWorks from './components/HowItWorks';
 import StatisticsSection from './components/StatisticsSection';
 import VisionMission from './components/VisionMission';
 import Testimonials from './components/Testimonials';
-import FAQSection from './components/FAQSection';
+import FaqSection from './components/FaqSection';
 import ContactSection from './components/ContactSection';
 import Footer from './components/Footer';
 import OfficeLocatorModal from './components/OfficeLocatorModal';
@@ -164,7 +164,7 @@ export default function App() {
             <StatisticsSection />
             <VisionMission />
             <Testimonials />
-            <FAQSection />
+            <FaqSection />
             <ContactSection onShowToast={handleShowToast} />
           </>
         )}
