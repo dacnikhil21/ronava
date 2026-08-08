@@ -15,7 +15,7 @@ export default function Hero({ onOpenLogin, onShowToast }) {
         backgroundImage: 'radial-gradient(circle at 75% 30%, rgba(15, 82, 186, 0.25) 0%, rgba(6, 11, 30, 0.95) 70%), url("/hero_bg.png")',
         backgroundSize: 'cover',
         backgroundPosition: 'center',
-        paddingTop: 'var(--section-pad-top)',
+        paddingTop: 'calc(var(--section-pad-top) + 65px)',
         paddingBottom: 'var(--section-pad-bottom)',
         color: '#FFFFFF'
       }}

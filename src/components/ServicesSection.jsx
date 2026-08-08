@@ -1,5 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Landmark, Building2, Receipt, CreditCard, ArrowRight, ShieldCheck, Zap, Calculator } from 'lucide-react';
+import { 
+  Landmark, 
+  Building2, 
+  Receipt, 
+  CreditCard, 
+  ShieldCheck, 
+  Calculator,
+  Zap,
+  QrCode
+} from 'lucide-react';
 
 export default function ServicesSection({ onOpenLogin, onShowToast }) {
   const [loanAmount, setLoanAmount] = useState(500000);
@@ -25,232 +34,308 @@ export default function ServicesSection({ onOpenLogin, onShowToast }) {
   const disbursalDays = loanAmount <= 200000 ? '24 Hours' : '48–72 Hours';
 
   return (
-    <section id="services" ref={sectionRef} className="section-padding bg-white" style={{ width: '100%' }}>
-      <div className="container">
+    <section id="services" ref={sectionRef} className="section-padding bg-white" style={{ width: '100%', padding: '4rem 0' }}>
+      <div className="container" style={{ maxWidth: '860px', margin: '0 auto', padding: '0 1rem' }}>
         
         {/* Section Header */}
-        <div className="section-header reveal">
+        <div className="section-header reveal" style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
           <span className="section-tag">COMPREHENSIVE FINTECH ECOSYSTEM</span>
-          <h2 className="section-title">
+          <h2 className="section-title" style={{ fontSize: 'clamp(1.75rem, 4.5vw, 2.25rem)', fontWeight: 900, color: '#0F172A', letterSpacing: '-0.02em', marginBottom: '0.75rem' }}>
             All Merchant Financial Solutions{' '}
-            <span className="text-gradient-blue">Under One Roof</span>
+            <span style={{ color: '#0F52BA' }}>Under One Roof</span>
           </h2>
-          <p className="section-subtitle">
+          <p className="section-subtitle" style={{ fontSize: '0.875rem', color: '#475569', maxWidth: '600px', margin: '0 auto', lineHeight: 1.6 }}>
             Empowering business owners, retailers, and distributors with comprehensive, high-commission financial services since 2021.
           </p>
         </div>
 
-        {/* Core Services 2x2 Grid with Distinct Color Systems */}
-        <div className="services-grid reveal-scale" style={{ marginBottom: '2.5rem' }}>
+        {/* Core Services Grid (Design 1 - Exact Layout Sync) */}
+        <div className="services-grid-design1 reveal-scale" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem', marginBottom: '3rem' }}>
           
-          {/* Service 1: Loans (Emerald Green Theme) */}
+          {/* Card 1: Loans (Emerald Green Theme - Design 1) */}
           <div 
-            className="card card-glow" 
+            className="service-card-design1" 
             style={{ 
-              backgroundColor: '#ECFDF5', 
-              borderColor: '#A7F3D0',
-              borderWidth: '1.5px',
-              padding: 'var(--card-padding)',
+              backgroundColor: '#FFFFFF', 
+              borderColor: '#E2E8F0',
+              borderWidth: '1px',
+              borderStyle: 'solid',
+              borderRadius: '24px',
+              padding: '1.75rem',
+              boxShadow: '0 10px 30px rgba(15,23,42,0.04)',
               display: 'flex',
               flexDirection: 'column',
               justify: 'space-between'
             }}
           >
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                <div className="icon-badge" style={{ backgroundColor: '#059669', color: '#FFFFFF', borderColor: '#047857' }}>
-                  <Landmark style={{ width: '20px', height: '20px' }} />
-                </div>
-                <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '0.125rem 0.5rem', background: '#FFFFFF', color: '#059669', borderRadius: '20px', border: '1px solid #A7F3D0' }}>
-                  HIGH CONVERSION
-                </span>
+              {/* Tagline Badge Pill */}
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.25rem 0.625rem', background: '#ECFDF5', color: '#059669', borderRadius: '20px', border: '1px solid #A7F3D0', fontSize: '0.625rem', fontWeight: 800, marginBottom: '1rem' }}>
+                <span>HIGH CONVERSION</span>
               </div>
 
-              <h3 style={{ fontSize: '1.125rem', fontWeight: 800, color: '#065F46', marginBottom: '0.25rem' }}>
+              {/* Header Icon */}
+              <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#059669', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
+                <Landmark style={{ width: '20px', height: '20px' }} />
+              </div>
+
+              {/* Title & Limits */}
+              <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#0F172A', marginBottom: '0.25rem' }}>
                 1. Personal & Business Loans
               </h3>
-              <p style={{ fontSize: '0.75rem', fontWeight: 800, color: '#047857', marginBottom: '0.75rem', letterSpacing: '0.03em' }}>
+              <p style={{ fontSize: '0.75rem', fontWeight: 800, color: '#059669', marginBottom: '0.75rem', letterSpacing: '0.03em' }}>
                 ₹50K – ₹1 CRORE CAPITAL
               </p>
-              <p style={{ fontSize: '0.8125rem', color: '#064E3B', lineHeight: 1.6, marginBottom: '1.25rem' }}>
+              <p style={{ fontSize: '0.8125rem', color: '#475569', lineHeight: 1.6, marginBottom: '1.5rem' }}>
                 Flexible credit solutions tailored for individuals and business owners without rigid documentation hurdles.
               </p>
 
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.75rem', color: '#065F46', marginBottom: '1.5rem' }}>
-                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.375rem' }}>
-                  <ShieldCheck style={{ width: '16px', height: '16px', color: '#059669', flexShrink: 0, marginTop: '2px' }} />
-                  <span><strong>Personal Loans:</strong> ₹50,000 to ₹50 Lakhs based on salary (even without payslips).</span>
+              {/* Centered 3D Illustration (Rupee + Plant + Checkmark) */}
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '1rem 0 1.5rem' }}>
+                <img 
+                  src="/loans_rupee.png" 
+                  alt="Personal & Business Loans 3D Illustration" 
+                  style={{ width: '100%', maxWidth: '210px', height: 'auto', objectFit: 'contain' }}
+                />
+              </div>
+
+              {/* Clean Checkmark Bullet List */}
+              <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 1.5rem 0', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.78125rem', color: '#334155', lineHeight: 1.5 }}>
+                  <ShieldCheck style={{ width: '18px', height: '18px', color: '#059669', flexShrink: 0, marginTop: '1px' }} />
+                  <span><strong style={{ color: '#059669' }}>Personal Loans:</strong> ₹50,000 to ₹50 Lakhs based on salary (even without payslips).</span>
                 </li>
-                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.375rem' }}>
-                  <ShieldCheck style={{ width: '16px', height: '16px', color: '#059669', flexShrink: 0, marginTop: '2px' }} />
-                  <span><strong>Business Loans:</strong> ₹1 Lakh to ₹1 Crore via GST returns, Banking statements & ITR.</span>
+                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.78125rem', color: '#334155', lineHeight: 1.5 }}>
+                  <ShieldCheck style={{ width: '18px', height: '18px', color: '#059669', flexShrink: 0, marginTop: '1px' }} />
+                  <span><strong style={{ color: '#059669' }}>Business Loans:</strong> ₹1 Lakh to ₹1 Crore via GST returns, Banking statements & ITR.</span>
                 </li>
               </ul>
             </div>
 
-            <div style={{ paddingTop: '1rem', borderTop: '1px solid #A7F3D0' }}>
-              <span style={{ display: 'block', fontSize: '0.625rem', fontWeight: 800, color: '#047857', marginBottom: '0.625rem', letterSpacing: '0.05em' }}>RONAV SECURE</span>
-              <a href="#contact" className="btn btn-primary btn-sm btn-mobile-full" style={{ backgroundColor: '#059669', borderColor: '#047857', width: '100%', justifyContent: 'center' }}>
+            {/* Action Footer */}
+            <div style={{ paddingTop: '1rem', borderTop: '1px solid #F1F5F9', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#059669', letterSpacing: '0.08em', textTransform: 'uppercase' }}>RONAV SECURE</span>
+              <a href="#contact" className="btn btn-primary btn-mobile-full" style={{ backgroundColor: '#059669', borderColor: '#047857', width: '100%', justifyContent: 'center', fontWeight: 800, padding: '0.75rem 1.25rem', borderRadius: '12px' }}>
                 Apply for Loan Credit →
               </a>
             </div>
           </div>
 
-          {/* Service 2: ATM & CDM Franchise (Royal Navy Blue Theme) */}
+          {/* Card 2: ATM & CDM Franchise (Royal Navy Blue Theme - Design 1) */}
           <div 
-            className="card card-hover" 
+            className="service-card-design1" 
             style={{ 
-              backgroundColor: '#EFF6FF', 
-              borderColor: '#BFDBFE',
-              borderWidth: '1.5px',
-              padding: 'var(--card-padding)',
+              backgroundColor: '#FFFFFF', 
+              borderColor: '#E2E8F0',
+              borderWidth: '1px',
+              borderStyle: 'solid',
+              borderRadius: '24px',
+              padding: '1.75rem',
+              boxShadow: '0 10px 30px rgba(15,23,42,0.04)',
               display: 'flex',
               flexDirection: 'column',
               justify: 'space-between'
             }}
           >
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                <div className="icon-badge" style={{ backgroundColor: '#0F52BA', color: '#FFFFFF', borderColor: '#0A3E90' }}>
-                  <Building2 style={{ width: '20px', height: '20px' }} />
-                </div>
-                <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '0.125rem 0.5rem', background: '#FFFFFF', color: '#0F52BA', borderRadius: '20px', border: '1px solid #BFDBFE' }}>
-                  PASSIVE INCOME
-                </span>
+              {/* Tagline Badge Pill */}
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.25rem 0.625rem', background: '#EFF6FF', color: '#0F52BA', borderRadius: '20px', border: '1px solid #BFDBFE', fontSize: '0.625rem', fontWeight: 800, marginBottom: '1rem' }}>
+                <span>PASSIVE INCOME</span>
               </div>
 
-              <h3 style={{ fontSize: '1.125rem', fontWeight: 800, color: '#1E40AF', marginBottom: '0.25rem' }}>
+              {/* Header Icon */}
+              <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#0F52BA', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
+                <Building2 style={{ width: '20px', height: '20px' }} />
+              </div>
+
+              {/* Title & Limits */}
+              <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#0F172A', marginBottom: '0.25rem' }}>
                 2. ATM & CDM Franchise
               </h3>
-              <p style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1D4ED8', marginBottom: '0.75rem', letterSpacing: '0.03em' }}>
+              <p style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F52BA', marginBottom: '0.75rem', letterSpacing: '0.03em' }}>
                 LOW CAPEX • HIGH RETURNS
               </p>
-              <p style={{ fontSize: '0.8125rem', color: '#1E3A8A', lineHeight: 1.6, marginBottom: '1.25rem' }}>
+              <p style={{ fontSize: '0.8125rem', color: '#475569', lineHeight: 1.6, marginBottom: '1.5rem' }}>
                 Setup WLA (White Label ATM) & Cash Deposit Machines at your commercial premises with high return margins.
               </p>
 
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.75rem', color: '#1E40AF', marginBottom: '1.5rem' }}>
-                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.375rem' }}>
-                  <ShieldCheck style={{ width: '16px', height: '16px', color: '#0F52BA', flexShrink: 0, marginTop: '2px' }} />
+              {/* Centered 3D Illustration (ATM Lobby Machine) */}
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '1rem 0 1.5rem' }}>
+                <img 
+                  src="/atm_lobby.png" 
+                  alt="ATM & CDM Franchise 3D Illustration" 
+                  style={{ width: '100%', maxWidth: '210px', height: 'auto', objectFit: 'contain' }}
+                />
+              </div>
+
+              {/* Clean Checkmark Bullet List */}
+              <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 1.5rem 0', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.78125rem', color: '#334155', lineHeight: 1.5 }}>
+                  <ShieldCheck style={{ width: '18px', height: '18px', color: '#0F52BA', flexShrink: 0, marginTop: '1px' }} />
                   <span>Earn fixed transaction commission on every cash withdrawal & deposit.</span>
                 </li>
-                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.375rem' }}>
-                  <ShieldCheck style={{ width: '16px', height: '16px', color: '#0F52BA', flexShrink: 0, marginTop: '2px' }} />
-                  <span>Low capital requirement with complete hardware support & store footfall boost.</span>
+                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.78125rem', color: '#334155', lineHeight: 1.5 }}>
+                  <ShieldCheck style={{ width: '18px', height: '18px', color: '#0F52BA', flexShrink: 0, marginTop: '1px' }} />
+                  <span>High uptime machines with 24/7 monitoring & support.</span>
+                </li>
+                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.78125rem', color: '#334155', lineHeight: 1.5 }}>
+                  <ShieldCheck style={{ width: '18px', height: '18px', color: '#0F52BA', flexShrink: 0, marginTop: '1px' }} />
+                  <span>Multiple revenue streams with minimal operational effort.</span>
                 </li>
               </ul>
             </div>
 
-            <div style={{ paddingTop: '1rem', borderTop: '1px solid #BFDBFE' }}>
-              <span style={{ display: 'block', fontSize: '0.625rem', fontWeight: 800, color: '#1D4ED8', marginBottom: '0.625rem', letterSpacing: '0.05em' }}>HIGH MARGIN</span>
-              <a href="#contact" className="btn btn-primary btn-sm btn-mobile-full" style={{ backgroundColor: '#0F52BA', width: '100%', justifyContent: 'center' }}>
-                Setup ATM/CDM Outlet →
+            {/* Action Footer */}
+            <div style={{ paddingTop: '1rem', borderTop: '1px solid #F1F5F9', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#0F52BA', letterSpacing: '0.08em', textTransform: 'uppercase' }}>HIGH MARGIN</span>
+              <a href="#contact" className="btn btn-primary btn-mobile-full" style={{ backgroundColor: '#0F52BA', width: '100%', justifyContent: 'center', fontWeight: 800, padding: '0.75rem 1.25rem', borderRadius: '12px' }}>
+                Enquire for Franchise →
               </a>
             </div>
           </div>
 
-          {/* Service 3: BBPS Bill Payments (Amber Gold Theme) */}
+          {/* Card 3: BBPS Bill Payments (Amber/Orange Theme) */}
           <div 
-            className="card card-hover" 
+            className="service-card-design1" 
             style={{ 
-              backgroundColor: '#FFFBEB', 
-              borderColor: '#FDE68A',
-              borderWidth: '1.5px',
-              padding: 'var(--card-padding)',
+              backgroundColor: '#FFFFFF', 
+              borderColor: '#E2E8F0',
+              borderWidth: '1px',
+              borderStyle: 'solid',
+              borderRadius: '24px',
+              padding: '1.75rem',
+              boxShadow: '0 10px 30px rgba(15,23,42,0.04)',
               display: 'flex',
               flexDirection: 'column',
               justify: 'space-between'
             }}
           >
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                <div className="icon-badge" style={{ backgroundColor: '#D97706', color: '#FFFFFF', borderColor: '#B45309' }}>
-                  <Receipt style={{ width: '20px', height: '20px' }} />
-                </div>
-                <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '0.125rem 0.5rem', background: '#FFFFFF', color: '#D97706', borderRadius: '20px', border: '1px solid #FDE68A' }}>
-                  DAILY REVENUE
-                </span>
+              {/* Tagline Badge Pill */}
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.25rem 0.625rem', background: '#FFFBEB', color: '#D97706', borderRadius: '20px', border: '1px solid #FDE68A', fontSize: '0.625rem', fontWeight: 800, marginBottom: '1rem' }}>
+                <span>INSTANT PAYMENTS</span>
               </div>
 
-              <h3 style={{ fontSize: '1.125rem', fontWeight: 800, color: '#92400E', marginBottom: '0.25rem' }}>
-                3. BBPS Utility Bill Pay
+              {/* Header Icon */}
+              <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#D97706', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
+                <Zap style={{ width: '20px', height: '20px' }} />
+              </div>
+
+              {/* Title & Limits */}
+              <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#0F172A', marginBottom: '0.25rem' }}>
+                3. BBPS Bill Payments
               </h3>
-              <p style={{ fontSize: '0.75rem', fontWeight: 800, color: '#B45309', marginBottom: '0.75rem', letterSpacing: '0.03em' }}>
-                ELECTRICITY • MOBILE • DTH • POSTPAID
+              <p style={{ fontSize: '0.75rem', fontWeight: 800, color: '#D97706', marginBottom: '0.75rem', letterSpacing: '0.03em' }}>
+                ELECTRICITY • MOBILE • WATER • MORE
               </p>
-              <p style={{ fontSize: '0.8125rem', color: '#78350F', lineHeight: 1.6, marginBottom: '1.25rem' }}>
-                One-stop Bharat Bill Payment System enabling retailers to collect bills and earn instant settlements.
+              <p style={{ fontSize: '0.8125rem', color: '#475569', lineHeight: 1.6, marginBottom: '1.5rem' }}>
+                Accept and process all utility bill payments instantly through the Bharat Bill Payment System with zero delay.
               </p>
 
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.75rem', color: '#92400E', marginBottom: '1.5rem' }}>
-                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.375rem' }}>
-                  <ShieldCheck style={{ width: '16px', height: '16px', color: '#D97706', flexShrink: 0, marginTop: '2px' }} />
-                  <span>Instant receipt generation for customer bill payments with high success rates.</span>
+              {/* Centered 3D Illustration */}
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '1rem 0 1.5rem' }}>
+                <img 
+                  src="/bbps_bills.png" 
+                  alt="BBPS Bill Payments 3D Illustration" 
+                  style={{ width: '100%', maxWidth: '210px', height: 'auto', objectFit: 'contain' }}
+                />
+              </div>
+
+              {/* Clean Checkmark Bullet List */}
+              <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 1.5rem 0', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.78125rem', color: '#334155', lineHeight: 1.5 }}>
+                  <ShieldCheck style={{ width: '18px', height: '18px', color: '#D97706', flexShrink: 0, marginTop: '1px' }} />
+                  <span><strong style={{ color: '#D97706' }}>Electricity & Water:</strong> Pay any state board electricity and water bills in seconds.</span>
                 </li>
-                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.375rem' }}>
-                  <ShieldCheck style={{ width: '16px', height: '16px', color: '#D97706', flexShrink: 0, marginTop: '2px' }} />
-                  <span>Real-time wallet balance credit on every bill processed.</span>
+                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.78125rem', color: '#334155', lineHeight: 1.5 }}>
+                  <ShieldCheck style={{ width: '18px', height: '18px', color: '#D97706', flexShrink: 0, marginTop: '1px' }} />
+                  <span><strong style={{ color: '#D97706' }}>Mobile Recharge:</strong> Prepaid, postpaid, DTH, and broadband recharges across all operators.</span>
+                </li>
+                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.78125rem', color: '#334155', lineHeight: 1.5 }}>
+                  <ShieldCheck style={{ width: '18px', height: '18px', color: '#D97706', flexShrink: 0, marginTop: '1px' }} />
+                  <span>Earn commission on every successful bill transaction processed.</span>
                 </li>
               </ul>
             </div>
 
-            <div style={{ paddingTop: '1rem', borderTop: '1px solid #FDE68A' }}>
-              <span style={{ display: 'block', fontSize: '0.625rem', fontWeight: 800, color: '#B45309', marginBottom: '0.625rem', letterSpacing: '0.05em' }}>INSTANT PAY</span>
-              <a href="#contact" className="btn btn-primary btn-sm btn-mobile-full" style={{ backgroundColor: '#D97706', borderColor: '#B45309', width: '100%', justifyContent: 'center' }}>
-                Access BBPS Services →
+            {/* Action Footer */}
+            <div style={{ paddingTop: '1rem', borderTop: '1px solid #F1F5F9', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#D97706', letterSpacing: '0.08em', textTransform: 'uppercase' }}>COMMISSION PER TXN</span>
+              <a href="#contact" className="btn btn-primary btn-mobile-full" style={{ backgroundColor: '#D97706', borderColor: '#B45309', width: '100%', justifyContent: 'center', fontWeight: 800, padding: '0.75rem 1.25rem', borderRadius: '12px' }}>
+                Start Collecting Bills →
               </a>
             </div>
           </div>
 
-          {/* Service 4: Payment Gateway & POS (Indigo Purple Theme) */}
+          {/* Card 4: Payment Gateway & POS (Violet/Purple Theme) */}
           <div 
-            className="card card-hover" 
+            className="service-card-design1" 
             style={{ 
-              backgroundColor: '#EEF2FF', 
-              borderColor: '#C7D2FE',
-              borderWidth: '1.5px',
-              padding: 'var(--card-padding)',
+              backgroundColor: '#FFFFFF', 
+              borderColor: '#E2E8F0',
+              borderWidth: '1px',
+              borderStyle: 'solid',
+              borderRadius: '24px',
+              padding: '1.75rem',
+              boxShadow: '0 10px 30px rgba(15,23,42,0.04)',
               display: 'flex',
               flexDirection: 'column',
               justify: 'space-between'
             }}
           >
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                <div className="icon-badge" style={{ backgroundColor: '#4F46E5', color: '#FFFFFF', borderColor: '#3730A3' }}>
-                  <CreditCard style={{ width: '20px', height: '20px' }} />
-                </div>
-                <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '0.125rem 0.5rem', background: '#FFFFFF', color: '#4F46E5', borderRadius: '20px', border: '1px solid #C7D2FE' }}>
-                  OMNICHANNEL
-                </span>
+              {/* Tagline Badge Pill */}
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.25rem 0.625rem', background: '#F5F3FF', color: '#7C3AED', borderRadius: '20px', border: '1px solid #DDD6FE', fontSize: '0.625rem', fontWeight: 800, marginBottom: '1rem' }}>
+                <span>ALL-IN-ONE PAYMENTS</span>
               </div>
 
-              <h3 style={{ fontSize: '1.125rem', fontWeight: 800, color: '#3730A3', marginBottom: '0.25rem' }}>
-                4. Payment Gateway & POS
+              {/* Header Icon */}
+              <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#7C3AED', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
+                <QrCode style={{ width: '20px', height: '20px' }} />
+              </div>
+
+              {/* Title & Limits */}
+              <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#0F172A', marginBottom: '0.25rem' }}>
+                4. PG & POS Solutions
               </h3>
-              <p style={{ fontSize: '0.75rem', fontWeight: 800, color: '#4338CA', marginBottom: '0.75rem', letterSpacing: '0.03em' }}>
-                QR CODE • POS MACHINE • APIS
+              <p style={{ fontSize: '0.75rem', fontWeight: 800, color: '#7C3AED', marginBottom: '0.75rem', letterSpacing: '0.03em' }}>
+                QR • CARD SWIPE • UPI • ONLINE
               </p>
-              <p style={{ fontSize: '0.8125rem', color: '#312E81', lineHeight: 1.6, marginBottom: '1.25rem' }}>
-                Accept payments anywhere with Android POS devices, dynamic UPI QR codes, and seamless gateway integrations.
+              <p style={{ fontSize: '0.8125rem', color: '#475569', lineHeight: 1.6, marginBottom: '1.5rem' }}>
+                Accept digital payments anywhere with QR codes, POS machines, and a full payment gateway integration for your business.
               </p>
 
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.75rem', color: '#3730A3', marginBottom: '1.5rem' }}>
-                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.375rem' }}>
-                  <ShieldCheck style={{ width: '16px', height: '16px', color: '#4F46E5', flexShrink: 0, marginTop: '2px' }} />
-                  <span>Supports Credit Cards, Debit Cards, NetBanking, and UPI payments.</span>
+              {/* Centered 3D Illustration */}
+              <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '1rem 0 1.5rem' }}>
+                <img 
+                  src="/pos_gateway.png" 
+                  alt="Payment Gateway & POS 3D Illustration" 
+                  style={{ width: '100%', maxWidth: '210px', height: 'auto', objectFit: 'contain' }}
+                />
+              </div>
+
+              {/* Clean Checkmark Bullet List */}
+              <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 1.5rem 0', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.78125rem', color: '#334155', lineHeight: 1.5 }}>
+                  <ShieldCheck style={{ width: '18px', height: '18px', color: '#7C3AED', flexShrink: 0, marginTop: '1px' }} />
+                  <span><strong style={{ color: '#7C3AED' }}>POS Machines:</strong> Deploy card swipe terminals at your outlet for all card & contactless payments.</span>
                 </li>
-                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.375rem' }}>
-                  <ShieldCheck style={{ width: '16px', height: '16px', color: '#4F46E5', flexShrink: 0, marginTop: '2px' }} />
-                  <span>Same-day settlement options into any primary merchant bank account.</span>
+                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.78125rem', color: '#334155', lineHeight: 1.5 }}>
+                  <ShieldCheck style={{ width: '18px', height: '18px', color: '#7C3AED', flexShrink: 0, marginTop: '1px' }} />
+                  <span><strong style={{ color: '#7C3AED' }}>QR & UPI:</strong> Generate static/dynamic QR codes for instant UPI collection from any customer.</span>
+                </li>
+                <li style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.78125rem', color: '#334155', lineHeight: 1.5 }}>
+                  <ShieldCheck style={{ width: '18px', height: '18px', color: '#7C3AED', flexShrink: 0, marginTop: '1px' }} />
+                  <span>Full payment gateway for online businesses with instant settlement support.</span>
                 </li>
               </ul>
             </div>
 
-            <div style={{ paddingTop: '1rem', borderTop: '1px solid #C7D2FE' }}>
-              <span style={{ display: 'block', fontSize: '0.625rem', fontWeight: 800, color: '#4338CA', marginBottom: '0.625rem', letterSpacing: '0.05em' }}>FAST SETTLE</span>
-              <a href="#contact" className="btn btn-primary btn-sm btn-mobile-full" style={{ backgroundColor: '#4F46E5', borderColor: '#3730A3', width: '100%', justifyContent: 'center' }}>
-                Get POS Machine & Gateway →
+            {/* Action Footer */}
+            <div style={{ paddingTop: '1rem', borderTop: '1px solid #F1F5F9', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#7C3AED', letterSpacing: '0.08em', textTransform: 'uppercase' }}>INSTANT SETTLEMENT</span>
+              <a href="#contact" className="btn btn-primary btn-mobile-full" style={{ backgroundColor: '#7C3AED', borderColor: '#6D28D9', width: '100%', justifyContent: 'center', fontWeight: 800, padding: '0.75rem 1.25rem', borderRadius: '12px' }}>
+                Get PG & POS Setup →
               </a>
             </div>
           </div>
@@ -316,7 +401,7 @@ export default function ServicesSection({ onOpenLogin, onShowToast }) {
           </div>
 
           {/* Computed Results Banner */}
-          <div style={{ marginTop: '1.25rem', padding: '1rem', borderRadius: '12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', textAlign: 'center' }}>
+          <div className="estimator-results-banner" style={{ marginTop: '1.25rem', padding: '1rem', borderRadius: '12px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', textAlign: 'center' }}>
             <div>
               <span style={{ fontSize: '0.625rem', color: '#94A3B8', textTransform: 'uppercase', fontWeight: 700 }}>Est. Disbursal Timeline</span>
               <h4 style={{ fontSize: '1rem', fontWeight: 900, color: '#34D399', margin: '2px 0 0' }}>{disbursalDays}</h4>
@@ -337,6 +422,53 @@ export default function ServicesSection({ onOpenLogin, onShowToast }) {
         </div>
 
       </div>
+
+      <style>{`
+        @media (max-width: 767px) {
+          .service-card-design1 {
+            padding: 1rem !important;
+            border-radius: 16px !important;
+          }
+
+          .service-card-design1 h3 {
+            font-size: 1.05rem !important;
+            margin-bottom: 0.15rem !important;
+          }
+
+          .service-card-design1 > div > p:first-of-type {
+            font-size: 0.6875rem !important;
+            margin-bottom: 0.5rem !important;
+          }
+
+          .service-card-design1 > div > p:last-of-type {
+            font-size: 0.75rem !important;
+            margin-bottom: 0.75rem !important;
+          }
+
+          .service-card-design1 img {
+            max-width: 140px !important;
+          }
+
+          .service-card-design1 ul {
+            gap: 0.5rem !important;
+            margin-bottom: 0.75rem !important;
+          }
+
+          .service-card-design1 ul li {
+            font-size: 0.725rem !important;
+          }
+
+          .service-card-design1 > div > div:first-child {
+            margin-bottom: 0.625rem !important;
+          }
+
+          .estimator-results-banner {
+            grid-template-columns: 1fr !important;
+            gap: 1rem !important;
+          }
+        }
+
+      `}</style>
     </section>
   );
 }

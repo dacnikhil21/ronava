@@ -35,7 +35,7 @@ export default function App() {
 
   // Global Motion Observer: Auto-triggers scroll reveal animations across sections
   useEffect(() => {
-    if (showSplash || currentView !== 'home') return;
+    if (showSplash) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -45,12 +45,16 @@ export default function App() {
           }
         });
       },
-      { threshold: 0.12, rootMargin: '0px 0px -40px 0px' }
+      { threshold: 0.05, rootMargin: '0px 0px -20px 0px' }
     );
 
-    const elements = document.querySelectorAll('.reveal-on-scroll, section, .card');
+    const elements = document.querySelectorAll('.reveal-on-scroll, .reveal-left, .reveal-right, section, .card, .service-card');
     elements.forEach((el) => {
-      if (!el.classList.contains('reveal-on-scroll')) {
+      if (
+        !el.classList.contains('reveal-on-scroll') && 
+        !el.classList.contains('reveal-left') && 
+        !el.classList.contains('reveal-right')
+      ) {
         el.classList.add('reveal-on-scroll');
       }
       observer.observe(el);

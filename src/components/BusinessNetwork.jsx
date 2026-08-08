@@ -1,7 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Network, ShieldCheck, ArrowRight, Award, CheckCircle2 } from 'lucide-react';
+import { 
+  Network, 
+  ShieldCheck, 
+  Users, 
+  Rocket, 
+  ChevronRight,
+  Star
+} from 'lucide-react';
 
-export default function BusinessNetwork({ onOpenLogin }) {
+export default function BusinessNetwork() {
   const [activeRole, setActiveRole] = useState(0);
   const sectionRef = useRef(null);
 
@@ -18,35 +25,39 @@ export default function BusinessNetwork({ onOpenLogin }) {
   const roles = [
     {
       title: 'Super Distributor',
-      desc: 'Regional Master Partner managing a network of Distributors across districts.',
-      chips: ['👑 Highest Master Margin', '🌐 District Network Override', '📊 Enterprise Portal Governance'],
+      tierText: 'Tier 1 Enterprise',
       color: '#0F52BA',
       bg: '#EFF6FF',
-      border: '#BFDBFE'
+      border: '#BFDBFE',
+      image: '/sd_building.png',
+      hasCrown: true
     },
     {
       title: 'Distributor',
-      desc: 'Local Hub Operator onboarding Retailers and Merchants within commercial zones.',
-      chips: ['📈 Sub-Broker Commission Fills', '🤝 Retailer Onboarding Rights', '🚀 High Daily Volume Payouts'],
+      tierText: 'Tier 2',
       color: '#059669',
       bg: '#ECFDF5',
-      border: '#A7F3D0'
+      border: '#A7F3D0',
+      image: '/d_building.png',
+      hasCrown: false
     },
     {
       title: 'Retailer',
-      desc: 'Store Owner offering BBPS, Money Transfer, and Loan Credit applications to footfall customers.',
-      chips: ['🛒 Store Revenue Boost', '⚡ Instant Customer Receipt', '💰 Daily Commission Credit'],
+      tierText: 'Tier 3',
       color: '#D97706',
       bg: '#FFFBEB',
-      border: '#FDE68A'
+      border: '#FDE68A',
+      image: '/r_building.png',
+      hasCrown: false
     },
     {
-      title: 'Merchant Partner',
-      desc: 'Business Enterprise utilizing RONAV Virtual Wallet, POS Machines, and ATM Franchises.',
-      chips: ['💼 Instant Payout Settlements', '💳 POS & Dynamic QR Gateway', '🔑 Unique Merchant ID (MID)'],
+      title: 'Merchant',
+      tierText: 'Tier 4',
       color: '#4F46E5',
       bg: '#EEF2FF',
-      border: '#C7D2FE'
+      border: '#C7D2FE',
+      image: '/m_building.png',
+      hasCrown: false
     }
   ];
 
@@ -56,106 +67,293 @@ export default function BusinessNetwork({ onOpenLogin }) {
       ref={sectionRef} 
       className="section-padding" 
       style={{ 
-        backgroundColor: '#F8FAFC', 
-        backgroundImage: 'radial-gradient(rgba(15, 82, 186, 0.07) 1px, transparent 0)', 
-        backgroundSize: '24px 24px', 
-        width: '100%' 
+        background: 'radial-gradient(circle at 50% 30%, #F0F9FF 0%, #FFFFFF 85%)', 
+        width: '100%',
+        padding: '5rem 0'
       }}
     >
-      <div className="container">
+      <div className="container" style={{ maxWidth: '860px', margin: '0 auto', padding: '0 1rem' }}>
         
         {/* Section Header */}
-        <div className="section-header reveal">
-          <span className="section-tag">4-TIER BUSINESS NETWORK</span>
-          <h2 className="section-title">
-            Integrated{' '}
-            <span className="text-gradient-blue">Network Architecture</span>
+        <div className="section-header reveal" style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.3125rem 0.75rem', background: '#EFF6FF', borderRadius: '50px', color: '#0F52BA', fontSize: '0.6875rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem' }}>
+            <Network style={{ width: '13px', height: '13px' }} />
+            <span>4-Tier Business Network</span>
+          </div>
+          <h2 className="section-title" style={{ fontSize: 'clamp(1.75rem, 4.5vw, 2.25rem)', fontWeight: 900, color: '#0F172A', letterSpacing: '-0.02em', marginBottom: '0.75rem' }}>
+            Integrated <span style={{ color: '#0F52BA' }}>Network Architecture</span>
           </h2>
-          <p className="section-subtitle">
-            Connecting Super Distributors, Distributors, Retailers, and Merchants in a unified financial ecosystem.
+          <p className="section-subtitle" style={{ fontSize: '0.875rem', color: '#475569', maxWidth: '600px', margin: '0 auto', lineHeight: 1.6 }}>
+            Connecting Super Distributors, Distributors, Retailers and Merchants in a unified financial ecosystem.
           </p>
         </div>
 
-        {/* Interactive Role Selector Tabs */}
-        <div style={{ display: 'flex', gap: '0.375rem', overflowX: 'auto', paddingBottom: '0.75rem', marginBottom: '1.5rem', justifyContent: 'center', scrollbarWidth: 'none' }}>
-          {roles.map((r, idx) => (
-            <button
-              key={idx}
-              onClick={() => setActiveRole(idx)}
-              style={{
-                padding: '0.5rem 1rem',
-                borderRadius: '20px',
-                border: activeRole === idx ? `1.5px solid ${r.color}` : '1px solid #E2E8F0',
-                background: activeRole === idx ? r.bg : '#FFFFFF',
-                color: activeRole === idx ? r.color : '#475569',
-                fontWeight: 800,
-                fontSize: '0.8125rem',
-                whiteSpace: 'nowrap',
-                cursor: 'pointer',
-                boxShadow: activeRole === idx ? '0 4px 12px rgba(0,0,0,0.06)' : 'none',
-                transition: 'all 200ms ease'
-              }}
-            >
-              {r.title}
-            </button>
+        {/* 4-Tier Visual Horizontal Nodes Flow */}
+        <div className="network-flow-wrapper reveal-scale" style={{ marginBottom: '4.5rem' }}>
+          {roles.map((role, idx) => (
+            <React.Fragment key={idx}>
+              {/* Node Card Container */}
+              <div 
+                onClick={() => setActiveRole(idx)}
+                className={`network-node-btn ${activeRole === idx ? 'is-active' : ''}`}
+                style={{
+                  '--node-color': role.color,
+                  '--node-bg': role.bg,
+                  '--node-border': role.border,
+                  cursor: 'pointer'
+                }}
+              >
+                {/* Crown badge for Super Distributor */}
+                {role.hasCrown && (
+                  <div className="node-crown-badge">
+                    <Star style={{ width: '8px', height: '8px', fill: '#FFFFFF', stroke: '#FFFFFF' }} />
+                  </div>
+                )}
+                
+                {/* Circular Icon container with premium inner highlight/shadow */}
+                <div className="node-circle-icon">
+                  <img 
+                    src={role.image} 
+                    alt={role.title} 
+                    style={{ 
+                      width: '100%', 
+                      height: '100%', 
+                      objectFit: 'contain',
+                      borderRadius: '50%',
+                      padding: '1px'
+                    }} 
+                  />
+                  
+                  {/* Connecting Arrow absolute-positioned to center-right of the circle container */}
+                  {idx < roles.length - 1 && (
+                    <div className="network-flow-arrow">
+                      <ChevronRight style={{ width: '14px', height: '14px' }} />
+                    </div>
+                  )}
+                </div>
+
+                {/* Node Labels */}
+                <span className="node-label-title">{role.title}</span>
+                <span className="node-label-tier">{role.tierText}</span>
+              </div>
+            </React.Fragment>
           ))}
         </div>
 
-        {/* Highlighted Selected Role Card */}
-        <div 
-          className="card card-glow reveal-scale"
-          style={{
-            backgroundColor: roles[activeRole].bg,
-            borderColor: roles[activeRole].border,
-            borderWidth: '1.5px',
-            padding: '1.75rem',
-            borderRadius: '20px',
-            maxWidth: '800px',
-            margin: '0 auto',
-            boxShadow: '0 12px 28px -4px rgba(15,23,42,0.08)'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-              <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: roles[activeRole].color, color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>
-                <Network style={{ width: '22px', height: '22px' }} />
-              </div>
-              <div>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0F172A', margin: 0 }}>
-                  {roles[activeRole].title}
-                </h3>
-                <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: roles[activeRole].color }}>
-                  Tier {activeRole + 1} Enterprise Role
-                </span>
-              </div>
-            </div>
-
-            <button 
-              onClick={() => onOpenLogin('merchant')}
-              className="btn btn-primary btn-sm btn-slide-arrow" 
-              style={{ backgroundColor: roles[activeRole].color, display: 'flex', alignItems: 'center', gap: '0.375rem' }}
-            >
-              <span>Join as {roles[activeRole].title}</span>
-              <span className="btn-arrow-icon" style={{ display: 'inline-block' }}><ArrowRight style={{ width: '14px', height: '14px' }} /></span>
-            </button>
+        {/* Bottom Horizontal Indicators Bar (Glassmorphic) */}
+        <div className="network-indicators-bar reveal">
+          <div className="indicator-item">
+            <Users className="indicator-icon" />
+            <strong className="indicator-text">Unified Network</strong>
           </div>
-
-          <p style={{ fontSize: '0.875rem', color: '#334155', lineHeight: 1.6, marginBottom: '1.25rem' }}>
-            {roles[activeRole].desc}
-          </p>
-
-          {/* Visual Feature Chips */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.5rem' }}>
-            {roles[activeRole].chips.map((chip, cIdx) => (
-              <div key={cIdx} style={{ padding: '0.5rem 0.75rem', background: '#FFFFFF', borderRadius: '8px', border: `1px solid ${roles[activeRole].border}`, fontSize: '0.75rem', fontWeight: 800, color: roles[activeRole].color, display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                <CheckCircle2 style={{ width: '14px', height: '14px', flexShrink: 0 }} />
-                <span>{chip}</span>
-              </div>
-            ))}
+          
+          <div className="indicator-separator" />
+          
+          <div className="indicator-item">
+            <Rocket className="indicator-icon" />
+            <strong className="indicator-text">Scalable Growth</strong>
+          </div>
+          
+          <div className="indicator-separator" />
+          
+          <div className="indicator-item">
+            <ShieldCheck className="indicator-icon" />
+            <strong className="indicator-text">Transparent Operations</strong>
           </div>
         </div>
 
       </div>
+
+      {/* Inline styles for responsive network flow mapping */}
+      <style>{`
+        /* Flow Row Container */
+        .network-flow-wrapper {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          max-width: 760px;
+          margin: 0 auto;
+          gap: 0.25rem;
+        }
+
+        /* Circular Node Button styles */
+        .network-node-btn {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
+          position: relative;
+          padding: 0.5rem 0.125rem;
+          max-width: 120px;
+          transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .node-crown-badge {
+          position: absolute;
+          top: -2px;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 10;
+          background: #F59E0B;
+          border-radius: 50%;
+          width: 14px;
+          height: 14px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 2px 4px rgba(245,158,11,0.4);
+        }
+
+        .node-circle-icon {
+          width: 66px;
+          height: 66px;
+          border-radius: 50%;
+          border: 1.5px solid #E2E8F0;
+          background: #FFFFFF;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-bottom: 0.75rem;
+          box-shadow: 0 4px 12px rgba(15,23,42,0.03);
+          transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+          position: relative;
+        }
+
+        /* Outline highlighting and scaling when hovered/active */
+        .network-node-btn:hover .node-circle-icon {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 16px rgba(15, 82, 186, 0.08);
+          border-color: #BFDBFE;
+        }
+
+        .network-node-btn.is-active .node-circle-icon {
+          border-color: var(--node-color);
+          box-shadow: 0 0 0 4px var(--node-bg), 0 8px 24px rgba(15, 82, 186, 0.15);
+          transform: scale(1.05) translateY(-2px);
+        }
+
+        .node-label-title {
+          font-size: 0.78125rem;
+          font-weight: 800;
+          color: #0F172A;
+          margin-bottom: 0.25rem;
+          line-height: 1.25;
+        }
+
+        .node-label-tier {
+          font-size: 0.5625rem;
+          font-weight: 800;
+          color: #1E3A8A;
+          background: #EFF6FF;
+          padding: 2px 8px;
+          border-radius: 20px;
+          white-space: nowrap;
+        }
+
+        /* Absolute positioned arrow relative ONLY to the circle icon */
+        .network-flow-arrow {
+          position: absolute;
+          left: calc(100% + 14px); /* Pushes the arrow exactly into the center gap between circles */
+          top: 50%;
+          transform: translateY(-50%);
+          z-index: 5;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #93C5FD;
+          pointer-events: none;
+        }
+
+        /* Glassmorphic bottom indicators bar */
+        .network-indicators-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: rgba(239, 246, 255, 0.85);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          border: 1px solid rgba(191, 219, 254, 0.6);
+          border-radius: 16px;
+          padding: 1.125rem 2rem;
+          max-width: 760px;
+          margin: 0 auto;
+          box-shadow: 0 8px 32px rgba(15, 82, 186, 0.03);
+        }
+
+        .indicator-item {
+          display: flex;
+          align-items: center;
+          gap: 0.625rem;
+          flex: 1;
+          justify-content: center;
+        }
+
+        .indicator-icon {
+          width: 18px;
+          height: 18px;
+          color: #0F52BA;
+        }
+
+        .indicator-text {
+          font-size: 0.78125rem;
+          font-weight: 800;
+          color: #1E3A8A;
+        }
+
+        .indicator-separator {
+          width: 1px;
+          height: 20px;
+          background-color: rgba(191, 219, 254, 0.8);
+        }
+
+        /* Mobile specific layouts */
+        @media (max-width: 767px) {
+          .network-flow-wrapper {
+            gap: 0.05rem !important;
+          }
+          .network-node-btn {
+            max-width: 72px !important;
+          }
+          .node-circle-icon {
+            width: 48px !important;
+            height: 48px !important;
+            margin-bottom: 0.375rem !important;
+          }
+          .node-label-title {
+            font-size: 0.5625rem !important;
+            max-width: 64px;
+          }
+          .node-label-tier {
+            font-size: 0.47rem !important;
+            padding: 1px 4px !important;
+          }
+          .network-flow-arrow {
+            left: calc(100% + 5px) !important; /* Standard centered gap on mobile viewports */
+          }
+          .network-flow-arrow svg {
+            width: 10px !important;
+            height: 10px !important;
+          }
+          /* Keep Indicators Bar Horizontal on Mobile */
+          .network-indicators-bar {
+            padding: 0.875rem 0.5rem !important;
+            gap: 0.25rem !important;
+          }
+          .indicator-text {
+            font-size: 0.6rem !important;
+            white-space: nowrap;
+          }
+          .indicator-icon {
+            width: 14px !important;
+            height: 14px !important;
+          }
+          .indicator-separator {
+            height: 14px !important;
+          }
+        }
+      `}</style>
+
     </section>
   );
 }
