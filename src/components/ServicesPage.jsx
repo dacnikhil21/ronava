@@ -84,7 +84,7 @@ export default function ServicesPage({ onOpenLogin, onBack }) {
           </div>
 
           {/* Detailed Service Cards Grid */}
-          <div className="services-grid-cards reveal-scale" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem', marginBottom: '3rem' }}>
+          <div className="services-grid-cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem', marginBottom: '3rem' }}>
             
             {/* Card 1: Loans (Emerald Green Theme) */}
             <div 
