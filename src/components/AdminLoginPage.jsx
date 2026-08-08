@@ -136,6 +136,12 @@ export default function AdminLoginPage({ onLoginSuccess, onBackToHome }) {
                   }}
                 >
                   <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', height: '100%', display: 'block' }}>
+                    <defs>
+                      <linearGradient id="logoTGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stopColor="#0066FF" />
+                        <stop offset="100%" stopColor="#003399" />
+                      </linearGradient>
+                    </defs>
                     <path d="M12 90 L50 15 L88 90" stroke="url(#logoTGrad)" strokeWidth="22" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </span>
