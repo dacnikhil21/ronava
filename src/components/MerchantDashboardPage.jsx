@@ -29,15 +29,15 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans" style={{ width: '100%', overflowX: 'hidden', paddingBottom: 'calc(4.5rem + env(safe-area-inset-bottom, 0px))' }}>
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans merchant-page-wrapper" style={{ width: '100%', overflowX: 'hidden' }}>
       
-      {/* Tier-1 Enterprise Connected Navigation Bar */}
-      <header className="navbar-header" style={{ backgroundColor: '#FFFFFF', width: '100%', borderBottom: '1px solid #E2E8F0', padding: '0.5rem 0' }}>
+      {/* 1. Header Navigation Bar */}
+      <header className="navbar-header" style={{ backgroundColor: '#FFFFFF', width: '100%', borderBottom: '1px solid #E2E8F0', padding: '0.5rem 0', position: 'sticky', top: 0, zIndex: 60 }}>
         <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', width: '100%', boxSizing: 'border-box' }}>
           
           {/* Brand Logo & Merchant Portal Scope */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
-            {/* Symmetrical Vector TR Monogram Symbol (Official Shape) */}
+            {/* Symmetrical Vector TR Monogram Symbol */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <svg 
                 viewBox="0 0 120 100" 
@@ -59,42 +59,19 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                     <stop offset="100%" stopColor="#051024" />
                   </linearGradient>
                 </defs>
-                
-                {/* Scattered Pixel Blocks */}
                 <rect x="12" y="24" width="5.5" height="5.5" fill="#0066FF" />
                 <rect x="20" y="31.5" width="5.5" height="5.5" fill="#0066FF" />
                 <rect x="28.5" y="33" width="7" height="6.5" fill="#0066FF" />
                 <rect x="14" y="38.5" width="5.5" height="5.5" fill="#0066FF" />
                 <rect x="22" y="44" width="7" height="6.5" fill="#0066FF" />
-
-                {/* T Horizontal Bar */}
                 <path d="M30 40 H74 L66 52 H30 Z" fill="url(#logoTGrad)" />
-                
-                {/* T Vertical Stem */}
                 <path d="M52 52 H64 V90 H52 Z" fill="url(#logoTGrad)" />
-
-                {/* R Upper Monogram Curve */}
-                <path 
-                  d="M34 22 H80 C95 22 105 34 105 48 C105 62 95 72 80 72 H64" 
-                  fill="none" 
-                  stroke="url(#logoRGrad)" 
-                  strokeWidth="11" 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
-                />
-
-                {/* R Leg */}
-                <path 
-                  d="M72 70 L96 92" 
-                  fill="none" 
-                  stroke="url(#logoRGrad)" 
-                  strokeWidth="11" 
-                  strokeLinecap="round" 
-                />
+                <path d="M34 22 H80 C95 22 105 34 105 48 C105 62 95 72 80 72 H64" fill="none" stroke="url(#logoRGrad)" strokeWidth="11" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M72 70 L96 92" fill="none" stroke="url(#logoRGrad)" strokeWidth="11" strokeLinecap="round" />
               </svg>
             </div>
 
-            {/* Letter-by-Letter Writing Animation Naming */}
+            {/* Title Brand Naming */}
             <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
               <div 
                 style={{ 
@@ -107,92 +84,46 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                   alignItems: 'center'
                 }}
               >
-                {/* R */}
-                <span style={{
-                  display: 'inline-block',
-                  opacity: animated ? 1 : 0,
-                  transform: animated ? 'translateX(0)' : 'translateX(-6px)',
-                  transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 300ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 300ms`
-                }}>R</span>
-                {/* O */}
-                <span style={{
-                  display: 'inline-block',
-                  opacity: animated ? 1 : 0,
-                  transform: animated ? 'translateX(0)' : 'translateX(-6px)',
-                  transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 370ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 370ms`
-                }}>O</span>
-                {/* N */}
-                <span style={{
-                  display: 'inline-block',
-                  opacity: animated ? 1 : 0,
-                  transform: animated ? 'translateX(0)' : 'translateX(-6px)',
-                  transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 440ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 440ms`
-                }}>N</span>
-                {/* A (Inverted V Chevron) */}
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    opacity: animated ? 1 : 0,
-                    transform: animated ? 'translateX(0)' : 'translateX(-6px)',
-                    transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 510ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 510ms`,
-                    width: 'clamp(0.8rem, 2.5vw, 0.95rem)',
-                    height: 'clamp(0.8rem, 2.5vw, 0.95rem)',
-                    marginRight: '2px',
-                    marginLeft: '2px',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
+                <span style={{ display: 'inline-block' }}>R</span>
+                <span style={{ display: 'inline-block' }}>O</span>
+                <span style={{ display: 'inline-block' }}>N</span>
+                <span style={{ display: 'inline-flex', width: 'clamp(0.8rem, 2.5vw, 0.95rem)', height: 'clamp(0.8rem, 2.5vw, 0.95rem)', marginRight: '2px', marginLeft: '2px', alignItems: 'center', justifyContent: 'center' }}>
                   <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', height: '100%', display: 'block' }}>
                     <path d="M12 90 L50 15 L88 90" stroke="url(#logoTGrad)" strokeWidth="22" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </span>
-                {/* V */}
-                <span style={{
-                  display: 'inline-block',
-                  opacity: animated ? 1 : 0,
-                  transform: animated ? 'translateX(0)' : 'translateX(-6px)',
-                  transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 580ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 580ms`
-                }}>V</span>
-
+                <span style={{ display: 'inline-block' }}>V</span>
                 <span className="brand-tag" style={{ fontSize: '0.45rem', padding: '0.0625rem 0.2rem', marginLeft: '0.25rem', alignSelf: 'center' }}>MERCHANT</span>
               </div>
-              
-              {/* TECHNOLOGIES with gradient accent lines */}
-              <div 
-                style={{ 
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.25rem',
-                  opacity: animated ? 1 : 0,
-                  transform: animated ? 'translateY(0)' : 'translateY(3px)',
-                  transition: `opacity 400ms cubic-bezier(0.16, 1, 0.3, 1) 750ms, transform 400ms cubic-bezier(0.16, 1, 0.3, 1) 750ms`,
-                  marginTop: '2px'
-                }}
-              >
-                {/* Accent Line Left */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '2px' }}>
                 <div style={{ height: '1.5px', width: '8px', background: 'linear-gradient(90deg, transparent, #0066FF)', borderRadius: '1px' }} />
-                <span 
-                  style={{ 
-                    fontSize: 'clamp(0.4rem, 1.2vw, 0.5rem)', 
-                    fontWeight: 800, 
-                    color: '#64748B', 
-                    letterSpacing: '0.14em', 
-                    lineHeight: 1
-                  }}
-                >
-                  TECHNOLOGIES
-                </span>
-                {/* Accent Line Right */}
+                <span style={{ fontSize: 'clamp(0.4rem, 1.2vw, 0.5rem)', fontWeight: 800, color: '#64748B', letterSpacing: '0.14em', lineHeight: 1 }}>TECHNOLOGIES</span>
                 <div style={{ height: '1.5px', width: '8px', background: 'linear-gradient(90deg, #0066FF, transparent)', borderRadius: '1px' }} />
               </div>
             </div>
           </div>
 
+          {/* Desktop Navigation Links (Visible on Desktop only) */}
+          <nav className="desktop-header-nav" style={{ display: 'none', alignItems: 'center', gap: '1.5rem', marginLeft: '2rem' }}>
+            <button onClick={() => setActiveTab('home')} style={{ background: 'none', border: 'none', color: activeTab === 'home' ? '#0F52BA' : '#64748B', fontWeight: 800, fontSize: '0.8125rem', cursor: 'pointer', outline: 'none' }}>
+              Home
+            </button>
+            <button onClick={() => setActiveTab('record')} style={{ background: 'none', border: 'none', color: activeTab === 'record' ? '#0F52BA' : '#64748B', fontWeight: 800, fontSize: '0.8125rem', cursor: 'pointer', outline: 'none' }}>
+              Record Sale
+            </button>
+            <button onClick={() => setActiveTab('scan')} style={{ background: 'none', border: 'none', color: activeTab === 'scan' ? '#0F52BA' : '#64748B', fontWeight: 800, fontSize: '0.8125rem', cursor: 'pointer', outline: 'none' }}>
+              Scan & Pay
+            </button>
+            <button onClick={() => setActiveTab('transactions')} style={{ background: 'none', border: 'none', color: activeTab === 'transactions' ? '#0F52BA' : '#64748B', fontWeight: 800, fontSize: '0.8125rem', cursor: 'pointer', outline: 'none' }}>
+              Transactions
+            </button>
+            <button onClick={() => setActiveTab('profile')} style={{ background: 'none', border: 'none', color: activeTab === 'profile' ? '#0F52BA' : '#64748B', fontWeight: 800, fontSize: '0.8125rem', cursor: 'pointer', outline: 'none' }}>
+              Profile
+            </button>
+          </nav>
+
           {/* Action Tools (Notifications, Profile Avatar) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexShrink: 0 }}>
-
-            {/* Notification Bell with Badge */}
             <div style={{ position: 'relative' }}>
               <button className="btn btn-ghost btn-sm" style={{ padding: '0.25rem', borderRadius: '50%', minHeight: '32px', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Bell style={{ width: '16px', height: '16px', color: '#334155' }} />
@@ -202,7 +133,6 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
               </span>
             </div>
 
-            {/* Merchant Profile Avatar Pill */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', padding: '0.125rem 0.375rem', borderRadius: '20px', background: '#F8FAFC', border: '1px solid #E2E8F0', whiteSpace: 'nowrap' }}>
               <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: '#0F52BA', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '0.75rem', flexShrink: 0 }}>
                 {user?.name?.charAt(0).toUpperCase() || 'R'}
@@ -215,7 +145,6 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                 <LogOut style={{ width: '14px', height: '14px' }} />
               </button>
             </div>
-
           </div>
 
         </div>
@@ -445,8 +374,20 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         </div>
       </main>
 
-      {/* Native App Bottom Navigation Bar with Center Floating Action Button */}
-      <nav style={{ position: 'fixed', bottom: 0, left: 0, right: 0, width: '100%', zIndex: 50, backgroundColor: 'rgba(255, 255, 255, 0.96)', backdropFilter: 'blur(16px)', borderTop: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'space-around', padding: '0.375rem 0 calc(0.375rem + env(safe-area-inset-bottom, 0px))', boxShadow: '0 -4px 16px rgba(15,23,42,0.08)', boxSizing: 'border-box' }}>
+      {/* Desktop Enterprise Footer (Visible on Desktop Only) */}
+      <footer className="desktop-only-footer" style={{ display: 'none', borderTop: '1px solid #E2E8F0', padding: '1.5rem 0', backgroundColor: '#FFFFFF', marginTop: '3.5rem' }}>
+        <div className="container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: '#64748B' }}>
+          <span>© 2021 – RONAV TECHNOLOGIES. All Rights Reserved.</span>
+          <div style={{ display: 'flex', gap: '1.25rem' }}>
+            <a href="#" style={{ color: '#64748B', textDecoration: 'none' }}>Privacy Policy</a>
+            <a href="#" style={{ color: '#64748B', textDecoration: 'none' }}>Terms of Service</a>
+            <a href="#" style={{ color: '#64748B', textDecoration: 'none' }}>Help Desk: 9966203053</a>
+          </div>
+        </div>
+      </footer>
+
+      {/* Native App Bottom Navigation Bar (Visible on Mobile Only) */}
+      <nav className="mobile-bottom-nav" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, width: '100%', zIndex: 50, backgroundColor: 'rgba(255, 255, 255, 0.96)', backdropFilter: 'blur(16px)', borderTop: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'space-around', padding: '0.375rem 0 calc(0.375rem + env(safe-area-inset-bottom, 0px))', boxShadow: '0 -4px 16px rgba(15,23,42,0.08)', boxSizing: 'border-box' }}>
         <button onClick={() => setActiveTab('home')} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.125rem', background: 'none', border: 'none', color: activeTab === 'home' ? '#0F52BA' : '#64748B', cursor: 'pointer', fontSize: '0.625rem', fontWeight: 700 }}>
           <Home style={{ width: '18px', height: '18px' }} />
           Home
@@ -472,6 +413,29 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           Profile
         </button>
       </nav>
+
+      {/* Responsive Styles Injection */}
+      <style>{`
+        /* Responsive Viewport Rules */
+        .merchant-page-wrapper {
+          padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+        }
+
+        @media (min-width: 1024px) {
+          .merchant-page-wrapper {
+            padding-bottom: 0px !important;
+          }
+          .mobile-bottom-nav {
+            display: none !important;
+          }
+          .desktop-header-nav {
+            display: flex !important;
+          }
+          .desktop-only-footer {
+            display: block !important;
+          }
+        }
+      `}</style>
 
     </div>
   );
