@@ -26,55 +26,16 @@ export default function Footer({ onOpenLogin, onOpenOfficeModal }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', marginBottom: '1.25rem' }}>
               {/* Symmetrical Vector TR Monogram Symbol (Official Shape, Dark Contrast) */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg 
-                  viewBox="0 0 120 100" 
-                  fill="none" 
-                  xmlns="http://www.w3.org/2000/svg" 
+                <img 
+                  src="/logo_tr_transparent.png" 
+                  alt="TR Monogram" 
                   style={{ 
                     height: '42px', 
                     width: 'auto', 
+                    display: 'block',
                     flexShrink: 0 
-                  }}
-                >
-                  <defs>
-                    <linearGradient id="footerTGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#0066FF" />
-                      <stop offset="100%" stopColor="#003399" />
-                    </linearGradient>
-                  </defs>
-                  
-                  {/* Scattered Pixel Blocks */}
-                  <rect x="12" y="24" width="5.5" height="5.5" fill="#0066FF" />
-                  <rect x="20" y="31.5" width="5.5" height="5.5" fill="#0066FF" />
-                  <rect x="28.5" y="33" width="7" height="6.5" fill="#0066FF" />
-                  <rect x="14" y="38.5" width="5.5" height="5.5" fill="#0066FF" />
-                  <rect x="22" y="44" width="7" height="6.5" fill="#0066FF" />
-
-                  {/* T Horizontal Bar */}
-                  <path d="M30 40 H74 L66 52 H30 Z" fill="url(#footerTGrad)" />
-                  
-                  {/* T Vertical Stem */}
-                  <path d="M52 52 H64 V90 H52 Z" fill="url(#footerTGrad)" />
-
-                  {/* R Upper Monogram Curve (White for dark contrast) */}
-                  <path 
-                    d="M34 22 H80 C95 22 105 34 105 48 C105 62 95 72 80 72 H64" 
-                    fill="none" 
-                    stroke="#FFFFFF" 
-                    strokeWidth="11" 
-                    strokeLinecap="round" 
-                    strokeLinejoin="round" 
-                  />
-
-                  {/* R Leg (White for dark contrast) */}
-                  <path 
-                    d="M72 70 L96 92" 
-                    fill="none" 
-                    stroke="#FFFFFF" 
-                    strokeWidth="11" 
-                    strokeLinecap="round" 
-                  />
-                </svg>
+                  }} 
+                />
               </div>
 
               {/* Brand Text Styling */}
