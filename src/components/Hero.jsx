@@ -1,7 +1,7 @@
 import React from 'react';
 import { ArrowRight, ShieldCheck, TrendingUp, Users, Headphones, Activity } from 'lucide-react';
 
-export default function Hero({ onOpenLogin, onShowToast }) {
+export default function Hero({ onOpenLogin, onShowToast, onNavigate }) {
   return (
     <section 
       className="hero-section" 
@@ -81,22 +81,22 @@ export default function Hero({ onOpenLogin, onShowToast }) {
 
           {/* Action CTAs */}
           <div className="hero-ctas">
-            <a 
-              href="#contact"
+            <button 
+              onClick={() => onNavigate ? onNavigate('contact') : window.location.href = '#contact'}
               className="btn btn-primary btn-lg btn-mobile-full"
-              style={{ fontWeight: 800, backgroundColor: '#0F52BA', minHeight: '50px', padding: '0 1.75rem', boxShadow: '0 8px 24px rgba(15, 82, 186, 0.45)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', textDecoration: 'none' }}
+              style={{ fontWeight: 800, backgroundColor: '#0F52BA', minHeight: '50px', padding: '0 1.75rem', boxShadow: '0 8px 24px rgba(15, 82, 186, 0.45)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', border: 'none', cursor: 'pointer' }}
             >
               <span>Contact Us</span>
               <ArrowRight style={{ width: '18px', height: '18px' }} />
-            </a>
+            </button>
 
-            <a 
-              href="#services"
+            <button 
+              onClick={() => onNavigate ? onNavigate('services') : window.location.href = '#services'}
               className="btn btn-lg btn-mobile-full"
-              style={{ fontWeight: 700, minHeight: '50px', padding: '0 1.5rem', backgroundColor: 'rgba(255, 255, 255, 0.08)', color: '#FFFFFF', border: '1px solid rgba(255, 255, 255, 0.2)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              style={{ fontWeight: 700, minHeight: '50px', padding: '0 1.5rem', backgroundColor: 'rgba(255, 255, 255, 0.08)', color: '#FFFFFF', border: '1px solid rgba(255, 255, 255, 0.2)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
             >
               Explore Services
-            </a>
+            </button>
           </div>
 
           {/* Bottom Live System Status Pill */}

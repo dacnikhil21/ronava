@@ -387,9 +387,30 @@ export default function Navbar({ onOpenLogin, onNavigate, currentView = 'home' }
 
           <a href="#network" className="nav-link">Business Network</a>
           <a href="#why-us" className="nav-link">Why Choose Us</a>
+          <button 
+            onClick={() => handleNavClick('contact')} 
+            className="nav-link" 
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: currentView === 'contact' ? '#0F52BA' : undefined, fontWeight: currentView === 'contact' ? 800 : undefined }}
+          >
+            Contact Us
+          </button>
         </nav>
 
-        <div className="nav-actions-desktop">
+        <div className="nav-actions-desktop" style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+          <button 
+            onClick={() => handleNavClick('contact')}
+            className="btn btn-secondary btn-sm"
+            style={{ 
+              fontWeight: 700, 
+              padding: '0.45rem 1rem', 
+              color: currentView === 'contact' ? '#0F52BA' : '#1E293B',
+              borderColor: currentView === 'contact' ? '#0F52BA' : '#CBD5E1',
+              backgroundColor: currentView === 'contact' ? '#EFF6FF' : '#FFFFFF'
+            }}
+          >
+            Contact Us
+          </button>
+
           <button 
             onClick={() => onOpenLogin('merchant')}
             className="btn btn-primary btn-sm"
@@ -399,13 +420,32 @@ export default function Navbar({ onOpenLogin, onNavigate, currentView = 'home' }
           </button>
         </div>
 
-        <div className="mobile-nav-toggle" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <div className="mobile-nav-toggle" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <button 
+            onClick={() => handleNavClick('contact')}
+            style={{
+              padding: '0.35rem 0.625rem',
+              borderRadius: '8px',
+              border: '1px solid #BFDBFE',
+              backgroundColor: currentView === 'contact' ? '#0F52BA' : '#EFF6FF',
+              color: currentView === 'contact' ? '#FFFFFF' : '#0F52BA',
+              fontSize: '0.75rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.25rem'
+            }}
+          >
+            <span>Contact</span>
+          </button>
+
           <a 
             href="tel:9966203053" 
-            style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#EFF6FF', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
+            style={{ width: '34px', height: '34px', borderRadius: '50%', background: '#EFF6FF', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
             title="Direct Merchant Hotline"
           >
-            <Phone style={{ width: '18px', height: '18px' }} />
+            <Phone style={{ width: '16px', height: '16px' }} />
           </a>
 
           <button
@@ -413,7 +453,7 @@ export default function Navbar({ onOpenLogin, onNavigate, currentView = 'home' }
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem', color: '#0F172A' }}
             aria-label="Toggle Navigation Menu"
           >
-            {mobileMenuOpen ? <X style={{ width: '26px', height: '26px' }} /> : <Menu style={{ width: '26px', height: '26px' }} />}
+            {mobileMenuOpen ? <X style={{ width: '24px', height: '24px' }} /> : <Menu style={{ width: '24px', height: '24px' }} />}
           </button>
         </div>
 
@@ -512,6 +552,10 @@ export default function Navbar({ onOpenLogin, onNavigate, currentView = 'home' }
           <a href="#why-us" onClick={() => setMobileMenuOpen(false)} className="mobile-drawer-link">
             Why Choose Us
           </a>
+
+          <button onClick={() => handleNavClick('contact')} className="mobile-drawer-link" style={{ background: 'none', border: 'none', textAlign: 'left', width: '100%', color: currentView === 'contact' ? '#0F52BA' : undefined, fontWeight: currentView === 'contact' ? 800 : undefined }}>
+            Contact Us
+          </button>
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #F1F5F9' }}>
             <button 

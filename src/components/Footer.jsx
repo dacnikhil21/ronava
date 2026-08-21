@@ -1,7 +1,7 @@
 import React from 'react';
 import { Phone, Mail, ShieldCheck, Activity } from 'lucide-react';
 
-export default function Footer({ onOpenLogin, onOpenOfficeModal }) {
+export default function Footer({ onOpenLogin, onOpenOfficeModal, onNavigate }) {
   return (
     <footer className="footer">
       <div className="container">
@@ -128,11 +128,11 @@ export default function Footer({ onOpenLogin, onOpenOfficeModal }) {
           <div>
             <h4 className="footer-heading">Quick Navigation</h4>
             <ul className="footer-list">
-              <li><a href="#" className="footer-link">Home Page</a></li>
-              <li><a href="#services" className="footer-link">Services Overview</a></li>
+              <li><button onClick={() => onNavigate ? onNavigate('home') : window.scrollTo({ top: 0, behavior: 'smooth' })} className="footer-link" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Home Page</button></li>
+              <li><button onClick={() => onNavigate ? onNavigate('services') : null} className="footer-link" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Services Overview</button></li>
               <li><a href="#network" className="footer-link">Business Network</a></li>
               <li><a href="#why-us" className="footer-link">Why Choose Us</a></li>
-              <li><a href="#contact" className="footer-link">Contact Matrix</a></li>
+              <li><button onClick={() => onNavigate ? onNavigate('contact') : null} className="footer-link" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Contact Matrix</button></li>
             </ul>
           </div>
 

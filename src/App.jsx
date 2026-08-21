@@ -28,10 +28,11 @@ import ServiceLoansPage from './components/ServiceLoansPage';
 import ServiceAtmPage from './components/ServiceAtmPage';
 import ServiceBbpsPage from './components/ServiceBbpsPage';
 import ServicePosPage from './components/ServicePosPage';
+import ContactPage from './components/ContactPage';
 
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
-  const [currentView, setCurrentView] = useState('home'); // 'home' | 'about' | 'services' | 'service-loans' | 'service-atm' | 'service-bbps' | 'service-pos' | 'merchant-login' | 'merchant-dashboard' | 'admin-login' | 'admin-dashboard'
+  const [currentView, setCurrentView] = useState('home'); // 'home' | 'about' | 'services' | 'contact' | 'service-loans' | 'service-atm' | 'service-bbps' | 'service-pos' | 'merchant-login' | 'merchant-dashboard' | 'admin-login' | 'admin-dashboard'
   const [officeModalOpen, setOfficeModalOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
@@ -203,7 +204,7 @@ export default function App() {
       <main className="flex-grow">
         {currentView === 'home' && (
           <>
-            <Hero onOpenLogin={handleOpenLogin} onShowToast={handleShowToast} />
+            <Hero onOpenLogin={handleOpenLogin} onShowToast={handleShowToast} onNavigate={handleNavigate} />
             <TrustBar />
             <ServicesSection onOpenLogin={handleOpenLogin} onShowToast={handleShowToast} onNavigate={handleNavigate} />
             <BusinessNetwork onOpenLogin={handleOpenLogin} />
@@ -229,6 +230,14 @@ export default function App() {
             onOpenLogin={handleOpenLogin}
             onBack={() => handleNavigate('home')}
             onNavigate={handleNavigate}
+          />
+        )}
+
+        {currentView === 'contact' && (
+          <ContactPage 
+            onOpenLogin={handleOpenLogin}
+            onBack={() => handleNavigate('home')}
+            onShowToast={handleShowToast}
           />
         )}
 
@@ -270,6 +279,7 @@ export default function App() {
       <Footer 
         onOpenLogin={handleOpenLogin}
         onOpenOfficeModal={() => setOfficeModalOpen(true)}
+        onNavigate={handleNavigate}
       />
 
       {/* Office Locator Modal */}
