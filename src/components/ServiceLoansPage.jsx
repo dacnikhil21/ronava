@@ -284,7 +284,7 @@ export default function ServiceLoansPage({ onOpenLogin, onBack, onShowToast }) {
                 Apply for Personal & Business Loans
               </h2>
               <p style={{ fontSize: '0.8125rem', color: '#64748B', margin: 0 }}>
-                Fill out the application below. The RONAV Admin team will verify your details, generate your Merchant Access ID, and coordinate disbursal.
+                Fill out the application below. The RONAV Technologies team will verify your details, generate your Merchant Access ID, and coordinate disbursal.
               </p>
             </div>
 
@@ -295,7 +295,7 @@ export default function ServiceLoansPage({ onOpenLogin, onBack, onShowToast }) {
                   Loan Application Successfully Submitted!
                 </h3>
                 <p style={{ fontSize: '0.875rem', color: '#047857', maxWidth: '540px', margin: '0 auto 1.5rem', lineHeight: 1.6 }}>
-                  Thank you, <strong>{formData.name}</strong>. Your loan request for <strong>{formData.amount}</strong> has been transmitted to the RONAV Admin Command Center. An onboarding manager will review your submission and provide your partner credentials.
+                  Thank you, <strong>{formData.name}</strong>. Your loan request for <strong>{formData.amount}</strong> has been received by RONAV Technologies. An onboarding specialist will review your submission and provide your partner credentials.
                 </p>
                 <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
                   <button 
@@ -383,7 +383,7 @@ export default function ServiceLoansPage({ onOpenLogin, onBack, onShowToast }) {
                   className="btn btn-primary"
                   style={{ backgroundColor: '#059669', borderColor: '#047857', width: '100%', justifyContent: 'center', height: '50px', fontSize: '1rem', fontWeight: 800, boxShadow: '0 8px 24px rgba(5,150,105,0.35)' }}
                 >
-                  <span>Submit Loan Application to Admin</span>
+                  <span>Submit</span>
                   <Send style={{ width: '16px', height: '16px' }} />
                 </button>
 

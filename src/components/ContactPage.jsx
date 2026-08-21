@@ -221,10 +221,10 @@ export default function ContactPage({ onBack, onShowToast }) {
               <div style={{ padding: '2.5rem 1.5rem', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '16px', textAlign: 'center' }}>
                 <CheckCircle2 style={{ width: '56px', height: '56px', color: '#059669', margin: '0 auto 1rem' }} />
                 <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#065F46', margin: '0 0 0.5rem' }}>
-                  Inquiry Dispatched to Admin!
+                  Inquiry Submitted Successfully!
                 </h3>
                 <p style={{ fontSize: '0.875rem', color: '#047857', lineHeight: 1.6, margin: '0 auto 1.5rem', maxWidth: '420px' }}>
-                  Thank you, <strong>{formData.name}</strong>. Your inquiry for <strong>{formData.service}</strong> as a <strong>{formData.role}</strong> has been received. Our team will connect with you at <strong>{formData.mobile}</strong> shortly.
+                  Thank you, <strong>{formData.name}</strong>. Your inquiry for <strong>{formData.service}</strong> as a <strong>{formData.role}</strong> has been received by RONAV Technologies. Our team will connect with you at <strong>{formData.mobile}</strong> shortly.
                 </p>
                 <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
                   <button 
@@ -345,12 +345,12 @@ export default function ContactPage({ onBack, onShowToast }) {
                     marginTop: '0.25rem' 
                   }}
                 >
-                  <span>Submit Inquiry to Admin</span>
+                  <span>Submit</span>
                   <Send style={{ width: '16px', height: '16px' }} />
                 </button>
 
                 <p style={{ fontSize: '0.75rem', color: '#94A3B8', textAlign: 'center', margin: 0 }}>
-                  🔒 Official inquiry. Directly routed to RONAV Technologies Admin team.
+                  🔒 Official inquiry. Directly routed to RONAV Technologies enterprise team.
                 </p>
               </form>
             )}

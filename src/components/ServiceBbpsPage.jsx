@@ -208,7 +208,7 @@ export default function ServiceBbpsPage({ onOpenLogin, onBack, onShowToast }) {
                   BBPS Activation Request Submitted!
                 </h3>
                 <p style={{ fontSize: '0.875rem', color: '#92400E', maxWidth: '540px', margin: '0 auto 1.5rem', lineHeight: 1.6 }}>
-                  Thank you, <strong>{formData.name}</strong>. Your BBPS onboarding request has been sent to the RONAV Admin team. We will call you at <strong>{formData.mobile}</strong> within 2 hours.
+                  Thank you, <strong>{formData.name}</strong>. Your BBPS onboarding request has been received by RONAV Technologies. We will call you at <strong>{formData.mobile}</strong> within 2 hours.
                 </p>
                 <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
                   <button 
@@ -286,7 +286,7 @@ export default function ServiceBbpsPage({ onOpenLogin, onBack, onShowToast }) {
                   className="btn btn-primary"
                   style={{ backgroundColor: '#D97706', borderColor: '#B45309', width: '100%', justifyContent: 'center', height: '50px', fontSize: '1rem', fontWeight: 800, boxShadow: '0 8px 24px rgba(217,119,6,0.35)' }}
                 >
-                  <span>Submit BBPS Activation Request to Admin</span>
+                  <span>Submit</span>
                   <Send style={{ width: '16px', height: '16px' }} />
                 </button>
 

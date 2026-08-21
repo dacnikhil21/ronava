@@ -266,7 +266,7 @@ export default function ServiceAtmPage({ onOpenLogin, onBack, onShowToast }) {
                   Franchise Inquiry Submitted Successfully!
                 </h3>
                 <p style={{ fontSize: '0.875rem', color: '#1E3A8A', maxWidth: '540px', margin: '0 auto 1.5rem', lineHeight: 1.6 }}>
-                  Thank you, <strong>{formData.name}</strong>. Your inquiry for ATM/CDM franchise installation has been forwarded to the RONAV Admin team. We will call you at <strong>{formData.mobile}</strong> within 2 hours.
+                  Thank you, <strong>{formData.name}</strong>. Your inquiry for ATM/CDM franchise installation has been received by RONAV Technologies. We will call you at <strong>{formData.mobile}</strong> within 2 hours.
                 </p>
                 <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
                   <button 
@@ -285,32 +285,30 @@ export default function ServiceAtmPage({ onOpenLogin, onBack, onShowToast }) {
                 </div>
               </div>
             ) : (
-              <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', maxWidth: '720px', margin: '0 auto' }}>
+              <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.125rem', maxWidth: '720px', margin: '0 auto' }}>
                 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }} className="responsive-two-col">
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>FULL NAME *</label>
-                    <input 
-                      type="text" 
-                      required 
-                      placeholder="e.g. Rajesh Goud"
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      className="form-input"
-                    />
-                  </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>FULL NAME *</label>
+                  <input 
+                    type="text" 
+                    required 
+                    placeholder="e.g. Ramesh Kumar"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="form-input"
+                  />
+                </div>
 
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>MOBILE NUMBER *</label>
-                    <input 
-                      type="tel" 
-                      required 
-                      placeholder="10-digit Mobile No."
-                      value={formData.mobile}
-                      onChange={(e) => setFormData({ ...formData, mobile: e.target.value })}
-                      className="form-input"
-                    />
-                  </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>MOBILE NUMBER *</label>
+                  <input 
+                    type="tel" 
+                    required 
+                    placeholder="10-digit Mobile No."
+                    value={formData.mobile}
+                    onChange={(e) => setFormData({ ...formData, mobile: e.target.value })}
+                    className="form-input"
+                  />
                 </div>
 
                 <div className="form-group" style={{ margin: 0 }}>
@@ -344,12 +342,12 @@ export default function ServiceAtmPage({ onOpenLogin, onBack, onShowToast }) {
                   className="btn btn-primary"
                   style={{ backgroundColor: '#0F52BA', width: '100%', justifyContent: 'center', height: '50px', fontSize: '1rem', fontWeight: 800, boxShadow: '0 8px 24px rgba(15,82,186,0.35)' }}
                 >
-                  <span>Submit Franchise Request to Admin</span>
+                  <span>Submit</span>
                   <Send style={{ width: '16px', height: '16px' }} />
                 </button>
 
                 <p style={{ fontSize: '0.75rem', color: '#94A3B8', textAlign: 'center', margin: 0 }}>
-                  🔒 Official franchise partner. Fast callback by RONAV Admin team.
+                  🔒 Official franchise partner. Fast callback by RONAV Technologies team.
                 </p>
               </form>
             )}

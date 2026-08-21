@@ -768,10 +768,10 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
               <div style={{ padding: '2rem 1.5rem', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '16px', textAlign: 'center' }}>
                 <CheckCircle2 style={{ width: '52px', height: '52px', color: '#059669', margin: '0 auto 1rem' }} />
                 <h4 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#065F46', margin: '0 0 0.5rem' }}>
-                  Inquiry Submitted to Admin!
+                  Inquiry Submitted Successfully!
                 </h4>
                 <p style={{ fontSize: '0.875rem', color: '#047857', lineHeight: 1.6, margin: '0 auto 1.5rem', maxWidth: '420px' }}>
-                  Thank you, <strong>{registerData.name}</strong>. Your onboarding request for <strong>{registerData.role}</strong> has been received by the RONAV Admin team. Credentials will be generated for <strong>{registerData.mobile}</strong> shortly.
+                  Thank you, <strong>{registerData.name}</strong>. Your onboarding request for <strong>{registerData.role}</strong> has been received by RONAV Technologies. Credentials will be generated for <strong>{registerData.mobile}</strong> shortly.
                 </p>
                 <button 
                   onClick={() => setShowRegisterModal(false)}
@@ -818,9 +818,9 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
                     className="form-input"
                     style={{ minHeight: '46px', borderRadius: '10px', fontWeight: 700 }}
                   >
-                    <option value="PG & POS Solutions">PG & POS Solutions</option>
                     <option value="Personal & Business Loans">Personal & Business Loans</option>
                     <option value="ATM & CDM Franchise">ATM & CDM Franchise</option>
+                    <option value="PG & POS Solutions">PG & POS Solutions</option>
                     <option value="BBPS Utility Bill Payments">BBPS Utility Bill Payments</option>
                     <option value="All Financial Ecosystem Services">All Financial Ecosystem Services</option>
                   </select>
@@ -834,7 +834,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
                     className="form-input"
                     style={{ minHeight: '46px', borderRadius: '10px', fontWeight: 700 }}
                   >
-                    <option value="Retailer">Merchant / Retailer</option>
+                    <option value="Merchant / Retailer">Merchant / Retailer</option>
                     <option value="Distributor">Distributor</option>
                     <option value="DIST Franchise">DIST Franchise (Distributor Franchise)</option>
                     <option value="Super Distributor">Super Distributor</option>
@@ -859,12 +859,12 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
                   className="btn btn-primary"
                   style={{ width: '100%', justifyContent: 'center', height: '48px', fontWeight: 800, fontSize: '0.9375rem', backgroundColor: '#0F52BA', marginTop: '0.25rem' }}
                 >
-                  <span>Submit Partner Inquiry</span>
+                  <span>Submit</span>
                   <Send style={{ width: '16px', height: '16px' }} />
                 </button>
 
                 <p style={{ fontSize: '0.6875rem', color: '#94A3B8', textAlign: 'center', margin: 0 }}>
-                  🔒 Fast callback & credential dispatch by RONAV Admin.
+                  🔒 Fast callback & credential dispatch by RONAV Technologies.
                 </p>
               </form>
             )}

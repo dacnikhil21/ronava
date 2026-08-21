@@ -220,7 +220,7 @@ export default function ServicePosPage({ onOpenLogin, onBack, onShowToast }) {
                   POS & Gateway Request Submitted!
                 </h3>
                 <p style={{ fontSize: '0.875rem', color: '#6D28D9', maxWidth: '540px', margin: '0 auto 1.5rem', lineHeight: 1.6 }}>
-                  Thank you, <strong>{formData.name}</strong>. Your POS/Gateway request has been received by the RONAV Admin team. We will contact you at <strong>{formData.mobile}</strong> within 2 hours.
+                  Thank you, <strong>{formData.name}</strong>. Your POS/Gateway request has been received by RONAV Technologies. We will contact you at <strong>{formData.mobile}</strong> within 2 hours.
                 </p>
                 <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
                   <button 
@@ -298,7 +298,7 @@ export default function ServicePosPage({ onOpenLogin, onBack, onShowToast }) {
                   className="btn btn-primary"
                   style={{ backgroundColor: '#7C3AED', borderColor: '#6D28D9', width: '100%', justifyContent: 'center', height: '50px', fontSize: '1rem', fontWeight: 800, boxShadow: '0 8px 24px rgba(124,58,237,0.35)' }}
                 >
-                  <span>Submit POS & Gateway Inquiry to Admin</span>
+                  <span>Submit</span>
                   <Send style={{ width: '16px', height: '16px' }} />
                 </button>
 
