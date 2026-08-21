@@ -420,32 +420,13 @@ export default function Navbar({ onOpenLogin, onNavigate, currentView = 'home' }
           </button>
         </div>
 
-        <div className="mobile-nav-toggle" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <button 
-            onClick={() => handleNavClick('contact')}
-            style={{
-              padding: '0.35rem 0.625rem',
-              borderRadius: '8px',
-              border: '1px solid #BFDBFE',
-              backgroundColor: currentView === 'contact' ? '#0F52BA' : '#EFF6FF',
-              color: currentView === 'contact' ? '#FFFFFF' : '#0F52BA',
-              fontSize: '0.75rem',
-              fontWeight: 800,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.25rem'
-            }}
-          >
-            <span>Contact</span>
-          </button>
-
+        <div className="mobile-nav-toggle" style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
           <a 
             href="tel:9966203053" 
-            style={{ width: '34px', height: '34px', borderRadius: '50%', background: '#EFF6FF', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
+            style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#EFF6FF', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
             title="Direct Merchant Hotline"
           >
-            <Phone style={{ width: '16px', height: '16px' }} />
+            <Phone style={{ width: '18px', height: '18px' }} />
           </a>
 
           <button
@@ -453,7 +434,7 @@ export default function Navbar({ onOpenLogin, onNavigate, currentView = 'home' }
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem', color: '#0F172A' }}
             aria-label="Toggle Navigation Menu"
           >
-            {mobileMenuOpen ? <X style={{ width: '24px', height: '24px' }} /> : <Menu style={{ width: '24px', height: '24px' }} />}
+            {mobileMenuOpen ? <X style={{ width: '26px', height: '26px' }} /> : <Menu style={{ width: '26px', height: '26px' }} />}
           </button>
         </div>
 
