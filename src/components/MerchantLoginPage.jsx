@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Lock, Eye, EyeOff, ShieldCheck, Headphones, Zap, TrendingUp, Phone, Mail, X, Menu, ArrowRight, Layers, CheckCircle2, Send, ChevronDown, ChevronUp, Check } from 'lucide-react';
+import { User, Lock, Eye, EyeOff, ShieldCheck, Headphones, Zap, TrendingUp, Phone, Mail, X, Menu, ArrowRight, ArrowLeft, Layers, CheckCircle2, Send, ChevronDown, ChevronUp, Check } from 'lucide-react';
 
 export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
   const [selectedRole, setSelectedRole] = useState('Retailer');
@@ -110,110 +110,130 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
       
       {/* 1. Header Navigation Bar */}
       <header style={{ backgroundColor: '#FFFFFF', borderBottom: '1px solid #E2E8F0', padding: 'var(--nav-padding) 1rem', position: 'sticky', top: 0, zIndex: 50 }}>
-        <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
           
-          {/* Logo */}
-          <button 
-            onClick={onBackToHome}
-            style={{ 
-              background: 'none', 
-              border: 'none', 
-              cursor: 'pointer', 
-              padding: 0, 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '0.625rem',
-              textAlign: 'left'
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <img 
-                src="/logo_tr_transparent.png" 
-                alt="TR Monogram" 
-                style={{ 
-                  height: 'var(--logo-height)', 
-                  width: 'auto', 
-                  display: 'block',
-                  flexShrink: 0 
-                }} 
-              />
-            </div>
+          {/* Left: Clean Arrow Back Button & Brand Logo */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+            <button
+              onClick={onBackToHome}
+              aria-label="Back to Homepage"
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '0.25rem',
+                color: '#0F172A',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '8px',
+                flexShrink: 0
+              }}
+              title="Go back to Home"
+            >
+              <ArrowLeft style={{ width: '22px', height: '22px', color: '#0F172A' }} />
+            </button>
 
-            <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-              <div 
-                style={{ 
-                  fontSize: 'clamp(1.2rem, 3.8vw, 1.5rem)', 
-                  fontWeight: 900, 
-                  color: '#0A192F', 
-                  letterSpacing: '0.04em', 
-                  lineHeight: 1, 
-                  display: 'flex',
-                  alignItems: 'center'
-                }}
-              >
-                <span style={{ display: 'inline-block' }}>R</span>
-                <span style={{ display: 'inline-block' }}>O</span>
-                <span style={{ display: 'inline-block' }}>N</span>
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    width: 'clamp(0.95rem, 3vw, 1.15rem)',
-                    height: 'clamp(0.95rem, 3vw, 1.15rem)',
-                    marginRight: '2px',
-                    marginLeft: '2px',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
-                  <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', height: '100%', display: 'block' }}>
-                    <defs>
-                      <linearGradient id="logoTGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stopColor="#0066FF" />
-                        <stop offset="100%" stopColor="#003399" />
-                      </linearGradient>
-                    </defs>
-                    <path d="M12 90 L50 15 L88 90" stroke="url(#logoTGrad)" strokeWidth="22" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </span>
-                <span style={{ display: 'inline-block' }}>V</span>
-                <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '0.125rem 0.375rem', borderRadius: '4px', border: '1px solid #BFDBFE', marginLeft: '0.375rem' }}>
-                  PARTNER
-                </span>
-              </div>
-              
-              <div 
-                style={{ 
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.25rem',
-                  marginTop: '3px'
-                }}
-              >
-                <div style={{ height: '2px', width: '12px', background: 'linear-gradient(90deg, transparent, #0066FF)', borderRadius: '1px' }} />
-                <span 
+            {/* Logo (Clean Brand without Partner badge) */}
+            <button 
+              onClick={onBackToHome}
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                cursor: 'pointer', 
+                padding: 0, 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '0.5rem',
+                textAlign: 'left'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <img 
+                  src="/logo_tr_transparent.png" 
+                  alt="TR Monogram" 
                   style={{ 
-                    fontSize: 'clamp(0.45rem, 1.4vw, 0.58rem)', 
-                    fontWeight: 800, 
-                    color: '#475569', 
-                    letterSpacing: '0.16em', 
-                    lineHeight: 1
+                    height: 'var(--logo-height)', 
+                    width: 'auto', 
+                    display: 'block',
+                    flexShrink: 0 
+                  }} 
+                />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <div 
+                  style={{ 
+                    fontSize: 'clamp(1.15rem, 3.8vw, 1.45rem)', 
+                    fontWeight: 900, 
+                    color: '#0A192F', 
+                    letterSpacing: '0.04em', 
+                    lineHeight: 1, 
+                    display: 'flex',
+                    alignItems: 'center'
                   }}
                 >
-                  TECHNOLOGIES
-                </span>
-                <div style={{ height: '2px', width: '12px', background: 'linear-gradient(90deg, #0066FF, transparent)', borderRadius: '1px' }} />
+                  <span style={{ display: 'inline-block' }}>R</span>
+                  <span style={{ display: 'inline-block' }}>O</span>
+                  <span style={{ display: 'inline-block' }}>N</span>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      width: 'clamp(0.9rem, 2.8vw, 1.1rem)',
+                      height: 'clamp(0.9rem, 2.8vw, 1.1rem)',
+                      marginRight: '2px',
+                      marginLeft: '2px',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', height: '100%', display: 'block' }}>
+                      <defs>
+                        <linearGradient id="logoTGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" stopColor="#0066FF" />
+                          <stop offset="100%" stopColor="#003399" />
+                        </linearGradient>
+                      </defs>
+                      <path d="M12 90 L50 15 L88 90" stroke="url(#logoTGrad)" strokeWidth="22" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </span>
+                  <span style={{ display: 'inline-block' }}>V</span>
+                </div>
+                
+                <div 
+                  style={{ 
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.25rem',
+                    marginTop: '3px'
+                  }}
+                >
+                  <div style={{ height: '2px', width: '10px', background: 'linear-gradient(90deg, transparent, #0066FF)', borderRadius: '1px' }} />
+                  <span 
+                    style={{ 
+                      fontSize: 'clamp(0.42rem, 1.3vw, 0.55rem)', 
+                      fontWeight: 800, 
+                      color: '#475569', 
+                      letterSpacing: '0.16em', 
+                      lineHeight: 1
+                    }}
+                  >
+                    TECHNOLOGIES
+                  </span>
+                  <div style={{ height: '2px', width: '10px', background: 'linear-gradient(90deg, #0066FF, transparent)', borderRadius: '1px' }} />
+                </div>
               </div>
-            </div>
-          </button>
+            </button>
+          </div>
 
           {/* Right Action Icons */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <a 
               href="tel:9966203053"
-              style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#0F52BA', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
+              style={{ width: '34px', height: '34px', borderRadius: '50%', background: '#0F52BA', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
               title="Call Helpline"
             >
-              <Phone style={{ width: '16px', height: '16px' }} />
+              <Phone style={{ width: '15px', height: '15px' }} />
             </a>
 
             <button
@@ -221,7 +241,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0F172A', padding: '0.25rem', display: 'flex', alignItems: 'center' }}
               aria-label="Toggle Navigation Menu"
             >
-              {mobileMenuOpen ? <X style={{ width: '24px', height: '24px' }} /> : <Menu style={{ width: '24px', height: '24px' }} />}
+              {mobileMenuOpen ? <X style={{ width: '22px', height: '22px' }} /> : <Menu style={{ width: '22px', height: '22px' }} />}
             </button>
           </div>
 
@@ -231,21 +251,57 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
       {/* Mobile menu drawer */}
       {mobileMenuOpen && (
         <div className="mobile-drawer" style={{ backgroundColor: '#FFFFFF', borderTop: '1px solid #E2E8F0', zIndex: 60 }}>
-          <button onClick={onBackToHome} className="mobile-drawer-link" style={{ background: 'none', border: 'none', textAlign: 'left', width: '100%' }}>
-            Home
+          <button 
+            onClick={() => {
+              setMobileMenuOpen(false);
+              onBackToHome();
+            }} 
+            className="mobile-drawer-link" 
+            style={{ background: 'none', border: 'none', textAlign: 'left', width: '100%', fontWeight: 700, color: '#0F52BA', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+          >
+            <ArrowLeft style={{ width: '16px', height: '16px' }} />
+            <span>← Return to Home Page</span>
           </button>
-          <button onClick={onBackToHome} className="mobile-drawer-link" style={{ background: 'none', border: 'none', textAlign: 'left', width: '100%' }}>
+          <button 
+            onClick={() => {
+              setMobileMenuOpen(false);
+              onBackToHome();
+            }} 
+            className="mobile-drawer-link" 
+            style={{ background: 'none', border: 'none', textAlign: 'left', width: '100%' }}
+          >
             About Us
           </button>
-          <button onClick={onBackToHome} className="mobile-drawer-link" style={{ background: 'none', border: 'none', textAlign: 'left', width: '100%' }}>
+          <button 
+            onClick={() => {
+              setMobileMenuOpen(false);
+              onBackToHome();
+            }} 
+            className="mobile-drawer-link" 
+            style={{ background: 'none', border: 'none', textAlign: 'left', width: '100%' }}
+          >
             Services
           </button>
-          <a href="#network" onClick={onBackToHome} className="mobile-drawer-link">
+          <button 
+            onClick={() => {
+              setMobileMenuOpen(false);
+              onBackToHome();
+            }} 
+            className="mobile-drawer-link"
+            style={{ background: 'none', border: 'none', textAlign: 'left', width: '100%' }}
+          >
             Business Network
-          </a>
-          <a href="#why-us" onClick={onBackToHome} className="mobile-drawer-link">
-            Why Choose Us
-          </a>
+          </button>
+          <button 
+            onClick={() => {
+              setMobileMenuOpen(false);
+              onBackToHome();
+            }} 
+            className="mobile-drawer-link"
+            style={{ background: 'none', border: 'none', textAlign: 'left', width: '100%' }}
+          >
+            Contact & Support
+          </button>
         </div>
       )}
 

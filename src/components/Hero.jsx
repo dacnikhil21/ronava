@@ -124,7 +124,7 @@ export default function Hero({ onOpenLogin, onShowToast }) {
             }}
           >
             <img 
-              src="/hero_ecosystem_3d.jpg" 
+              src="/ronav_3d_ecosystem_master.png" 
               alt="RONAV Technologies Master FinTech 3D Ecosystem & Smartphone App" 
               style={{ width: '100%', height: 'auto', display: 'block', objectFit: 'cover' }}
             />
