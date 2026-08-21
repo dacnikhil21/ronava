@@ -387,13 +387,6 @@ export default function Navbar({ onOpenLogin, onNavigate, currentView = 'home' }
 
           <a href="#network" className="nav-link">Business Network</a>
           <a href="#why-us" className="nav-link">Why Choose Us</a>
-          <button 
-            onClick={() => handleNavClick('contact')} 
-            className="nav-link" 
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: currentView === 'contact' ? '#0F52BA' : undefined, fontWeight: currentView === 'contact' ? 800 : undefined }}
-          >
-            Contact Us
-          </button>
         </nav>
 
         <div className="nav-actions-desktop" style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
