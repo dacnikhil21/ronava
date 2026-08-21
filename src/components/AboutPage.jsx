@@ -15,7 +15,10 @@ import {
   ArrowLeft, 
   ArrowRight, 
   MapPin,
-  TrendingUp
+  TrendingUp,
+  Target,
+  Compass,
+  CheckCircle2
 } from 'lucide-react';
 
 // Reusable on-mount count-up counter component
@@ -49,44 +52,12 @@ export default function AboutPage({ onOpenLogin, onBack }) {
   }, []);
 
   return (
-    <div className="min-h-screen bg-white flex flex-col font-sans about-page-wrapper" style={{ width: '100%' }}>
+    <div className="min-h-screen bg-white flex flex-col font-sans about-page-wrapper" style={{ width: '100%', paddingTop: 'calc(var(--section-pad-top))' }}>
       
       {/* Main Container */}
-      <main className="flex-grow" style={{ padding: '2rem 0 4rem' }}>
+      <main className="flex-grow" style={{ padding: '0.75rem 0 4rem' }}>
         <div className="container" style={{ maxWidth: '1100px', margin: '0 auto', padding: '0 1rem' }}>
           
-          {/* Back Navigation Bar */}
-          <div style={{ marginBottom: '1.5rem' }}>
-            <button 
-              onClick={onBack}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                background: 'none',
-                border: 'none',
-                color: '#0F52BA',
-                fontWeight: 800,
-                fontSize: '0.8125rem',
-                cursor: 'pointer',
-                padding: '0.375rem 0.75rem 0.375rem 0',
-                borderRadius: '8px',
-                transition: 'all 200ms ease'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = '#0052CC';
-                e.currentTarget.style.transform = 'translateX(-3px)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = '#0F52BA';
-                e.currentTarget.style.transform = 'none';
-              }}
-            >
-              <ArrowLeft style={{ width: '14px', height: '14px' }} />
-              <span>Go Back to Home</span>
-            </button>
-          </div>
-
           {/* Hero Banner (Layered Background Card Layout) */}
           <div className="about-hero-section">
             
@@ -116,6 +87,27 @@ export default function AboutPage({ onOpenLogin, onBack }) {
               <p className="about-hero-description">
                 RONAV Technologies is an enterprise FinTech platform connecting Merchants, Distributors, Retailers and Financial Services through one secure ecosystem.
               </p>
+
+              {/* Action CTAs (Contact Us + Explore Services) */}
+              <div className="about-hero-ctas" style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem', flexWrap: 'wrap' }}>
+                <a 
+                  href="#contact"
+                  onClick={onBack}
+                  className="btn btn-primary btn-lg btn-mobile-full"
+                  style={{ fontWeight: 800, backgroundColor: '#0F52BA', minHeight: '48px', padding: '0 1.5rem', boxShadow: '0 8px 24px rgba(15, 82, 186, 0.45)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', textDecoration: 'none' }}
+                >
+                  <span>Contact Us</span>
+                  <ArrowRight style={{ width: '18px', height: '18px' }} />
+                </a>
+
+                <button 
+                  onClick={onBack}
+                  className="btn btn-lg btn-mobile-full"
+                  style={{ fontWeight: 700, minHeight: '48px', padding: '0 1.5rem', backgroundColor: '#F1F5F9', color: '#0F172A', border: '1px solid #CBD5E1', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                >
+                  Explore Services
+                </button>
+              </div>
             </div>
 
             {/* Right Image Column (Desktop only, hidden on mobile) */}
@@ -244,6 +236,153 @@ export default function AboutPage({ onOpenLogin, onBack }) {
                 <strong style={{ fontSize: '0.6rem', fontWeight: 800, color: '#0F172A', marginTop: '0.375rem' }}>Customer</strong>
               </div>
 
+            </div>
+          </div>
+
+          {/* Strategic Mission & Vision Section */}
+          <div style={{ marginBottom: '3.5rem' }}>
+            {/* Header Tag */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', marginBottom: '2rem' }}>
+              <div style={{ height: '1.5px', width: '28px', background: 'linear-gradient(90deg, transparent, #0F52BA)', borderRadius: '1px' }} />
+              <h2 style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#0F52BA', textTransform: 'uppercase', letterSpacing: '0.12em', margin: 0 }}>MISSION & VISION</h2>
+              <div style={{ height: '1.5px', width: '28px', background: 'linear-gradient(90deg, #0F52BA, transparent)', borderRadius: '1px' }} />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {/* Card 1: Our Mission */}
+              <div 
+                className="mission-vision-card"
+                style={{
+                  backgroundColor: '#EFF6FF',
+                  borderColor: '#BFDBFE',
+                  borderWidth: '1.5px',
+                  borderStyle: 'solid',
+                  borderRadius: '20px',
+                  padding: '1.75rem 2rem',
+                  display: 'grid',
+                  gridTemplateColumns: '1.4fr 1fr',
+                  alignItems: 'center',
+                  gap: '2rem',
+                  boxShadow: '0 10px 30px rgba(15,82,186,0.01)'
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.625rem' }}>
+                    <div style={{ width: '24px', height: '24px', borderRadius: '6px', backgroundColor: '#0F52BA', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Target style={{ width: '13px', height: '13px' }} />
+                    </div>
+                    <span style={{ fontSize: '0.625rem', fontWeight: 900, color: '#0F52BA', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                      OUR MISSION
+                    </span>
+                  </div>
+
+                  <h3 className="vm-card-title" style={{ fontSize: '1.45rem', fontWeight: 900, color: '#1E40AF', margin: '0 0 0.5rem', letterSpacing: '-0.02em' }}>
+                    Democratize Business Credit
+                  </h3>
+
+                  <p style={{ fontSize: '0.8125rem', color: '#1E3A8A', lineHeight: 1.6, marginBottom: '1.125rem' }}>
+                    Empower every retailer with accessible working capital, high-margin BBPS capabilities, and turnkey ATM operations.
+                  </p>
+
+                  <div className="vm-checklist-row">
+                    <div className="vm-chip vm-chip-blue">
+                      <CheckCircle2 className="vm-chip-icon" />
+                      <span>Zero Payout Delay</span>
+                    </div>
+                    <div className="vm-chip vm-chip-blue">
+                      <CheckCircle2 className="vm-chip-icon" />
+                      <span>Accessible Working Capital</span>
+                    </div>
+                    <div className="vm-chip vm-chip-blue">
+                      <CheckCircle2 className="vm-chip-icon" />
+                      <span>Inclusive Growth</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="vm-illustration-box">
+                  <img 
+                    src="/mission_chart.png" 
+                    alt="Our Mission Illustration" 
+                    className="vm-svg-chart"
+                    style={{ 
+                      width: '100%', 
+                      height: 'auto', 
+                      maxWidth: '180px', 
+                      objectFit: 'contain', 
+                      margin: '0 auto',
+                      display: 'block' 
+                    }} 
+                  />
+                </div>
+              </div>
+
+              {/* Card 2: Strategic Vision */}
+              <div 
+                className="mission-vision-card"
+                style={{
+                  backgroundColor: '#ECFDF5',
+                  borderColor: '#A7F3D0',
+                  borderWidth: '1.5px',
+                  borderStyle: 'solid',
+                  borderRadius: '20px',
+                  padding: '1.75rem 2rem',
+                  display: 'grid',
+                  gridTemplateColumns: '1.4fr 1fr',
+                  alignItems: 'center',
+                  gap: '2rem',
+                  boxShadow: '0 10px 30px rgba(5,150,105,0.01)'
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.625rem' }}>
+                    <div style={{ width: '24px', height: '24px', borderRadius: '6px', backgroundColor: '#059669', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Compass style={{ width: '13px', height: '13px' }} />
+                    </div>
+                    <span style={{ fontSize: '0.625rem', fontWeight: 900, color: '#059669', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                      STRATEGIC VISION
+                    </span>
+                  </div>
+
+                  <h3 className="vm-card-title" style={{ fontSize: '1.45rem', fontWeight: 900, color: '#065F46', margin: '0 0 0.5rem', letterSpacing: '-0.02em' }}>
+                    India's Most Trusted Network
+                  </h3>
+
+                  <p style={{ fontSize: '0.8125rem', color: '#064E3B', lineHeight: 1.6, marginBottom: '1.125rem' }}>
+                    Build India's most trusted 3-tier distributor-merchant network, processing ₹100 Cr+ monthly with 100% transparency.
+                  </p>
+
+                  <div className="vm-checklist-row">
+                    <div className="vm-chip vm-chip-green">
+                      <CheckCircle2 className="vm-chip-icon" />
+                      <span>3-Tier Ecosystem</span>
+                    </div>
+                    <div className="vm-chip vm-chip-green">
+                      <CheckCircle2 className="vm-chip-icon" />
+                      <span>100% Transparency</span>
+                    </div>
+                    <div className="vm-chip vm-chip-green">
+                      <CheckCircle2 className="vm-chip-icon" />
+                      <span>Sustainable Growth</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="vm-illustration-box">
+                  <div className="vm-india-map-container" style={{ position: 'relative', width: '120px', height: '120px', margin: '0 auto' }}>
+                    <img 
+                      src="/vision_map.png" 
+                      alt="Strategic Vision Illustration" 
+                      style={{ 
+                        width: '100%', 
+                        height: '100%', 
+                        objectFit: 'contain',
+                        display: 'block' 
+                      }} 
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -478,8 +617,87 @@ export default function AboutPage({ onOpenLogin, onBack }) {
           box-shadow: 0 10px 30px rgba(15,23,42,0.04);
         }
 
+        /* Checklist items row display */
+        .vm-checklist-row {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          flex-wrap: wrap;
+        }
+
+        /* Clean text layout items */
+        .vm-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.375rem;
+          font-size: 0.78125rem;
+          font-weight: 800;
+          background: transparent !important;
+          border: none !important;
+          box-shadow: none !important;
+          padding: 0 !important;
+        }
+
+        .vm-chip-blue {
+          color: #1E3A8A;
+        }
+
+        .vm-chip-green {
+          color: #064E3B;
+        }
+
+        .vm-chip-icon {
+          width: 14px;
+          height: 14px;
+          flex-shrink: 0;
+        }
+
+        .vm-chip-blue .vm-chip-icon {
+          color: #0F52BA;
+        }
+
+        .vm-chip-green .vm-chip-icon {
+          color: #059669;
+        }
+
+        .vm-illustration-box {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
         /* Mobile layout override */
         @media (max-width: 767px) {
+          .mission-vision-card {
+            grid-template-columns: 1fr !important;
+            gap: 1.25rem !important;
+            padding: 1.25rem !important;
+            border-radius: 16px !important;
+          }
+          
+          .vm-card-title {
+            font-size: 1.25rem !important;
+          }
+
+          .vm-checklist-row {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 0.5rem !important;
+          }
+
+          .vm-chip {
+            font-size: 0.75rem !important;
+          }
+
+          .vm-svg-chart {
+            max-width: 130px !important;
+          }
+
+          .vm-india-map-container {
+            width: 90px !important;
+            height: 90px !important;
+          }
+
           .about-hero-section {
             grid-template-columns: 1fr !important;
             background: linear-gradient(135deg, rgba(10, 25, 47, 0.40) 0%, rgba(15, 82, 186, 0.40) 100%), url("/about_hero.png") no-repeat center center;

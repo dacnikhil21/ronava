@@ -24,10 +24,14 @@ import AdminDashboardPage from './components/AdminDashboardPage';
 // Dedicated Page Imports
 import AboutPage from './components/AboutPage';
 import ServicesPage from './components/ServicesPage';
+import ServiceLoansPage from './components/ServiceLoansPage';
+import ServiceAtmPage from './components/ServiceAtmPage';
+import ServiceBbpsPage from './components/ServiceBbpsPage';
+import ServicePosPage from './components/ServicePosPage';
 
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
-  const [currentView, setCurrentView] = useState('home'); // 'home' | 'about' | 'services' | 'merchant-login' | 'merchant-dashboard' | 'admin-login' | 'admin-dashboard'
+  const [currentView, setCurrentView] = useState('home'); // 'home' | 'about' | 'services' | 'service-loans' | 'service-atm' | 'service-bbps' | 'service-pos' | 'merchant-login' | 'merchant-dashboard' | 'admin-login' | 'admin-dashboard'
   const [officeModalOpen, setOfficeModalOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
@@ -63,6 +67,25 @@ export default function App() {
     return () => observer.disconnect();
   }, [showSplash, currentView]);
 
+  // Listen to URL changes for secure /admin access
+  useEffect(() => {
+    const checkAdminRoute = () => {
+      const path = window.location.pathname.toLowerCase();
+      const hash = window.location.hash.toLowerCase();
+      if (path === '/admin' || path === '/admin/' || hash === '#/admin' || hash === '#admin') {
+        setCurrentView((prev) => (prev === 'admin-dashboard' ? 'admin-dashboard' : 'admin-login'));
+      }
+    };
+
+    checkAdminRoute();
+    window.addEventListener('popstate', checkAdminRoute);
+    window.addEventListener('hashchange', checkAdminRoute);
+    return () => {
+      window.removeEventListener('popstate', checkAdminRoute);
+      window.removeEventListener('hashchange', checkAdminRoute);
+    };
+  }, []);
+
   const handleShowToast = (msg) => {
     setToastMessage(msg);
     setTimeout(() => {
@@ -70,26 +93,46 @@ export default function App() {
     }, 2500);
   };
 
-  const handleOpenLogin = (type) => {
-    if (type === 'merchant') setCurrentView('merchant-login');
-    else if (type === 'admin') setCurrentView('admin-login');
+  const handleNavigate = (view) => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setCurrentView(view);
+  };
+
+  const handleOpenLogin = (type = 'merchant') => {
+    if (type === 'admin') {
+      window.history.pushState({}, '', '/admin');
+      setCurrentView('admin-login');
+    } else {
+      setCurrentView('merchant-login');
+    }
   };
 
   const handleMerchantLoginSuccess = (userData) => {
-    setCurrentUser(userData || { name: 'Ravi Store', mid: 'RONAV12345' });
+    setCurrentUser(userData || { name: 'Ravi Enterprise', mid: 'RONAV12345', role: 'Retailer' });
     setCurrentView('merchant-dashboard');
-    handleShowToast('✓ Welcome back! Logged into Merchant Workspace.');
+    handleShowToast(`✓ Welcome back! Logged in as ${userData?.role || 'Retailer'}.`);
   };
 
   const handleAdminLoginSuccess = () => {
+    window.history.pushState({}, '', '/admin');
     setCurrentView('admin-dashboard');
     handleShowToast('✓ Authenticated: Admin Command Center Active.');
   };
 
   const handleLogout = () => {
+    if (window.location.pathname.toLowerCase().startsWith('/admin')) {
+      window.history.pushState({}, '', '/');
+    }
     setCurrentUser(null);
     setCurrentView('home');
     handleShowToast('Logged out of platform.');
+  };
+
+  const handleBackToHome = () => {
+    if (window.location.pathname.toLowerCase().startsWith('/admin')) {
+      window.history.pushState({}, '', '/');
+    }
+    setCurrentView('home');
   };
 
   // If splash video screen is active
@@ -102,7 +145,7 @@ export default function App() {
     return (
       <MerchantLoginPage 
         onLoginSuccess={handleMerchantLoginSuccess}
-        onBackToHome={() => setCurrentView('home')}
+        onBackToHome={handleBackToHome}
       />
     );
   }
@@ -112,7 +155,7 @@ export default function App() {
       <MerchantDashboardPage 
         user={currentUser}
         onLogout={handleLogout}
-        onNavigate={(view) => setCurrentView(view)}
+        onNavigate={(view) => handleNavigate(view)}
       />
     );
   }
@@ -121,7 +164,7 @@ export default function App() {
     return (
       <AdminLoginPage 
         onLoginSuccess={handleAdminLoginSuccess}
-        onBackToHome={() => setCurrentView('home')}
+        onBackToHome={handleBackToHome}
       />
     );
   }
@@ -130,12 +173,12 @@ export default function App() {
     return (
       <AdminDashboardPage 
         onLogout={handleLogout}
-        onNavigate={(view) => setCurrentView(view)}
+        onNavigate={(view) => handleNavigate(view)}
       />
     );
   }
 
-  // Unified Main Layout with Persistent Navbar & Footer for Home, About, and Services pages
+  // Unified Main Layout with Persistent Navbar & Footer for Home, About, Services & Dedicated Service Pages
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans relative">
       {/* Toast Notification Helper */}
@@ -148,11 +191,12 @@ export default function App() {
         onOpenLogin={handleOpenLogin}
       />
 
-      {/* UNIFIED PERSISTENT NAVBAR (Never morphs or changes) */}
+      {/* UNIFIED PERSISTENT NAVBAR */}
       <Navbar 
         onOpenLogin={handleOpenLogin}
         onOpenOfficeModal={() => setOfficeModalOpen(true)}
-        onNavigate={(view) => setCurrentView(view)}
+        onNavigate={handleNavigate}
+        currentView={currentView}
       />
 
       {/* Page View Router */}
@@ -161,7 +205,7 @@ export default function App() {
           <>
             <Hero onOpenLogin={handleOpenLogin} onShowToast={handleShowToast} />
             <TrustBar />
-            <ServicesSection onOpenLogin={handleOpenLogin} onShowToast={handleShowToast} />
+            <ServicesSection onOpenLogin={handleOpenLogin} onShowToast={handleShowToast} onNavigate={handleNavigate} />
             <BusinessNetwork onOpenLogin={handleOpenLogin} />
             <WhyChooseUs />
             <HowItWorks />
@@ -176,14 +220,48 @@ export default function App() {
         {currentView === 'about' && (
           <AboutPage 
             onOpenLogin={handleOpenLogin}
-            onBack={() => setCurrentView('home')}
+            onBack={() => handleNavigate('home')}
           />
         )}
 
         {currentView === 'services' && (
           <ServicesPage 
             onOpenLogin={handleOpenLogin}
-            onBack={() => setCurrentView('home')}
+            onBack={() => handleNavigate('home')}
+            onNavigate={handleNavigate}
+          />
+        )}
+
+        {/* 4 Dedicated Standalone Service Pages */}
+        {currentView === 'service-loans' && (
+          <ServiceLoansPage 
+            onOpenLogin={handleOpenLogin}
+            onBack={() => handleNavigate('home')}
+            onShowToast={handleShowToast}
+          />
+        )}
+
+        {currentView === 'service-atm' && (
+          <ServiceAtmPage 
+            onOpenLogin={handleOpenLogin}
+            onBack={() => handleNavigate('home')}
+            onShowToast={handleShowToast}
+          />
+        )}
+
+        {currentView === 'service-bbps' && (
+          <ServiceBbpsPage 
+            onOpenLogin={handleOpenLogin}
+            onBack={() => handleNavigate('home')}
+            onShowToast={handleShowToast}
+          />
+        )}
+
+        {currentView === 'service-pos' && (
+          <ServicePosPage 
+            onOpenLogin={handleOpenLogin}
+            onBack={() => handleNavigate('home')}
+            onShowToast={handleShowToast}
           />
         )}
       </main>

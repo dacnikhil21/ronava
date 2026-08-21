@@ -1,26 +1,91 @@
-import React, { useState, useEffect } from 'react';
-import { Menu, X, Phone } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Menu, 
+  X, 
+  Phone, 
+  ChevronDown, 
+  Landmark, 
+  Building2, 
+  Zap, 
+  CreditCard, 
+  Layers, 
+  ArrowRight,
+  ArrowLeft
+} from 'lucide-react';
 
-export default function Navbar({ onOpenLogin, onNavigate }) {
+export default function Navbar({ onOpenLogin, onNavigate, currentView = 'home' }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [servicesDropdownOpen, setServicesDropdownOpen] = useState(false);
+  const [mobileServicesAccordionOpen, setMobileServicesAccordionOpen] = useState(false);
   const [navVisible, setNavVisible] = useState(true);
   const [animated, setAnimated] = useState(false);
+  const dropdownRef = useRef(null);
 
   useEffect(() => {
-    // Standard visibility: always visible on viewport mount
     setNavVisible(true);
-    
-    // Trigger letter-by-letter naming animation
     const timer = setTimeout(() => {
       setAnimated(true);
     }, 150);
     return () => clearTimeout(timer);
   }, []);
 
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setServicesDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const handleNavClick = (viewName) => {
     setMobileMenuOpen(false);
+    setServicesDropdownOpen(false);
     onNavigate(viewName);
   };
+
+  const isDedicatedPage = currentView && currentView !== 'home';
+
+  const servicesList = [
+    {
+      id: 'service-loans',
+      icon: <Landmark style={{ width: '18px', height: '18px' }} />,
+      color: '#059669',
+      bgColor: '#ECFDF5',
+      title: 'Personal & Business Loans',
+      tag: '₹50K - ₹1 Cr Capital',
+      desc: 'No payslips required personal credit & GST business financing.'
+    },
+    {
+      id: 'service-atm',
+      icon: <Building2 style={{ width: '18px', height: '18px' }} />,
+      color: '#0F52BA',
+      bgColor: '#EFF6FF',
+      title: 'ATM & CDM Franchise',
+      tag: 'High Monthly ROI',
+      desc: 'White-label ATM & Cash Deposit Machine commercial setup.'
+    },
+    {
+      id: 'service-bbps',
+      icon: <Zap style={{ width: '18px', height: '18px' }} />,
+      color: '#D97706',
+      bgColor: '#FFFBEB',
+      title: 'BBPS Utility Bill Payments',
+      tag: 'Instant Commission',
+      desc: 'Electricity, water, gas, and mobile bills instant processing.'
+    },
+    {
+      id: 'service-pos',
+      icon: <CreditCard style={{ width: '18px', height: '18px' }} />,
+      color: '#7C3AED',
+      bgColor: '#F5F3FF',
+      title: 'Payment Gateway & POS',
+      tag: 'Card Swipe & QR',
+      desc: 'Android smart POS terminals, soundboxes & online checkout SDK.'
+    }
+  ];
 
   return (
     <header 
@@ -42,22 +107,50 @@ export default function Navbar({ onOpenLogin, onNavigate }) {
         transition: 'transform 350ms cubic-bezier(0.16, 1, 0.3, 1), opacity 350ms ease'
       }}
     >
-      <div className="container navbar-container" style={{ padding: 'var(--nav-padding) 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div className="container navbar-container" style={{ padding: 'var(--nav-padding) 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
         
-        <button 
-          onClick={() => handleNavClick('home')}
-          style={{ 
-            background: 'none', 
-            border: 'none', 
-            cursor: 'pointer', 
-            padding: 0, 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '0.625rem',
-            textAlign: 'left'
-          }}
-        >
-          {/* Symmetrical Vector TR Monogram Symbol (Official Shape) */}
+        {/* Left Side: Dedicated Back Button on Sub-pages & Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }} className="nav-brand-wrapper">
+          {isDedicatedPage && (
+            <button 
+              onClick={() => handleNavClick('home')}
+              style={{
+                background: '#EFF6FF',
+                border: '1px solid #BFDBFE',
+                cursor: 'pointer',
+                padding: '0.35rem 0.625rem',
+                borderRadius: '8px',
+                color: '#0F52BA',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.25rem',
+                fontWeight: 800,
+                fontSize: '0.75rem',
+                flexShrink: 0,
+                transition: 'all 150ms ease'
+              }}
+              title="Go back to Home"
+            >
+              <ArrowLeft style={{ width: '16px', height: '16px' }} />
+              <span className="desktop-only">Back</span>
+            </button>
+          )}
+
+          <button 
+            onClick={() => handleNavClick('home')}
+            className="navbar-brand-btn"
+            style={{ 
+              background: 'none', 
+              border: 'none', 
+              cursor: 'pointer', 
+              padding: 0, 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.5rem',
+              textAlign: 'left'
+            }}
+          >
+          {/* Symmetrical Vector TR Monogram Symbol */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <img 
               src="/logo_tr_transparent.png" 
@@ -151,7 +244,6 @@ export default function Navbar({ onOpenLogin, onNavigate }) {
                 marginTop: '3px'
               }}
             >
-              {/* Accent Line Left */}
               <div style={{ height: '2px', width: '12px', background: 'linear-gradient(90deg, transparent, #0066FF)', borderRadius: '1px' }} />
               <span 
                 style={{ 
@@ -164,22 +256,135 @@ export default function Navbar({ onOpenLogin, onNavigate }) {
               >
                 TECHNOLOGIES
               </span>
-              {/* Accent Line Right */}
               <div style={{ height: '2px', width: '12px', background: 'linear-gradient(90deg, #0066FF, transparent)', borderRadius: '1px' }} />
             </div>
           </div>
         </button>
+      </div>
 
-        <nav className="nav-links-desktop">
+        {/* Desktop Navigation Links */}
+        <nav className="nav-links-desktop" style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
           <button onClick={() => handleNavClick('home')} className="nav-link" style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
             Home
           </button>
+
           <button onClick={() => handleNavClick('about')} className="nav-link" style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
             About Us
           </button>
-          <button onClick={() => handleNavClick('services')} className="nav-link" style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
-            Services
-          </button>
+
+          {/* Interactive Services Dropdown */}
+          <div 
+            ref={dropdownRef}
+            style={{ position: 'relative' }}
+            onMouseEnter={() => setServicesDropdownOpen(true)}
+            onMouseLeave={() => setServicesDropdownOpen(false)}
+          >
+            <button 
+              onClick={() => setServicesDropdownOpen(!servicesDropdownOpen)}
+              className="nav-link" 
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                cursor: 'pointer', 
+                display: 'inline-flex', 
+                alignItems: 'center', 
+                gap: '0.25rem',
+                color: servicesDropdownOpen ? '#0F52BA' : undefined 
+              }}
+            >
+              <span>Services</span>
+              <ChevronDown style={{ 
+                width: '14px', 
+                height: '14px', 
+                transition: 'transform 200ms ease', 
+                transform: servicesDropdownOpen ? 'rotate(180deg)' : 'none' 
+              }} />
+            </button>
+
+            {/* Desktop Dropdown Popover */}
+            {servicesDropdownOpen && (
+              <div 
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: '-80px',
+                  width: '380px',
+                  backgroundColor: '#FFFFFF',
+                  borderRadius: '16px',
+                  border: '1px solid #E2E8F0',
+                  boxShadow: '0 20px 40px -10px rgba(15,23,42,0.15)',
+                  padding: '0.75rem',
+                  zIndex: 999,
+                  animation: 'fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards'
+                }}
+              >
+                <div style={{ padding: '0.25rem 0.5rem 0.5rem', borderBottom: '1px solid #F1F5F9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                    FINANCIAL SERVICES
+                  </span>
+                  <button 
+                    onClick={() => handleNavClick('services')}
+                    style={{ background: 'none', border: 'none', color: '#0F52BA', fontSize: '0.6875rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '2px' }}
+                  >
+                    <span>View All Hub</span>
+                    <ArrowRight style={{ width: '12px', height: '12px' }} />
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', marginTop: '0.5rem' }}>
+                  {servicesList.map((service) => (
+                    <button
+                      key={service.id}
+                      onClick={() => handleNavClick(service.id)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '0.75rem',
+                        padding: '0.625rem',
+                        borderRadius: '10px',
+                        border: '1px solid transparent',
+                        background: 'none',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'all 150ms ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#F8FAFC';
+                        e.currentTarget.style.borderColor = '#E2E8F0';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                        e.currentTarget.style.borderColor = 'transparent';
+                      }}
+                    >
+                      <div style={{ 
+                        width: '34px', 
+                        height: '34px', 
+                        borderRadius: '8px', 
+                        background: service.bgColor, 
+                        color: service.color, 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center', 
+                        flexShrink: 0 
+                      }}>
+                        {service.icon}
+                      </div>
+
+                      <div style={{ flexGrow: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <strong style={{ fontSize: '0.8125rem', fontWeight: 800, color: '#0F172A' }}>{service.title}</strong>
+                          <span style={{ fontSize: '0.5625rem', fontWeight: 800, color: service.color, background: service.bgColor, padding: '1px 6px', borderRadius: '10px' }}>{service.tag}</span>
+                        </div>
+                        <p style={{ fontSize: '0.6875rem', color: '#64748B', margin: '2px 0 0', lineHeight: 1.3 }}>{service.desc}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           <a href="#network" className="nav-link">Business Network</a>
           <a href="#why-us" className="nav-link">Why Choose Us</a>
         </nav>
@@ -187,25 +392,10 @@ export default function Navbar({ onOpenLogin, onNavigate }) {
         <div className="nav-actions-desktop">
           <button 
             onClick={() => onOpenLogin('merchant')}
-            className="btn btn-ghost btn-sm"
-            style={{ fontWeight: 700 }}
-          >
-            Merchant Login
-          </button>
-
-          <button 
-            onClick={() => onOpenLogin('admin')}
-            className="btn btn-ghost btn-sm"
-            style={{ fontWeight: 700, color: '#64748B' }}
-          >
-            Admin Login
-          </button>
-
-          <button 
-            onClick={() => onOpenLogin('merchant')}
             className="btn btn-primary btn-sm"
+            style={{ fontWeight: 800, padding: '0.5rem 1.25rem' }}
           >
-            Become a Merchant →
+            Partner Login →
           </button>
         </div>
 
@@ -229,20 +419,96 @@ export default function Navbar({ onOpenLogin, onNavigate }) {
 
       </div>
 
+      {/* Mobile Drawer with Services Accordion */}
       {mobileMenuOpen && (
-        <div className="mobile-drawer" style={{ backgroundColor: '#FFFFFF', borderTop: '1px solid #E2E8F0' }}>
+        <div className="mobile-drawer" style={{ backgroundColor: '#FFFFFF', borderTop: '1px solid #E2E8F0', maxHeight: '85vh', overflowY: 'auto' }}>
           <button onClick={() => handleNavClick('home')} className="mobile-drawer-link" style={{ background: 'none', border: 'none', textAlign: 'left' }}>
             Home
           </button>
+
           <button onClick={() => handleNavClick('about')} className="mobile-drawer-link" style={{ background: 'none', border: 'none', textAlign: 'left' }}>
             About Us
           </button>
-          <button onClick={() => handleNavClick('services')} className="mobile-drawer-link" style={{ background: 'none', border: 'none', textAlign: 'left' }}>
-            Services
-          </button>
+
+          {/* Expandable Services Group */}
+          <div>
+            <button 
+              onClick={() => setMobileServicesAccordionOpen(!mobileServicesAccordionOpen)}
+              className="mobile-drawer-link" 
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                textAlign: 'left', 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                width: '100%'
+              }}
+            >
+              <span>Services</span>
+              <ChevronDown style={{ 
+                width: '16px', 
+                height: '16px', 
+                transform: mobileServicesAccordionOpen ? 'rotate(180deg)' : 'none',
+                transition: 'transform 200ms ease'
+              }} />
+            </button>
+
+            {mobileServicesAccordionOpen && (
+              <div style={{ backgroundColor: '#F8FAFC', padding: '0.5rem 1rem', borderRadius: '12px', margin: '0.25rem 0 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {servicesList.map((service) => (
+                  <button
+                    key={service.id}
+                    onClick={() => handleNavClick(service.id)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.75rem',
+                      background: '#FFFFFF',
+                      border: '1px solid #E2E8F0',
+                      borderRadius: '8px',
+                      padding: '0.625rem',
+                      cursor: 'pointer',
+                      textAlign: 'left'
+                    }}
+                  >
+                    <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: service.bgColor, color: service.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {service.icon}
+                    </div>
+                    <div>
+                      <strong style={{ fontSize: '0.75rem', color: '#0F172A', display: 'block' }}>{service.title}</strong>
+                      <span style={{ fontSize: '0.625rem', color: service.color, fontWeight: 700 }}>{service.tag}</span>
+                    </div>
+                  </button>
+                ))}
+
+                <button
+                  onClick={() => handleNavClick('services')}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.5rem',
+                    background: '#EFF6FF',
+                    color: '#0F52BA',
+                    border: '1px solid #BFDBFE',
+                    borderRadius: '8px',
+                    padding: '0.5rem',
+                    fontSize: '0.75rem',
+                    fontWeight: 800,
+                    cursor: 'pointer'
+                  }}
+                >
+                  <span>View All Services Overview →</span>
+                </button>
+              </div>
+            )}
+          </div>
+
           <a href="#network" onClick={() => setMobileMenuOpen(false)} className="mobile-drawer-link">
             Business Network
           </a>
+
           <a href="#why-us" onClick={() => setMobileMenuOpen(false)} className="mobile-drawer-link">
             Why Choose Us
           </a>
@@ -251,25 +517,10 @@ export default function Navbar({ onOpenLogin, onNavigate }) {
             <button 
               onClick={() => { setMobileMenuOpen(false); onOpenLogin('merchant'); }}
               className="btn btn-primary"
-              style={{ width: '100%', justifyContent: 'center' }}
+              style={{ width: '100%', justifyContent: 'center', fontWeight: 800 }}
             >
-              Become a Merchant Partner →
+              Partner Portal Login →
             </button>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-              <button 
-                onClick={() => { setMobileMenuOpen(false); onOpenLogin('merchant'); }}
-                className="btn btn-secondary btn-sm"
-              >
-                Merchant Login
-              </button>
-              <button 
-                onClick={() => { setMobileMenuOpen(false); onOpenLogin('admin'); }}
-                className="btn btn-secondary btn-sm"
-              >
-                Admin Login
-              </button>
-            </div>
           </div>
         </div>
       )}

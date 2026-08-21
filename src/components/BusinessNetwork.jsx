@@ -24,39 +24,48 @@ export default function BusinessNetwork() {
 
   const roles = [
     {
-      title: 'Super Distributor',
-      tierText: 'Tier 1 Enterprise',
-      color: '#0F52BA',
-      bg: '#EFF6FF',
-      border: '#BFDBFE',
+      title: 'Master',
+      tierText: 'Tier 1 Executive',
+      color: '#7C3AED',
+      bg: '#F5F3FF',
+      border: '#DDD6FE',
       image: '/sd_building.png',
       hasCrown: true
     },
     {
-      title: 'Distributor',
-      tierText: 'Tier 2',
-      color: '#059669',
-      bg: '#ECFDF5',
-      border: '#A7F3D0',
+      title: 'Super Distributor',
+      tierText: 'Tier 2 Enterprise',
+      color: '#0F52BA',
+      bg: '#EFF6FF',
+      border: '#BFDBFE',
       image: '/d_building.png',
       hasCrown: false
     },
     {
-      title: 'Retailer',
-      tierText: 'Tier 3',
-      color: '#D97706',
-      bg: '#FFFBEB',
-      border: '#FDE68A',
+      title: 'DIST Franchise',
+      tierText: 'Tier 3 District',
+      color: '#0284C7',
+      bg: '#F0F9FF',
+      border: '#BAE6FD',
       image: '/r_building.png',
       hasCrown: false
     },
     {
-      title: 'Merchant',
-      tierText: 'Tier 4',
-      color: '#4F46E5',
-      bg: '#EEF2FF',
-      border: '#C7D2FE',
+      title: 'Distributor',
+      tierText: 'Tier 4 Area',
+      color: '#059669',
+      bg: '#ECFDF5',
+      border: '#A7F3D0',
       image: '/m_building.png',
+      hasCrown: false
+    },
+    {
+      title: 'Retailer',
+      tierText: 'Tier 5 Merchant',
+      color: '#D97706',
+      bg: '#FFFBEB',
+      border: '#FDE68A',
+      image: '/r_building.png',
       hasCrown: false
     }
   ];
@@ -78,13 +87,13 @@ export default function BusinessNetwork() {
         <div className="section-header reveal" style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.3125rem 0.75rem', background: '#EFF6FF', borderRadius: '50px', color: '#0F52BA', fontSize: '0.6875rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.75rem' }}>
             <Network style={{ width: '13px', height: '13px' }} />
-            <span>4-Tier Business Network</span>
+            <span>5-Tier Integrated Network</span>
           </div>
           <h2 className="section-title" style={{ fontSize: 'clamp(1.75rem, 4.5vw, 2.25rem)', fontWeight: 900, color: '#0F172A', letterSpacing: '-0.02em', marginBottom: '0.75rem' }}>
             Integrated <span style={{ color: '#0F52BA' }}>Network Architecture</span>
           </h2>
-          <p className="section-subtitle" style={{ fontSize: '0.875rem', color: '#475569', maxWidth: '600px', margin: '0 auto', lineHeight: 1.6 }}>
-            Connecting Super Distributors, Distributors, Retailers and Merchants in a unified financial ecosystem.
+          <p className="section-subtitle" style={{ fontSize: '0.875rem', color: '#475569', maxWidth: '640px', margin: '0 auto', lineHeight: 1.6 }}>
+            Connecting Master, Super Distributors, DIST Franchise, Distributors, and Retailers in a unified financial ecosystem.
           </p>
         </div>
 
@@ -311,29 +320,32 @@ export default function BusinessNetwork() {
         @media (max-width: 767px) {
           .network-flow-wrapper {
             gap: 0.05rem !important;
+            justify-content: space-around !important;
           }
           .network-node-btn {
-            max-width: 72px !important;
+            max-width: 60px !important;
+            padding: 0.25rem 0 !important;
           }
           .node-circle-icon {
-            width: 48px !important;
-            height: 48px !important;
-            margin-bottom: 0.375rem !important;
+            width: 44px !important;
+            height: 44px !important;
+            margin-bottom: 0.25rem !important;
           }
           .node-label-title {
-            font-size: 0.5625rem !important;
-            max-width: 64px;
+            font-size: 0.53rem !important;
+            max-width: 58px;
+            line-height: 1.15;
           }
           .node-label-tier {
-            font-size: 0.47rem !important;
-            padding: 1px 4px !important;
+            font-size: 0.44rem !important;
+            padding: 1px 3px !important;
           }
           .network-flow-arrow {
-            left: calc(100% + 5px) !important; /* Standard centered gap on mobile viewports */
+            left: calc(100% + 2px) !important;
           }
           .network-flow-arrow svg {
-            width: 10px !important;
-            height: 10px !important;
+            width: 9px !important;
+            height: 9px !important;
           }
           /* Keep Indicators Bar Horizontal on Mobile */
           .network-indicators-bar {

@@ -1,7 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { User, Lock, Eye, EyeOff, LogIn, UserPlus, ShieldCheck, Headphones, Zap, TrendingUp, Phone, Mail, X, Menu, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { User, Lock, Eye, EyeOff, ShieldCheck, Headphones, Zap, TrendingUp, Phone, Mail, X, Menu, ArrowRight, Layers, CheckCircle2, Send, ChevronDown, ChevronUp, Check } from 'lucide-react';
 
 export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
+  const [selectedRole, setSelectedRole] = useState('Retailer');
+  const [isRoleDropdownOpen, setIsRoleDropdownOpen] = useState(false);
+  const roleDropdownRef = useRef(null);
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -9,8 +12,68 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [forgotMobile, setForgotMobile] = useState('');
   const [forgotSuccess, setForgotSuccess] = useState(false);
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [registerSuccess, setRegisterSuccess] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [animated, setAnimated] = useState(false);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (roleDropdownRef.current && !roleDropdownRef.current.contains(event.target)) {
+        setIsRoleDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+  const [registerData, setRegisterData] = useState({
+    name: '',
+    mobile: '',
+    service: 'PG & POS Solutions',
+    role: selectedRole,
+    message: ''
+  });
+
+  const handleOpenRegister = () => {
+    setRegisterData((prev) => ({ ...prev, role: selectedRole }));
+    setRegisterSuccess(false);
+    setShowRegisterModal(true);
+  };
+
+  const handleRegisterSubmit = (e) => {
+    e.preventDefault();
+    if (!registerData.name || !registerData.mobile) return;
+
+    const newInquiry = {
+      id: 'INQ' + Math.floor(10000 + Math.random() * 90000),
+      name: registerData.name,
+      mobile: registerData.mobile,
+      service: registerData.service,
+      role: registerData.role,
+      date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+      message: registerData.message || 'New partner onboarding application',
+      status: 'New'
+    };
+
+    try {
+      const existing = JSON.parse(localStorage.getItem('ronav_general_inquiries') || '[]');
+      localStorage.setItem('ronav_general_inquiries', JSON.stringify([newInquiry, ...existing]));
+    } catch (err) {
+      console.error(err);
+    }
+
+    setRegisterSuccess(true);
+  };
+
+  const roleOptions = [
+    { id: 'MASTER', label: 'MASTER (Master Distributor)', icon: '👑', desc: 'Master Distributor Command & Regional Network' },
+    { id: 'Super Distributor', label: 'Super Distributor', icon: '⚡', desc: 'Super Distributor Network & Commission Settlements' },
+    { id: 'DIST Franchise', label: 'DIST Franchise (Distributor Franchise)', icon: '🏢', desc: 'Distributor Franchise & ATM/CDM Operations' },
+    { id: 'Distributor', label: 'Distributor', icon: '📦', desc: 'Distributor Workspace & Retailer Management' },
+    { id: 'Retailer', label: 'Retailer (Merchant)', icon: '🏪', desc: 'Retail Merchant Portal, BBPS Bills & POS' }
+  ];
+
+  const currentRoleInfo = roleOptions.find((r) => r.id === selectedRole) || roleOptions[4];
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -25,8 +88,9 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
     setTimeout(() => {
       setIsLoading(false);
       onLoginSuccess({
-        name: userId || 'Ravi Merchant Store',
-        mid: 'MID: RONAV' + Math.floor(10000 + Math.random() * 90000)
+        name: userId || `${selectedRole} Partner Store`,
+        mid: 'MID: RONAV' + Math.floor(10000 + Math.random() * 90000),
+        role: selectedRole
       });
     }, 700);
   };
@@ -44,7 +108,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 relative font-sans" style={{ width: '100%' }}>
       
-      {/* 1. Header Navigation Bar (Same-to-Same Blueprint) */}
+      {/* 1. Header Navigation Bar */}
       <header style={{ backgroundColor: '#FFFFFF', borderBottom: '1px solid #E2E8F0', padding: 'var(--nav-padding) 1rem', position: 'sticky', top: 0, zIndex: 50 }}>
         <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           
@@ -62,7 +126,6 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
               textAlign: 'left'
             }}
           >
-            {/* Symmetrical Vector TR Monogram Symbol (Official Shape) */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <img 
                 src="/logo_tr_transparent.png" 
@@ -76,7 +139,6 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
               />
             </div>
 
-            {/* Letter-by-Letter Writing Animation Naming */}
             <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
               <div 
                 style={{ 
@@ -89,34 +151,12 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
                   alignItems: 'center'
                 }}
               >
-                {/* R */}
-                <span style={{
-                  display: 'inline-block',
-                  opacity: animated ? 1 : 0,
-                  transform: animated ? 'translateX(0)' : 'translateX(-6px)',
-                  transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 300ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 300ms`
-                }}>R</span>
-                {/* O */}
-                <span style={{
-                  display: 'inline-block',
-                  opacity: animated ? 1 : 0,
-                  transform: animated ? 'translateX(0)' : 'translateX(-6px)',
-                  transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 370ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 370ms`
-                }}>O</span>
-                {/* N */}
-                <span style={{
-                  display: 'inline-block',
-                  opacity: animated ? 1 : 0,
-                  transform: animated ? 'translateX(0)' : 'translateX(-6px)',
-                  transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 440ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 440ms`
-                }}>N</span>
-                {/* A (Inverted V Chevron) */}
+                <span style={{ display: 'inline-block' }}>R</span>
+                <span style={{ display: 'inline-block' }}>O</span>
+                <span style={{ display: 'inline-block' }}>N</span>
                 <span
                   style={{
                     display: 'inline-flex',
-                    opacity: animated ? 1 : 0,
-                    transform: animated ? 'translateX(0)' : 'translateX(-6px)',
-                    transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 510ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 510ms`,
                     width: 'clamp(0.95rem, 3vw, 1.15rem)',
                     height: 'clamp(0.95rem, 3vw, 1.15rem)',
                     marginRight: '2px',
@@ -135,28 +175,20 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
                     <path d="M12 90 L50 15 L88 90" stroke="url(#logoTGrad)" strokeWidth="22" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </span>
-                {/* V */}
-                <span style={{
-                  display: 'inline-block',
-                  opacity: animated ? 1 : 0,
-                  transform: animated ? 'translateX(0)' : 'translateX(-6px)',
-                  transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 580ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 580ms`
-                }}>V</span>
+                <span style={{ display: 'inline-block' }}>V</span>
+                <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '0.125rem 0.375rem', borderRadius: '4px', border: '1px solid #BFDBFE', marginLeft: '0.375rem' }}>
+                  PARTNER
+                </span>
               </div>
               
-              {/* TECHNOLOGIES with gradient accent lines */}
               <div 
                 style={{ 
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.25rem',
-                  opacity: animated ? 1 : 0,
-                  transform: animated ? 'translateY(0)' : 'translateY(3px)',
-                  transition: `opacity 400ms cubic-bezier(0.16, 1, 0.3, 1) 750ms, transform 400ms cubic-bezier(0.16, 1, 0.3, 1) 750ms`,
                   marginTop: '3px'
                 }}
               >
-                {/* Accent Line Left */}
                 <div style={{ height: '2px', width: '12px', background: 'linear-gradient(90deg, transparent, #0066FF)', borderRadius: '1px' }} />
                 <span 
                   style={{ 
@@ -169,7 +201,6 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
                 >
                   TECHNOLOGIES
                 </span>
-                {/* Accent Line Right */}
                 <div style={{ height: '2px', width: '12px', background: 'linear-gradient(90deg, #0066FF, transparent)', borderRadius: '1px' }} />
               </div>
             </div>
@@ -218,7 +249,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
         </div>
       )}
 
-      {/* 2. Dark Navy Banner Header */}
+      {/* 2. Dark Navy Banner Header (Title & Subtitle Adapt Dynamically to Selected Role) */}
       <div 
         style={{ 
           backgroundImage: 'radial-gradient(circle at 50% 30%, rgba(15, 82, 186, 0.25) 0%, rgba(7, 15, 30, 0.95) 80%), url("/hero_bg.png")',
@@ -231,32 +262,150 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
           clipPath: 'ellipse(130% 100% at 50% 0%)'
         }}
       >
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.25rem 0.75rem', background: 'rgba(255,255,255,0.12)', borderRadius: '20px', fontSize: '0.75rem', color: '#BFDBFE', fontWeight: 800, marginBottom: '0.75rem' }}>
+          <span>{currentRoleInfo.icon}</span>
+          <span>{selectedRole.toUpperCase()} PORTAL</span>
+        </div>
+
         <h1 style={{ fontSize: 'var(--text-h1)', fontWeight: 900, color: '#FFFFFF', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>
-          Merchant Login
+          {selectedRole} Login
         </h1>
-        <p style={{ fontSize: '0.875rem', color: 'rgba(255, 255, 255, 0.85)', fontWeight: 500 }}>
-          Access your Merchant Portal
+        <p style={{ fontSize: '0.875rem', color: 'rgba(255, 255, 255, 0.85)', fontWeight: 500, maxWidth: '420px', margin: '0 auto' }}>
+          {currentRoleInfo.desc}
         </p>
         <div style={{ width: '36px', height: '4px', background: '#0F52BA', borderRadius: '2px', margin: '0.75rem auto 0' }} />
       </div>
 
-      {/* 3. Main Login Form Card (Overlaps Banner with Negative Top Margin) */}
-      <main className="flex-grow container" style={{ marginTop: '-4rem', marginBottom: '2.5rem', maxWidth: '440px', position: 'relative', zIndex: 10 }}>
+      {/* 3. Main Login Form Card */}
+      <main className="flex-grow container" style={{ marginTop: '-4rem', marginBottom: '2.5rem', maxWidth: '460px', position: 'relative', zIndex: 10 }}>
         
         <div className="card" style={{ backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0', padding: '1.75rem 1.5rem', borderRadius: '18px', boxShadow: '0 12px 32px -4px rgba(15,23,42,0.1)' }}>
           
+          {/* Custom Styled Dynamic Role Dropdown Selector */}
+          <div ref={roleDropdownRef} style={{ marginBottom: '1.25rem', paddingBottom: '1rem', borderBottom: '1px solid #F1F5F9', position: 'relative' }}>
+            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8125rem', fontWeight: 800, color: '#0F172A', marginBottom: '0.5rem' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                <Layers style={{ width: '16px', height: '16px', color: '#0F52BA' }} />
+                Select Business Role
+              </span>
+              <span style={{ fontSize: '0.6875rem', color: '#059669', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#059669' }}></span>
+                Active: {selectedRole}
+              </span>
+            </label>
+
+            {/* Custom Dropdown Trigger Button */}
+            <button
+              type="button"
+              onClick={() => setIsRoleDropdownOpen(!isRoleDropdownOpen)}
+              style={{
+                width: '100%',
+                padding: '0.75rem 1rem',
+                borderRadius: '12px',
+                border: isRoleDropdownOpen ? '2px solid #0F52BA' : '1.5px solid #0F52BA',
+                backgroundColor: '#EFF6FF',
+                fontSize: '0.875rem',
+                fontWeight: 800,
+                color: '#0F172A',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                cursor: 'pointer',
+                boxShadow: isRoleDropdownOpen ? '0 0 0 3px rgba(15, 82, 186, 0.15)' : '0 2px 8px rgba(15, 82, 186, 0.08)',
+                transition: 'all 150ms ease'
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: '1.125rem' }}>{currentRoleInfo.icon}</span>
+                <span style={{ color: '#0F172A', fontWeight: 800 }}>{currentRoleInfo.label}</span>
+              </span>
+              {isRoleDropdownOpen ? (
+                <ChevronUp style={{ width: '18px', height: '18px', color: '#0F52BA', flexShrink: 0 }} />
+              ) : (
+                <ChevronDown style={{ width: '18px', height: '18px', color: '#0F52BA', flexShrink: 0 }} />
+              )}
+            </button>
+
+            {/* Custom Sleek Dropdown Menu */}
+            {isRoleDropdownOpen && (
+              <div 
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% - 6px)',
+                  left: 0,
+                  right: 0,
+                  backgroundColor: '#FFFFFF',
+                  border: '1.5px solid #BFDBFE',
+                  borderRadius: '14px',
+                  boxShadow: '0 16px 36px -4px rgba(15, 82, 186, 0.25), 0 4px 12px rgba(0,0,0,0.06)',
+                  zIndex: 50,
+                  overflow: 'hidden',
+                  padding: '0.375rem'
+                }}
+              >
+                {roleOptions.map((role) => {
+                  const isSelected = role.id === selectedRole;
+                  return (
+                    <button
+                      key={role.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedRole(role.id);
+                        setIsRoleDropdownOpen(false);
+                      }}
+                      style={{
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '0.625rem 0.75rem',
+                        borderRadius: '10px',
+                        border: 'none',
+                        backgroundColor: isSelected ? '#EFF6FF' : 'transparent',
+                        color: isSelected ? '#0F52BA' : '#1E293B',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'all 120ms ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isSelected) e.currentTarget.style.backgroundColor = '#F8FAFC';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                        <span style={{ fontSize: '1.125rem' }}>{role.icon}</span>
+                        <div>
+                          <div style={{ fontSize: '0.8125rem', fontWeight: isSelected ? 800 : 700 }}>
+                            {role.label}
+                          </div>
+                        </div>
+                      </div>
+                      {isSelected && (
+                        <div style={{ width: '20px', height: '20px', borderRadius: '50%', backgroundColor: '#0F52BA', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Check style={{ width: '12px', height: '12px', strokeWidth: 3 }} />
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.125rem' }}>
             
             {/* User ID Field */}
             <div className="form-group" style={{ margin: 0 }}>
               <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#0F172A', marginBottom: '0.375rem' }}>
-                User ID
+                {selectedRole} User ID / Mobile
               </label>
               <div style={{ position: 'relative' }}>
                 <User style={{ width: '18px', height: '18px', color: '#0F52BA', position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
                 <input
                   type="text"
-                  placeholder="Enter User ID"
+                  placeholder={`Enter ${selectedRole} User ID`}
                   value={userId}
                   onChange={(e) => setUserId(e.target.value)}
                   style={{
@@ -345,7 +494,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
               }}
             >
               <ArrowRight style={{ width: '18px', height: '18px' }} />
-              <span>{isLoading ? 'AUTHENTICATING...' : 'LOGIN'}</span>
+              <span>{isLoading ? 'AUTHENTICATING...' : `LOGIN AS ${selectedRole.toUpperCase()}`}</span>
             </button>
 
             {/* OR Divider */}
@@ -355,10 +504,10 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
               <div style={{ flex: 1, height: '1px', backgroundColor: '#E2E8F0' }} />
             </div>
 
-            {/* New Merchant Sign Up Outlined Button */}
+            {/* Dynamic New Partner Registration Button */}
             <button
               type="button"
-              onClick={onBackToHome}
+              onClick={handleOpenRegister}
               style={{
                 width: '100%',
                 height: '42px',
@@ -376,7 +525,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
                 transition: 'all 200ms ease'
               }}
             >
-              <span>New Merchant? Sign Up</span>
+              <span>Apply as New {selectedRole} Partner →</span>
             </button>
 
           </form>
@@ -390,8 +539,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
           </h2>
           <div style={{ width: '36px', height: '3px', background: '#0F52BA', borderRadius: '2px', margin: '0.5rem auto 1.5rem' }} />
 
-          {/* 4 Pillar Badges (2x2 Grid) */}
-          {/* 4 Pillar Badges (4-Column Row matching reference exactly) */}
+          {/* 4 Pillar Badges (4-Column Row) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.375rem', margin: '0 auto' }}>
             
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
@@ -425,7 +573,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
           </div>
         </div>
 
-        {/* 5. Contact / Help Desk Card (Responsive columns, fits email cleanly) */}
+        {/* 5. Contact / Help Desk Card */}
         <div 
           className="card" 
           style={{ 
@@ -481,7 +629,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
 
       </main>
 
-      {/* 6. Blueprint Footer Bar */}
+      {/* 6. Footer Bar */}
       <footer style={{ backgroundColor: '#0B46AD', color: '#FFFFFF', textAlign: 'center', padding: '1rem', fontSize: '0.75rem', fontWeight: 600 }}>
         © 2021 – RONAV TECHNOLOGIES. All Rights Reserved.
       </footer>
@@ -489,12 +637,12 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
       {/* Forgot Password Recovery Modal */}
       {showForgotModal && (
         <div className="modal-backdrop" onClick={() => setShowForgotModal(false)}>
-          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '380px' }}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '380px', padding: '1.75rem', borderRadius: '20px' }}>
             <h3 style={{ fontSize: '1.125rem', fontWeight: 800, color: '#0F172A', marginBottom: '0.375rem' }}>
-              Merchant Password Reset
+              Password Reset
             </h3>
             <p style={{ fontSize: '0.75rem', color: '#64748B', marginBottom: '1rem' }}>
-              Enter your registered User ID or Mobile Number to receive a password reset OTP.
+              Enter your registered {selectedRole} User ID or Mobile Number to receive a password reset OTP.
             </p>
 
             {forgotSuccess ? (
@@ -534,6 +682,137 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Quick Partner Inquiry & Sign Up Modal */}
+      {showRegisterModal && (
+        <div className="modal-backdrop" onClick={() => setShowRegisterModal(false)}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px', padding: '2rem 1.75rem', borderRadius: '24px' }}>
+            
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+              <div>
+                <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#0F172A', margin: '0 0 0.25rem' }}>
+                  Quick Partner Inquiry Form
+                </h3>
+                <p style={{ fontSize: '0.8125rem', color: '#64748B', margin: 0, lineHeight: 1.4 }}>
+                  Fill in your details to get a callback from our merchant team within 2 hours.
+                </p>
+              </div>
+              <button 
+                onClick={() => setShowRegisterModal(false)}
+                style={{ background: '#F1F5F9', border: 'none', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748B' }}
+              >
+                <X style={{ width: '18px', height: '18px' }} />
+              </button>
+            </div>
+
+            {registerSuccess ? (
+              <div style={{ padding: '2rem 1.5rem', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '16px', textAlign: 'center' }}>
+                <CheckCircle2 style={{ width: '52px', height: '52px', color: '#059669', margin: '0 auto 1rem' }} />
+                <h4 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#065F46', margin: '0 0 0.5rem' }}>
+                  Inquiry Submitted to Admin!
+                </h4>
+                <p style={{ fontSize: '0.875rem', color: '#047857', lineHeight: 1.6, margin: '0 auto 1.5rem', maxWidth: '420px' }}>
+                  Thank you, <strong>{registerData.name}</strong>. Your onboarding request for <strong>{registerData.role}</strong> has been received by the RONAV Admin team. Credentials will be generated for <strong>{registerData.mobile}</strong> shortly.
+                </p>
+                <button 
+                  onClick={() => setShowRegisterModal(false)}
+                  className="btn btn-primary"
+                  style={{ backgroundColor: '#059669', borderColor: '#047857', padding: '0.625rem 1.75rem', fontWeight: 800 }}
+                >
+                  Done
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleRegisterSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>FULL NAME *</label>
+                  <input 
+                    type="text" 
+                    required 
+                    placeholder="e.g. Ramesh Kumar"
+                    value={registerData.name}
+                    onChange={(e) => setRegisterData({ ...registerData, name: e.target.value })}
+                    className="form-input"
+                    style={{ minHeight: '46px', borderRadius: '10px' }}
+                  />
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>MOBILE NUMBER *</label>
+                  <input 
+                    type="tel" 
+                    required 
+                    placeholder="10-digit Mobile No."
+                    value={registerData.mobile}
+                    onChange={(e) => setRegisterData({ ...registerData, mobile: e.target.value })}
+                    className="form-input"
+                    style={{ minHeight: '46px', borderRadius: '10px' }}
+                  />
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>SERVICE INTERESTED</label>
+                  <select 
+                    value={registerData.service}
+                    onChange={(e) => setRegisterData({ ...registerData, service: e.target.value })}
+                    className="form-input"
+                    style={{ minHeight: '46px', borderRadius: '10px', fontWeight: 700 }}
+                  >
+                    <option value="PG & POS Solutions">PG & POS Solutions</option>
+                    <option value="Personal & Business Loans">Personal & Business Loans</option>
+                    <option value="ATM & CDM Franchise">ATM & CDM Franchise</option>
+                    <option value="BBPS Utility Bill Payments">BBPS Utility Bill Payments</option>
+                    <option value="All Financial Ecosystem Services">All Financial Ecosystem Services</option>
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>PARTNER CATEGORY</label>
+                  <select 
+                    value={registerData.role}
+                    onChange={(e) => setRegisterData({ ...registerData, role: e.target.value })}
+                    className="form-input"
+                    style={{ minHeight: '46px', borderRadius: '10px', fontWeight: 700 }}
+                  >
+                    <option value="Retailer">Merchant / Retailer</option>
+                    <option value="Distributor">Distributor</option>
+                    <option value="DIST Franchise">DIST Franchise (Distributor Franchise)</option>
+                    <option value="Super Distributor">Super Distributor</option>
+                    <option value="MASTER">MASTER (Master Distributor)</option>
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>ADDITIONAL MESSAGE / REQUIREMENT</label>
+                  <textarea 
+                    rows="2" 
+                    placeholder="Briefly describe your business location or loan requirement..."
+                    value={registerData.message}
+                    onChange={(e) => setRegisterData({ ...registerData, message: e.target.value })}
+                    className="form-input"
+                    style={{ borderRadius: '10px' }}
+                  ></textarea>
+                </div>
+
+                <button 
+                  type="submit" 
+                  className="btn btn-primary"
+                  style={{ width: '100%', justifyContent: 'center', height: '48px', fontWeight: 800, fontSize: '0.9375rem', backgroundColor: '#0F52BA', marginTop: '0.25rem' }}
+                >
+                  <span>Submit Partner Inquiry</span>
+                  <Send style={{ width: '16px', height: '16px' }} />
+                </button>
+
+                <p style={{ fontSize: '0.6875rem', color: '#94A3B8', textAlign: 'center', margin: 0 }}>
+                  🔒 Fast callback & credential dispatch by RONAV Admin.
+                </p>
+              </form>
+            )}
+
           </div>
         </div>
       )}

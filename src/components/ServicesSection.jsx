@@ -10,7 +10,7 @@ import {
   QrCode
 } from 'lucide-react';
 
-export default function ServicesSection({ onOpenLogin, onShowToast }) {
+export default function ServicesSection({ onOpenLogin, onShowToast, onNavigate }) {
   const [loanAmount, setLoanAmount] = useState(500000);
   const [dailyTxns, setDailyTxns] = useState(50);
   const sectionRef = useRef(null);
@@ -115,9 +115,9 @@ export default function ServicesSection({ onOpenLogin, onShowToast }) {
             {/* Action Footer */}
             <div style={{ paddingTop: '1rem', borderTop: '1px solid #F1F5F9', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#059669', letterSpacing: '0.08em', textTransform: 'uppercase' }}>RONAV SECURE</span>
-              <a href="#contact" className="btn btn-primary btn-mobile-full" style={{ backgroundColor: '#059669', borderColor: '#047857', width: '100%', justifyContent: 'center', fontWeight: 800, padding: '0.75rem 1.25rem', borderRadius: '12px' }}>
+              <button onClick={() => onNavigate && onNavigate('service-loans')} className="btn btn-primary btn-mobile-full" style={{ backgroundColor: '#059669', borderColor: '#047857', width: '100%', justifyContent: 'center', fontWeight: 800, padding: '0.75rem 1.25rem', borderRadius: '12px' }}>
                 Apply for Loan Credit →
-              </a>
+              </button>
             </div>
           </div>
 
@@ -188,9 +188,9 @@ export default function ServicesSection({ onOpenLogin, onShowToast }) {
             {/* Action Footer */}
             <div style={{ paddingTop: '1rem', borderTop: '1px solid #F1F5F9', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#0F52BA', letterSpacing: '0.08em', textTransform: 'uppercase' }}>HIGH MARGIN</span>
-              <a href="#contact" className="btn btn-primary btn-mobile-full" style={{ backgroundColor: '#0F52BA', width: '100%', justifyContent: 'center', fontWeight: 800, padding: '0.75rem 1.25rem', borderRadius: '12px' }}>
+              <button onClick={() => onNavigate && onNavigate('service-atm')} className="btn btn-primary btn-mobile-full" style={{ backgroundColor: '#0F52BA', width: '100%', justifyContent: 'center', fontWeight: 800, padding: '0.75rem 1.25rem', borderRadius: '12px' }}>
                 Enquire for Franchise →
-              </a>
+              </button>
             </div>
           </div>
 
@@ -261,9 +261,9 @@ export default function ServicesSection({ onOpenLogin, onShowToast }) {
             {/* Action Footer */}
             <div style={{ paddingTop: '1rem', borderTop: '1px solid #F1F5F9', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#D97706', letterSpacing: '0.08em', textTransform: 'uppercase' }}>COMMISSION PER TXN</span>
-              <a href="#contact" className="btn btn-primary btn-mobile-full" style={{ backgroundColor: '#D97706', borderColor: '#B45309', width: '100%', justifyContent: 'center', fontWeight: 800, padding: '0.75rem 1.25rem', borderRadius: '12px' }}>
+              <button onClick={() => onNavigate && onNavigate('service-bbps')} className="btn btn-primary btn-mobile-full" style={{ backgroundColor: '#D97706', borderColor: '#B45309', width: '100%', justifyContent: 'center', fontWeight: 800, padding: '0.75rem 1.25rem', borderRadius: '12px' }}>
                 Start Collecting Bills →
-              </a>
+              </button>
             </div>
           </div>
 
@@ -334,9 +334,9 @@ export default function ServicesSection({ onOpenLogin, onShowToast }) {
             {/* Action Footer */}
             <div style={{ paddingTop: '1rem', borderTop: '1px solid #F1F5F9', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#7C3AED', letterSpacing: '0.08em', textTransform: 'uppercase' }}>INSTANT SETTLEMENT</span>
-              <a href="#contact" className="btn btn-primary btn-mobile-full" style={{ backgroundColor: '#7C3AED', borderColor: '#6D28D9', width: '100%', justifyContent: 'center', fontWeight: 800, padding: '0.75rem 1.25rem', borderRadius: '12px' }}>
-                Get PG & POS Setup →
-              </a>
+              <button onClick={() => onNavigate && onNavigate('service-pos')} className="btn btn-primary btn-mobile-full" style={{ backgroundColor: '#7C3AED', borderColor: '#6D28D9', width: '100%', justifyContent: 'center', fontWeight: 800, padding: '0.75rem 1.25rem', borderRadius: '12px' }}>
+                Enquire for PG & POS →
+              </button>
             </div>
           </div>
 
@@ -413,9 +413,13 @@ export default function ServicesSection({ onOpenLogin, onShowToast }) {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <a href="#contact" className="btn btn-primary btn-sm" style={{ width: '100%', backgroundColor: '#0F52BA' }}>
+              <button 
+                onClick={() => onNavigate && onNavigate('service-loans')} 
+                className="btn btn-primary btn-sm" 
+                style={{ width: '100%', backgroundColor: '#0F52BA', cursor: 'pointer', border: 'none' }}
+              >
                 Apply with this Estimate →
-              </a>
+              </button>
             </div>
           </div>
 

@@ -79,7 +79,9 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                   </svg>
                 </span>
                 <span style={{ display: 'inline-block' }}>V</span>
-                <span className="brand-tag" style={{ fontSize: '0.45rem', padding: '0.0625rem 0.2rem', marginLeft: '0.25rem', alignSelf: 'center' }}>MERCHANT</span>
+                <span className="brand-tag" style={{ fontSize: '0.45rem', padding: '0.0625rem 0.25rem', marginLeft: '0.25rem', alignSelf: 'center', textTransform: 'uppercase' }}>
+                  {user?.role || 'RETAILER'}
+                </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', marginTop: '2px' }}>
                 <div style={{ height: '1.5px', width: '8px', background: 'linear-gradient(90deg, transparent, #0066FF)', borderRadius: '1px' }} />
@@ -124,7 +126,12 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                 {user?.name?.charAt(0).toUpperCase() || 'R'}
               </div>
               <div className="profile-info-text text-left" style={{ whiteSpace: 'nowrap', paddingRight: '0.25rem' }}>
-                <p style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0F172A', lineHeight: 1.1, margin: 0 }}>{user?.name || 'Ravi Store'}</p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                  <p style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0F172A', lineHeight: 1.1, margin: 0 }}>{user?.name || 'Ravi Store'}</p>
+                  <span style={{ fontSize: '0.45rem', fontWeight: 900, background: '#EFF6FF', color: '#0F52BA', padding: '1px 4px', borderRadius: '3px', border: '1px solid #BFDBFE' }}>
+                    {user?.role || 'Retailer'}
+                  </span>
+                </div>
                 <p style={{ fontSize: '0.5rem', fontWeight: 700, color: '#64748B', margin: 0 }}>MID: {user?.mid || 'RONAV12345'}</p>
               </div>
               <button onClick={onLogout} className="btn btn-ghost btn-sm" title="Log Out" style={{ padding: '0.125rem', color: '#DC2626', minHeight: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

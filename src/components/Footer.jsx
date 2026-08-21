@@ -106,11 +106,16 @@ export default function Footer({ onOpenLogin, onOpenOfficeModal }) {
                   {/* Accent Line Right */}
                   <div style={{ height: '1.5px', width: '10px', background: 'linear-gradient(90deg, #0066FF, transparent)', borderRadius: '1px' }} />
                 </div>
+                
+                {/* Powered by Rose Navaneetham Enterprises */}
+                <span style={{ fontSize: '0.625rem', color: '#38BDF8', fontWeight: 800, marginTop: '5px', letterSpacing: '0.04em' }}>
+                  Powered by Rose Navaneetham Enterprises
+                </span>
               </div>
             </div>
 
             <p style={{ fontSize: '0.8125rem', color: '#94A3B8', lineHeight: 1.65, marginBottom: '1.25rem' }}>
-              RONAV Technologies (Established 2021) is an enterprise financial services platform empowering business owners, retailers, and distributors across India with credit, bill collection, and cash deposit solutions.
+              RONAV Technologies (Established 2021) is an enterprise financial services platform powered by Rose Navaneetham Enterprises, empowering business owners, retailers, and distributors across India with credit, bill collection, and cash deposit solutions.
             </p>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.75rem', color: '#34D399', fontWeight: 700 }}>
@@ -152,15 +157,7 @@ export default function Footer({ onOpenLogin, onOpenOfficeModal }) {
                 className="btn btn-secondary btn-sm"
                 style={{ justifyContent: 'flex-start', color: '#0F52BA', fontWeight: 800 }}
               >
-                Merchant Login Gateway →
-              </button>
-
-              <button 
-                onClick={() => onOpenLogin('admin')} 
-                className="btn btn-ghost btn-sm"
-                style={{ justifyContent: 'flex-start', color: '#94A3B8' }}
-              >
-                🔒 Admin Portal Access
+                Partner Network Portal →
               </button>
             </div>
 
@@ -180,7 +177,7 @@ export default function Footer({ onOpenLogin, onOpenOfficeModal }) {
 
         {/* Sub-Footer Legal Copyright */}
         <div style={{ paddingTop: '1.5rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', fontSize: '0.75rem' }}>
-          <p>© 2021 – {new Date().getFullYear()} RONAV TECHNOLOGIES. All Rights Reserved.</p>
+          <p>© 2021 – {new Date().getFullYear()} RONAV TECHNOLOGIES • Powered by Rose Navaneetham Enterprises. All Rights Reserved.</p>
           <div style={{ display: 'flex', gap: '1.25rem' }}>
             <a href="#" className="footer-link">Privacy Policy</a>
             <a href="#" className="footer-link">Terms of Service</a>

@@ -26,8 +26,7 @@ export default function CommandPalette({ isOpen, onClose, onOpenLogin }) {
     { title: 'ATM & CDM Franchise Setup', icon: Building2, color: '#0F52BA', link: '#services', desc: 'Setup WLA Cash Machines' },
     { title: 'BBPS Utility Bill Payments', icon: Receipt, color: '#D97706', link: '#services', desc: 'Electricity, Mobile, Postpaid, DTH' },
     { title: 'Payment Gateway & POS Machines', icon: CreditCard, color: '#4F46E5', link: '#services', desc: 'QR Code & Mobile Swiping Terminals' },
-    { title: 'Merchant Login Gateway', icon: User, color: '#0F52BA', action: () => { onClose(); onOpenLogin('merchant'); }, desc: 'Access operational wallet & payouts' },
-    { title: 'Admin Command Center Login', icon: ShieldCheck, color: '#DC2626', action: () => { onClose(); onOpenLogin('admin'); }, desc: 'Ecosystem governance & audit logs' },
+    { title: 'Partner Network Portal Gateway', icon: User, color: '#0F52BA', action: () => { onClose(); onOpenLogin('merchant'); }, desc: 'Master, Super Dist, Dist Franchise, Distributor & Retailer Login' },
     { title: 'Call Direct Hotline: 9966203053', icon: Phone, color: '#059669', href: 'tel:9966203053', desc: 'Instant support desk' }
   ];
 

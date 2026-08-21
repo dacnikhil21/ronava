@@ -78,6 +78,27 @@ export default function AdminDashboardPage({ onLogout }) {
     { id: 'FR-4503', name: 'Naveen Kumar', phone: '7776665544', location: 'Warangal, TS', status: 'Under Review', date: '15 May 2025', spaceArea: '110 sq ft', depositStatus: 'Paid', siteReview: 'Scheduled', proximityToBank: '500m' }
   ]);
 
+  // Load inquiries submitted by users from localStorage
+  useEffect(() => {
+    try {
+      const storedLoans = JSON.parse(localStorage.getItem('ronav_loan_inquiries') || '[]');
+      if (storedLoans.length > 0) {
+        setLoansList(prev => [...storedLoans, ...prev.filter(p => !storedLoans.some(s => s.id === p.id))]);
+        setMetrics(m => ({ ...m, loansCount: m.loansCount + storedLoans.length }));
+      }
+
+      const storedFranchise = JSON.parse(localStorage.getItem('ronav_franchise_inquiries') || '[]');
+      if (storedFranchise.length > 0) {
+        setFranchisesList(prev => [...storedFranchise, ...prev.filter(p => !storedFranchise.some(s => s.id === p.id))]);
+        setMetrics(m => ({ ...m, franchiseRequests: m.franchiseRequests + storedFranchise.length }));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
+  const [issuedCredsModal, setIssuedCredsModal] = useState(null);
+
   const [withdrawalsList, setWithdrawalsList] = useState([
     { id: 'TXN-W001', merchant: 'Ravi Retail Store', mid: 'RONAV12345', amount: '₹12,500', bank: 'SBI Bank (****4567)', date: '16 May 2025', status: 'Pending', exiting: false },
     { id: 'TXN-W002', merchant: 'Sri Sai Agency', mid: 'RONAV12346', amount: '₹8,750', bank: 'HDFC Bank (****7890)', date: '16 May 2025', status: 'Pending', exiting: false },
@@ -132,6 +153,32 @@ export default function AdminDashboardPage({ onLogout }) {
       setMetrics(prev => ({ ...prev, withdrawalsCount: Math.max(0, prev.withdrawalsCount - 1) }));
       triggerToast(`Payout for ${merchant} rejected.`, 'error');
     }, 300);
+  };
+
+  const handleCreateAndIssueCredentials = (applicant) => {
+    const generatedMid = 'RONAV' + Math.floor(10000 + Math.random() * 90000);
+    const generatedPassword = 'Ronav@' + Math.floor(1000 + Math.random() * 9000);
+    const role = applicant.businessType || 'Retailer';
+
+    // Update status in list
+    if (applicant.type) {
+      setLoansList(prev => prev.map(l => l.id === applicant.id ? { ...l, status: 'Approved' } : l));
+    } else {
+      setFranchisesList(prev => prev.map(f => f.id === applicant.id ? { ...f, status: 'Approved' } : f));
+    }
+
+    setIssuedCredsModal({
+      name: applicant.name,
+      phone: applicant.phone,
+      mid: generatedMid,
+      password: generatedPassword,
+      role: role,
+      service: applicant.type || 'ATM Franchise'
+    });
+
+    triggerToast(`✓ Generated Merchant ID: ${generatedMid} for ${applicant.name}!`);
+    setSelectedLoan(null);
+    setSelectedFranchise(null);
   };
 
   const handleUpdateLoanStatus = (id, newStatus) => {
@@ -808,21 +855,30 @@ export default function AdminDashboardPage({ onLogout }) {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '0.5rem', borderTop: '1px solid #E2E8F0', paddingTop: '1rem', marginTop: '1rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px solid #E2E8F0', paddingTop: '1rem', marginTop: '1rem' }}>
             <button 
-              onClick={() => handleUpdateLoanStatus(selectedLoan.id, 'Approved')}
+              onClick={() => handleCreateAndIssueCredentials(selectedLoan)}
               className="btn btn-primary" 
-              style={{ flex: 1, backgroundColor: '#059669', border: 'none', minHeight: '44px', color: '#FFF' }}
+              style={{ backgroundColor: '#059669', border: 'none', minHeight: '44px', color: '#FFF', fontWeight: 800 }}
             >
-              Approve Loan
+              Approve & Issue Merchant Credentials →
             </button>
-            <button 
-              onClick={() => handleUpdateLoanStatus(selectedLoan.id, 'Under Review')}
-              className="btn btn-secondary" 
-              style={{ flex: 1, color: '#475569', backgroundColor: '#F1F5F9', border: 'none', minHeight: '44px' }}
-            >
-              Escalate Check
-            </button>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button 
+                onClick={() => handleUpdateLoanStatus(selectedLoan.id, 'Under Review')}
+                className="btn btn-secondary" 
+                style={{ flex: 1, color: '#475569', backgroundColor: '#F1F5F9', border: 'none', minHeight: '40px' }}
+              >
+                Escalate Check
+              </button>
+              <button 
+                onClick={() => setSelectedLoan(null)}
+                className="btn btn-secondary" 
+                style={{ flex: 1, color: '#64748B', backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1' }}
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -861,6 +917,7 @@ export default function AdminDashboardPage({ onLogout }) {
               <div>
                 <label style={{ fontSize: '0.625rem', color: '#64748B', textTransform: 'uppercase', fontWeight: 800 }}>Applicant Name</label>
                 <span style={{ fontSize: '0.875rem', fontWeight: 700, color: '#0A192F', display: 'block' }}>{selectedFranchise.name}</span>
+                <span style={{ fontSize: '0.75rem', color: '#64748B' }}>Phone: {selectedFranchise.phone}</span>
               </div>
               <div>
                 <label style={{ fontSize: '0.625rem', color: '#64748B', textTransform: 'uppercase', fontWeight: 800 }}>ATM Premises Space</label>
@@ -870,21 +927,97 @@ export default function AdminDashboardPage({ onLogout }) {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '0.5rem', borderTop: '1px solid #E2E8F0', paddingTop: '1rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px solid #E2E8F0', paddingTop: '1rem' }}>
             <button 
-              onClick={() => handleUpdateFranchiseStatus(selectedFranchise.id, 'Approved')}
+              onClick={() => handleCreateAndIssueCredentials(selectedFranchise)}
               className="btn btn-primary" 
-              style={{ flex: 1, backgroundColor: '#059669', border: 'none', minHeight: '44px', color: '#FFF' }}
+              style={{ backgroundColor: '#0F52BA', border: 'none', minHeight: '44px', color: '#FFF', fontWeight: 800 }}
             >
-              Approve Setup
+              Approve & Issue Franchise Credentials →
             </button>
             <button 
               onClick={() => setSelectedFranchise(null)}
               className="btn btn-secondary" 
-              style={{ flex: 1, color: '#475569', backgroundColor: '#F1F5F9', border: 'none' }}
+              style={{ color: '#475569', backgroundColor: '#F1F5F9', border: 'none' }}
             >
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ISSUED CREDENTIALS MODAL */}
+      {issuedCredsModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(15, 23, 42, 0.65)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '1rem'
+        }}>
+          <div style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: '20px',
+            maxWidth: '480px',
+            width: '100%',
+            padding: '2rem',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+            border: '1px solid #E2E8F0',
+            textAlign: 'center'
+          }}>
+            <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#ECFDF5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
+              <CheckCircle2 style={{ width: '32px', height: '32px' }} />
+            </div>
+
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0F172A', margin: '0 0 0.25rem' }}>
+              Partner Credentials Generated!
+            </h3>
+            <p style={{ fontSize: '0.75rem', color: '#64748B', margin: '0 0 1.5rem' }}>
+              Provide these login details to <strong>{issuedCredsModal.name}</strong> ({issuedCredsModal.phone}).
+            </p>
+
+            <div style={{ backgroundColor: '#F8FAFC', borderRadius: '12px', border: '1px solid #E2E8F0', padding: '1rem', textAlign: 'left', marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 700 }}>USER ID / MID:</span>
+                <strong style={{ fontSize: '0.9375rem', color: '#0F52BA', fontFamily: 'monospace' }}>{issuedCredsModal.mid}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 700 }}>TEMP PASSWORD:</span>
+                <strong style={{ fontSize: '0.9375rem', color: '#059669', fontFamily: 'monospace' }}>{issuedCredsModal.password}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 700 }}>ASSIGNED ROLE:</span>
+                <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', background: '#EFF6FF', padding: '2px 8px', borderRadius: '4px' }}>{issuedCredsModal.role}</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button 
+                onClick={() => {
+                  const text = `Hello ${issuedCredsModal.name}, your RONAV partner credentials are: User ID: ${issuedCredsModal.mid}, Password: ${issuedCredsModal.password}, Role: ${issuedCredsModal.role}. Login at Partner Portal.`;
+                  copyToClipboard(text, 'creds');
+                }}
+                className="btn btn-primary"
+                style={{ flex: 1, backgroundColor: '#0F52BA', justifyContent: 'center' }}
+              >
+                <Copy style={{ width: '16px', height: '16px' }} />
+                <span>Copy SMS / WhatsApp Text</span>
+              </button>
+              <button 
+                onClick={() => setIssuedCredsModal(null)}
+                className="btn btn-secondary"
+                style={{ flex: 0.5, justifyContent: 'center' }}
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

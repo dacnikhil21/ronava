@@ -81,14 +81,14 @@ export default function Hero({ onOpenLogin, onShowToast }) {
 
           {/* Action CTAs */}
           <div className="hero-ctas">
-            <button 
-              onClick={() => onOpenLogin('merchant')}
+            <a 
+              href="#contact"
               className="btn btn-primary btn-lg btn-mobile-full"
-              style={{ fontWeight: 800, backgroundColor: '#0F52BA', minHeight: '50px', padding: '0 1.75rem', boxShadow: '0 8px 24px rgba(15, 82, 186, 0.45)' }}
+              style={{ fontWeight: 800, backgroundColor: '#0F52BA', minHeight: '50px', padding: '0 1.75rem', boxShadow: '0 8px 24px rgba(15, 82, 186, 0.45)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', textDecoration: 'none' }}
             >
-              <span>Become a Merchant</span>
+              <span>Contact Us</span>
               <ArrowRight style={{ width: '18px', height: '18px' }} />
-            </button>
+            </a>
 
             <a 
               href="#services"
@@ -112,25 +112,36 @@ export default function Hero({ onOpenLogin, onShowToast }) {
         </div>
 
         {/* Right Column: Master 3D FinTech Ecosystem Diagram with Mobile Smartphone Mockup */}
-        <div style={{ width: '100%', position: 'relative' }}>
+        <div style={{ width: '100%', position: 'relative' }} className="hero-visual-col">
           <div 
+            className="hero-3d-card"
             style={{ 
               borderRadius: '24px', 
               overflow: 'hidden', 
-              boxShadow: '0 25px 60px -10px rgba(0,0,0,0.6)', 
-              border: '1px solid rgba(255, 255, 255, 0.15)',
+              boxShadow: '0 25px 60px -10px rgba(0,0,0,0.65), 0 0 40px rgba(15, 82, 186, 0.25)', 
+              border: '1.5px solid rgba(255, 255, 255, 0.15)',
               backgroundColor: '#070E22'
             }}
           >
             <img 
-              src="/ronav_3d_ecosystem_master.png" 
+              src="/hero_ecosystem_3d.jpg" 
               alt="RONAV Technologies Master FinTech 3D Ecosystem & Smartphone App" 
-              style={{ width: '100%', height: 'auto', display: 'block' }}
+              style={{ width: '100%', height: 'auto', display: 'block', objectFit: 'cover' }}
             />
           </div>
         </div>
 
       </div>
+
+      <style>{`
+        @media (max-width: 767px) {
+          .hero-3d-card {
+            border-radius: 16px !important;
+            margin-top: 1.5rem !important;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.5), 0 0 20px rgba(15,82,186,0.2) !important;
+          }
+        }
+      `}</style>
     </section>
   );
 }
