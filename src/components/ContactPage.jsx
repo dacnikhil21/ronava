@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Phone, 
   Mail, 
@@ -16,6 +16,12 @@ import {
 } from 'lucide-react';
 
 export default function ContactPage({ onBack, onShowToast }) {
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    if (document.documentElement) document.documentElement.scrollTop = 0;
+    if (document.body) document.body.scrollTop = 0;
+  }, []);
+
   const [formData, setFormData] = useState({
     name: '',
     mobile: '',

@@ -68,6 +68,13 @@ export default function App() {
     return () => observer.disconnect();
   }, [showSplash, currentView]);
 
+  // Ensure scroll top on page view switches
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    if (document.documentElement) document.documentElement.scrollTop = 0;
+    if (document.body) document.body.scrollTop = 0;
+  }, [currentView]);
+
   // Listen to URL changes for secure /admin access
   useEffect(() => {
     const checkAdminRoute = () => {
@@ -95,8 +102,10 @@ export default function App() {
   };
 
   const handleNavigate = (view) => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
     setCurrentView(view);
+    window.scrollTo(0, 0);
+    if (document.documentElement) document.documentElement.scrollTop = 0;
+    if (document.body) document.body.scrollTop = 0;
   };
 
   const handleOpenLogin = (type = 'merchant') => {
