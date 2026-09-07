@@ -15,6 +15,7 @@ import {
   Phone,
   Clock
 } from 'lucide-react';
+import { submitInquiry } from '../services/api';
 
 export default function ServiceLoansPage({ onOpenLogin, onBack, onShowToast }) {
   // Calculator state
@@ -44,30 +45,23 @@ export default function ServiceLoansPage({ onOpenLogin, onBack, onShowToast }) {
   const totalPayment = emi * tenureMonths;
   const totalInterest = totalPayment - loanAmount;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name || !formData.mobile) return;
 
-    // Save lead to shared localStorage for Admin Dashboard
-    const newInquiry = {
-      id: 'LN-' + Math.floor(1000 + Math.random() * 9000),
-      name: formData.name,
-      phone: formData.mobile,
-      type: formData.loanType,
-      amount: formData.amount,
-      status: 'New',
-      date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-      creditScore: 750,
-      docStatus: 'Pending Admin Review',
-      businessType: formData.partnerCategory,
-      remarks: formData.message || 'Submitted via Dedicated Loans Page'
-    };
-
+    // Save lead to SQLite backend database
     try {
-      const existing = JSON.parse(localStorage.getItem('ronav_loan_inquiries') || '[]');
-      localStorage.setItem('ronav_loan_inquiries', JSON.stringify([newInquiry, ...existing]));
+      await submitInquiry({
+        type: 'LOAN',
+        name: formData.name,
+        phone: formData.mobile,
+        amount: formData.amount,
+        category: formData.loanType,
+        location: 'Telangana',
+        remarks: `${formData.partnerCategory} • ${formData.incomeType} • ${formData.message || 'Dedicated Loans Page'}`
+      });
     } catch (err) {
-      console.error(err);
+      console.error('Failed to submit loan to SQLite backend:', err);
     }
 
     setSubmitted(true);

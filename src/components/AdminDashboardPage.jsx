@@ -24,12 +24,23 @@ import {
   LogOut,
   Shield,
   Activity,
-  Settings
+  Settings,
+  PlusCircle,
+  RefreshCw
 } from 'lucide-react';
+import { 
+  getAdminPending, 
+  verifyTransaction, 
+  getAllUsers, 
+  createDownstreamUser, 
+  verifyWithdrawal,
+  getInquiries 
+} from '../services/api';
+import RonavLogo from './RonavLogo';
 
-export default function AdminDashboardPage({ onLogout }) {
+export default function AdminDashboardPage({ onLogout, onNavigate }) {
   // Navigation & Tabs state
-  const [activeTab, setActiveTab] = useState('loans'); // 'loans' | 'franchise' | 'transactions' | 'withdrawals'
+  const [activeTab, setActiveTab] = useState('verifications'); // 'verifications' | 'hierarchy' | 'loans' | 'franchise' | 'transactions' | 'withdrawals'
   const [searchQuery, setSearchQuery] = useState('');
   
   // Interaction drawer states
@@ -52,71 +63,211 @@ export default function AdminDashboardPage({ onLogout }) {
   const [isRefreshingTelemetry, setIsRefreshingTelemetry] = useState(false);
   const [tabLoading, setTabLoading] = useState(false);
 
-  // Dynamic Metrics States
+  // Dynamic Metrics States (Pure DB driven)
   const [metrics, setMetrics] = useState({
-    loansCount: 18,
-    franchiseRequests: 12,
-    bbpsTxns: 256,
-    pgPosTxns: 1245,
-    atmTxns: 48,
-    totalMerchants: 2538,
-    withdrawalsCount: 23
+    loansCount: 0,
+    franchiseRequests: 0,
+    bbpsTxns: 0,
+    pgPosTxns: 0,
+    atmTxns: 0,
+    totalMerchants: 0,
+    withdrawalsCount: 0,
+    totalVolume: 0,
+    pendingVolume: 0
   });
 
   // Dynamic data stores
-  const [loansList, setLoansList] = useState([
-    { id: 'LN-9801', name: 'Ramesh Kumar', phone: '9876543210', type: 'Personal Loan', amount: '₹2,50,000', status: 'New', date: '16 May 2025', creditScore: 785, docStatus: 'Verified', businessType: 'Retail Merchant', remarks: 'KYC check passed.' },
-    { id: 'LN-9802', name: 'Suresh Babu', phone: '9123456780', type: 'Business Loan', amount: '₹10,00,000', status: 'Under Review', date: '16 May 2025', creditScore: 690, docStatus: 'Pending GST', businessType: 'Sole Proprietor', remarks: 'Awaiting GST returns submission.' },
-    { id: 'LN-9803', name: 'Lakshmi Prasad', phone: '9988776655', type: 'Personal Loan', amount: '₹1,00,000', status: 'New', date: '16 May 2025', creditScore: 810, docStatus: 'Verified', businessType: 'Retail Vendor', remarks: 'Documents clear.' },
-    { id: 'LN-9804', name: 'Anil Reddy', phone: '9000098765', type: 'Business Loan', amount: '₹25,00,000', status: 'Under Review', date: '15 May 2025', creditScore: 720, docStatus: 'Verified', businessType: 'Distributor Node', remarks: 'Site assessment required.' },
-    { id: 'LN-9805', name: 'Kavitha Devi', phone: '9887766554', type: 'Personal Loan', amount: '₹75,000', status: 'New', date: '15 May 2025', creditScore: 740, docStatus: 'Verified', businessType: 'Retail Merchant', remarks: 'Immediate micro-payout.' }
-  ]);
+  const [loansList, setLoansList] = useState([]);
+  const [franchisesList, setFranchisesList] = useState([]);
 
-  const [franchisesList, setFranchisesList] = useState([
-    { id: 'FR-4501', name: 'Rajesh Goud', phone: '9000123456', location: 'Secunderabad, Hyd', status: 'New', date: '16 May 2025', spaceArea: '120 sq ft', depositStatus: 'Pending', siteReview: 'Under Review', proximityToBank: 'Less than 100m' },
-    { id: 'FR-4502', name: 'Kalyan Chakravarthy', phone: '8887776655', location: 'Vijayawada, AP', status: 'Approved', date: '15 May 2025', spaceArea: '150 sq ft', depositStatus: 'Paid', siteReview: 'Passed', proximityToBank: '250m' },
-    { id: 'FR-4503', name: 'Naveen Kumar', phone: '7776665544', location: 'Warangal, TS', status: 'Under Review', date: '15 May 2025', spaceArea: '110 sq ft', depositStatus: 'Paid', siteReview: 'Scheduled', proximityToBank: '500m' }
-  ]);
-
-  // Load inquiries submitted by users from localStorage
+  // Load inquiries submitted by users from SQLite backend
   useEffect(() => {
-    try {
-      const storedLoans = JSON.parse(localStorage.getItem('ronav_loan_inquiries') || '[]');
-      if (storedLoans.length > 0) {
-        setLoansList(prev => [...storedLoans, ...prev.filter(p => !storedLoans.some(s => s.id === p.id))]);
-        setMetrics(m => ({ ...m, loansCount: m.loansCount + storedLoans.length }));
-      }
+    const fetchInquiries = async () => {
+      try {
+        const res = await getInquiries();
+        if (res.success && res.inquiries) {
+          const dbLoans = res.inquiries
+            .filter(i => i.type === 'LOAN')
+            .map(i => ({
+              id: i.id,
+              name: i.name,
+              phone: i.phone,
+              type: i.category || 'Personal Loan',
+              amount: i.amount,
+              status: i.status || 'New',
+              date: new Date(i.created_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+              creditScore: 760,
+              docStatus: 'Verified',
+              businessType: 'Retail Merchant',
+              remarks: i.remarks || ''
+            }));
 
-      const storedFranchise = JSON.parse(localStorage.getItem('ronav_franchise_inquiries') || '[]');
-      if (storedFranchise.length > 0) {
-        setFranchisesList(prev => [...storedFranchise, ...prev.filter(p => !storedFranchise.some(s => s.id === p.id))]);
-        setMetrics(m => ({ ...m, franchiseRequests: m.franchiseRequests + storedFranchise.length }));
+          const dbFranchises = res.inquiries
+            .filter(i => i.type === 'FRANCHISE')
+            .map(i => ({
+              id: i.id,
+              name: i.name,
+              phone: i.phone,
+              location: i.location || 'Hyderabad',
+              status: i.status || 'New',
+              date: new Date(i.created_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+              spaceArea: '120 sq ft',
+              depositStatus: 'Verified',
+              siteReview: 'Under Review',
+              proximityToBank: 'Commercial Node'
+            }));
+
+          setLoansList(dbLoans);
+          setFranchisesList(dbFranchises);
+          setMetrics(m => ({
+            ...m,
+            loansCount: dbLoans.length,
+            franchiseRequests: dbFranchises.length
+          }));
+        }
+      } catch (err) {
+        console.error('Failed to fetch inquiries from SQLite backend:', err);
+      }
+    };
+
+    fetchInquiries();
+  }, []);
+
+  // Dynamic SQLite Integration States (Live DB)
+  const [pendingTxns, setPendingTxns] = useState([]);
+  const [pendingPayouts, setPendingPayouts] = useState([]);
+  const [networkUsers, setNetworkUsers] = useState([]);
+  const [withdrawalsList, setWithdrawalsList] = useState([]);
+  const [transactionsLedger, setTransactionsLedger] = useState([]);
+  const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
+  const [newUserForm, setNewUserForm] = useState({
+    name: '',
+    mobile: '',
+    role: 'MERCHANT',
+    pos_provider: 'Pine Labs',
+    commission_rate: '1.25'
+  });
+  const [isSubmittingUser, setIsSubmittingUser] = useState(false);
+
+  // Fetch Live Pending Approvals, Volume, & Network from SQLite
+  const fetchAdminData = async () => {
+    try {
+      const res = await getAdminPending();
+      if (res.success) {
+        setPendingTxns(res.pendingTransactions || []);
+        setPendingPayouts(res.pendingWithdrawals || []);
+
+        // Map dynamic withdrawals from DB
+        const mappedWithdrawals = (res.pendingWithdrawals || []).map(w => ({
+          id: w.id,
+          merchant: w.merchant_name || 'Merchant',
+          mid: w.merchant_id,
+          amount: `₹${parseFloat(w.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+          bank: `${w.bank_name} (${w.account_number ? '••••' + w.account_number.slice(-4) : '••••'})`,
+          date: new Date(w.created_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+          status: w.status === 'APPROVED' ? 'Approved' : (w.status === 'REJECTED' ? 'Rejected' : 'Pending')
+        }));
+        setWithdrawalsList(mappedWithdrawals);
+
+        // Map dynamic transactions ledger from DB
+        const mappedLedger = (res.allTransactions || []).map(t => ({
+          id: t.id,
+          merchant: t.merchant_name || 'Merchant',
+          mid: t.merchant_id,
+          type: t.type === 'POS_SWIPE' ? `${t.pos_provider || 'POS'} Card Swipe` : (t.type === 'BBPS_BILL' ? 'BBPS Utility Bill' : 'QR Payment'),
+          amount: `₹${parseFloat(t.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
+          status: t.status === 'APPROVED' ? 'Success' : (t.status === 'REJECTED' ? 'Failed' : 'Pending'),
+          gateway: t.provider || 'Gateway',
+          date: new Date(t.created_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+        }));
+        setTransactionsLedger(mappedLedger);
+
+        if (res.stats) {
+          setMetrics(m => ({
+            ...m,
+            ...res.stats
+          }));
+        }
+      }
+      const usersRes = await getAllUsers();
+      if (usersRes.success) {
+        setNetworkUsers(usersRes.users || []);
+        setMetrics(m => ({ ...m, totalMerchants: usersRes.users.filter(u => u.role === 'MERCHANT').length }));
+      }
+    } catch (e) {
+      console.error('Failed to fetch admin pending data:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchAdminData();
+  }, []);
+
+  // Handle Approve or Reject Merchant Transaction
+  const handleVerifyTxn = async (txnId, action, merchantName, amount) => {
+    try {
+      const res = await verifyTransaction(txnId, action);
+      if (res.success) {
+        triggerToast(
+          action === 'APPROVE' 
+            ? `✓ Approved ₹${parseFloat(amount).toFixed(2)} for ${merchantName}. Available balance credited!` 
+            : `✕ Transaction ${txnId} rejected.`,
+          action === 'APPROVE' ? 'success' : 'error'
+        );
+        fetchAdminData();
+      } else {
+        triggerToast(res.message || 'Error updating transaction', 'error');
       }
     } catch (e) {
       console.error(e);
+      triggerToast('Backend connection failed', 'error');
     }
-  }, []);
+  };
+
+  // Handle Create User in Hierarchy
+  const handleCreateDownstreamUser = async (e) => {
+    e.preventDefault();
+    if (!newUserForm.name || !newUserForm.mobile) return;
+    setIsSubmittingUser(true);
+    try {
+      const res = await createDownstreamUser({
+        creator_id: 'ADM001',
+        name: newUserForm.name,
+        mobile: newUserForm.mobile,
+        role: newUserForm.role,
+        pos_provider: newUserForm.pos_provider,
+        commission_rate: parseFloat(newUserForm.commission_rate || (newUserForm.pos_provider === 'Payswiff' ? 1.65 : 1.25))
+      });
+
+      if (res.success) {
+        triggerToast(`✓ Created ${newUserForm.role} (${res.user?.id})!`);
+        setIsCreateUserModalOpen(false);
+        setNewUserForm({
+          name: '',
+          mobile: '',
+          role: 'MERCHANT',
+          pos_provider: 'Pine Labs',
+          commission_rate: '1.25'
+        });
+        fetchAdminData();
+      } else {
+        triggerToast(res.message || 'Failed to create user', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      triggerToast('Network error creating user', 'error');
+    } finally {
+      setIsSubmittingUser(false);
+    }
+  };
 
   const [issuedCredsModal, setIssuedCredsModal] = useState(null);
-
-  const [withdrawalsList, setWithdrawalsList] = useState([
-    { id: 'TXN-W001', merchant: 'Ravi Retail Store', mid: 'RONAV12345', amount: '₹12,500', bank: 'SBI Bank (****4567)', date: '16 May 2025', status: 'Pending', exiting: false },
-    { id: 'TXN-W002', merchant: 'Sri Sai Agency', mid: 'RONAV12346', amount: '₹8,750', bank: 'HDFC Bank (****7890)', date: '16 May 2025', status: 'Pending', exiting: false },
-    { id: 'TXN-W003', merchant: 'Lakshmi Traders', mid: 'RONAV12347', amount: '₹15,000', bank: 'ICICI Bank (****2345)', date: '15 May 2025', status: 'Approved', exiting: false },
-    { id: 'TXN-W004', merchant: 'New Digital Point', mid: 'RONAV12348', amount: '₹5,600', bank: 'AXIS Bank (****6789)', date: '15 May 2025', status: 'Rejected', exiting: false }
-  ]);
-
-  const [transactionsLedger, setTransactionsLedger] = useState([
-    { id: 'TXN-B871', merchant: 'Ravi Retail Store', mid: 'RONAV12345', type: 'BBPS (Electricity)', amount: '₹3,450.00', status: 'Success', gateway: 'BBPS', date: '16 May 2025' },
-    { id: 'TXN-P124', merchant: 'Sri Laxmi General', mid: 'RONAV89101', type: 'PG Sale (Credit Card)', amount: '₹12,890.00', status: 'Success', gateway: 'PG-POS', date: '16 May 2025' },
-    { id: 'TXN-B872', merchant: 'Balaji Supermarket', mid: 'RONAV45210', type: 'BBPS (Mobile Recharge)', amount: '₹499.00', status: 'Failed', gateway: 'BBPS', date: '16 May 2025' },
-    { id: 'TXN-A048', merchant: 'Franchise Outlet #04', mid: 'RONAVFR04', type: 'ATM Cash Withdrawal', amount: '₹5,000.00', status: 'Success', gateway: 'ATM-CDM', date: '15 May 2025' }
-  ]);
 
   const handleTabSwitch = (tabName) => {
     setTabLoading(true);
     setActiveTab(tabName);
     setSearchQuery('');
+    fetchAdminData();
     setTimeout(() => {
       setTabLoading(false);
     }, 350);
@@ -124,7 +275,7 @@ export default function AdminDashboardPage({ onLogout }) {
 
   const triggerToast = (msg, type = 'success') => {
     setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
+    setTimeout(() => setToast(null), 3500);
   };
 
   const copyToClipboard = (text, id) => {
@@ -137,22 +288,34 @@ export default function AdminDashboardPage({ onLogout }) {
     });
   };
 
-  const handleApprovePayout = (id, merchant, amount) => {
-    setWithdrawalsList(prev => prev.map(w => w.id === id ? { ...w, exiting: true } : w));
-    setTimeout(() => {
-      setWithdrawalsList(prev => prev.map(w => w.id === id ? { ...w, status: 'Approved', exiting: false } : w));
-      setMetrics(prev => ({ ...prev, withdrawalsCount: Math.max(0, prev.withdrawalsCount - 1) }));
-      triggerToast(`Payout of ${amount} cleared for ${merchant}.`);
-    }, 300);
+  const handleApprovePayout = async (id, merchant, amount) => {
+    try {
+      const res = await verifyWithdrawal(id, 'APPROVE');
+      if (res.success) {
+        triggerToast(`✓ Payout of ${amount} cleared for ${merchant}.`, 'success');
+        fetchAdminData();
+      } else {
+        triggerToast(res.message || 'Failed to approve payout', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      triggerToast('Network error verifying withdrawal', 'error');
+    }
   };
 
-  const handleRejectPayout = (id, merchant) => {
-    setWithdrawalsList(prev => prev.map(w => w.id === id ? { ...w, exiting: true } : w));
-    setTimeout(() => {
-      setWithdrawalsList(prev => prev.map(w => w.id === id ? { ...w, status: 'Rejected', exiting: false } : w));
-      setMetrics(prev => ({ ...prev, withdrawalsCount: Math.max(0, prev.withdrawalsCount - 1) }));
-      triggerToast(`Payout for ${merchant} rejected.`, 'error');
-    }, 300);
+  const handleRejectPayout = async (id, merchant) => {
+    try {
+      const res = await verifyWithdrawal(id, 'REJECT');
+      if (res.success) {
+        triggerToast(`✕ Payout for ${merchant} rejected.`, 'error');
+        fetchAdminData();
+      } else {
+        triggerToast(res.message || 'Failed to reject payout', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      triggerToast('Network error verifying withdrawal', 'error');
+    }
   };
 
   const handleCreateAndIssueCredentials = (applicant) => {
@@ -255,22 +418,8 @@ export default function AdminDashboardPage({ onLogout }) {
               <Menu style={{ width: '24px', height: '24px' }} />
             </button>
             
-            {/* Ronav Brand Monogram Logo */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <img 
-                src="/logo_tr_transparent.png" 
-                alt="TR Monogram" 
-                style={{ 
-                  height: '24px', 
-                  width: 'auto', 
-                  display: 'block' 
-                }} 
-              />
-              <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1 }}>
-                <span style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F', letterSpacing: '0.04em' }}>RONAV</span>
-                <span style={{ fontSize: '0.45rem', fontWeight: 800, color: '#64748B', letterSpacing: '0.12em', marginTop: '1px' }}>TECHNOLOGIES</span>
-              </div>
-            </div>
+            {/* Official Ronav Brand Logo */}
+            <RonavLogo size="small" />
           </div>
 
           {/* Right utilities: Notification + Admin Profile */}
@@ -337,20 +486,43 @@ export default function AdminDashboardPage({ onLogout }) {
             </p>
           </div>
 
-          {/* Calendar Widget Card */}
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '0.75rem', 
-            background: 'rgba(255, 255, 255, 0.06)', 
-            border: '1px solid rgba(255, 255, 255, 0.12)', 
-            padding: '0.625rem 1rem', 
-            borderRadius: '10px' 
-          }}>
-            <Calendar style={{ width: '20px', height: '20px', color: '#38BDF8' }} />
-            <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
-              <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#FFFFFF' }}>16 May 2025</span>
-              <span style={{ fontSize: '0.6875rem', color: '#38BDF8', fontWeight: 600 }}>Friday</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            {/* Quick Switch back to Merchant Portal for testing */}
+            <button
+              onClick={() => onNavigate ? onNavigate('merchant-dashboard') : window.location.pathname = '/'}
+              className="btn btn-sm"
+              style={{
+                backgroundColor: '#0F52BA',
+                color: '#FFFFFF',
+                border: '1px solid #38BDF8',
+                fontWeight: 800,
+                fontSize: '0.75rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.375rem',
+                borderRadius: '8px',
+                padding: '0.5rem 0.875rem',
+                cursor: 'pointer'
+              }}
+            >
+              <span>🏪 Switch to Merchant Portal →</span>
+            </button>
+
+            {/* Calendar Widget Card */}
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.75rem', 
+              background: 'rgba(255, 255, 255, 0.06)', 
+              border: '1px solid rgba(255, 255, 255, 0.12)', 
+              padding: '0.625rem 1rem', 
+              borderRadius: '10px' 
+            }}>
+              <Calendar style={{ width: '20px', height: '20px', color: '#38BDF8' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
+                <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#FFFFFF' }}>16 May 2025</span>
+                <span style={{ fontSize: '0.6875rem', color: '#38BDF8', fontWeight: 600 }}>Live SQLite</span>
+              </div>
             </div>
           </div>
 
@@ -498,19 +670,43 @@ export default function AdminDashboardPage({ onLogout }) {
             </div>
 
             {/* Tab Group */}
-            <div style={{ display: 'flex', borderBottom: '1px solid #E2E8F0', marginBottom: '1rem', overflowX: 'auto', gap: '0.5rem' }}>
-              <button onClick={() => handleTabSwitch('loans')} className={`queue-nav-tab ${activeTab === 'loans' ? 'tab-active' : ''}`}>
-                Loan Applications
-              </button>
-              <button onClick={() => handleTabSwitch('franchise')} className={`queue-nav-tab ${activeTab === 'franchise' ? 'tab-active' : ''}`}>
-                ATM/CDM Requests
-              </button>
-              <button onClick={() => handleTabSwitch('transactions')} className={`queue-nav-tab ${activeTab === 'transactions' ? 'tab-active' : ''}`}>
-                BBPS Transactions
-              </button>
-              <button onClick={() => handleTabSwitch('withdrawals')} className={`queue-nav-tab ${activeTab === 'withdrawals' ? 'tab-active' : ''}`}>
-                Payment Transactions
-              </button>
+            <div style={{ display: 'flex', borderBottom: '1px solid #E2E8F0', marginBottom: '1rem', overflowX: 'auto', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto' }}>
+                <button onClick={() => handleTabSwitch('verifications')} className={`queue-nav-tab ${activeTab === 'verifications' ? 'tab-active' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>Pending Verifications</span>
+                  {pendingTxns.length > 0 && (
+                    <span style={{ fontSize: '0.6rem', fontWeight: 900, background: '#DC2626', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
+                      {pendingTxns.length}
+                    </span>
+                  )}
+                </button>
+                <button onClick={() => handleTabSwitch('hierarchy')} className={`queue-nav-tab ${activeTab === 'hierarchy' ? 'tab-active' : ''}`}>
+                  Network Hierarchy & POS
+                </button>
+                <button onClick={() => handleTabSwitch('loans')} className={`queue-nav-tab ${activeTab === 'loans' ? 'tab-active' : ''}`}>
+                  Loan Applications
+                </button>
+                <button onClick={() => handleTabSwitch('franchise')} className={`queue-nav-tab ${activeTab === 'franchise' ? 'tab-active' : ''}`}>
+                  ATM/CDM Requests
+                </button>
+                <button onClick={() => handleTabSwitch('transactions')} className={`queue-nav-tab ${activeTab === 'transactions' ? 'tab-active' : ''}`}>
+                  BBPS Transactions
+                </button>
+                <button onClick={() => handleTabSwitch('withdrawals')} className={`queue-nav-tab ${activeTab === 'withdrawals' ? 'tab-active' : ''}`}>
+                  Payment Transactions
+                </button>
+              </div>
+
+              {activeTab === 'hierarchy' && (
+                <button 
+                  onClick={() => setIsCreateUserModalOpen(true)}
+                  className="btn btn-primary btn-sm"
+                  style={{ whiteSpace: 'nowrap', fontSize: '0.75rem', fontWeight: 800, padding: '0.35rem 0.75rem', marginBottom: '0.5rem' }}
+                >
+                  <PlusCircle style={{ width: '14px', height: '14px' }} />
+                  + Onboard Partner Store
+                </button>
+              )}
             </div>
 
             {/* Content list with dynamic Skeleton support */}
@@ -525,16 +721,162 @@ export default function AdminDashboardPage({ onLogout }) {
                 <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.75rem' }}>
                   <thead>
                     <tr style={{ borderBottom: '1px solid #E2E8F0', color: '#64748B', fontSize: '0.625rem', textTransform: 'uppercase' }}>
-                      <th style={{ padding: '0.75rem 0.5rem' }}>Applicant Name</th>
-                      <th style={{ padding: '0.75rem 0.5rem' }}>Mobile Number</th>
-                      <th style={{ padding: '0.75rem 0.5rem' }}>Loan Type</th>
-                      <th style={{ padding: '0.75rem 0.5rem' }}>Amount</th>
-                      <th style={{ padding: '0.75rem 0.5rem' }}>Status</th>
-                      <th style={{ padding: '0.75rem 0.5rem' }}>Applied On</th>
-                      <th style={{ padding: '0.75rem 0.5rem', width: '24px' }}></th>
+                      {activeTab === 'verifications' && (
+                        <>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Merchant / Store</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Customer Mobile</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Swipe Machine Assigned</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Amount</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Status</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Time</th>
+                          <th style={{ padding: '0.75rem 0.5rem', textAlign: 'right' }}>Action</th>
+                        </>
+                      )}
+
+                      {activeTab === 'hierarchy' && (
+                        <>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Account / ID</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Mobile Number</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Role Hierarchy</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Swipe Machine Config</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Created By</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Live Wallet</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Status</th>
+                        </>
+                      )}
+
+                      {activeTab !== 'verifications' && activeTab !== 'hierarchy' && (
+                        <>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Applicant Name</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Mobile Number</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Type</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Amount</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Status</th>
+                          <th style={{ padding: '0.75rem 0.5rem' }}>Applied On</th>
+                          <th style={{ padding: '0.75rem 0.5rem', width: '24px' }}></th>
+                        </>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
+                    {activeTab === 'verifications' && (
+                      pendingTxns.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} style={{ textAlign: 'center', padding: '3rem 1rem', color: '#64748B' }}>
+                            <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: '#ECFDF5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.75rem' }}>
+                              <CheckCircle2 style={{ width: '24px', height: '24px' }} />
+                            </div>
+                            <strong style={{ display: 'block', color: '#0F172A', fontSize: '0.875rem' }}>All Merchant Transactions Cleared!</strong>
+                            <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem' }}>When merchants record manual sales, swipe collections, or wallet deposits, they will show up here for your verification.</p>
+                          </td>
+                        </tr>
+                      ) : (
+                        pendingTxns.map((t) => (
+                          <tr key={t.id} className="interactive-table-row">
+                            <td style={{ padding: '0.75rem 0.5rem', fontWeight: 800, color: '#0A192F' }}>
+                              <div style={{ fontSize: '0.8125rem' }}>{t.merchant_name}</div>
+                              <span style={{ fontSize: '0.55rem', color: '#64748B' }}>ID: {t.merchant_id} • Ref: {t.ref_number || 'N/A'}</span>
+                            </td>
+                            <td style={{ padding: '0.75rem 0.5rem', color: '#475569' }}>
+                              {t.customer_mobile || t.merchant_mobile || 'N/A'}
+                            </td>
+                            <td style={{ padding: '0.75rem 0.5rem' }}>
+                              <span style={{
+                                fontSize: '0.625rem',
+                                fontWeight: 800,
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                background: t.pos_provider === 'Payswiff' ? '#FEF3C7' : '#DBEAFE',
+                                color: t.pos_provider === 'Payswiff' ? '#B45309' : '#1D4ED8',
+                                border: '1px solid currentColor'
+                              }}>
+                                {t.pos_provider || 'Pine Labs'} POS ({t.pos_rate || '1.25'}% MDR)
+                              </span>
+                            </td>
+                            <td style={{ padding: '0.75rem 0.5rem', fontWeight: 900, color: '#059669', fontSize: '0.875rem' }}>
+                              ₹{parseFloat(t.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td style={{ padding: '0.75rem 0.5rem' }}>
+                              <span style={{ fontSize: '0.5625rem', fontWeight: 800, padding: '0.125rem 0.375rem', background: '#FEF3C7', color: '#D97706', borderRadius: '4px', border: '1px solid #FDE68A' }}>
+                                PENDING VERIFICATION
+                              </span>
+                            </td>
+                            <td style={{ padding: '0.75rem 0.5rem', color: '#64748B', fontSize: '0.6875rem' }}>
+                              {new Date(t.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                            <td style={{ padding: '0.75rem 0.5rem', textAlign: 'right' }}>
+                              <div style={{ display: 'flex', gap: '0.375rem', justifyContent: 'flex-end' }}>
+                                <button 
+                                  onClick={() => handleVerifyTxn(t.id, 'APPROVE', t.merchant_name, t.amount)}
+                                  style={{ border: 'none', background: '#059669', color: '#FFF', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, padding: '4px 10px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(5,150,105,0.2)' }}
+                                >
+                                  ✓ Approve & Credit
+                                </button>
+                                <button 
+                                  onClick={() => handleVerifyTxn(t.id, 'REJECT', t.merchant_name, t.amount)}
+                                  style={{ border: '1px solid #EF4444', background: '#FFF', color: '#DC2626', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, padding: '4px 8px', cursor: 'pointer' }}
+                                >
+                                  ✕ Reject
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )
+                    )}
+
+                    {activeTab === 'hierarchy' && (
+                      networkUsers.map((u) => (
+                        <tr key={u.id} className="interactive-table-row">
+                          <td style={{ padding: '0.75rem 0.5rem', fontWeight: 800, color: '#0A192F' }}>
+                            <div style={{ fontSize: '0.8125rem' }}>{u.name}</div>
+                            <span style={{ fontSize: '0.55rem', color: '#64748B' }}>ID: {u.id}</span>
+                          </td>
+                          <td style={{ padding: '0.75rem 0.5rem', color: '#475569', fontWeight: 600 }}>{u.mobile}</td>
+                          <td style={{ padding: '0.75rem 0.5rem' }}>
+                            <span style={{
+                              fontSize: '0.625rem',
+                              fontWeight: 800,
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              background: u.role === 'ADMIN' ? '#0F172A' : u.role === 'SUPER_DISTRIBUTOR' ? '#7C3AED' : u.role === 'DISTRIBUTOR' ? '#0F52BA' : '#059669',
+                              color: '#FFF'
+                            }}>
+                              {u.role}
+                            </span>
+                          </td>
+                          <td style={{ padding: '0.75rem 0.5rem' }}>
+                            {u.pos_provider ? (
+                              <span style={{
+                                fontSize: '0.625rem',
+                                fontWeight: 800,
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                background: u.pos_provider === 'Payswiff' ? '#FEF3C7' : '#DBEAFE',
+                                color: u.pos_provider === 'Payswiff' ? '#B45309' : '#1D4ED8',
+                                border: '1px solid currentColor'
+                              }}>
+                                {u.pos_provider} ({u.pos_rate}% MDR)
+                              </span>
+                            ) : (
+                              <span style={{ color: '#94A3B8', fontSize: '0.625rem' }}>Network Distributor Node</span>
+                            )}
+                          </td>
+                          <td style={{ padding: '0.75rem 0.5rem', color: '#64748B' }}>
+                            {u.creator_name || (u.creator_id ? `By ${u.creator_id}` : 'Root Admin (Super)')}
+                          </td>
+                          <td style={{ padding: '0.75rem 0.5rem', fontWeight: 800, color: '#059669', fontSize: '0.8125rem' }}>
+                            ₹{u.available_balance ? u.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '0.00'}
+                          </td>
+                          <td style={{ padding: '0.75rem 0.5rem' }}>
+                            <span style={{ fontSize: '0.55rem', color: '#059669', fontWeight: 800, background: '#ECFDF5', padding: '1px 5px', borderRadius: '4px', border: '1px solid #A7F3D0' }}>
+                              ACTIVE
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+
                     {activeTab === 'loans' && filteredLoans.map((app) => (
                       <tr key={app.id} onClick={() => setSelectedLoan(app)} className="interactive-table-row" style={{ cursor: 'pointer' }}>
                         <td style={{ padding: '0.75rem 0.5rem', fontWeight: 800, color: '#0A192F' }}>{app.name}</td>
@@ -671,10 +1013,10 @@ export default function AdminDashboardPage({ onLogout }) {
                   <Receipt style={{ width: '16px', height: '16px' }} />
                   <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>BBPS Transactions</span>
                 </div>
-                <h3 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>256</h3>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>{metrics.bbpsTxns}</h3>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', borderTop: '1px dashed #DDD6FE', paddingTop: '0.5rem' }}>
-                  <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0A192F' }}>₹8,45,210</span>
-                  <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Total Amount</span>
+                  <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0A192F' }}>Live Records</span>
+                  <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Total Count</span>
                 </div>
               </div>
 
@@ -684,10 +1026,10 @@ export default function AdminDashboardPage({ onLogout }) {
                   <CreditCard style={{ width: '16px', height: '16px' }} />
                   <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>PG & POS Payments</span>
                 </div>
-                <h3 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>1,245</h3>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>{metrics.pgPosTxns}</h3>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', borderTop: '1px dashed #FFEDD5', paddingTop: '0.5rem' }}>
-                  <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0A192F' }}>₹18,75,430</span>
-                  <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Total Amount</span>
+                  <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0A192F' }}>Card Swipes</span>
+                  <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Total Count</span>
                 </div>
               </div>
 
@@ -697,10 +1039,10 @@ export default function AdminDashboardPage({ onLogout }) {
                   <Smartphone style={{ width: '16px', height: '16px' }} />
                   <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>ATM Transactions</span>
                 </div>
-                <h3 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>48</h3>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>{metrics.atmTxns}</h3>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', borderTop: '1px dashed #BAE6FD', paddingTop: '0.5rem' }}>
-                  <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0A192F' }}>₹6,25,000</span>
-                  <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Total Amount</span>
+                  <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0A192F' }}>ATM / QR</span>
+                  <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Total Count</span>
                 </div>
               </div>
 
@@ -710,10 +1052,14 @@ export default function AdminDashboardPage({ onLogout }) {
                   <TrendingUp style={{ width: '16px', height: '16px' }} />
                   <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>Total Volume</span>
                 </div>
-                <h3 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>1,549</h3>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                  ₹{(metrics.totalVolume || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </h3>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', borderTop: '1px dashed #A7F3D0', paddingTop: '0.5rem' }}>
-                  <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0A192F' }}>₹33,45,640</span>
-                  <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Total Amount</span>
+                  <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#059669' }}>
+                    {metrics.pgPosTxns + metrics.bbpsTxns + metrics.atmTxns} Txns
+                  </span>
+                  <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Settled Ecosystem</span>
                 </div>
               </div>
 
@@ -1075,6 +1421,156 @@ export default function AdminDashboardPage({ onLogout }) {
           <span style={{ fontSize: '0.5rem', fontWeight: 700 }}>Exit</span>
         </button>
       </div>
+
+      {/* MODAL: ONBOARD DOWNSTREAM PARTNER STORE (HIERARCHY ENGINE) */}
+      {isCreateUserModalOpen && (
+        <div className="modal-backdrop" onClick={() => setIsCreateUserModalOpen(false)}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '460px', padding: '1.25rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #E2E8F0', paddingBottom: '0.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <div style={{ width: '34px', height: '34px', borderRadius: '8px', background: '#EFF6FF', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Users style={{ width: '18px', height: '18px' }} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#0A192F', margin: 0 }}>Onboard Downstream Partner</h3>
+                  <p style={{ fontSize: '0.625rem', color: '#64748B', margin: 0 }}>Enforce Network Hierarchy & Assign POS Machine</p>
+                </div>
+              </div>
+              <button onClick={() => setIsCreateUserModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8' }}>
+                <X style={{ width: '20px', height: '20px' }} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateDownstreamUser} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.25rem' }}>
+                  Select Hierarchy Role *
+                </label>
+                <select 
+                  value={newUserForm.role}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value })}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', color: '#0F172A', fontWeight: 700 }}
+                >
+                  <option value="MERCHANT">Retailer / Merchant (End-User Counter)</option>
+                  <option value="DISTRIBUTOR">Distributor (Franchise Partner)</option>
+                  <option value="SUPER_DISTRIBUTOR">Super Distributor (Master Hub)</option>
+                </select>
+                <p style={{ fontSize: '0.6rem', color: '#64748B', marginTop: '3px' }}>
+                  {newUserForm.role === 'MERCHANT' ? 'ℹ️ End-user: Cannot create accounts below him.' : 'ℹ️ Network node: Can onboard accounts below him.'}
+                </p>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.25rem' }}>
+                  Partner Store / Business Name *
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="e.g. Balaji Telecom & Grocery"
+                  required
+                  value={newUserForm.name}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, name: e.target.value })}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.875rem', color: '#0F172A', fontWeight: 600 }}
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.25rem' }}>
+                  Mobile Number (Unique Login ID) *
+                </label>
+                <input 
+                  type="tel" 
+                  placeholder="10-digit mobile"
+                  required
+                  value={newUserForm.mobile}
+                  onChange={(e) => setNewUserForm({ ...newUserForm, mobile: e.target.value })}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.875rem', color: '#0F172A', fontWeight: 600 }}
+                />
+              </div>
+
+              {/* POS Machine Provider Selection (Only for Merchants) */}
+              {newUserForm.role === 'MERCHANT' && (
+                <div style={{ padding: '0.75rem', background: '#F8FAFC', borderRadius: '10px', border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                    <CreditCard style={{ width: '16px', height: '16px', color: '#0F52BA' }} />
+                    <strong style={{ fontSize: '0.75rem', color: '#0F172A' }}>Swipe Machine Hardware Provider</strong>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                    <label style={{
+                      padding: '0.5rem',
+                      borderRadius: '8px',
+                      border: newUserForm.pos_provider === 'Pine Labs' ? '2px solid #0F52BA' : '1px solid #CBD5E1',
+                      background: newUserForm.pos_provider === 'Pine Labs' ? '#EFF6FF' : '#FFFFFF',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '2px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <input 
+                          type="radio" 
+                          name="pos_provider" 
+                          value="Pine Labs" 
+                          checked={newUserForm.pos_provider === 'Pine Labs'}
+                          onChange={() => setNewUserForm({ ...newUserForm, pos_provider: 'Pine Labs', commission_rate: '1.25' })}
+                        />
+                        <strong style={{ fontSize: '0.75rem', color: '#0F172A' }}>🌲 Pine Labs</strong>
+                      </div>
+                      <span style={{ fontSize: '0.6rem', color: '#0F52BA', fontWeight: 700 }}>MDR Rate: 1.25%</span>
+                    </label>
+
+                    <label style={{
+                      padding: '0.5rem',
+                      borderRadius: '8px',
+                      border: newUserForm.pos_provider === 'Payswiff' ? '2px solid #D97706' : '1px solid #CBD5E1',
+                      background: newUserForm.pos_provider === 'Payswiff' ? '#FFFBEB' : '#FFFFFF',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '2px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <input 
+                          type="radio" 
+                          name="pos_provider" 
+                          value="Payswiff" 
+                          checked={newUserForm.pos_provider === 'Payswiff'}
+                          onChange={() => setNewUserForm({ ...newUserForm, pos_provider: 'Payswiff', commission_rate: '1.65' })}
+                        />
+                        <strong style={{ fontSize: '0.75rem', color: '#0F172A' }}>⚡ Payswiff</strong>
+                      </div>
+                      <span style={{ fontSize: '0.6rem', color: '#D97706', fontWeight: 700 }}>MDR Rate: 1.65%</span>
+                    </label>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748B', display: 'block', marginBottom: '2px' }}>
+                      Assigned MDR Commission (%)
+                    </label>
+                    <input 
+                      type="number" 
+                      step="0.01"
+                      value={newUserForm.commission_rate}
+                      onChange={(e) => setNewUserForm({ ...newUserForm, commission_rate: e.target.value })}
+                      style={{ width: '100%', padding: '0.375rem 0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem' }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <button 
+                type="submit" 
+                disabled={isSubmittingUser}
+                className="btn btn-primary"
+                style={{ width: '100%', justifyContent: 'center', fontWeight: 800, padding: '0.625rem' }}
+              >
+                {isSubmittingUser ? 'Registering...' : `Create ${newUserForm.role} Account in SQLite →`}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* CSS Styling Injection */}
       <style>{`

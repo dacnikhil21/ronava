@@ -15,6 +15,7 @@ import {
   Zap,
   Check
 } from 'lucide-react';
+import { submitInquiry } from '../services/api';
 
 export default function ServiceAtmPage({ onOpenLogin, onBack, onShowToast }) {
   // ATM Earnings calculator state
@@ -25,42 +26,36 @@ export default function ServiceAtmPage({ onOpenLogin, onBack, onShowToast }) {
   const [formData, setFormData] = useState({
     name: '',
     mobile: '',
-    franchiseType: 'White-Label ATM + CDM (Dual Machine)',
-    partnerCategory: 'Merchant / Retailer',
-    spaceArea: '100 - 150 sq ft',
     location: '',
-    message: ''
+    investmentBudget: '₹3,00,000 to ₹5,00,000',
+    spaceArea: '100 to 150 sq ft',
+    electricityBackup: 'Yes, Generator / Inverter Available'
   });
   const [submitted, setSubmitted] = useState(false);
 
-  // Revenue estimation
-  // ~₹8 to ₹12 average payout per txn + non-financial txns
-  const estimatedMonthlyEarnings = dailyTxns * 10 * 30;
-  const estimatedAnnualEarnings = estimatedMonthlyEarnings * 12;
+  // Earnings estimation formula
+  const monthlyTransactions = dailyTxns * 30;
+  const estimatedGrossIncome = monthlyTransactions * 15;
+  const estimatedRentPayout = 12000;
+  const estimatedNetIncome = estimatedGrossIncome + estimatedRentPayout;
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name || !formData.mobile) return;
 
-    // Save lead to shared localStorage for Admin Dashboard
-    const newFranchiseInquiry = {
-      id: 'FR-' + Math.floor(1000 + Math.random() * 9000),
-      name: formData.name,
-      phone: formData.mobile,
-      location: formData.location || 'Hyderabad / Telangana',
-      status: 'New',
-      date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-      spaceArea: formData.spaceArea,
-      depositStatus: 'Inquiry Stage',
-      siteReview: 'Pending Admin Assessment',
-      proximityToBank: 'Commercial Spot'
-    };
-
+    // Save lead to SQLite backend database
     try {
-      const existing = JSON.parse(localStorage.getItem('ronav_franchise_inquiries') || '[]');
-      localStorage.setItem('ronav_franchise_inquiries', JSON.stringify([newFranchiseInquiry, ...existing]));
+      await submitInquiry({
+        type: 'FRANCHISE',
+        name: formData.name,
+        phone: formData.mobile,
+        amount: formData.investmentBudget,
+        category: 'ATM & CDM Franchise',
+        location: formData.location || 'Hyderabad / Telangana',
+        remarks: `Space: ${formData.spaceArea} • Backup: ${formData.electricityBackup}`
+      });
     } catch (err) {
-      console.error(err);
+      console.error('Failed to submit franchise inquiry to backend:', err);
     }
 
     setSubmitted(true);

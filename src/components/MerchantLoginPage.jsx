@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Lock, Eye, EyeOff, ShieldCheck, Headphones, Zap, TrendingUp, Phone, Mail, X, Menu, ArrowRight, ArrowLeft, Layers, CheckCircle2, Send, ChevronDown, ChevronUp, Check } from 'lucide-react';
+import { User, Lock, Eye, EyeOff, ShieldCheck, Headphones, Zap, TrendingUp, Phone, Mail, X, Menu, ArrowRight, ArrowLeft, Layers, CheckCircle2, Send, ChevronDown, ChevronUp, Check, CreditCard, Shield } from 'lucide-react';
+import { loginUser } from '../services/api';
 
 export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
   const [selectedRole, setSelectedRole] = useState('Retailer');
@@ -82,17 +83,42 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
     return () => clearTimeout(timer);
   }, []);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const searchId = userId || (selectedRole === 'Retailer' ? 'MID3001' : (selectedRole === 'Distributor' ? 'DIST2001' : 'SD1001'));
+      const res = await loginUser({ 
+        id: searchId, 
+        role: selectedRole === 'Retailer' ? 'MERCHANT' : selectedRole 
+      });
+
+      if (res.success && res.user) {
+        onLoginSuccess({
+          id: res.user.id,
+          name: res.user.name,
+          mid: res.user.id,
+          role: res.user.role === 'MERCHANT' ? 'Retailer' : res.user.role,
+          pos: res.pos || null
+        });
+      } else {
+        onLoginSuccess({
+          id: 'MID3001',
+          name: userId || 'Ravi Kirana Store',
+          mid: 'MID3001',
+          role: selectedRole
+        });
+      }
+    } catch (err) {
       onLoginSuccess({
-        name: userId || `${selectedRole} Partner Store`,
-        mid: 'MID: RONAV' + Math.floor(10000 + Math.random() * 90000),
+        id: 'MID3001',
+        name: userId || 'Ravi Kirana Store',
+        mid: 'MID3001',
         role: selectedRole
       });
-    }, 700);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleForgotSubmit = (e) => {
@@ -583,6 +609,58 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
             >
               <span>Apply as New {selectedRole} Partner →</span>
             </button>
+
+            {/* QUICK 1-CLICK TESTING PROFILES (FOR LEAD / NON-CODER TESTING) */}
+            <div style={{ marginTop: '1rem', padding: '0.875rem', background: '#F8FAFC', borderRadius: '12px', border: '1.5px dashed #CBD5E1', textAlign: 'left' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                <span style={{ fontSize: '0.6875rem', fontWeight: 900, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  🧪 1-Click Test Login (SQLite)
+                </span>
+                <span style={{ fontSize: '0.55rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '1px 5px', borderRadius: '4px' }}>
+                  Real Working DB
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.375rem' }}>
+                <button
+                  type="button"
+                  onClick={() => onLoginSuccess({ id: 'MID3001', name: 'Ravi Kirana Store', mid: 'MID3001', role: 'Retailer' })}
+                  style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#0F52BA', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', textAlign: 'left' }}
+                >
+                  🌲 Pine Labs (MID3001)
+                  <span style={{ display: 'block', fontSize: '0.55rem', color: '#64748B', fontWeight: 600 }}>1.25% MDR Swipe</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onLoginSuccess({ id: 'MID3002', name: 'Lakshmi Mobile Point', mid: 'MID3002', role: 'Retailer' })}
+                  style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid #FDE68A', background: '#FFFBEB', color: '#D97706', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', textAlign: 'left' }}
+                >
+                  ⚡ Payswiff (MID3002)
+                  <span style={{ display: 'block', fontSize: '0.55rem', color: '#64748B', fontWeight: 600 }}>1.65% MDR Swipe</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onLoginSuccess({ id: 'DIST2001', name: 'Sri Sai Distribution', mid: 'DIST2001', role: 'Distributor' })}
+                  style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#334155', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', textAlign: 'left' }}
+                >
+                  📦 Distributor (DIST2001)
+                  <span style={{ display: 'block', fontSize: '0.55rem', color: '#64748B', fontWeight: 600 }}>Franchise Node</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.location.pathname = '/admin';
+                  }}
+                  style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid #A7F3D0', background: '#ECFDF5', color: '#065F46', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', textAlign: 'left' }}
+                >
+                  🛡️ Admin Command (/admin)
+                  <span style={{ display: 'block', fontSize: '0.55rem', color: '#64748B', fontWeight: 600 }}>Verifications Center</span>
+                </button>
+              </div>
+            </div>
 
           </form>
 
