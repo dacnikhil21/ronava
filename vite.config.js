@@ -1,12 +1,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { handleApiRequest } from './server/api.js';
-import { checkSupabaseConnection } from './server/supabase.js';
 
 function apiPlugin() {
   return {
     name: 'ronav-api-middleware',
-    configureServer(server) {
+    async configureServer(server) {
+      const { handleApiRequest } = await import('./server/api.js');
+      const { checkSupabaseConnection } = await import('./server/supabase.js');
       checkSupabaseConnection().catch(() => {});
       server.middlewares.use(async (req, res, next) => {
         if (req.url && req.url.startsWith('/api/')) {

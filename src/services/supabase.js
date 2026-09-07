@@ -4,17 +4,20 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://mqsbejpakkolow
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1xc2JlanBha2tvbG93ZmtrYWFzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg3NTc4OTMsImV4cCI6MjEwNDMzMzg5M30.SK2tPZY5Uk2lH2yVHjlEY8d4VhtOWpQLRR_spWMXtoc';
 
 // Client-side Supabase instance
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true
-  }
-});
+export const supabase = (supabaseUrl && supabaseAnonKey)
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true
+      }
+    })
+  : null;
 
 /**
  * Subscribe to real-time wallet changes for a merchant
  */
 export function subscribeToWallet(userId, onUpdate) {
+  if (!supabase) return () => {};
   const channel = supabase
     .channel(`wallet-${userId}`)
     .on(
@@ -33,6 +36,7 @@ export function subscribeToWallet(userId, onUpdate) {
  * Subscribe to real-time transactions for a merchant
  */
 export function subscribeToTransactions(merchantId, onInsert) {
+  if (!supabase) return () => {};
   const channel = supabase
     .channel(`transactions-${merchantId}`)
     .on(
