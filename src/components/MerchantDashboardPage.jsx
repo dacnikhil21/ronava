@@ -332,6 +332,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
 
   const merchantId = user?.id || (user?.mid ? user.mid.replace('MID: ', '').trim() : 'MID3001');
   const merchantName = user?.name || 'Ravi Retail Store';
+  const userRole = user?.role ? (user.role === 'MERCHANT' ? 'Retailer' : user.role) : 'Retailer';
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -691,9 +692,14 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                     {merchantName.charAt(0)}
                   </div>
                   <div style={{ textAlign: 'left', lineHeight: 1.1 }}>
-                    <p style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0F172A', margin: 0, maxWidth: '110px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {merchantName}
-                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                      <p style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0F172A', margin: 0, maxWidth: '105px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {merchantName}
+                      </p>
+                      <span style={{ fontSize: '0.5rem', fontWeight: 800, color: '#0F52BA', background: '#EFF6FF', border: '1px solid #DBEAFE', padding: '1px 4px', borderRadius: '4px', whiteSpace: 'nowrap' }}>
+                        {userRole}
+                      </span>
+                    </div>
                     <span style={{ fontSize: '0.5rem', color: '#64748B', fontWeight: 700 }}>
                       {merchantId}
                     </span>
