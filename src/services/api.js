@@ -108,3 +108,13 @@ export async function getInquiries() {
   return res.json();
 }
 
+export async function getDownstreamNetwork(creatorId) {
+  const res = await fetch(`${API_BASE}/network/downstream?creator_id=${encodeURIComponent(creatorId)}`);
+  return res.json();
+}
+
+export async function getPartnerTransactions(creatorId, partnerId) {
+  const res = await fetch(`${API_BASE}/network/partner-transactions?creator_id=${encodeURIComponent(creatorId)}&partner_id=${encodeURIComponent(partnerId)}`);
+  return res.json();
+}
+

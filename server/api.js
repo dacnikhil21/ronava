@@ -123,8 +123,16 @@ export async function handleApiRequest(req, res) {
         });
       }
 
-      // Hierarchy Rule 3: Super Distributor can create Distributor or Merchant
-      if (creator.role === 'SUPER_DISTRIBUTOR' && role !== 'DISTRIBUTOR' && role !== 'MERCHANT') {
+      // Hierarchy Rule 3: District Distributor can create Distributor or Merchant
+      if (creator.role === 'DISTRICT_DISTRIBUTOR' && role !== 'DISTRIBUTOR' && role !== 'MERCHANT') {
+        return sendJson(res, 403, { 
+          success: false, 
+          message: 'Permission denied: District Distributors can only create Distributors or Merchants.' 
+        });
+      }
+
+      // Hierarchy Rule 4: Super Distributor can create District Distributor, Distributor, or Merchant
+      if (creator.role === 'SUPER_DISTRIBUTOR' && role !== 'DISTRICT_DISTRIBUTOR' && role !== 'DISTRIBUTOR' && role !== 'MERCHANT') {
         return sendJson(res, 403, { 
           success: false, 
           message: 'Permission denied: Super Distributors cannot create Super Distributors or Admins.' 
@@ -134,6 +142,7 @@ export async function handleApiRequest(req, res) {
       // Generate Clean ID based on role
       const prefixMap = {
         'SUPER_DISTRIBUTOR': 'SD',
+        'DISTRICT_DISTRIBUTOR': 'DD',
         'DISTRIBUTOR': 'DIST',
         'MERCHANT': 'MID'
       };
@@ -179,7 +188,14 @@ export async function handleApiRequest(req, res) {
           success: true,
           message: `Successfully created ${role} account (${newUserId}).`,
           user: createdUser,
-          pos: createdPOS || null
+          pos: createdPOS || null,
+          credentials: {
+            id: newUserId,
+            name: createdUser.name,
+            mobile: createdUser.mobile,
+            role: createdUser.role,
+            password: 'Ronav@' + newUserId.slice(-4)
+          }
         });
       } catch (err) {
         if (err.message && err.message.includes('UNIQUE constraint failed: users.mobile')) {
@@ -280,6 +296,130 @@ export async function handleApiRequest(req, res) {
       `).all(merchantId);
 
       return sendJson(res, 200, { success: true, transactions });
+    }
+
+    // ----------------------------------------------------
+    // NETWORK & DOWNSTREAM REFERRALS ENGINE
+    // ----------------------------------------------------
+    // Fetch all downstream partners referred by creator
+    if (pathname === '/api/network/downstream' && method === 'GET') {
+      const urlObj = new URL(req.url, 'http://localhost');
+      const creatorId = urlObj.searchParams.get('creator_id');
+      if (!creatorId) {
+        return sendJson(res, 400, { success: false, message: 'creator_id parameter is required.' });
+      }
+
+      const creator = db.prepare(`SELECT * FROM users WHERE id = ?`).get(creatorId);
+      const creatorRole = creator?.role || 'DISTRIBUTOR';
+      // Commission margins based on creator tier:
+      // Super Distributor: 0.50% margin
+      // District Distributor: 0.35% margin
+      // Distributor: 0.25% margin
+      const commissionRatePct = creatorRole === 'SUPER_DISTRIBUTOR' ? 0.50 : (creatorRole === 'DISTRICT_DISTRIBUTOR' ? 0.35 : 0.25);
+
+      const partners = db.prepare(`
+        SELECT u.*, 
+               w.available_balance, 
+               w.total_sales, 
+               w.received_sales,
+               p.provider AS pos_provider,
+               p.terminal_id AS pos_terminal
+        FROM users u
+        LEFT JOIN wallets w ON u.id = w.user_id
+        LEFT JOIN merchant_pos p ON u.id = p.merchant_id
+        WHERE u.creator_id = ?
+        ORDER BY u.created_at DESC
+      `).all(creatorId);
+
+      const todayStr = new Date().toISOString().slice(0, 10);
+      let todayProfit = 0;
+
+      const enrichedPartners = partners.map(p => {
+        const txns = db.prepare(`
+          SELECT COUNT(*) as txn_count, COALESCE(SUM(amount), 0) as total_volume
+          FROM transactions
+          WHERE merchant_id = ?
+        `).get(p.id);
+
+        const volume = txns?.total_volume || 0;
+        const count = txns?.txn_count || 0;
+        const commissionEarned = (volume * commissionRatePct) / 100;
+
+        // Today's txns
+        const todayTxns = db.prepare(`
+          SELECT COALESCE(SUM(amount), 0) as today_volume
+          FROM transactions
+          WHERE merchant_id = ? AND date(created_at) = date(?)
+        `).get(p.id, todayStr);
+
+        const todayVol = todayTxns?.today_volume || 0;
+        const partnerTodayProfit = (todayVol * commissionRatePct) / 100;
+        todayProfit += partnerTodayProfit;
+
+        return {
+          ...p,
+          txn_count: count,
+          total_volume: volume,
+          commission_earned: parseFloat(commissionEarned.toFixed(2)),
+          commission_rate_pct: commissionRatePct
+        };
+      });
+
+      const totalCommission = enrichedPartners.reduce((acc, p) => acc + p.commission_earned, 0);
+
+      return sendJson(res, 200, {
+        success: true,
+        creator,
+        commission_rate_pct: commissionRatePct,
+        partners: enrichedPartners,
+        total_partners: enrichedPartners.length,
+        total_commission_earned: parseFloat(totalCommission.toFixed(2)),
+        today_network_profit: parseFloat(todayProfit.toFixed(2))
+      });
+    }
+
+    // Fetch individual partner transactions with line-by-line commission profit
+    if (pathname === '/api/network/partner-transactions' && method === 'GET') {
+      const urlObj = new URL(req.url, 'http://localhost');
+      const creatorId = urlObj.searchParams.get('creator_id');
+      const partnerId = urlObj.searchParams.get('partner_id');
+
+      if (!partnerId) {
+        return sendJson(res, 400, { success: false, message: 'partner_id is required.' });
+      }
+
+      const partner = db.prepare(`SELECT * FROM users WHERE id = ?`).get(partnerId);
+      const creator = creatorId ? db.prepare(`SELECT * FROM users WHERE id = ?`).get(creatorId) : null;
+      const creatorRole = creator?.role || 'DISTRIBUTOR';
+      const commissionRatePct = creatorRole === 'SUPER_DISTRIBUTOR' ? 0.50 : (creatorRole === 'DISTRICT_DISTRIBUTOR' ? 0.35 : 0.25);
+
+      const txns = db.prepare(`
+        SELECT * FROM transactions
+        WHERE merchant_id = ?
+        ORDER BY created_at DESC
+      `).all(partnerId);
+
+      const enrichedTxns = txns.map(t => {
+        const amt = parseFloat(t.amount) || 0;
+        const profit = (amt * commissionRatePct) / 100;
+        return {
+          ...t,
+          commission_profit: parseFloat(profit.toFixed(2)),
+          commission_rate_pct: commissionRatePct
+        };
+      });
+
+      const totalPartnerSales = enrichedTxns.reduce((acc, t) => acc + (parseFloat(t.amount) || 0), 0);
+      const totalProfitEarned = enrichedTxns.reduce((acc, t) => acc + t.commission_profit, 0);
+
+      return sendJson(res, 200, {
+        success: true,
+        partner,
+        transactions: enrichedTxns,
+        total_sales: totalPartnerSales,
+        total_profit_earned: parseFloat(totalProfitEarned.toFixed(2)),
+        commission_rate_pct: commissionRatePct
+      });
     }
 
     // ----------------------------------------------------

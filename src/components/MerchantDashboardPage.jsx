@@ -4,7 +4,8 @@ import {
   Smartphone, Zap, Tv, CreditCard, Car, BarChart3, Headphones,
   LogOut, PlusCircle, Home, User, Bell, Phone, CheckCircle2, 
   Clock, AlertCircle, X, ChevronRight, Check, ArrowRight,
-  Search, Calendar, ArrowLeft, RefreshCw, FileText, Filter, ShieldCheck, LayoutGrid, MoreHorizontal
+  Search, Calendar, ArrowLeft, RefreshCw, FileText, Filter, ShieldCheck, LayoutGrid, MoreHorizontal,
+  Users, Share2, Copy, ExternalLink, UserPlus
 } from 'lucide-react';
 import { 
   getWallet, 
@@ -13,7 +14,10 @@ import {
   requestWithdrawal, 
   getBeneficiaries, 
   addBeneficiary,
-  getMerchantWithdrawals 
+  getMerchantWithdrawals,
+  getDownstreamNetwork,
+  getPartnerTransactions,
+  createDownstreamUser
 } from '../services/api';
 import RonavLogo from './RonavLogo';
 
@@ -334,9 +338,138 @@ export default function MerchantDashboardPage({ user, onLogout }) {
   const merchantName = user?.name || 'Ravi Retail Store';
   const userRole = user?.role ? (user.role === 'MERCHANT' ? 'Retailer' : user.role) : 'Retailer';
 
+  // Network & Referral Engine State
+  const [networkData, setNetworkData] = useState({
+    partners: [],
+    total_commission_earned: 0,
+    today_network_profit: 0,
+    commission_rate_pct: 0.25
+  });
+  const [isLoadingNetwork, setIsLoadingNetwork] = useState(false);
+  const [selectedPartner, setSelectedPartner] = useState(null);
+  const [partnerTxns, setPartnerTxns] = useState([]);
+  const [isLoadingPartnerTxns, setIsLoadingPartnerTxns] = useState(false);
+  const [onboardForm, setOnboardForm] = useState({
+    name: '',
+    mobile: '',
+    role: '',
+    shop_name: '',
+    pos_provider: 'Pine Labs',
+    password: ''
+  });
+  const [isSubmittingOnboard, setIsSubmittingOnboard] = useState(false);
+  const [createdPartnerCreds, setCreatedPartnerCreds] = useState(null);
+
+  // Allowed downstream roles based on hierarchy
+  const allowedRolesForCreator = useMemo(() => {
+    if (userRole === 'SUPER_DISTRIBUTOR' || userRole === 'Super Distributor') {
+      return [
+        { value: 'DISTRICT_DISTRIBUTOR', label: 'District Distributor (DD)', badge: 'Regional Head', icon: '🏢' },
+        { value: 'DISTRIBUTOR', label: 'Distributor (DIST)', badge: 'Area Hub', icon: '📦' },
+        { value: 'MERCHANT', label: 'Retailer / Merchant (MID)', badge: 'POS & Counter', icon: '🏪' }
+      ];
+    }
+    if (userRole === 'DISTRICT_DISTRIBUTOR' || userRole === 'District Distributor') {
+      return [
+        { value: 'DISTRIBUTOR', label: 'Distributor (DIST)', badge: 'Area Hub', icon: '📦' },
+        { value: 'MERCHANT', label: 'Retailer / Merchant (MID)', badge: 'POS & Counter', icon: '🏪' }
+      ];
+    }
+    if (userRole === 'DISTRIBUTOR' || userRole === 'Distributor') {
+      return [
+        { value: 'MERCHANT', label: 'Retailer / Merchant (MID)', badge: 'POS & Counter', icon: '🏪' }
+      ];
+    }
+    return [];
+  }, [userRole]);
+
+  useEffect(() => {
+    if (allowedRolesForCreator.length > 0 && !onboardForm.role) {
+      setOnboardForm(prev => ({ ...prev, role: allowedRolesForCreator[0].value }));
+    }
+  }, [allowedRolesForCreator]);
+
   const showToast = (msg) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(''), 3000);
+  };
+
+  const fetchNetworkData = async () => {
+    setIsLoadingNetwork(true);
+    try {
+      const res = await getDownstreamNetwork(merchantId);
+      if (res.success) {
+        setNetworkData({
+          partners: res.partners || [],
+          total_commission_earned: res.total_commission_earned || 0,
+          today_network_profit: res.today_network_profit || 0,
+          commission_rate_pct: res.commission_rate_pct || 0.25
+        });
+        if (res.partners && res.partners.length > 0) {
+          if (!selectedPartner) {
+            selectPartner(res.partners[0]);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching network:', err);
+    } finally {
+      setIsLoadingNetwork(false);
+    }
+  };
+
+  const selectPartner = async (partner) => {
+    setSelectedPartner(partner);
+    setIsLoadingPartnerTxns(true);
+    try {
+      const res = await getPartnerTransactions(merchantId, partner.id);
+      if (res.success) {
+        setPartnerTxns(res.transactions || []);
+      }
+    } catch (err) {
+      console.error('Error loading partner txns:', err);
+    } finally {
+      setIsLoadingPartnerTxns(false);
+    }
+  };
+
+  const handleOnboardSubmit = async (e) => {
+    e.preventDefault();
+    if (!onboardForm.name.trim() || !onboardForm.mobile.trim() || !onboardForm.role) {
+      showToast('⚠️ Please enter partner name, mobile and select role.');
+      return;
+    }
+
+    setIsSubmittingOnboard(true);
+    try {
+      const res = await createDownstreamUser({
+        creator_id: merchantId,
+        name: onboardForm.name.trim(),
+        mobile: onboardForm.mobile.trim(),
+        role: onboardForm.role,
+        pos_provider: onboardForm.pos_provider || 'Pine Labs'
+      });
+
+      if (res.success && res.credentials) {
+        setCreatedPartnerCreds(res.credentials);
+        showToast(`✓ Created ${res.credentials.role} Account (${res.credentials.id})!`);
+        setOnboardForm({
+          name: '',
+          mobile: '',
+          role: allowedRolesForCreator[0]?.value || 'MERCHANT',
+          shop_name: '',
+          pos_provider: 'Pine Labs',
+          password: ''
+        });
+        fetchNetworkData();
+      } else {
+        showToast(res.message || 'Error creating partner account');
+      }
+    } catch (err) {
+      showToast('Server connection failed');
+    } finally {
+      setIsSubmittingOnboard(false);
+    }
   };
 
   const fetchLiveData = async () => {
@@ -371,6 +504,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
 
   useEffect(() => {
     fetchLiveData();
+    fetchNetworkData();
   }, [merchantId]);
 
   // Filtered Transactions with Today, Yesterday & Custom Date Range
@@ -678,6 +812,12 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                   style={{ background: 'none', border: 'none', color: activeTab === 'history' ? '#0F52BA' : '#64748B', fontWeight: 800, fontSize: '0.8125rem', cursor: 'pointer', borderBottom: activeTab === 'history' ? '2px solid #0F52BA' : '2px solid transparent', paddingBottom: '0.25rem' }}
                 >
                   Transaction History
+                </button>
+                <button 
+                  onClick={() => setActiveTab('network')} 
+                  style={{ background: 'none', border: 'none', color: activeTab === 'network' ? '#0F52BA' : '#64748B', fontWeight: 800, fontSize: '0.8125rem', cursor: 'pointer', borderBottom: activeTab === 'network' ? '2px solid #0F52BA' : '2px solid transparent', paddingBottom: '0.25rem' }}
+                >
+                  My Network
                 </button>
               </nav>
 
@@ -1045,6 +1185,47 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                     </div>
                   </button>
                 </div>
+
+                {/* My Network & Downstream Referrals Action Banner (For Non-Merchant Hierarchy Leaders) */}
+                {userRole !== 'MERCHANT' && userRole !== 'Retailer' && (
+                  <div 
+                    onClick={() => setActiveTab('network')}
+                    className="card-hover"
+                    style={{
+                      marginTop: '0.625rem',
+                      background: 'linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 50%, #EFF6FF 100%)',
+                      border: '1px solid #BFDBFE',
+                      borderRadius: '16px',
+                      padding: '0.625rem 0.875rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      cursor: 'pointer',
+                      boxShadow: '0 3px 12px rgba(15,82,186,0.06)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                      <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#0F52BA', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 10px rgba(15,82,186,0.25)', flexShrink: 0 }}>
+                        <Users style={{ width: '18px', height: '18px' }} />
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <h4 style={{ margin: 0, fontSize: '0.78125rem', fontWeight: 800, color: '#0F172A' }}>My Network &amp; Referrals</h4>
+                          <span style={{ fontSize: '0.5rem', fontWeight: 800, color: '#0F52BA', background: '#FFFFFF', padding: '1px 5px', borderRadius: '8px', border: '1px solid #BFDBFE' }}>
+                            {networkData.partners.length} Partners
+                          </span>
+                        </div>
+                        <p style={{ margin: '1px 0 0', fontSize: '0.59rem', color: '#475569', fontWeight: 500 }}>
+                          Onboard downstream partners &amp; track your commission profit
+                        </p>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem', color: '#0F52BA', fontWeight: 800, fontSize: '0.6875rem', whiteSpace: 'nowrap' }}>
+                      <span>Manage</span>
+                      <ArrowRight style={{ width: '14px', height: '14px' }} />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* 3. Middle Section: Bill Payments & Recharges (Left) + Sales Overview (Right) on Desktop; Stacked on Mobile */}
@@ -2755,6 +2936,488 @@ export default function MerchantDashboardPage({ user, onLogout }) {
             </div>
           )}
 
+          {/* ========================================================= */}
+          {/* VIEW 6: DEDICATED "MY NETWORK & REFERRALS" PAGE           */}
+          {/* ========================================================= */}
+          {activeTab === 'network' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%', boxSizing: 'border-box', paddingBottom: '2rem' }}>
+              
+              {/* Header Title & Refresh */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <div>
+                  <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0F172A', margin: 0, letterSpacing: '-0.01em' }}>
+                    My Network &amp; Downstream Referrals
+                  </h1>
+                  <p style={{ fontSize: '0.75rem', color: '#64748B', margin: '2px 0 0' }}>
+                    Onboard new downstream partners, track network activity, and inspect transaction profits.
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <button 
+                    onClick={fetchNetworkData}
+                    disabled={isLoadingNetwork}
+                    style={{ background: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '0.35rem 0.75rem', fontSize: '0.75rem', fontWeight: 700, color: '#334155', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <RefreshCw style={{ width: '13px', height: '13px', animation: isLoadingNetwork ? 'spin 1s linear infinite' : 'none' }} />
+                    <span>Refresh Data</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 1. TOP WALLET & COMMISSION BANNER */}
+              <div style={{
+                position: 'relative',
+                background: 'linear-gradient(135deg, #09204A 0%, #0F52BA 55%, #184196 100%)',
+                borderRadius: '20px',
+                padding: '1.25rem 1.5rem',
+                color: '#FFFFFF',
+                boxShadow: '0 10px 24px rgba(10,34,82,0.22)',
+                overflow: 'hidden'
+              }}>
+                <div style={{ position: 'relative', zIndex: 2 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.625rem' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>
+                      Network Earnings &amp; Wallet Balance
+                    </span>
+                    <span style={{ fontSize: '0.625rem', fontWeight: 800, background: 'rgba(255,255,255,0.18)', padding: '3px 8px', borderRadius: '12px', letterSpacing: '0.04em' }}>
+                      ★ TIER: {userRole}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
+                    <div>
+                      <span style={{ fontSize: '0.6875rem', color: 'rgba(255,255,255,0.8)', display: 'block', marginBottom: '2px' }}>
+                        Available Wallet Balance
+                      </span>
+                      <h2 style={{ fontSize: '1.75rem', fontWeight: 900, margin: 0, letterSpacing: '-0.02em', fontFeatureSettings: '"tnum"', lineHeight: 1.1 }}>
+                        ₹{wallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </h2>
+                    </div>
+
+                    <button 
+                      onClick={() => setActiveTab('withdraw')}
+                      style={{
+                        background: '#10B981',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        borderRadius: '12px',
+                        padding: '0.5rem 1rem',
+                        fontSize: '0.75rem',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        boxShadow: '0 4px 12px rgba(16,185,129,0.35)'
+                      }}
+                    >
+                      <Send style={{ width: '13px', height: '13px' }} />
+                      <span>Withdraw Earnings →</span>
+                    </button>
+                  </div>
+
+                  {/* 3 Metric Pills */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gap: '0.5rem',
+                    paddingTop: '0.875rem',
+                    borderTop: '1px solid rgba(255,255,255,0.18)',
+                    textAlign: 'center'
+                  }}>
+                    <div>
+                      <span style={{ color: '#93C5FD', display: 'block', fontSize: '0.625rem', fontWeight: 700, marginBottom: '2px' }}>
+                        Total Referral Commission
+                      </span>
+                      <strong style={{ color: '#FFFFFF', fontSize: '0.9375rem', fontWeight: 800 }}>
+                        ₹{networkData.total_commission_earned.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+
+                    <div style={{ borderLeft: '1px solid rgba(255,255,255,0.14)', borderRight: '1px solid rgba(255,255,255,0.14)' }}>
+                      <span style={{ color: '#93C5FD', display: 'block', fontSize: '0.625rem', fontWeight: 700, marginBottom: '2px' }}>
+                        Active Partners
+                      </span>
+                      <strong style={{ color: '#6EE7B7', fontSize: '0.9375rem', fontWeight: 800 }}>
+                        {networkData.partners.length}
+                      </strong>
+                    </div>
+
+                    <div>
+                      <span style={{ color: '#93C5FD', display: 'block', fontSize: '0.625rem', fontWeight: 700, marginBottom: '2px' }}>
+                        Today's Network Profit
+                      </span>
+                      <strong style={{ color: '#FCD34D', fontSize: '0.9375rem', fontWeight: 800 }}>
+                        ₹{networkData.today_network_profit.toFixed(2)}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Notice if Merchant / Retailer is viewing */}
+              {(userRole === 'MERCHANT' || userRole === 'Retailer') ? (
+                <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '18px', padding: '2rem 1.5rem', textAlign: 'center' }}>
+                  <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: '#EFF6FF', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
+                    <Users style={{ width: '24px', height: '24px' }} />
+                  </div>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#0F172A', margin: '0 0 0.5rem' }}>
+                    Retailer Operational Account
+                  </h3>
+                  <p style={{ fontSize: '0.8125rem', color: '#64748B', maxWidth: '460px', margin: '0 auto', lineHeight: 1.5 }}>
+                    Retailers and Merchants are the customer-facing retail tier of the RONAV ecosystem. Your earnings are credited through counter card swipes and BBPS bill collections. Downstream partner onboarding is managed by your assigned Distributor.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* TWO COLUMN SPLIT SECTION: Onboard Form (Left) & Partners Roster (Right) */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem' }}>
+                    
+                    {/* SECTION 1: CREATE / ONBOARD NEW PARTNER */}
+                    <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '18px', padding: '1.25rem', boxShadow: '0 2px 10px rgba(0,0,0,0.02)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.75rem' }}>
+                        <div style={{ width: '34px', height: '34px', borderRadius: '10px', background: '#EFF6FF', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <UserPlus style={{ width: '18px', height: '18px' }} />
+                        </div>
+                        <div>
+                          <h3 style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
+                            Onboard New Partner
+                          </h3>
+                          <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
+                            Permitted downstream tier accounts
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Instant Generated Credentials Card */}
+                      {createdPartnerCreds && (
+                        <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: '12px', padding: '0.875rem', marginBottom: '1rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#15803D', fontSize: '0.75rem', fontWeight: 800 }}>
+                              <CheckCircle2 style={{ width: '16px', height: '16px' }} />
+                              <span>Account Created Successfully!</span>
+                            </div>
+                            <button 
+                              onClick={() => setCreatedPartnerCreds(null)}
+                              style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', padding: '2px' }}
+                            >
+                              <X style={{ width: '14px', height: '14px' }} />
+                            </button>
+                          </div>
+
+                          <div style={{ background: '#FFFFFF', border: '1px solid #BBF7D0', borderRadius: '8px', padding: '0.625rem', marginBottom: '0.625rem', fontSize: '0.75rem', lineHeight: 1.6 }}>
+                            <div><strong>Partner Name:</strong> {createdPartnerCreds.name}</div>
+                            <div><strong>User ID:</strong> <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#0F52BA' }}>{createdPartnerCreds.id}</span></div>
+                            <div><strong>Password:</strong> <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#059669' }}>{createdPartnerCreds.password}</span></div>
+                            <div><strong>Role:</strong> <span style={{ fontWeight: 700 }}>{createdPartnerCreds.role}</span></div>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <button 
+                              onClick={() => {
+                                const text = `Hello ${createdPartnerCreds.name}, your RONAV partner credentials are: User ID: ${createdPartnerCreds.id}, Password: ${createdPartnerCreds.password}, Role: ${createdPartnerCreds.role}. Login at: ${window.location.origin}`;
+                                navigator.clipboard.writeText(text);
+                                showToast('✓ Credentials copied to clipboard!');
+                              }}
+                              style={{ flex: 1, background: '#FFFFFF', border: '1px solid #86EFAC', color: '#15803D', borderRadius: '8px', padding: '0.4rem', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                            >
+                              <Copy style={{ width: '12px', height: '12px' }} />
+                              <span>Copy</span>
+                            </button>
+
+                            <a 
+                              href={`https://api.whatsapp.com/send?phone=${createdPartnerCreds.mobile}&text=${encodeURIComponent(`Hello ${createdPartnerCreds.name}, your RONAV partner account is activated!\n\nUser ID: ${createdPartnerCreds.id}\nPassword: ${createdPartnerCreds.password}\nRole: ${createdPartnerCreds.role}\n\nLogin here: ${window.location.origin}`)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ flex: 1, background: '#25D366', color: '#FFFFFF', borderRadius: '8px', padding: '0.4rem', fontSize: '0.6875rem', fontWeight: 800, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                            >
+                              <Share2 style={{ width: '12px', height: '12px' }} />
+                              <span>WhatsApp</span>
+                            </a>
+                          </div>
+                        </div>
+                      )}
+
+                      <form onSubmit={handleOnboardSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        <div>
+                          <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.2rem' }}>
+                            Partner Role *
+                          </label>
+                          <select 
+                            value={onboardForm.role} 
+                            onChange={(e) => setOnboardForm({ ...onboardForm, role: e.target.value })}
+                            style={{ width: '100%', boxSizing: 'border-box', padding: '0.5rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', fontWeight: 700, color: '#0F172A', background: '#F8FAFC' }}
+                          >
+                            {allowedRolesForCreator.map(r => (
+                              <option key={r.value} value={r.value}>
+                                {r.icon} {r.label} ({r.badge})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.2rem' }}>
+                            Full Name / Proprietor Name *
+                          </label>
+                          <input 
+                            type="text" 
+                            required
+                            placeholder="e.g. Ramesh Reddy"
+                            value={onboardForm.name}
+                            onChange={(e) => setOnboardForm({ ...onboardForm, name: e.target.value })}
+                            style={{ width: '100%', boxSizing: 'border-box', padding: '0.5rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.8125rem' }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.2rem' }}>
+                            10-Digit Mobile Number *
+                          </label>
+                          <input 
+                            type="tel" 
+                            required
+                            maxLength="10"
+                            placeholder="e.g. 9876543210"
+                            value={onboardForm.mobile}
+                            onChange={(e) => setOnboardForm({ ...onboardForm, mobile: e.target.value.replace(/\D/g, '') })}
+                            style={{ width: '100%', boxSizing: 'border-box', padding: '0.5rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.8125rem' }}
+                          />
+                        </div>
+
+                        {onboardForm.role === 'MERCHANT' && (
+                          <div>
+                            <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.2rem' }}>
+                              Swipe Machine Provider
+                            </label>
+                            <select 
+                              value={onboardForm.pos_provider}
+                              onChange={(e) => setOnboardForm({ ...onboardForm, pos_provider: e.target.value })}
+                              style={{ width: '100%', boxSizing: 'border-box', padding: '0.5rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', background: '#F8FAFC' }}
+                            >
+                              <option value="Pine Labs">🌲 Pine Labs (Terminal PL-HYD)</option>
+                              <option value="Payswiff">⚡ Payswiff (Smart Android)</option>
+                            </select>
+                          </div>
+                        )}
+
+                        <button 
+                          type="submit"
+                          disabled={isSubmittingOnboard}
+                          style={{
+                            marginTop: '0.25rem',
+                            background: '#0F52BA',
+                            color: '#FFFFFF',
+                            border: 'none',
+                            borderRadius: '10px',
+                            padding: '0.625rem',
+                            fontSize: '0.8125rem',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            boxShadow: '0 3px 10px rgba(15,82,186,0.25)'
+                          }}
+                        >
+                          <PlusCircle style={{ width: '15px', height: '15px' }} />
+                          <span>{isSubmittingOnboard ? 'Creating Account...' : `Create ${onboardForm.role || 'Partner'} Account →`}</span>
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* SECTION 2: REFERRED PARTNERS ROSTER */}
+                    <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '18px', padding: '1.25rem', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.75rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <div style={{ width: '34px', height: '34px', borderRadius: '10px', background: '#F0FDF4', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Users style={{ width: '18px', height: '18px' }} />
+                          </div>
+                          <div>
+                            <h3 style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
+                              Referred Partners Roster
+                            </h3>
+                            <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
+                              Select a partner to view transaction profit
+                            </span>
+                          </div>
+                        </div>
+                        <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#059669', background: '#ECFDF5', padding: '2px 8px', borderRadius: '12px' }}>
+                          {networkData.partners.length} Active
+                        </span>
+                      </div>
+
+                      {/* Partners List */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '380px', overflowY: 'auto', paddingRight: '2px' }}>
+                        {networkData.partners.length === 0 ? (
+                          <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: '#94A3B8' }}>
+                            <Users style={{ width: '32px', height: '32px', margin: '0 auto 0.5rem', opacity: 0.5 }} />
+                            <p style={{ margin: 0, fontSize: '0.8125rem', fontWeight: 600 }}>No downstream partners referred yet</p>
+                            <span style={{ fontSize: '0.6875rem' }}>Use the form on the left to onboard your first partner.</span>
+                          </div>
+                        ) : (
+                          networkData.partners.map((p) => {
+                            const isSelected = selectedPartner?.id === p.id;
+                            return (
+                              <div 
+                                key={p.id}
+                                onClick={() => selectPartner(p)}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  padding: '0.625rem 0.75rem',
+                                  borderRadius: '12px',
+                                  background: isSelected ? '#EFF6FF' : '#F8FAFC',
+                                  border: isSelected ? '1.5px solid #3B82F6' : '1px solid #E2E8F0',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease'
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                                  <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: isSelected ? '#0F52BA' : '#E2E8F0', color: isSelected ? '#FFF' : '#334155', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 800 }}>
+                                    {p.name.charAt(0)}
+                                  </div>
+                                  <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                      <strong style={{ fontSize: '0.75rem', color: '#0F172A' }}>{p.name}</strong>
+                                      <span style={{ fontSize: '0.5rem', fontWeight: 800, color: p.role === 'DISTRICT_DISTRIBUTOR' ? '#7C3AED' : p.role === 'DISTRIBUTOR' ? '#0F52BA' : '#059669', background: '#FFFFFF', border: '1px solid #E2E8F0', padding: '1px 4px', borderRadius: '4px' }}>
+                                        {p.role}
+                                      </span>
+                                    </div>
+                                    <span style={{ fontSize: '0.5625rem', color: '#64748B' }}>
+                                      ID: {p.id} • {p.mobile}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div style={{ textAlign: 'right' }}>
+                                  <p style={{ fontSize: '0.75rem', fontWeight: 800, color: '#059669', margin: 0 }}>
+                                    +₹{p.commission_earned.toFixed(2)}
+                                  </p>
+                                  <span style={{ fontSize: '0.5rem', color: '#64748B' }}>
+                                    Vol: ₹{(p.total_volume / 1000).toFixed(1)}k
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* SECTION 3: SELECTED PARTNER TRANSACTION AUDIT & PROFIT BREAKDOWN */}
+                  <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '18px', padding: '1.25rem', boxShadow: '0 2px 10px rgba(0,0,0,0.02)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <div style={{ width: '34px', height: '34px', borderRadius: '10px', background: '#ECFDF5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <History style={{ width: '18px', height: '18px' }} />
+                        </div>
+                        <div>
+                          <h3 style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
+                            {selectedPartner ? `Transaction History: ${selectedPartner.name}` : 'Partner Transaction Ledger'}
+                          </h3>
+                          <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
+                            {selectedPartner ? `Account: ${selectedPartner.id} • Role: ${selectedPartner.role} • Line-by-line commission profit` : 'Select a partner from the roster to inspect transactions'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {selectedPartner && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#334155', background: '#F8FAFC', padding: '3px 8px', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
+                            Partner Sales: <strong>₹{partnerTxns.reduce((a,b)=>a+(parseFloat(b.amount)||0),0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                          </span>
+                          <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#059669', background: '#ECFDF5', padding: '3px 8px', borderRadius: '6px', border: '1px solid #A7F3D0' }}>
+                            My Profit: <strong>+₹{partnerTxns.reduce((a,b)=>a+(parseFloat(b.commission_profit)||0),0).toFixed(2)}</strong>
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Transactions Table / List */}
+                    {isLoadingPartnerTxns ? (
+                      <div style={{ textAlign: 'center', padding: '2rem 0', color: '#64748B' }}>
+                        <RefreshCw style={{ width: '20px', height: '20px', animation: 'spin 1s linear infinite', margin: '0 auto 0.5rem' }} />
+                        <p style={{ margin: 0, fontSize: '0.75rem' }}>Loading partner transactions...</p>
+                      </div>
+                    ) : partnerTxns.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '2rem 1rem', color: '#94A3B8' }}>
+                        <CreditCard style={{ width: '32px', height: '32px', margin: '0 auto 0.5rem', opacity: 0.5 }} />
+                        <p style={{ margin: 0, fontSize: '0.8125rem', fontWeight: 600 }}>No transactions found for this partner</p>
+                        <span style={{ fontSize: '0.6875rem' }}>When this partner processes card swipes or BBPS bills, their transactions and your commission profit cut will appear here.</span>
+                      </div>
+                    ) : (
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.75rem' }}>
+                          <thead>
+                            <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0', color: '#475569', fontWeight: 800 }}>
+                              <th style={{ padding: '0.625rem 0.75rem' }}>TXN ID / UTR</th>
+                              <th style={{ padding: '0.625rem 0.75rem' }}>Date &amp; Time</th>
+                              <th style={{ padding: '0.625rem 0.75rem' }}>Service / Provider</th>
+                              <th style={{ padding: '0.625rem 0.75rem' }}>Customer</th>
+                              <th style={{ padding: '0.625rem 0.75rem', textAlign: 'right' }}>Transaction Amount</th>
+                              <th style={{ padding: '0.625rem 0.75rem', textAlign: 'right' }}>My Commission Profit</th>
+                              <th style={{ padding: '0.625rem 0.75rem', textAlign: 'center' }}>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {partnerTxns.map((t) => (
+                              <tr key={t.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                                <td style={{ padding: '0.625rem 0.75rem', fontFamily: 'monospace', fontWeight: 700, color: '#0F172A' }}>
+                                  {t.id}
+                                  {t.ref_number && <span style={{ display: 'block', fontSize: '0.625rem', color: '#64748B' }}>RRN: {t.ref_number}</span>}
+                                </td>
+                                <td style={{ padding: '0.625rem 0.75rem', color: '#475569' }}>
+                                  {new Date(t.created_at || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  <span style={{ display: 'block', fontSize: '0.625rem', color: '#94A3B8' }}>
+                                    {new Date(t.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '0.625rem 0.75rem' }}>
+                                  <span style={{ fontWeight: 700, color: '#0F172A' }}>
+                                    {t.type === 'BBPS_BILL' ? '⚡ BBPS Bill' : '💳 POS Swipe'}
+                                  </span>
+                                  <span style={{ display: 'block', fontSize: '0.625rem', color: '#64748B' }}>
+                                    {t.provider || 'Terminal'}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '0.625rem 0.75rem', color: '#64748B' }}>
+                                  {t.customer_mobile || 'Walk-in'}
+                                </td>
+                                <td style={{ padding: '0.625rem 0.75rem', textAlign: 'right', fontWeight: 800, color: '#0F172A' }}>
+                                  ₹{parseFloat(t.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                </td>
+                                <td style={{ padding: '0.625rem 0.75rem', textAlign: 'right' }}>
+                                  <span style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#059669', background: '#ECFDF5', padding: '2px 6px', borderRadius: '4px' }}>
+                                    +₹{t.commission_profit.toFixed(2)}
+                                  </span>
+                                  <span style={{ display: 'block', fontSize: '0.5625rem', color: '#059669', fontWeight: 700 }}>
+                                    ({t.commission_rate_pct}%)
+                                  </span>
+                                </td>
+                                <td style={{ padding: '0.625rem 0.75rem', textAlign: 'center' }}>
+                                  <span style={{ fontSize: '0.55rem', fontWeight: 800, color: '#059669', background: '#ECFDF5', padding: '2px 6px', borderRadius: '4px' }}>
+                                    Approved
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+            </div>
+          )}
+
         </div>
       </main>
 
@@ -2793,13 +3456,23 @@ export default function MerchantDashboardPage({ user, onLogout }) {
           Withdraw
         </button>
 
-        <button 
-          onClick={() => setActiveTab('history')} 
-          style={{ background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', color: activeTab === 'history' ? '#0F52BA' : '#64748B', cursor: 'pointer', fontSize: '0.625rem', fontWeight: 700 }}
-        >
-          <History style={{ width: '18px', height: '18px' }} />
-          History
-        </button>
+        {userRole !== 'MERCHANT' && userRole !== 'Retailer' ? (
+          <button 
+            onClick={() => setActiveTab('network')} 
+            style={{ background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', color: activeTab === 'network' ? '#0F52BA' : '#64748B', cursor: 'pointer', fontSize: '0.625rem', fontWeight: 700 }}
+          >
+            <Users style={{ width: '18px', height: '18px' }} />
+            Network
+          </button>
+        ) : (
+          <button 
+            onClick={() => setActiveTab('history')} 
+            style={{ background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', color: activeTab === 'history' ? '#0F52BA' : '#64748B', cursor: 'pointer', fontSize: '0.625rem', fontWeight: 700 }}
+          >
+            <History style={{ width: '18px', height: '18px' }} />
+            History
+          </button>
+        )}
       </nav>
 
       {/* 4. MODAL: LINK NEW BANK ACCOUNT (Contained Searchable Design) */}
