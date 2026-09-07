@@ -1,14 +1,23 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
 export default function RonavLogo({ size = 'medium', className = '', style = {} }) {
+  const [animated, setAnimated] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setAnimated(true);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, []);
+
   const isSmall = size === 'small';
   const isLarge = size === 'large';
 
-  const imgHeight = isSmall ? '24px' : isLarge ? '40px' : '32px';
-  const fontSize = isSmall ? '1.1rem' : isLarge ? '1.5rem' : '1.25rem';
-  const chevronSize = isSmall ? '0.85rem' : isLarge ? '1.15rem' : '0.95rem';
-  const subFontSize = isSmall ? '0.42rem' : isLarge ? '0.58rem' : '0.5rem';
-  const lineWidth = isSmall ? '8px' : isLarge ? '14px' : '10px';
+  const logoHeight = isSmall ? '38px' : isLarge ? '52px' : 'var(--logo-height, 46px)';
+  const fontSize = isSmall ? 'clamp(1.1rem, 3.2vw, 1.3rem)' : isLarge ? 'clamp(1.35rem, 4.2vw, 1.7rem)' : 'clamp(1.2rem, 3.8vw, 1.5rem)';
+  const chevronSize = isSmall ? 'clamp(0.85rem, 2.5vw, 1rem)' : isLarge ? 'clamp(1.05rem, 3.3vw, 1.25rem)' : 'clamp(0.95rem, 3vw, 1.15rem)';
+  const subFontSize = isSmall ? 'clamp(0.4rem, 1.2vw, 0.5rem)' : isLarge ? 'clamp(0.5rem, 1.5vw, 0.65rem)' : 'clamp(0.45rem, 1.4vw, 0.58rem)';
+  const lineWidth = isSmall ? '8px' : isLarge ? '14px' : '12px';
 
   return (
     <div 
@@ -16,7 +25,7 @@ export default function RonavLogo({ size = 'medium', className = '', style = {} 
       style={{ 
         display: 'inline-flex', 
         alignItems: 'center', 
-        gap: '0.5rem', 
+        gap: '0.625rem', 
         userSelect: 'none',
         textAlign: 'left',
         ...style 
@@ -26,9 +35,9 @@ export default function RonavLogo({ size = 'medium', className = '', style = {} 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <img 
           src="/logo_tr_transparent.png" 
-          alt="RONAV" 
+          alt="RONAV Monogram" 
           style={{ 
-            height: imgHeight, 
+            height: logoHeight, 
             width: 'auto', 
             display: 'block',
             flexShrink: 0 
@@ -36,7 +45,7 @@ export default function RonavLogo({ size = 'medium', className = '', style = {} 
         />
       </div>
 
-      {/* Official Typography: RONAV + TECHNOLOGIES */}
+      {/* Letter-by-Letter Writing Animation Naming */}
       <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
         <div 
           style={{ 
@@ -49,12 +58,37 @@ export default function RonavLogo({ size = 'medium', className = '', style = {} 
             alignItems: 'center'
           }}
         >
-          <span>R</span>
-          <span>O</span>
-          <span>N</span>
+          {/* R */}
+          <span style={{
+            display: 'inline-block',
+            opacity: animated ? 1 : 0,
+            transform: animated ? 'translateX(0)' : 'translateX(-6px)',
+            transition: 'opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 300ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 300ms'
+          }}>R</span>
+          
+          {/* O */}
+          <span style={{
+            display: 'inline-block',
+            opacity: animated ? 1 : 0,
+            transform: animated ? 'translateX(0)' : 'translateX(-6px)',
+            transition: 'opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 370ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 370ms'
+          }}>O</span>
+          
+          {/* N */}
+          <span style={{
+            display: 'inline-block',
+            opacity: animated ? 1 : 0,
+            transform: animated ? 'translateX(0)' : 'translateX(-6px)',
+            transition: 'opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 440ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 440ms'
+          }}>N</span>
+          
+          {/* A (Inverted V Chevron) */}
           <span
             style={{
               display: 'inline-flex',
+              opacity: animated ? 1 : 0,
+              transform: animated ? 'translateX(0)' : 'translateX(-6px)',
+              transition: 'opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 510ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 510ms',
               width: chevronSize,
               height: chevronSize,
               marginRight: '2px',
@@ -65,15 +99,22 @@ export default function RonavLogo({ size = 'medium', className = '', style = {} 
           >
             <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', height: '100%', display: 'block' }}>
               <defs>
-                <linearGradient id="ronavSharedLogoTGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <linearGradient id="logoTGradUniversal" x1="0%" y1="0%" x2="100%" y2="100%">
                   <stop offset="0%" stopColor="#0066FF" />
                   <stop offset="100%" stopColor="#003399" />
                 </linearGradient>
               </defs>
-              <path d="M12 90 L50 15 L88 90" stroke="url(#ronavSharedLogoTGrad)" strokeWidth="22" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M12 90 L50 15 L88 90" stroke="url(#logoTGradUniversal)" strokeWidth="22" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </span>
-          <span>V</span>
+          
+          {/* V */}
+          <span style={{
+            display: 'inline-block',
+            opacity: animated ? 1 : 0,
+            transform: animated ? 'translateX(0)' : 'translateX(-6px)',
+            transition: 'opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 580ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 580ms'
+          }}>V</span>
         </div>
         
         {/* TECHNOLOGIES with gradient accent lines */}
@@ -82,7 +123,10 @@ export default function RonavLogo({ size = 'medium', className = '', style = {} 
             display: 'flex',
             alignItems: 'center',
             gap: '0.25rem',
-            marginTop: '2px'
+            opacity: animated ? 1 : 0,
+            transform: animated ? 'translateY(0)' : 'translateY(3px)',
+            transition: 'opacity 400ms cubic-bezier(0.16, 1, 0.3, 1) 750ms, transform 400ms cubic-bezier(0.16, 1, 0.3, 1) 750ms',
+            marginTop: '3px'
           }}
         >
           <div style={{ height: '2px', width: lineWidth, background: 'linear-gradient(90deg, transparent, #0066FF)', borderRadius: '1px' }} />

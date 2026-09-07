@@ -419,7 +419,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
             </button>
             
             {/* Official Ronav Brand Logo */}
-            <RonavLogo size="small" />
+            <RonavLogo size="medium" />
           </div>
 
           {/* Right utilities: Notification + Admin Profile */}
