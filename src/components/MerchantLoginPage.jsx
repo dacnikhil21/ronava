@@ -87,7 +87,11 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
     e.preventDefault();
     setIsLoading(true);
     try {
-      const searchId = userId || (selectedRole === 'Retailer' ? 'MID3001' : (selectedRole === 'Distributor' ? 'DIST2001' : 'SD1001'));
+      const searchId = userId || (
+        selectedRole === 'Retailer' ? 'MID3001' : 
+        (selectedRole === 'Distributor' ? 'DIST2001' : 
+        (selectedRole === 'MASTER' ? 'MST1001' : 'SD1001'))
+      );
       const res = await loginUser({ 
         id: searchId, 
         role: selectedRole === 'Retailer' ? 'MERCHANT' : selectedRole 
@@ -102,18 +106,20 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
           pos: res.pos || null
         });
       } else {
+        const fallbackId = selectedRole === 'MASTER' ? 'MST1001' : (selectedRole === 'Distributor' ? 'DIST2001' : (selectedRole === 'Super Distributor' ? 'SD1001' : 'MID3001'));
         onLoginSuccess({
-          id: 'MID3001',
-          name: userId || 'Ravi Kirana Store',
-          mid: 'MID3001',
+          id: fallbackId,
+          name: userId || (selectedRole === 'MASTER' ? 'RONAV Apex Master Hub' : 'Ravi Kirana Store'),
+          mid: fallbackId,
           role: selectedRole
         });
       }
     } catch (err) {
+      const fallbackId = selectedRole === 'MASTER' ? 'MST1001' : (selectedRole === 'Distributor' ? 'DIST2001' : (selectedRole === 'Super Distributor' ? 'SD1001' : 'MID3001'));
       onLoginSuccess({
-        id: 'MID3001',
-        name: userId || 'Ravi Kirana Store',
-        mid: 'MID3001',
+        id: fallbackId,
+        name: userId || (selectedRole === 'MASTER' ? 'RONAV Apex Master Hub' : 'Ravi Kirana Store'),
+        mid: fallbackId,
         role: selectedRole
       });
     } finally {

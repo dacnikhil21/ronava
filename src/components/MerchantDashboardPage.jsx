@@ -364,30 +364,53 @@ export default function MerchantDashboardPage({ user, onLogout }) {
 
   // Allowed downstream roles based on hierarchy
   const allowedRolesForCreator = useMemo(() => {
-    if (userRole === 'SUPER_DISTRIBUTOR' || userRole === 'Super Distributor') {
+    const r = (userRole || '').toUpperCase();
+
+    // 1. Master Distributor / Super Admin / Admin (Apex Command Level)
+    if (r.includes('MASTER') || r.includes('ADMIN')) {
+      return [
+        { value: 'SUPER_DISTRIBUTOR', label: 'Super Distributor (SD)', badge: 'State / Zone Head', icon: '⚡' },
+        { value: 'DISTRICT_DISTRIBUTOR', label: 'District Distributor (DD)', badge: 'District Head', icon: '🏢' },
+        { value: 'DISTRIBUTOR', label: 'Distributor (DIST)', badge: 'Area Head', icon: '📦' },
+        { value: 'MERCHANT', label: 'Shop Owner / Merchant (MID)', badge: 'Swipe Machine & Bill Pay', icon: '🏪' }
+      ];
+    }
+
+    // 2. Super Distributor
+    if (r.includes('SUPER')) {
       return [
         { value: 'DISTRICT_DISTRIBUTOR', label: 'District Distributor (DD)', badge: 'District Head', icon: '🏢' },
         { value: 'DISTRIBUTOR', label: 'Distributor (DIST)', badge: 'Area Head', icon: '📦' },
         { value: 'MERCHANT', label: 'Shop Owner / Merchant (MID)', badge: 'Swipe Machine & Bill Pay', icon: '🏪' }
       ];
     }
-    if (userRole === 'DISTRICT_DISTRIBUTOR' || userRole === 'District Distributor') {
+
+    // 3. District Distributor / DIST Franchise
+    if (r.includes('DISTRICT') || r.includes('FRANCHISE') || r === 'DD') {
       return [
         { value: 'DISTRIBUTOR', label: 'Distributor (DIST)', badge: 'Area Head', icon: '📦' },
         { value: 'MERCHANT', label: 'Shop Owner / Merchant (MID)', badge: 'Swipe Machine & Bill Pay', icon: '🏪' }
       ];
     }
-    if (userRole === 'DISTRIBUTOR' || userRole === 'Distributor') {
+
+    // 4. Distributor
+    if (r.includes('DISTRIBUTOR') || r.includes('DIST')) {
       return [
         { value: 'MERCHANT', label: 'Shop Owner / Merchant (MID)', badge: 'Swipe Machine & Bill Pay', icon: '🏪' }
       ];
     }
-    return [];
+
+    // 5. Default Fallback so the dropdown is never blank
+    return [
+      { value: 'MERCHANT', label: 'Shop Owner / Merchant (MID)', badge: 'Swipe Machine & Bill Pay', icon: '🏪' }
+    ];
   }, [userRole]);
 
   useEffect(() => {
-    if (allowedRolesForCreator.length > 0 && !onboardForm.role) {
-      setOnboardForm(prev => ({ ...prev, role: allowedRolesForCreator[0].value }));
+    if (allowedRolesForCreator.length > 0) {
+      if (!onboardForm.role || !allowedRolesForCreator.some(r => r.value === onboardForm.role)) {
+        setOnboardForm(prev => ({ ...prev, role: allowedRolesForCreator[0].value }));
+      }
     }
   }, [allowedRolesForCreator]);
 
@@ -3126,12 +3149,26 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                             Account Type *
                           </label>
                           <select 
+                            id="account-type-select"
                             value={onboardForm.role} 
                             onChange={(e) => setOnboardForm({ ...onboardForm, role: e.target.value })}
-                            style={{ width: '100%', boxSizing: 'border-box', padding: '0.5rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', fontWeight: 700, color: '#0F172A', background: '#F8FAFC' }}
+                            style={{ 
+                              width: '100%', 
+                              boxSizing: 'border-box', 
+                              padding: '0.625rem 0.75rem', 
+                              borderRadius: '8px', 
+                              border: '1px solid #CBD5E1', 
+                              fontSize: '0.8125rem', 
+                              fontWeight: 700, 
+                              color: '#0F172A', 
+                              background: '#FFFFFF',
+                              cursor: 'pointer',
+                              outline: 'none',
+                              boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+                            }}
                           >
                             {allowedRolesForCreator.map(r => (
-                              <option key={r.value} value={r.value}>
+                              <option key={r.value} value={r.value} style={{ padding: '8px', fontWeight: 600, color: '#0F172A', background: '#FFFFFF' }}>
                                 {r.icon} {r.label} ({r.badge})
                               </option>
                             ))}

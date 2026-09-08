@@ -115,6 +115,21 @@ export function initDatabase() {
   if (inqCount && inqCount.count === 0) {
     seedInquiries();
   }
+
+  // Ensure MASTER account exists
+  const existingMaster = db.prepare(`SELECT * FROM users WHERE role = 'MASTER'`).get();
+  if (!existingMaster) {
+    try {
+      db.prepare(`INSERT OR IGNORE INTO users (id, name, mobile, role, creator_id) VALUES (?, ?, ?, ?, ?)`).run(
+        'MST1001', 'RONAV Apex Master Command', '9966203000', 'MASTER', 'ADM001'
+      );
+      db.prepare(`INSERT OR IGNORE INTO wallets (user_id, available_balance, total_sales, received_sales, pending_balance, withdrawn_amount) VALUES (?, ?, ?, ?, ?, ?)`).run(
+        'MST1001', 250000.0, 850000.0, 800000.0, 10000.0, 40000.0
+      );
+    } catch (e) {
+      console.warn('Could not seed MASTER user:', e.message);
+    }
+  }
 }
 
 function seedInquiries() {

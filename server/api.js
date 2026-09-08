@@ -139,8 +139,17 @@ export async function handleApiRequest(req, res) {
         });
       }
 
+      // Hierarchy Rule 5: Master / Admin can create SD, DD, Distributor, or Merchant
+      if ((creator.role === 'MASTER' || creator.role === 'ADMIN') && role === 'ADMIN') {
+        return sendJson(res, 403, { 
+          success: false, 
+          message: 'Permission denied: Cannot create Admin accounts via downstream onboarding.' 
+        });
+      }
+
       // Generate Clean ID based on role
       const prefixMap = {
+        'MASTER': 'MST',
         'SUPER_DISTRIBUTOR': 'SD',
         'DISTRICT_DISTRIBUTOR': 'DD',
         'DISTRIBUTOR': 'DIST',
@@ -312,10 +321,11 @@ export async function handleApiRequest(req, res) {
       const creator = db.prepare(`SELECT * FROM users WHERE id = ?`).get(creatorId);
       const creatorRole = creator?.role || 'DISTRIBUTOR';
       // Commission margins based on creator tier:
+      // Master / Admin: 0.75% margin
       // Super Distributor: 0.50% margin
       // District Distributor: 0.35% margin
       // Distributor: 0.25% margin
-      const commissionRatePct = creatorRole === 'SUPER_DISTRIBUTOR' ? 0.50 : (creatorRole === 'DISTRICT_DISTRIBUTOR' ? 0.35 : 0.25);
+      const commissionRatePct = (creatorRole === 'MASTER' || creatorRole === 'ADMIN') ? 0.75 : (creatorRole === 'SUPER_DISTRIBUTOR' ? 0.50 : (creatorRole === 'DISTRICT_DISTRIBUTOR' ? 0.35 : 0.25));
 
       const partners = db.prepare(`
         SELECT u.*, 
