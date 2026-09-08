@@ -117,3 +117,8 @@ Thumbs.db
 
 # Local SQLite databases
 *.db
+
+# Personal / Local Documents
+resume.html
+*.pdf
+
