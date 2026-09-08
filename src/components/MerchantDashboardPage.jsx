@@ -362,49 +362,98 @@ export default function MerchantDashboardPage({ user, onLogout }) {
 
   const [expandedPartnerId, setExpandedPartnerId] = useState(null);
 
-  // Allowed downstream roles based on hierarchy
+  // Allowed downstream roles based on hierarchy & Machine Provider (Pine Labs vs Payswiff)
   const allowedRolesForCreator = useMemo(() => {
     const r = (userRole || '').toUpperCase();
+    const isPine = (onboardForm.pos_provider || 'Pine Labs') === 'Pine Labs';
 
-    // 1. Master Distributor / Super Admin / Admin (Apex Command Level)
-    if (r.includes('MASTER') || r.includes('ADMIN')) {
+    if (isPine) {
+      // -------------------------------------------------------------------
+      // 1. PINE LABS T+1: 4 Tiers (Super Distributor is strictly OMITTED)
+      // MASTER (1.21%) -> DIST Franchise (1.41%) -> Distributor (1.47%) -> Retailer (1.53%)
+      // -------------------------------------------------------------------
+      if (r.includes('MASTER') || r.includes('ADMIN')) {
+        return [
+          { value: 'DIST_FRANCHISE', label: 'DIST Franchise', badge: 'MDR 1.41% • Margin +0.06%', icon: '🏢' },
+          { value: 'DISTRIBUTOR', label: 'Distributor', badge: 'MDR 1.47% • Margin +0.06%', icon: '📦' },
+          { value: 'MERCHANT', label: 'Retailer (Merchant)', badge: 'MDR 1.53% • Counter Swipe', icon: '🏪' }
+        ];
+      }
+
+      if (r.includes('DISTRICT') || r.includes('FRANCHISE') || r === 'DD') {
+        return [
+          { value: 'DISTRIBUTOR', label: 'Distributor', badge: 'MDR 1.47% • Margin +0.06%', icon: '📦' },
+          { value: 'MERCHANT', label: 'Retailer (Merchant)', badge: 'MDR 1.53% • Counter Swipe', icon: '🏪' }
+        ];
+      }
+
+      if (r.includes('DISTRIBUTOR') || r.includes('DIST')) {
+        return [
+          { value: 'MERCHANT', label: 'Retailer (Merchant)', badge: 'MDR 1.53% • Counter Swipe', icon: '🏪' }
+        ];
+      }
+
       return [
-        { value: 'SUPER_DISTRIBUTOR', label: 'Super Distributor (SD)', badge: 'State / Zone Head', icon: '⚡' },
-        { value: 'DISTRICT_DISTRIBUTOR', label: 'District Distributor (DD)', badge: 'District Head', icon: '🏢' },
-        { value: 'DISTRIBUTOR', label: 'Distributor (DIST)', badge: 'Area Head', icon: '📦' },
-        { value: 'MERCHANT', label: 'Shop Owner / Merchant (MID)', badge: 'Swipe Machine & Bill Pay', icon: '🏪' }
+        { value: 'MERCHANT', label: 'Retailer (Merchant)', badge: 'MDR 1.53% • Counter Swipe', icon: '🏪' }
+      ];
+    } else {
+      // -------------------------------------------------------------------
+      // 2. PAYSWIFF T+1: 5 Tiers (Super Distributor is INCLUDED)
+      // MASTER (1.40%) -> Super Dist (1.42%) -> DIST Franchise (1.45%) -> Distributor (1.48%) -> Retailer (1.53%)
+      // -------------------------------------------------------------------
+      if (r.includes('MASTER') || r.includes('ADMIN')) {
+        return [
+          { value: 'SUPER_DISTRIBUTOR', label: 'Super Distributor (SD)', badge: 'MDR 1.42% • Margin +0.03%', icon: '⚡' },
+          { value: 'DIST_FRANCHISE', label: 'DIST Franchise', badge: 'MDR 1.45% • Margin +0.03%', icon: '🏢' },
+          { value: 'DISTRIBUTOR', label: 'Distributor', badge: 'MDR 1.48% • Margin +0.05%', icon: '📦' },
+          { value: 'MERCHANT', label: 'Retailer (Merchant)', badge: 'MDR 1.53% • Counter Swipe', icon: '🏪' }
+        ];
+      }
+
+      if (r.includes('SUPER')) {
+        return [
+          { value: 'DIST_FRANCHISE', label: 'DIST Franchise', badge: 'MDR 1.45% • Margin +0.03%', icon: '🏢' },
+          { value: 'DISTRIBUTOR', label: 'Distributor', badge: 'MDR 1.48% • Margin +0.05%', icon: '📦' },
+          { value: 'MERCHANT', label: 'Retailer (Merchant)', badge: 'MDR 1.53% • Counter Swipe', icon: '🏪' }
+        ];
+      }
+
+      if (r.includes('DISTRICT') || r.includes('FRANCHISE') || r === 'DD') {
+        return [
+          { value: 'DISTRIBUTOR', label: 'Distributor', badge: 'MDR 1.48% • Margin +0.05%', icon: '📦' },
+          { value: 'MERCHANT', label: 'Retailer (Merchant)', badge: 'MDR 1.53% • Counter Swipe', icon: '🏪' }
+        ];
+      }
+
+      if (r.includes('DISTRIBUTOR') || r.includes('DIST')) {
+        return [
+          { value: 'MERCHANT', label: 'Retailer (Merchant)', badge: 'MDR 1.53% • Counter Swipe', icon: '🏪' }
+        ];
+      }
+
+      return [
+        { value: 'MERCHANT', label: 'Retailer (Merchant)', badge: 'MDR 1.53% • Counter Swipe', icon: '🏪' }
       ];
     }
+  }, [userRole, onboardForm.pos_provider]);
 
-    // 2. Super Distributor
-    if (r.includes('SUPER')) {
-      return [
-        { value: 'DISTRICT_DISTRIBUTOR', label: 'District Distributor (DD)', badge: 'District Head', icon: '🏢' },
-        { value: 'DISTRIBUTOR', label: 'Distributor (DIST)', badge: 'Area Head', icon: '📦' },
-        { value: 'MERCHANT', label: 'Shop Owner / Merchant (MID)', badge: 'Swipe Machine & Bill Pay', icon: '🏪' }
-      ];
+  // Current user's tier margin for display based on active provider
+  const userTierMargin = useMemo(() => {
+    const r = (userRole || '').toUpperCase();
+    const isPine = (onboardForm.pos_provider || 'Pine Labs') === 'Pine Labs';
+    if (isPine) {
+      if (r.includes('MASTER') || r.includes('ADMIN')) return '0.20';
+      if (r.includes('DISTRICT') || r.includes('FRANCHISE') || r === 'DD') return '0.06';
+      if (r.includes('DISTRIBUTOR') || r.includes('DIST')) return '0.06';
+      return '0.00';
+    } else {
+      if (r.includes('MASTER') || r.includes('ADMIN')) return '0.02';
+      if (r.includes('SUPER')) return '0.03';
+      if (r.includes('DISTRICT') || r.includes('FRANCHISE') || r === 'DD') return '0.03';
+      if (r.includes('DISTRIBUTOR') || r.includes('DIST')) return '0.05';
+      return '0.00';
     }
-
-    // 3. District Distributor / DIST Franchise
-    if (r.includes('DISTRICT') || r.includes('FRANCHISE') || r === 'DD') {
-      return [
-        { value: 'DISTRIBUTOR', label: 'Distributor (DIST)', badge: 'Area Head', icon: '📦' },
-        { value: 'MERCHANT', label: 'Shop Owner / Merchant (MID)', badge: 'Swipe Machine & Bill Pay', icon: '🏪' }
-      ];
-    }
-
-    // 4. Distributor
-    if (r.includes('DISTRIBUTOR') || r.includes('DIST')) {
-      return [
-        { value: 'MERCHANT', label: 'Shop Owner / Merchant (MID)', badge: 'Swipe Machine & Bill Pay', icon: '🏪' }
-      ];
-    }
-
-    // 5. Default Fallback so the dropdown is never blank
-    return [
-      { value: 'MERCHANT', label: 'Shop Owner / Merchant (MID)', badge: 'Swipe Machine & Bill Pay', icon: '🏪' }
-    ];
-  }, [userRole]);
+  }, [userRole, onboardForm.pos_provider]);
 
   useEffect(() => {
     if (allowedRolesForCreator.length > 0) {
@@ -838,12 +887,14 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                 >
                   Transaction History
                 </button>
-                <button 
-                  onClick={() => setActiveTab('network')} 
-                  style={{ background: 'none', border: 'none', color: activeTab === 'network' ? '#0F52BA' : '#64748B', fontWeight: 800, fontSize: '0.8125rem', cursor: 'pointer', borderBottom: activeTab === 'network' ? '2px solid #0F52BA' : '2px solid transparent', paddingBottom: '0.25rem' }}
-                >
-                  My Network
-                </button>
+                {userRole !== 'MERCHANT' && userRole !== 'Retailer' && (
+                  <button 
+                    onClick={() => setActiveTab('network')} 
+                    style={{ background: 'none', border: 'none', color: activeTab === 'network' ? '#0F52BA' : '#64748B', fontWeight: 800, fontSize: '0.8125rem', cursor: 'pointer', borderBottom: activeTab === 'network' ? '2px solid #0F52BA' : '2px solid transparent', paddingBottom: '0.25rem' }}
+                  >
+                    My Network
+                  </button>
+                )}
               </nav>
 
               {/* Right: Phone Hotline & Merchant Profile */}
@@ -3016,8 +3067,8 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                     <h2 style={{ fontSize: '1.625rem', fontWeight: 900, margin: 0, letterSpacing: '-0.02em', fontFeatureSettings: '"tnum"', lineHeight: 1.1, color: '#FFFFFF' }}>
                       ₹{networkData.total_commission_earned.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                     </h2>
-                    <span style={{ fontSize: '0.625rem', fontWeight: 700, background: '#10B981', color: '#FFFFFF', padding: '3px 8px', borderRadius: '8px' }}>
-                      +{networkData.commission_rate_pct}% Profit Cut
+                    <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#10B981', color: '#FFFFFF', padding: '3px 8px', borderRadius: '8px' }}>
+                      +{parseFloat(userTierMargin) > 0 ? userTierMargin : networkData.commission_rate_pct}% {onboardForm.pos_provider} Profit Margin
                     </span>
                   </div>
 
@@ -3144,6 +3195,49 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                       )}
 
                       <form onSubmit={handleOnboardSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        {/* 1. Machine & Settlement Provider Dropdown */}
+                        <div>
+                          <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
+                            <span>Machine &amp; Settlement Provider *</span>
+                            <span style={{ fontSize: '0.625rem', color: '#0F52BA', background: '#EFF6FF', padding: '1px 6px', borderRadius: '4px', fontWeight: 800 }}>T+1 Settlement</span>
+                          </label>
+                          <select 
+                            id="pos-provider-select"
+                            value={onboardForm.pos_provider} 
+                            onChange={(e) => setOnboardForm({ ...onboardForm, pos_provider: e.target.value })}
+                            style={{ 
+                              width: '100%', 
+                              boxSizing: 'border-box', 
+                              padding: '0.625rem 0.75rem', 
+                              borderRadius: '8px', 
+                              border: '1px solid #CBD5E1', 
+                              fontSize: '0.8125rem', 
+                              fontWeight: 700, 
+                              color: '#0F172A', 
+                              background: '#FFFFFF',
+                              cursor: 'pointer',
+                              outline: 'none',
+                              boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
+                            }}
+                          >
+                            <option value="Pine Labs">🌲 Pine Labs (T+1 Settlement • 4 Tiers)</option>
+                            <option value="Payswiff">⚡ Payswiff (T+1 Settlement • 5 Tiers)</option>
+                          </select>
+                          <div style={{ marginTop: '0.35rem', fontSize: '0.625rem', color: '#64748B', lineHeight: 1.4 }}>
+                            <span style={{ fontWeight: 700 }}>Chain: </span>
+                            {onboardForm.pos_provider === 'Pine Labs' ? (
+                              <span style={{ color: '#0F52BA', fontWeight: 700 }}>
+                                Master (1.21%) → DIST Franchise (1.41%) → Distributor (1.47%) → Retailer (1.53%)
+                              </span>
+                            ) : (
+                              <span style={{ color: '#D97706', fontWeight: 700 }}>
+                                Master (1.40%) → Super Dist (1.42%) → DIST Franchise (1.45%) → Distributor (1.48%) → Retailer (1.53%)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* 2. Dynamic Account Type Dropdown */}
                         <div>
                           <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.2rem' }}>
                             Account Type *
@@ -3175,6 +3269,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                           </select>
                         </div>
 
+                        {/* 3. Full Name */}
                         <div>
                           <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.2rem' }}>
                             Full Name (Person or Shop Name) *
@@ -3189,6 +3284,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                           />
                         </div>
 
+                        {/* 4. Mobile Number */}
                         <div>
                           <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.2rem' }}>
                             Mobile Number *
@@ -3203,22 +3299,6 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                             style={{ width: '100%', boxSizing: 'border-box', padding: '0.5rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.8125rem' }}
                           />
                         </div>
-
-                        {onboardForm.role === 'MERCHANT' && (
-                          <div>
-                            <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.2rem' }}>
-                              Swipe Machine Type
-                            </label>
-                            <select 
-                              value={onboardForm.pos_provider}
-                              onChange={(e) => setOnboardForm({ ...onboardForm, pos_provider: e.target.value })}
-                              style={{ width: '100%', boxSizing: 'border-box', padding: '0.5rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', background: '#F8FAFC' }}
-                            >
-                              <option value="Pine Labs">🌲 Pine Labs (Terminal PL-HYD)</option>
-                              <option value="Payswiff">⚡ Payswiff (Smart Android)</option>
-                            </select>
-                          </div>
-                        )}
 
                         <button 
                           type="submit"

@@ -123,23 +123,23 @@ export async function handleApiRequest(req, res) {
         });
       }
 
-      // Hierarchy Rule 3: District Distributor can create Distributor or Merchant
-      if (creator.role === 'DISTRICT_DISTRIBUTOR' && role !== 'DISTRIBUTOR' && role !== 'MERCHANT') {
+      // Hierarchy Rule 3: DIST Franchise / District Distributor can create Distributor or Merchant
+      if ((creator.role === 'DISTRICT_DISTRIBUTOR' || creator.role === 'DIST_FRANCHISE') && role !== 'DISTRIBUTOR' && role !== 'MERCHANT') {
         return sendJson(res, 403, { 
           success: false, 
-          message: 'Permission denied: District Distributors can only create Distributors or Merchants.' 
+          message: 'Permission denied: DIST Franchise can only create Distributors or Merchants.' 
         });
       }
 
-      // Hierarchy Rule 4: Super Distributor can create District Distributor, Distributor, or Merchant
-      if (creator.role === 'SUPER_DISTRIBUTOR' && role !== 'DISTRICT_DISTRIBUTOR' && role !== 'DISTRIBUTOR' && role !== 'MERCHANT') {
+      // Hierarchy Rule 4: Super Distributor can create DIST Franchise, Distributor, or Merchant
+      if (creator.role === 'SUPER_DISTRIBUTOR' && role !== 'DISTRICT_DISTRIBUTOR' && role !== 'DIST_FRANCHISE' && role !== 'DISTRIBUTOR' && role !== 'MERCHANT') {
         return sendJson(res, 403, { 
           success: false, 
           message: 'Permission denied: Super Distributors cannot create Super Distributors or Admins.' 
         });
       }
 
-      // Hierarchy Rule 5: Master / Admin can create SD, DD, Distributor, or Merchant
+      // Hierarchy Rule 5: Master / Admin can create SD, DD/Franchise, Distributor, or Merchant
       if ((creator.role === 'MASTER' || creator.role === 'ADMIN') && role === 'ADMIN') {
         return sendJson(res, 403, { 
           success: false, 
@@ -152,6 +152,7 @@ export async function handleApiRequest(req, res) {
         'MASTER': 'MST',
         'SUPER_DISTRIBUTOR': 'SD',
         'DISTRICT_DISTRIBUTOR': 'DD',
+        'DIST_FRANCHISE': 'DD',
         'DISTRIBUTOR': 'DIST',
         'MERCHANT': 'MID'
       };
@@ -170,10 +171,10 @@ export async function handleApiRequest(req, res) {
           VALUES (?, 0.0, 0.0, 0.0, 0.0, 0.0)
         `).run(newUserId);
 
-        // If Merchant, configure Swipe Machine Provider (Pine Labs vs Payswiff)
+        // If Merchant, configure Swipe Machine Provider (Pine Labs vs Payswiff) with official 1.53% Retailer MDR
         if (role === 'MERCHANT') {
           const provider = pos_provider === 'Payswiff' ? 'Payswiff' : 'Pine Labs';
-          const defaultRate = provider === 'Payswiff' ? 1.65 : 1.25;
+          const defaultRate = 1.53; // Official Retailer MDR from T+1 tables
           const rate = commission_rate ? parseFloat(commission_rate) : defaultRate;
           const terminalPrefix = provider === 'Payswiff' ? 'SWIFF-TS' : 'PL-HYD';
           const terminalId = `${terminalPrefix}-${Math.floor(1000 + Math.random() * 9000)}`;
