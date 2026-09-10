@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { submitInquiry } from '../services/api';
 import { 
   Phone, 
   Mail, 
@@ -35,23 +36,15 @@ export default function ContactPage({ onBack, onShowToast }) {
     e.preventDefault();
     if (!formData.name || !formData.mobile) return;
 
-    const newInquiry = {
-      id: 'INQ' + Math.floor(10000 + Math.random() * 90000),
+    submitInquiry({
+      type: 'CONTACT',
       name: formData.name,
-      mobile: formData.mobile,
-      service: formData.service,
-      role: formData.role,
-      date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-      message: formData.message || 'Direct inquiry from dedicated contact page',
-      status: 'New'
-    };
-
-    try {
-      const existing = JSON.parse(localStorage.getItem('ronav_general_inquiries') || '[]');
-      localStorage.setItem('ronav_general_inquiries', JSON.stringify([newInquiry, ...existing]));
-    } catch (err) {
-      console.error(err);
-    }
+      phone: formData.mobile,
+      category: formData.service || 'General Inquiry',
+      location: 'Hyderabad / AP & TS',
+      amount: formData.role || 'Merchant',
+      remarks: formData.message || 'Direct inquiry from dedicated contact page'
+    }).catch(err => console.error(err));
 
     setSubmitted(true);
     if (onShowToast) {

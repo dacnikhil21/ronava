@@ -16,6 +16,7 @@ import {
   getInquiries,
   getHierarchyTree
 } from '../services/api';
+import { subscribeToAdminFeed } from '../services/supabase';
 import RonavLogo from './RonavLogo';
 
 export default function AdminDashboardPage({ onLogout, onNavigate }) {
@@ -134,6 +135,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
   useEffect(() => {
     fetchAdminData();
+    const unsubscribe = subscribeToAdminFeed(() => {
+      fetchAdminData();
+    });
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, []);
 
   // View Switcher

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { submitInquiry } from '../services/api';
 import { 
   Zap, 
   ShieldCheck, 
@@ -44,25 +45,15 @@ export default function ServiceBbpsPage({ onOpenLogin, onBack, onShowToast }) {
     e.preventDefault();
     if (!formData.name || !formData.mobile) return;
 
-    // Save lead to shared localStorage for Admin Dashboard
-    const newBbpsInquiry = {
-      id: 'BBPS-' + Math.floor(1000 + Math.random() * 9000),
+    submitInquiry({
+      type: 'BBPS',
       name: formData.name,
       phone: formData.mobile,
-      outlet: formData.outletName || 'Retail Outlet',
-      city: formData.city || 'Hyderabad / AP & TS',
-      status: 'New',
-      date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-      expectedTxns: formData.expectedTxns,
-      remarks: formData.message || 'BBPS Terminal activation request'
-    };
-
-    try {
-      const existing = JSON.parse(localStorage.getItem('ronav_bbps_inquiries') || '[]');
-      localStorage.setItem('ronav_bbps_inquiries', JSON.stringify([newBbpsInquiry, ...existing]));
-    } catch (err) {
-      console.error(err);
-    }
+      category: formData.category || 'Retail Outlet',
+      location: formData.city || 'Hyderabad / AP & TS',
+      amount: formData.expectedTxns || '100 - 300 bills / month',
+      remarks: `${formData.outletName ? formData.outletName + ' • ' : ''}${formData.message || 'BBPS Terminal activation request'}`
+    }).catch(err => console.error(err));
 
     setSubmitted(true);
     if (onShowToast) onShowToast('✓ BBPS activation inquiry submitted to Admin for onboarding!');

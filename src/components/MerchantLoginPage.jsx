@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Lock, Eye, EyeOff, ShieldCheck, Headphones, Zap, TrendingUp, Phone, Mail, X, Menu, ArrowRight, ArrowLeft, Layers, CheckCircle2, Send, ChevronDown, ChevronUp, Check, CreditCard, Shield } from 'lucide-react';
-import { loginUser } from '../services/api';
+import { loginUser, submitInquiry } from '../services/api';
 
 export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
   const [selectedRole, setSelectedRole] = useState('Retailer');
@@ -45,23 +45,15 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
     e.preventDefault();
     if (!registerData.name || !registerData.mobile) return;
 
-    const newInquiry = {
-      id: 'INQ' + Math.floor(10000 + Math.random() * 90000),
+    submitInquiry({
+      type: 'ONBOARDING',
       name: registerData.name,
-      mobile: registerData.mobile,
-      service: registerData.service,
-      role: registerData.role,
-      date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-      message: registerData.message || 'New partner onboarding application',
-      status: 'New'
-    };
-
-    try {
-      const existing = JSON.parse(localStorage.getItem('ronav_general_inquiries') || '[]');
-      localStorage.setItem('ronav_general_inquiries', JSON.stringify([newInquiry, ...existing]));
-    } catch (err) {
-      console.error(err);
-    }
+      phone: registerData.mobile,
+      category: registerData.service || 'Partner Application',
+      location: 'Hyderabad / AP & TS',
+      amount: registerData.role || selectedRole,
+      remarks: registerData.message || 'New partner onboarding application'
+    }).catch(err => console.error(err));
 
     setRegisterSuccess(true);
   };

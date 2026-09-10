@@ -19,6 +19,7 @@ import {
   getPartnerTransactions,
   createDownstreamUser
 } from '../services/api';
+import { subscribeToWallet, subscribeToTransactions } from '../services/supabase';
 import RonavLogo from './RonavLogo';
 
 // Comprehensive Indian Banks Database for Search & Selection
@@ -579,6 +580,19 @@ export default function MerchantDashboardPage({ user, onLogout }) {
   useEffect(() => {
     fetchLiveData();
     fetchNetworkData();
+
+    // Live realtime subscriptions
+    const unsubWallet = subscribeToWallet(merchantId, (updatedWallet) => {
+      if (updatedWallet) setWallet(updatedWallet);
+    });
+    const unsubTxns = subscribeToTransactions(merchantId, () => {
+      fetchLiveData();
+    });
+
+    return () => {
+      if (unsubWallet) unsubWallet();
+      if (unsubTxns) unsubTxns();
+    };
   }, [merchantId]);
 
   // Filtered Transactions with Today, Yesterday & Custom Date Range

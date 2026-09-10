@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { submitInquiry } from '../services/api';
 import { 
   CreditCard, 
   ShieldCheck, 
@@ -57,26 +58,15 @@ export default function ServicePosPage({ onOpenLogin, onBack, onShowToast }) {
     e.preventDefault();
     if (!formData.name || !formData.mobile) return;
 
-    // Save lead to shared localStorage for Admin Dashboard
-    const newPosInquiry = {
-      id: 'POS-' + Math.floor(1000 + Math.random() * 9000),
+    submitInquiry({
+      type: 'POS',
       name: formData.name,
       phone: formData.mobile,
-      business: formData.businessName || 'Merchant Business',
-      device: formData.deviceType,
-      city: formData.city || 'Hyderabad / AP & TS',
-      status: 'New',
-      date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-      volume: formData.monthlyVolume,
-      remarks: formData.message || 'POS Terminal & Gateway request'
-    };
-
-    try {
-      const existing = JSON.parse(localStorage.getItem('ronav_pos_inquiries') || '[]');
-      localStorage.setItem('ronav_pos_inquiries', JSON.stringify([newPosInquiry, ...existing]));
-    } catch (err) {
-      console.error(err);
-    }
+      category: formData.deviceType || 'Smart POS',
+      location: formData.city || 'Hyderabad / AP & TS',
+      amount: formData.monthlyVolume || 'N/A',
+      remarks: `${formData.businessName ? formData.businessName + ' • ' : ''}${formData.message || 'POS Terminal & Gateway request'}`
+    }).catch(err => console.error(err));
 
     setSubmitted(true);
     if (onShowToast) onShowToast('✓ POS inquiry submitted to Admin for credential dispatch!');
