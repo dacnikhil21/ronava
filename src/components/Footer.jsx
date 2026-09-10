@@ -159,6 +159,24 @@ export default function Footer({ onOpenLogin, onOpenOfficeModal, onNavigate }) {
               >
                 Partner Network Portal →
               </button>
+              <button 
+                onClick={() => onOpenLogin('admin')} 
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#94A3B8',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  padding: '2px 0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px'
+                }}
+              >
+                <span>🛡️ Admin Command Portal →</span>
+              </button>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', fontSize: '0.75rem', color: '#94A3B8' }}>

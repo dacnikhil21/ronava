@@ -30,9 +30,35 @@ import ServiceBbpsPage from './components/ServiceBbpsPage';
 import ServicePosPage from './components/ServicePosPage';
 import ContactPage from './components/ContactPage';
 
+// Helpers to detect deep routes immediately on initial load
+const isAdminPath = () => {
+  if (typeof window === 'undefined') return false;
+  const path = (window.location.pathname || '').toLowerCase();
+  const hash = (window.location.hash || '').toLowerCase();
+  return path.startsWith('/admin') || hash.includes('admin');
+};
+
+const isMerchantPath = () => {
+  if (typeof window === 'undefined') return false;
+  const path = (window.location.pathname || '').toLowerCase();
+  const hash = (window.location.hash || '').toLowerCase();
+  return path.startsWith('/merchant') || hash.includes('merchant');
+};
+
+const getInitialView = () => {
+  if (isAdminPath()) {
+    const hasAdminAuth = typeof window !== 'undefined' && sessionStorage.getItem('ronav_admin_session') === 'true';
+    return hasAdminAuth ? 'admin-dashboard' : 'admin-login';
+  }
+  if (isMerchantPath()) {
+    return 'merchant-login';
+  }
+  return 'home';
+};
+
 export default function App() {
-  const [showSplash, setShowSplash] = useState(true);
-  const [currentView, setCurrentView] = useState('home'); // 'home' | 'about' | 'services' | 'contact' | 'service-loans' | 'service-atm' | 'service-bbps' | 'service-pos' | 'merchant-login' | 'merchant-dashboard' | 'admin-login' | 'admin-dashboard'
+  const [showSplash, setShowSplash] = useState(() => !isAdminPath() && !isMerchantPath());
+  const [currentView, setCurrentView] = useState(getInitialView); // 'home' | 'about' | 'services' | 'contact' | 'service-loans' | 'service-atm' | 'service-bbps' | 'service-pos' | 'merchant-login' | 'merchant-dashboard' | 'admin-login' | 'admin-dashboard'
   const [officeModalOpen, setOfficeModalOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
@@ -80,8 +106,10 @@ export default function App() {
     const checkAdminRoute = () => {
       const path = window.location.pathname.toLowerCase();
       const hash = window.location.hash.toLowerCase();
-      if (path === '/admin' || path === '/admin/' || hash === '#/admin' || hash === '#admin') {
-        setCurrentView((prev) => (prev === 'admin-dashboard' ? 'admin-dashboard' : 'admin-login'));
+      if (path.startsWith('/admin') || hash.includes('admin')) {
+        setShowSplash(false);
+        const hasAdminAuth = typeof window !== 'undefined' && sessionStorage.getItem('ronav_admin_session') === 'true';
+        setCurrentView((prev) => (prev === 'admin-dashboard' || hasAdminAuth ? 'admin-dashboard' : 'admin-login'));
       }
     };
 
@@ -124,12 +152,18 @@ export default function App() {
   };
 
   const handleAdminLoginSuccess = () => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('ronav_admin_session', 'true');
+    }
     window.history.pushState({}, '', '/admin');
     setCurrentView('admin-dashboard');
     handleShowToast('✓ Authenticated: Admin Command Center Active.');
   };
 
   const handleLogout = () => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('ronav_admin_session');
+    }
     if (window.location.pathname.toLowerCase().startsWith('/admin')) {
       window.history.pushState({}, '', '/');
     }
