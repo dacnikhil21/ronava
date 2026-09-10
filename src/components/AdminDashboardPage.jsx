@@ -269,6 +269,27 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     }
   };
 
+  // Approve / Reject Merchant Swipe Action
+  const handleTransactionAction = async (id, action, merchantName, amount) => {
+    try {
+      const res = await verifyTransaction(id, action);
+      if (res && res.success) {
+        triggerToast(
+          action === 'APPROVE' 
+            ? `✓ Approved transaction of ₹${parseFloat(amount).toLocaleString('en-IN')} for ${merchantName}!` 
+            : `✕ Rejected transaction.`,
+          action === 'APPROVE' ? 'success' : 'info'
+        );
+        fetchAdminData();
+      } else {
+        triggerToast(res.message || 'Failed to verify transaction', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      triggerToast('Connection error verifying transaction', 'error');
+    }
+  };
+
   // Process Super Distributors List
   const superDistributorsList = useMemo(() => {
     if (hierarchyData?.tree?.superDistributors) {
@@ -1088,6 +1109,69 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     {pendingPayouts.length > 0 ? `Review (${pendingPayouts.length}) →` : 'History →'}
                   </button>
                 </div>
+
+                {/* 2.5 PENDING TRANSACTIONS VERIFICATION FEED */}
+                {pendingTxns && pendingTxns.length > 0 && (
+                  <div style={{ background: '#FFFBEB', borderRadius: '12px', border: '1px solid #FCD34D', padding: '1.25rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ width: '24px', height: '24px', borderRadius: '6px', background: '#D97706', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 900 }}>
+                          ⚡
+                        </div>
+                        <div>
+                          <h3 style={{ fontSize: '0.875rem', fontWeight: 900, color: '#92400E', margin: 0 }}>
+                            Pending Counter Swipes ({pendingTxns.length})
+                          </h3>
+                          <span style={{ fontSize: '0.6875rem', color: '#B45309' }}>
+                            Merchants waiting for verification to credit funds
+                          </span>
+                        </div>
+                      </div>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#FEF3C7', color: '#B45309', padding: '2px 8px', borderRadius: '4px', border: '1px solid #FDE68A' }}>
+                        Action Required
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {pendingTxns.map(tx => (
+                        <div key={tx.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#FFFFFF', borderRadius: '8px', border: '1px solid #FDE68A', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          <div>
+                            <strong style={{ fontSize: '0.8125rem', color: '#0A192F', display: 'block' }}>
+                              {tx.merchant_name || tx.merchant_id} ({tx.merchant_id})
+                            </strong>
+                            <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
+                              {tx.pos_provider || 'POS'} • Ref: {tx.ref_number || tx.id} • {new Date(tx.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            <div style={{ textAlign: 'right' }}>
+                              <strong style={{ fontSize: '0.9375rem', fontWeight: 900, color: '#0A192F', display: 'block' }}>
+                                ₹{parseFloat(tx.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </strong>
+                              <span style={{ fontSize: '0.625rem', color: '#D97706', fontWeight: 800 }}>
+                                PENDING
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '0.375rem' }}>
+                              <button
+                                onClick={() => handleTransactionAction(tx.id, 'APPROVE', tx.merchant_name, tx.amount)}
+                                style={{ background: '#16A34A', color: '#FFFFFF', border: 'none', padding: '0.35rem 0.65rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer' }}
+                              >
+                                Approve ✓
+                              </button>
+                              <button
+                                onClick={() => handleTransactionAction(tx.id, 'REJECT', tx.merchant_name, tx.amount)}
+                                style={{ background: '#FFFFFF', color: '#DC2626', border: '1px solid #FCA5A5', padding: '0.35rem 0.65rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer' }}
+                              >
+                                Reject ✕
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* 3. RECENT SWIPES & LIVE TRANSACTION ACTIVITY */}
                 {transactionsLedger && transactionsLedger.length > 0 && (
