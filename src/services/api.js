@@ -118,3 +118,8 @@ export async function getPartnerTransactions(creatorId, partnerId) {
   return res.json();
 }
 
+export async function getHierarchyTree() {
+  const res = await fetch(`${API_BASE}/hierarchy/tree`);
+  return res.json();
+}
+

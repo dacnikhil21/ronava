@@ -31,18 +31,39 @@ export default function RonavLogo({ size = 'medium', className = '', style = {} 
         ...style 
       }}
     >
-      {/* Symmetrical Vector TR Monogram Symbol */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <img 
-          src="/logo_tr_transparent.png" 
-          alt="RONAV Monogram" 
+      {/* 100% Vector Symmetrical TR Monogram Emblem (Zero Network Request, Never Breaks) */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <svg 
+          viewBox="0 0 100 100" 
+          fill="none" 
+          xmlns="http://www.w3.org/2000/svg"
           style={{ 
             height: logoHeight, 
-            width: 'auto', 
+            width: logoHeight, 
             display: 'block',
             flexShrink: 0 
-          }} 
-        />
+          }}
+        >
+          <defs>
+            <linearGradient id="trGradBlueMaster" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#0066FF" />
+              <stop offset="100%" stopColor="#003399" />
+            </linearGradient>
+            <linearGradient id="trGradDarkMaster" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#0A192F" />
+              <stop offset="100%" stopColor="#0F172A" />
+            </linearGradient>
+          </defs>
+          <rect x="10" y="22" width="6" height="6" fill="#0066FF" rx="1" />
+          <rect x="16" y="28" width="6" height="6" fill="#0066FF" rx="1" />
+          <rect x="11" y="34" width="6" height="6" fill="#0066FF" rx="1" />
+          <rect x="18" y="37" width="10" height="10" fill="#0066FF" rx="1.5" />
+          <rect x="24" y="29" width="10" height="10" fill="#0066FF" rx="1.5" />
+          {/* T shape */}
+          <path d="M24 44 H71 L63 54 H43 V82 H32 V54 H24 Z" fill="url(#trGradBlueMaster)" />
+          {/* R sweep */}
+          <path d="M26 20 H70 C85 20 90 32 90 42 C90 54 82 63 68 63 L88 84 H73 L58 63 H66 C75 63 78 57 78 42 C78 30 73 28 66 28 H34 Z" fill="url(#trGradDarkMaster)" />
+        </svg>
       </div>
 
       {/* Letter-by-Letter Writing Animation Naming */}

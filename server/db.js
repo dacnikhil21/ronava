@@ -24,8 +24,13 @@ export function initDatabase() {
       merchant_id TEXT PRIMARY KEY,
       provider TEXT NOT NULL, -- 'Pine Labs' or 'Payswiff'
       terminal_id TEXT NOT NULL,
-      commission_rate REAL NOT NULL, -- e.g. 1.25 for Pine Labs, 1.65 for Payswiff
+      commission_rate REAL NOT NULL, -- e.g. 1.53 for T1, 1.83 for Instant
       assigned_by TEXT NOT NULL,
+      vendor_entity TEXT DEFAULT 'Rose Navaneetham Enterprises', -- 'Rose Navaneetham Enterprises', 'RONAV Technologies', 'R.P. Technologies'
+      device_plan TEXT DEFAULT 'RENTAL', -- 'LIFETIME' or 'RENTAL'
+      monthly_rent REAL DEFAULT 499.0,
+      settlement_type TEXT DEFAULT 'T1', -- 'T1' or 'INSTANT'
+      instant_surcharge REAL DEFAULT 0.0, -- 0.30 for Payswiff Instant
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (merchant_id) REFERENCES users(id)
     );
@@ -97,6 +102,18 @@ export function initDatabase() {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  // Safe runtime migrations for existing databases
+  try { db.exec(`ALTER TABLE merchant_pos ADD COLUMN vendor_entity TEXT DEFAULT 'Rose Navaneetham Enterprises'`); } catch(e){}
+  try { db.exec(`ALTER TABLE merchant_pos ADD COLUMN device_plan TEXT DEFAULT 'RENTAL'`); } catch(e){}
+  try { db.exec(`ALTER TABLE merchant_pos ADD COLUMN monthly_rent REAL DEFAULT 499.0`); } catch(e){}
+  try { db.exec(`ALTER TABLE merchant_pos ADD COLUMN settlement_type TEXT DEFAULT 'T1'`); } catch(e){}
+  try { db.exec(`ALTER TABLE merchant_pos ADD COLUMN instant_surcharge REAL DEFAULT 0.0`); } catch(e){}
+
+  try { db.exec(`ALTER TABLE transactions ADD COLUMN vendor_entity TEXT DEFAULT 'Rose Navaneetham Enterprises'`); } catch(e){}
+  try { db.exec(`ALTER TABLE transactions ADD COLUMN settlement_type TEXT DEFAULT 'T1'`); } catch(e){}
+  try { db.exec(`ALTER TABLE transactions ADD COLUMN instant_fee REAL DEFAULT 0.0`); } catch(e){}
+  try { db.exec(`ALTER TABLE transactions ADD COLUMN admin_margin REAL DEFAULT 0.0`); } catch(e){}
 
   // Seed default hierarchy accounts if not exists
   const existingAdmin = db.prepare(`SELECT * FROM users WHERE role = 'ADMIN'`).get();

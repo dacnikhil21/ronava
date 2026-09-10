@@ -1,32 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Menu, 
-  Bell, 
-  ChevronDown, 
-  Calendar, 
-  ChevronRight, 
-  Landmark, 
-  Building2, 
-  Receipt, 
-  CreditCard, 
-  Smartphone, 
-  Users, 
-  AlertCircle, 
-  Copy, 
-  Check, 
-  Eye, 
-  Search, 
-  X, 
-  TrendingUp, 
-  CheckCircle2, 
-  Clock, 
-  HelpCircle,
-  LogOut,
-  Shield,
-  Activity,
-  Settings,
-  PlusCircle,
-  RefreshCw
+  Menu, Bell, ChevronDown, Calendar, ChevronRight, Landmark, 
+  Building2, Receipt, CreditCard, Smartphone, Users, AlertCircle, 
+  Copy, Search, X, TrendingUp, CheckCircle2, Clock, LogOut, 
+  Shield, Activity, PlusCircle, RefreshCw, GitFork, Layers, 
+  Store, Briefcase, ShieldCheck, ArrowRight, ArrowLeft,
+  Check, Phone, DollarSign, ArrowUpRight, Zap
 } from 'lucide-react';
 import { 
   getAdminPending, 
@@ -34,1347 +13,1795 @@ import {
   getAllUsers, 
   createDownstreamUser, 
   verifyWithdrawal,
-  getInquiries 
+  getInquiries,
+  getHierarchyTree
 } from '../services/api';
 import RonavLogo from './RonavLogo';
 
 export default function AdminDashboardPage({ onLogout, onNavigate }) {
-  // Navigation & Tabs state
-  const [activeTab, setActiveTab] = useState('verifications'); // 'verifications' | 'hierarchy' | 'loans' | 'franchise' | 'transactions' | 'withdrawals'
+  // Navigation View: 'overview' | 'super_distributors' | 'distributors' | 'merchants' | 'payouts'
+  const [activeTab, setActiveTab] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // Interaction drawer states
-  const [selectedLoan, setSelectedLoan] = useState(null);
-  const [selectedFranchise, setSelectedFranchise] = useState(null);
-  const [showAlertCenter, setShowAlertCenter] = useState(false);
+  const [tabLoading, setTabLoading] = useState(false);
   const [toast, setToast] = useState(null);
-  
-  // Clipboard copy success states
   const [copiedId, setCopiedId] = useState({});
 
-  // Dynamic Telemetry states
-  const [gatewayStatus, setGatewayStatus] = useState({
-    bbps: { status: 'online', latency: 42 },
-    payout: { status: 'online', latency: 85 },
-    pgPos: { status: 'degraded', latency: 310 },
-    atm: { status: 'online', latency: 58 }
-  });
-  
-  const [isRefreshingTelemetry, setIsRefreshingTelemetry] = useState(false);
-  const [tabLoading, setTabLoading] = useState(false);
+  // Active Person Dossier Drilldown View (When clicking ANY card)
+  const [viewingUserDossier, setViewingUserDossier] = useState(null);
+  const [dossierHistory, setDossierHistory] = useState([]);
 
-  // Dynamic Metrics States (Pure DB driven)
-  const [metrics, setMetrics] = useState({
-    loansCount: 0,
-    franchiseRequests: 0,
-    bbpsTxns: 0,
-    pgPosTxns: 0,
-    atmTxns: 0,
-    totalMerchants: 0,
-    withdrawalsCount: 0,
-    totalVolume: 0,
-    pendingVolume: 0
-  });
-
-  // Dynamic data stores
-  const [loansList, setLoansList] = useState([]);
-  const [franchisesList, setFranchisesList] = useState([]);
-
-  // Load inquiries submitted by users from SQLite backend
-  useEffect(() => {
-    const fetchInquiries = async () => {
-      try {
-        const res = await getInquiries();
-        if (res.success && res.inquiries) {
-          const dbLoans = res.inquiries
-            .filter(i => i.type === 'LOAN')
-            .map(i => ({
-              id: i.id,
-              name: i.name,
-              phone: i.phone,
-              type: i.category || 'Personal Loan',
-              amount: i.amount,
-              status: i.status || 'New',
-              date: new Date(i.created_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-              creditScore: 760,
-              docStatus: 'Verified',
-              businessType: 'Retail Merchant',
-              remarks: i.remarks || ''
-            }));
-
-          const dbFranchises = res.inquiries
-            .filter(i => i.type === 'FRANCHISE')
-            .map(i => ({
-              id: i.id,
-              name: i.name,
-              phone: i.phone,
-              location: i.location || 'Hyderabad',
-              status: i.status || 'New',
-              date: new Date(i.created_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-              spaceArea: '120 sq ft',
-              depositStatus: 'Verified',
-              siteReview: 'Under Review',
-              proximityToBank: 'Commercial Node'
-            }));
-
-          setLoansList(dbLoans);
-          setFranchisesList(dbFranchises);
-          setMetrics(m => ({
-            ...m,
-            loansCount: dbLoans.length,
-            franchiseRequests: dbFranchises.length
-          }));
-        }
-      } catch (err) {
-        console.error('Failed to fetch inquiries from SQLite backend:', err);
-      }
-    };
-
-    fetchInquiries();
-  }, []);
-
-  // Dynamic SQLite Integration States (Live DB)
+  // Dynamic Data Stores
+  const [networkUsers, setNetworkUsers] = useState([]);
+  const [hierarchyData, setHierarchyData] = useState(null);
   const [pendingTxns, setPendingTxns] = useState([]);
   const [pendingPayouts, setPendingPayouts] = useState([]);
-  const [networkUsers, setNetworkUsers] = useState([]);
-  const [withdrawalsList, setWithdrawalsList] = useState([]);
   const [transactionsLedger, setTransactionsLedger] = useState([]);
-  const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
-  const [newUserForm, setNewUserForm] = useState({
+  const [metrics, setMetrics] = useState({
+    totalVolume: 0,
+    adminNetProfit: 0,
+    totalMerchants: 0,
+    totalSuperDistributors: 0,
+    totalDistributors: 0,
+    pendingWithdrawalsCount: 0,
+    vendorSummary: {
+      roseNavaneethamVolume: 0,
+      roseNavaneethamProfit: 0,
+      ronavTechVolume: 0,
+      rpTechVolume: 0,
+      payswiffAdminProfit: 0
+    },
+    devicePlanSummary: {
+      rentalCount: 0,
+      lifetimeCount: 0,
+      monthlyRentDue: 0
+    }
+  });
+
+  // Universal Onboard Partner Modal State
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [createdResultModal, setCreatedResultModal] = useState(null);
+  const [onboardForm, setOnboardForm] = useState({
     name: '',
     mobile: '',
-    role: 'MERCHANT',
-    pos_provider: 'Pine Labs',
-    commission_rate: '1.25'
+    role: 'MERCHANT', // 'SUPER_DISTRIBUTOR' | 'DISTRIBUTOR' | 'MERCHANT' | 'MASTER'
+    parent_id: '',
+    pos_provider: 'Pine Labs', // 'Pine Labs' | 'Payswiff'
+    pos_vendor: 'Rose Navaneetham Enterprises', // 'Rose Navaneetham Enterprises' | 'RONAV Technologies' | 'R.P. Technologies'
+    device_plan: 'RENTAL', // 'RENTAL' | 'LIFETIME'
+    monthly_rent: '499',
+    settlement_type: 'T1' // 'T1' | 'INSTANT'
   });
-  const [isSubmittingUser, setIsSubmittingUser] = useState(false);
 
-  // Fetch Live Pending Approvals, Volume, & Network from SQLite
-  const fetchAdminData = async () => {
-    try {
-      const res = await getAdminPending();
-      if (res.success) {
-        setPendingTxns(res.pendingTransactions || []);
-        setPendingPayouts(res.pendingWithdrawals || []);
-
-        // Map dynamic withdrawals from DB
-        const mappedWithdrawals = (res.pendingWithdrawals || []).map(w => ({
-          id: w.id,
-          merchant: w.merchant_name || 'Merchant',
-          mid: w.merchant_id,
-          amount: `₹${parseFloat(w.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-          bank: `${w.bank_name} (${w.account_number ? '••••' + w.account_number.slice(-4) : '••••'})`,
-          date: new Date(w.created_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-          status: w.status === 'APPROVED' ? 'Approved' : (w.status === 'REJECTED' ? 'Rejected' : 'Pending')
-        }));
-        setWithdrawalsList(mappedWithdrawals);
-
-        // Map dynamic transactions ledger from DB
-        const mappedLedger = (res.allTransactions || []).map(t => ({
-          id: t.id,
-          merchant: t.merchant_name || 'Merchant',
-          mid: t.merchant_id,
-          type: t.type === 'POS_SWIPE' ? `${t.pos_provider || 'POS'} Card Swipe` : (t.type === 'BBPS_BILL' ? 'BBPS Utility Bill' : 'QR Payment'),
-          amount: `₹${parseFloat(t.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-          status: t.status === 'APPROVED' ? 'Success' : (t.status === 'REJECTED' ? 'Failed' : 'Pending'),
-          gateway: t.provider || 'Gateway',
-          date: new Date(t.created_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-        }));
-        setTransactionsLedger(mappedLedger);
-
-        if (res.stats) {
-          setMetrics(m => ({
-            ...m,
-            ...res.stats
-          }));
-        }
-      }
-      const usersRes = await getAllUsers();
-      if (usersRes.success) {
-        setNetworkUsers(usersRes.users || []);
-        setMetrics(m => ({ ...m, totalMerchants: usersRes.users.filter(u => u.role === 'MERCHANT').length }));
-      }
-    } catch (e) {
-      console.error('Failed to fetch admin pending data:', e);
-    }
-  };
-
-  useEffect(() => {
-    fetchAdminData();
-  }, []);
-
-  // Handle Approve or Reject Merchant Transaction
-  const handleVerifyTxn = async (txnId, action, merchantName, amount) => {
-    try {
-      const res = await verifyTransaction(txnId, action);
-      if (res.success) {
-        triggerToast(
-          action === 'APPROVE' 
-            ? `✓ Approved ₹${parseFloat(amount).toFixed(2)} for ${merchantName}. Available balance credited!` 
-            : `✕ Transaction ${txnId} rejected.`,
-          action === 'APPROVE' ? 'success' : 'error'
-        );
-        fetchAdminData();
-      } else {
-        triggerToast(res.message || 'Error updating transaction', 'error');
-      }
-    } catch (e) {
-      console.error(e);
-      triggerToast('Backend connection failed', 'error');
-    }
-  };
-
-  // Handle Create User in Hierarchy
-  const handleCreateDownstreamUser = async (e) => {
-    e.preventDefault();
-    if (!newUserForm.name || !newUserForm.mobile) return;
-    setIsSubmittingUser(true);
-    try {
-      const res = await createDownstreamUser({
-        creator_id: 'ADM001',
-        name: newUserForm.name,
-        mobile: newUserForm.mobile,
-        role: newUserForm.role,
-        pos_provider: newUserForm.pos_provider,
-        commission_rate: parseFloat(newUserForm.commission_rate || (newUserForm.pos_provider === 'Payswiff' ? 1.65 : 1.25))
-      });
-
-      if (res.success) {
-        triggerToast(`✓ Created ${newUserForm.role} (${res.user?.id})!`);
-        setIsCreateUserModalOpen(false);
-        setNewUserForm({
-          name: '',
-          mobile: '',
-          role: 'MERCHANT',
-          pos_provider: 'Pine Labs',
-          commission_rate: '1.25'
-        });
-        fetchAdminData();
-      } else {
-        triggerToast(res.message || 'Failed to create user', 'error');
-      }
-    } catch (err) {
-      console.error(err);
-      triggerToast('Network error creating user', 'error');
-    } finally {
-      setIsSubmittingUser(false);
-    }
-  };
-
-  const [issuedCredsModal, setIssuedCredsModal] = useState(null);
-
-  const handleTabSwitch = (tabName) => {
-    setTabLoading(true);
-    setActiveTab(tabName);
-    setSearchQuery('');
-    fetchAdminData();
-    setTimeout(() => {
-      setTabLoading(false);
-    }, 350);
-  };
-
+  // Toast Helper
   const triggerToast = (msg, type = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
   };
 
+  // Clipboard Helper
   const copyToClipboard = (text, id) => {
+    if (!text) return;
     navigator.clipboard.writeText(text).then(() => {
       setCopiedId(prev => ({ ...prev, [id]: true }));
-      triggerToast(`Copied to Clipboard: ${text}`, 'info');
+      triggerToast(`Copied: ${text}`, 'info');
       setTimeout(() => {
         setCopiedId(prev => ({ ...prev, [id]: false }));
       }, 1500);
     });
   };
 
-  const handleApprovePayout = async (id, merchant, amount) => {
+  // Load Fresh Data from Backend
+  const fetchAdminData = async () => {
     try {
-      const res = await verifyWithdrawal(id, 'APPROVE');
-      if (res.success) {
-        triggerToast(`✓ Payout of ${amount} cleared for ${merchant}.`, 'success');
-        fetchAdminData();
-      } else {
-        triggerToast(res.message || 'Failed to approve payout', 'error');
+      const [pendingRes, usersRes, treeRes] = await Promise.all([
+        getAdminPending().catch(() => ({ success: false })),
+        getAllUsers().catch(() => ({ success: false })),
+        getHierarchyTree().catch(() => ({ success: false }))
+      ]);
+
+      if (pendingRes && pendingRes.success) {
+        setPendingTxns(pendingRes.pendingTransactions || []);
+        setPendingPayouts(pendingRes.pendingWithdrawals || []);
+        setTransactionsLedger(pendingRes.allTransactions || []);
+        if (pendingRes.stats) {
+          setMetrics(prev => ({
+            ...prev,
+            ...pendingRes.stats,
+            vendorSummary: {
+              ...prev.vendorSummary,
+              ...(pendingRes.stats.vendorSummary || {})
+            },
+            devicePlanSummary: {
+              ...prev.devicePlanSummary,
+              ...(pendingRes.stats.devicePlanSummary || {})
+            }
+          }));
+        }
+      }
+
+      if (usersRes && usersRes.success) {
+        setNetworkUsers(usersRes.users || []);
+      }
+
+      if (treeRes && treeRes.success) {
+        setHierarchyData(treeRes);
       }
     } catch (err) {
-      console.error(err);
-      triggerToast('Network error verifying withdrawal', 'error');
+      console.error('Error fetching admin data:', err);
     }
   };
 
-  const handleRejectPayout = async (id, merchant) => {
-    try {
-      const res = await verifyWithdrawal(id, 'REJECT');
-      if (res.success) {
-        triggerToast(`✕ Payout for ${merchant} rejected.`, 'error');
-        fetchAdminData();
-      } else {
-        triggerToast(res.message || 'Failed to reject payout', 'error');
-      }
-    } catch (err) {
-      console.error(err);
-      triggerToast('Network error verifying withdrawal', 'error');
-    }
+  useEffect(() => {
+    fetchAdminData();
+  }, []);
+
+  // View Switcher
+  const handleTabSwitch = (tab) => {
+    setTabLoading(true);
+    setActiveTab(tab);
+    setSearchQuery('');
+    setViewingUserDossier(null);
+    setDossierHistory([]);
+    fetchAdminData();
+    setTimeout(() => setTabLoading(false), 150);
   };
 
-  const handleCreateAndIssueCredentials = (applicant) => {
-    const generatedMid = 'RONAV' + Math.floor(10000 + Math.random() * 90000);
-    const generatedPassword = 'Ronav@' + Math.floor(1000 + Math.random() * 9000);
-    const role = applicant.businessType || 'Retailer';
-
-    // Update status in list
-    if (applicant.type) {
-      setLoansList(prev => prev.map(l => l.id === applicant.id ? { ...l, status: 'Approved' } : l));
+  // Back Navigation for Dossier Drilldown
+  const handleBackDossier = () => {
+    if (dossierHistory.length > 0) {
+      const prev = dossierHistory[dossierHistory.length - 1];
+      setDossierHistory(prevList => prevList.slice(0, -1));
+      setViewingUserDossier(prev);
+      window.scrollTo(0, 0);
     } else {
-      setFranchisesList(prev => prev.map(f => f.id === applicant.id ? { ...f, status: 'Approved' } : f));
+      setViewingUserDossier(null);
+      window.scrollTo(0, 0);
     }
+  };
 
-    setIssuedCredsModal({
-      name: applicant.name,
-      phone: applicant.phone,
-      mid: generatedMid,
-      password: generatedPassword,
+  // Open Create Modal with Preselected Role
+  const handleOpenCreateModal = (role = 'MERCHANT', parentId = '') => {
+    const isPine = true;
+    setOnboardForm({
+      name: '',
+      mobile: '',
       role: role,
-      service: applicant.type || 'ATM Franchise'
+      parent_id: parentId,
+      pos_provider: 'Pine Labs',
+      pos_vendor: 'Rose Navaneetham Enterprises',
+      device_plan: 'RENTAL',
+      monthly_rent: '499',
+      settlement_type: 'T1'
     });
-
-    triggerToast(`✓ Generated Merchant ID: ${generatedMid} for ${applicant.name}!`);
-    setSelectedLoan(null);
-    setSelectedFranchise(null);
+    setIsCreateModalOpen(true);
   };
 
-  const handleUpdateLoanStatus = (id, newStatus) => {
-    setLoansList(prev => prev.map(l => l.id === id ? { ...l, status: newStatus } : l));
-    if (newStatus === 'Approved') {
-      setMetrics(prev => ({ ...prev, loansCount: Math.max(0, prev.loansCount - 1) }));
-      triggerToast(`Loan application ${id} approved!`);
+  // Handle Provider Change in Onboard Modal
+  const handleProviderChange = (provider) => {
+    if (provider === 'Pine Labs') {
+      setOnboardForm(prev => ({
+        ...prev,
+        pos_provider: 'Pine Labs',
+        pos_vendor: 'Rose Navaneetham Enterprises'
+      }));
     } else {
-      triggerToast(`Loan ${id} status updated to: ${newStatus}`);
+      setOnboardForm(prev => ({
+        ...prev,
+        pos_provider: 'Payswiff',
+        pos_vendor: prev.pos_vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies'
+      }));
     }
-    setSelectedLoan(null);
   };
 
-  const handleUpdateFranchiseStatus = (id, newStatus) => {
-    setFranchisesList(prev => prev.map(f => f.id === id ? { ...f, status: newStatus } : f));
-    if (newStatus === 'Approved') {
-      setMetrics(prev => ({ ...prev, franchiseRequests: Math.max(0, prev.franchiseRequests - 1) }));
-      triggerToast(`Franchise request ${id} site approved!`);
+  // Submit User Creation
+  const handleSubmitOnboard = async (e) => {
+    e.preventDefault();
+    if (!onboardForm.name.trim() || !onboardForm.mobile.trim()) {
+      triggerToast('Please provide both Name and Mobile Number.', 'error');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const payload = {
+        creator_id: 'ADM001',
+        parent_id: onboardForm.parent_id || 'ADM001',
+        name: onboardForm.name.trim(),
+        mobile: onboardForm.mobile.trim(),
+        role: onboardForm.role,
+        pos_provider: onboardForm.pos_provider,
+        pos_vendor: onboardForm.pos_vendor,
+        device_plan: onboardForm.device_plan,
+        monthly_rent: onboardForm.monthly_rent,
+        settlement_type: onboardForm.settlement_type
+      };
+
+      const res = await createDownstreamUser(payload);
+      if (res && res.success) {
+        setIsCreateModalOpen(false);
+        setCreatedResultModal(res.credentials || {
+          id: res.user?.id,
+          name: res.user?.name,
+          mobile: res.user?.mobile,
+          role: res.user?.role,
+          parent_name: res.parent?.name || 'Super Admin',
+          password: 'Ronav@' + (res.user?.id || '').slice(-4)
+        });
+        triggerToast(`✓ Successfully created ${onboardForm.role}!`, 'success');
+        fetchAdminData();
+      } else {
+        triggerToast(res.message || 'Failed to create user', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      triggerToast('Error creating user', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Approve / Reject Payout Action
+  const handlePayoutAction = async (id, action, merchantName, amount) => {
+    try {
+      const res = await verifyWithdrawal(id, action);
+      if (res && res.success) {
+        triggerToast(
+          action === 'APPROVE' 
+            ? `✓ Approved payout of ₹${parseFloat(amount).toLocaleString('en-IN')} for ${merchantName}!` 
+            : `✕ Rejected withdrawal request.`,
+          action === 'APPROVE' ? 'success' : 'info'
+        );
+        fetchAdminData();
+      } else {
+        triggerToast(res.message || 'Failed to process payout', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      triggerToast('Connection error processing payout', 'error');
+    }
+  };
+
+  // Process Super Distributors List
+  const superDistributorsList = useMemo(() => {
+    if (hierarchyData?.tree?.superDistributors) {
+      return hierarchyData.tree.superDistributors;
+    }
+    return networkUsers.filter(u => u.role === 'SUPER_DISTRIBUTOR').map(u => ({
+      ...u,
+      distributor_count: 0,
+      total_merchant_count: 0,
+      network_volume: u.total_sales || 0,
+      distributors: []
+    }));
+  }, [hierarchyData, networkUsers]);
+
+  // Process District Distributors (DIST Franchise) List
+  const districtDistributorsList = useMemo(() => {
+    if (hierarchyData?.tree?.districtDistributors) {
+      return hierarchyData.tree.districtDistributors;
+    }
+    return networkUsers.filter(u => u.role === 'DISTRICT_DISTRIBUTOR' || u.role === 'DIST_FRANCHISE').map(u => ({
+      ...u,
+      parent_sd_name: u.creator_name || 'Super Admin',
+      distributor_count: 0,
+      total_merchant_count: 0,
+      downline_volume: u.total_sales || 0,
+      distributors: []
+    }));
+  }, [hierarchyData, networkUsers]);
+
+  // Process Distributors List
+  const distributorsList = useMemo(() => {
+    if (hierarchyData?.tree?.distributors) {
+      return hierarchyData.tree.distributors;
+    }
+    return networkUsers.filter(u => u.role === 'DISTRIBUTOR').map(u => ({
+      ...u,
+      parent_sd_name: u.creator_name || 'Super Admin',
+      merchant_count: 0,
+      downline_volume: u.total_sales || 0,
+      merchants: []
+    }));
+  }, [hierarchyData, networkUsers]);
+
+  // Process Merchants List
+  const merchantsList = useMemo(() => {
+    return networkUsers.filter(u => u.role === 'MERCHANT');
+  }, [networkUsers]);
+
+  // Open Dossier for Any Member (Full Dedicated Page)
+  const handleOpenDossier = (user, type = 'MERCHANT', isDrilldown = false) => {
+    if (viewingUserDossier && isDrilldown) {
+      setDossierHistory(prev => [...prev, viewingUserDossier]);
+    } else if (!isDrilldown) {
+      setDossierHistory([]);
+    }
+
+    // Robust Downline Entity Resolution
+    let childDDs = [];
+    let childDists = [];
+    let childMerchants = [];
+    const allRelevantIds = new Set([user.id]);
+
+    if (type === 'SUPER_DISTRIBUTOR') {
+      childDDs = user.district_distributors || districtDistributorsList.filter(dd => dd.creator_id === user.id || dd.parent_id === user.id);
+      const directDists = user.distributors || distributorsList.filter(d => d.creator_id === user.id || d.parent_id === user.id);
+      const ddDists = childDDs.flatMap(dd => dd.distributors || distributorsList.filter(d => d.creator_id === dd.id || d.parent_id === dd.id));
+      const combinedDists = [...directDists, ...ddDists];
+      childDists = Array.from(new Map(combinedDists.map(d => [d.id, d])).values());
+
+      const directMerchants = user.direct_merchants || merchantsList.filter(m => m.creator_id === user.id);
+      const distMerchants = childDists.flatMap(d => d.merchants || merchantsList.filter(m => m.creator_id === d.id || m.parent_id === d.id));
+      const combinedMerchants = [...directMerchants, ...distMerchants];
+      childMerchants = Array.from(new Map(combinedMerchants.map(m => [m.id, m])).values());
+
+      childDDs.forEach(dd => allRelevantIds.add(dd.id));
+      childDists.forEach(d => allRelevantIds.add(d.id));
+      childMerchants.forEach(m => allRelevantIds.add(m.id));
+    } else if (type === 'DISTRICT_DISTRIBUTOR') {
+      const dists = user.distributors || distributorsList.filter(d => d.creator_id === user.id || d.parent_id === user.id);
+      childDists = Array.from(new Map(dists.map(d => [d.id, d])).values());
+      const distMerchants = childDists.flatMap(d => d.merchants || merchantsList.filter(m => m.creator_id === d.id || m.parent_id === d.id));
+      childMerchants = Array.from(new Map(distMerchants.map(m => [m.id, m])).values());
+
+      childDists.forEach(d => allRelevantIds.add(d.id));
+      childMerchants.forEach(m => allRelevantIds.add(m.id));
+    } else if (type === 'DISTRIBUTOR') {
+      const merchants = user.merchants || merchantsList.filter(m => m.creator_id === user.id || m.parent_id === user.id);
+      childMerchants = Array.from(new Map(merchants.map(m => [m.id, m])).values());
+
+      childMerchants.forEach(m => allRelevantIds.add(m.id));
+    }
+
+    // Filter transactions: User transactions or transactions of any downline merchant
+    const userTxns = transactionsLedger.filter(t => 
+      allRelevantIds.has(t.merchant_id) || 
+      allRelevantIds.has(t.mid) || 
+      allRelevantIds.has(t.user_id) ||
+      (user.name && t.merchant_name?.toLowerCase() === user.name?.toLowerCase())
+    );
+
+    let totalVol = 0;
+    let profitEarned = 0;
+    let downlineCount = 0;
+
+    if (type === 'SUPER_DISTRIBUTOR') {
+      totalVol = parseFloat(user.network_volume || user.total_sales || 0);
+      if (totalVol === 0 && childMerchants.length > 0) {
+        totalVol = childMerchants.reduce((sum, m) => sum + parseFloat(m.total_sales || 0), 0);
+      }
+      profitEarned = totalVol * 0.0015;
+      downlineCount = childDDs.length + childDists.length + childMerchants.length;
+    } else if (type === 'DISTRICT_DISTRIBUTOR') {
+      totalVol = parseFloat(user.downline_volume || user.total_sales || 0);
+      if (totalVol === 0 && childMerchants.length > 0) {
+        totalVol = childMerchants.reduce((sum, m) => sum + parseFloat(m.total_sales || 0), 0);
+      }
+      profitEarned = totalVol * 0.0008;
+      downlineCount = childDists.length + childMerchants.length;
+    } else if (type === 'DISTRIBUTOR') {
+      totalVol = parseFloat(user.downline_volume || user.total_sales || 0);
+      if (totalVol === 0 && childMerchants.length > 0) {
+        totalVol = childMerchants.reduce((sum, m) => sum + parseFloat(m.total_sales || 0), 0);
+      }
+      profitEarned = totalVol * 0.0006;
+      downlineCount = childMerchants.length;
     } else {
-      triggerToast(`Franchise request status updated: ${newStatus}`);
+      totalVol = parseFloat(user.total_sales || 0);
+      if (totalVol === 0 && userTxns.length > 0) {
+        totalVol = userTxns.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+      }
+      const isPine = (user.pos_provider || '').includes('Pine');
+      const isInstant = (user.pos_settlement || '').includes('INSTANT');
+      const rate = isPine ? (isInstant ? 0.0025 : 0.0015) : 0.0005;
+      profitEarned = totalVol * rate;
+      downlineCount = 1;
     }
-    setSelectedFranchise(null);
+
+    setViewingUserDossier({
+      ...user,
+      dossierType: type,
+      totalVol,
+      profitEarned,
+      downlineCount,
+      district_distributors: childDDs,
+      distributors: childDists,
+      merchants: childMerchants,
+      transactions: userTxns
+    });
+    window.scrollTo(0, 0);
   };
 
-  const filteredLoans = loansList.filter(l => 
-    l.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    l.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    l.phone.includes(searchQuery)
-  );
+  // Filtered Lists Based on Active Search Query
+  const filteredSDs = useMemo(() => {
+    return superDistributorsList.filter(sd => 
+      !searchQuery ||
+      sd.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      sd.id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      sd.mobile?.includes(searchQuery)
+    );
+  }, [superDistributorsList, searchQuery]);
 
-  const filteredFranchises = franchisesList.filter(f => 
-    f.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    f.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    f.id.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredDDs = useMemo(() => {
+    return districtDistributorsList.filter(dd => 
+      !searchQuery ||
+      dd.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      dd.id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      dd.mobile?.includes(searchQuery) ||
+      dd.parent_sd_name?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [districtDistributorsList, searchQuery]);
 
-  const filteredTxns = transactionsLedger.filter(t => 
-    t.merchant.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    t.id.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredDists = useMemo(() => {
+    return distributorsList.filter(d => 
+      !searchQuery ||
+      d.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      d.id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      d.mobile?.includes(searchQuery) ||
+      d.parent_sd_name?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [distributorsList, searchQuery]);
+
+  const filteredMerchants = useMemo(() => {
+    return merchantsList.filter(m => 
+      !searchQuery ||
+      m.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      m.id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      m.mobile?.includes(searchQuery) ||
+      m.pos_vendor?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      m.pos_provider?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }, [merchantsList, searchQuery]);
+
+  // Combined Totals for Metrics
+  const totalVolumeDisplay = parseFloat(metrics.totalVolume || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+  const adminProfitDisplay = parseFloat(metrics.adminNetProfit || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-800 relative" style={{ width: '100%', overflowX: 'hidden' }}>
       
-      {/* Toast Notification Surface */}
+      {/* 1. Global Toast Notification Surface */}
       {toast && (
         <div style={{
           position: 'fixed',
-          top: '20px',
-          right: '20px',
+          top: '16px',
+          right: '16px',
+          left: '16px',
+          maxWidth: '420px',
+          margin: '0 auto',
           zIndex: 9999,
           backgroundColor: toast.type === 'success' ? '#059669' : toast.type === 'error' ? '#DC2626' : '#0F52BA',
-          padding: '0.875rem 1.25rem',
+          padding: '0.75rem 1rem',
           borderRadius: '12px',
-          boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
+          boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)',
           display: 'flex',
           alignItems: 'center',
           gap: '0.625rem',
           color: '#FFFFFF',
-          animation: 'slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards'
+          animation: 'slideIn 0.25s ease-out'
         }}>
-          <CheckCircle2 style={{ width: '18px', height: '18px', color: '#FFF' }} />
+          <CheckCircle2 style={{ width: '18px', height: '18px', color: '#FFF', flexShrink: 0 }} />
           <span style={{ fontSize: '0.8125rem', fontWeight: 700 }}>{toast.msg}</span>
         </div>
       )}
 
-      {/* 1. Header Navigation Bar (Matches the second image exactly) */}
-      <header style={{ backgroundColor: '#FFFFFF', borderBottom: '1px solid #E2E8F0', padding: '0.625rem 1rem', position: 'sticky', top: 0, zIndex: 50 }}>
-        <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 0 }}>
+      {/* 2. Mobile-First Clean Header Bar */}
+      <header style={{ backgroundColor: '#FFFFFF', borderBottom: '1px solid #E2E8F0', padding: '0.75rem 1rem', position: 'sticky', top: 0, zIndex: 50 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
           
-          {/* Hamburger menu + Monogram logo group */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-            <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0F172A', padding: '4px', display: 'flex', alignItems: 'center' }}>
-              <Menu style={{ width: '24px', height: '24px' }} />
-            </button>
-            
-            {/* Official Ronav Brand Logo */}
-            <RonavLogo size="medium" />
+          {/* Left: Brand Identity with Vector TR Monogram Emblem */}
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <RonavLogo size="small" />
           </div>
 
-          {/* Right utilities: Notification + Admin Profile */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
-            
-            {/* Notification bell with red badge "5" */}
-            <button style={{ position: 'relative', background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#334155', display: 'flex', alignItems: 'center' }}>
+          {/* Right: Notification Alerts */}
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <button 
+              onClick={() => handleTabSwitch('payouts')}
+              style={{ position: 'relative', background: 'none', border: 'none', cursor: 'pointer', padding: '6px', color: '#334155', display: 'flex', alignItems: 'center' }}
+              title="Payout Requests Queue"
+            >
               <Bell style={{ width: '22px', height: '22px' }} />
-              <span style={{
-                position: 'absolute',
-                top: '0px',
-                right: '0px',
-                minWidth: '15px',
-                height: '15px',
-                borderRadius: '50%',
-                backgroundColor: '#DC2626',
-                color: '#FFF',
-                fontSize: '0.55rem',
-                fontWeight: 900,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                border: '1.5px solid #FFF',
-                padding: '1px'
-              }}>
-                5
-              </span>
+              {pendingPayouts.length > 0 && (
+                <span style={{
+                  position: 'absolute',
+                  top: '2px',
+                  right: '2px',
+                  minWidth: '16px',
+                  height: '16px',
+                  borderRadius: '50%',
+                  backgroundColor: '#DC2626',
+                  color: '#FFF',
+                  fontSize: '0.6rem',
+                  fontWeight: 900,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '1.5px solid #FFF',
+                  padding: '1px'
+                }}>
+                  {pendingPayouts.length}
+                </span>
+              )}
             </button>
-
-            {/* Admin Profile Dropdown Widget */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', borderLeft: '1px solid #E2E8F0', paddingLeft: '1rem' }}>
-              <div style={{ width: '34px', height: '34px', borderRadius: '50%', backgroundColor: '#0A192F', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Users style={{ width: '16px', height: '16px' }} />
-              </div>
-              <div className="desktop-only" style={{ display: 'flex', flexDirection: 'column', textAlign: 'left', lineHeight: 1.1 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0A192F' }}>Admin</span>
-                  <ChevronDown style={{ width: '12px', height: '12px', color: '#64748B' }} />
-                </div>
-                <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 600 }}>Super Admin</span>
-              </div>
-            </div>
-
-            {/* Close session */}
-            <button onClick={onLogout} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#DC2626', display: 'flex', alignItems: 'center' }} title="Logout">
-              <LogOut style={{ width: '18px', height: '18px' }} />
-            </button>
-
           </div>
 
         </div>
       </header>
 
-      {/* 2. Blue Hello Admin Banner with Calendar Box */}
-      <section style={{ background: 'linear-gradient(135deg, #0B1E3F 0%, #051024 100%)', padding: '2rem 1rem', color: '#FFFFFF' }}>
-        <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', padding: 0 }}>
-          
-          <div>
-            <h1 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#FFFFFF', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              Hello, Admin 👋
-            </h1>
-            <p style={{ fontSize: '0.8125rem', color: '#94A3B8', margin: '4px 0 0', fontWeight: 500 }}>
-              Welcome to <span style={{ color: '#38BDF8', fontWeight: 700 }}>RONAV</span> Admin Dashboard
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-            {/* Quick Switch back to Merchant Portal for testing */}
+      {/* 4. Main Executive Workspace */}
+      <main style={{ padding: '1rem', flexGrow: 1, paddingBottom: '80px' }}>
+        
+        {/* If Admin is viewing a specific Person Dossier */}
+        {viewingUserDossier ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            {/* Back Navigation Action */}
             <button
-              onClick={() => onNavigate ? onNavigate('merchant-dashboard') : window.location.pathname = '/'}
-              className="btn btn-sm"
+              onClick={handleBackDossier}
               style={{
-                backgroundColor: '#0F52BA',
-                color: '#FFFFFF',
-                border: '1px solid #38BDF8',
-                fontWeight: 800,
-                fontSize: '0.75rem',
-                display: 'flex',
+                display: 'inline-flex',
                 alignItems: 'center',
-                gap: '0.375rem',
-                borderRadius: '8px',
+                gap: '6px',
+                background: '#FFFFFF',
+                border: '1px solid #CBD5E1',
                 padding: '0.5rem 0.875rem',
-                cursor: 'pointer'
+                borderRadius: '8px',
+                color: '#0F172A',
+                fontSize: '0.75rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                width: 'fit-content'
               }}
             >
-              <span>🏪 Switch to Merchant Portal →</span>
+              <ArrowLeft style={{ width: '14px', height: '14px' }} />
+              <span>Back to {dossierHistory.length > 0 
+                ? (dossierHistory[dossierHistory.length - 1].name || dossierHistory[dossierHistory.length - 1].dossierType.replace('_', ' ')) 
+                : `${viewingUserDossier.dossierType.replace('_', ' ')} List`}
+              </span>
             </button>
 
-            {/* Calendar Widget Card */}
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '0.75rem', 
-              background: 'rgba(255, 255, 255, 0.06)', 
-              border: '1px solid rgba(255, 255, 255, 0.12)', 
-              padding: '0.625rem 1rem', 
-              borderRadius: '10px' 
-            }}>
-              <Calendar style={{ width: '20px', height: '20px', color: '#38BDF8' }} />
-              <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1 }}>
-                <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#FFFFFF' }}>16 May 2025</span>
-                <span style={{ fontSize: '0.6875rem', color: '#38BDF8', fontWeight: 600 }}>Live SQLite</span>
-              </div>
-            </div>
-          </div>
-
-        </div>
-      </section>
-
-      {/* Main Executive Body Layout */}
-      <main style={{ padding: '1.25rem 0.75rem', flexGrow: 1 }}>
-        <div className="container" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', padding: 0 }}>
-          
-          {/* 3. 7 Metric Cards (Matches the layout and colors of 2nd image, now configured in side-by-side 2-column mobile grid) */}
-          <div>
-            <div className="metrics-adaptive-grid">
-              
-              {/* Card 1: Loan Applications */}
-              <div onClick={() => handleTabSwitch('loans')} className="metric-blue-card">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                  <div className="metric-icon-square" style={{ color: '#0F52BA', backgroundColor: '#EFF6FF' }}>
-                    <Landmark style={{ width: '16px', height: '16px' }} />
-                  </div>
-                  <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>{metrics.loansCount}</h3>
-                </div>
-                <span className="metric-card-lbl">
-                  New Loan Applications
-                </span>
-                <div className="metric-card-footer">
-                  <span>View All</span>
-                  <ChevronRight style={{ width: '12px', height: '12px' }} />
-                </div>
-              </div>
-
-              {/* Card 2: ATM & CDM Franchise Requests */}
-              <div onClick={() => handleTabSwitch('franchise')} className="metric-blue-card">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                  <div className="metric-icon-square" style={{ color: '#059669', backgroundColor: '#ECFDF5' }}>
-                    <Building2 style={{ width: '16px', height: '16px' }} />
-                  </div>
-                  <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>{metrics.franchiseRequests}</h3>
-                </div>
-                <span className="metric-card-lbl">
-                  ATM & CDM Franchise
-                </span>
-                <div className="metric-card-footer">
-                  <span>View All</span>
-                  <ChevronRight style={{ width: '12px', height: '12px' }} />
-                </div>
-              </div>
-
-              {/* Card 3: BBPS Transactions */}
-              <div onClick={() => handleTabSwitch('transactions')} className="metric-blue-card">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                  <div className="metric-icon-square" style={{ color: '#7C3AED', backgroundColor: '#F5F3FF' }}>
-                    <Receipt style={{ width: '16px', height: '16px' }} />
-                  </div>
-                  <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>{metrics.bbpsTxns}</h3>
-                </div>
-                <span className="metric-card-lbl">
-                  BBPS Transactions
-                </span>
-                <div className="metric-card-footer">
-                  <span>View All</span>
-                  <ChevronRight style={{ width: '12px', height: '12px' }} />
-                </div>
-              </div>
-
-              {/* Card 4: Payments via PG & POS */}
-              <div onClick={() => handleTabSwitch('transactions')} className="metric-blue-card">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                  <div className="metric-icon-square" style={{ color: '#EA580C', backgroundColor: '#FFF7ED' }}>
-                    <CreditCard style={{ width: '16px', height: '16px' }} />
-                  </div>
-                  <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>1,245</h3>
-                </div>
-                <span className="metric-card-lbl">
-                  Payments via PG & POS
-                </span>
-                <div className="metric-card-footer">
-                  <span>View All</span>
-                  <ChevronRight style={{ width: '12px', height: '12px' }} />
-                </div>
-              </div>
-
-              {/* Card 5: ATM Related Transactions */}
-              <div onClick={() => handleTabSwitch('transactions')} className="metric-blue-card">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                  <div className="metric-icon-square" style={{ color: '#0284C7', backgroundColor: '#F0F9FF' }}>
-                    <Smartphone style={{ width: '16px', height: '16px' }} />
-                  </div>
-                  <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>{metrics.atmTxns}</h3>
-                </div>
-                <span className="metric-card-lbl">
-                  ATM Cash Swipes
-                </span>
-                <div className="metric-card-footer">
-                  <span>View All</span>
-                  <ChevronRight style={{ width: '12px', height: '12px' }} />
-                </div>
-              </div>
-
-              {/* Card 6: Total Merchants */}
-              <div className="metric-blue-card">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                  <div className="metric-icon-square" style={{ color: '#0D9488', backgroundColor: '#F0FDF4' }}>
-                    <Users style={{ width: '16px', height: '16px' }} />
-                  </div>
-                  <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>2,538</h3>
-                </div>
-                <span className="metric-card-lbl">
-                  Total Active Merchants
-                </span>
-                <div className="metric-card-footer">
-                  <span>View All</span>
-                  <ChevronRight style={{ width: '12px', height: '12px' }} />
-                </div>
-              </div>
-
-              {/* Card 7: Withdrawal Requests */}
-              <div onClick={() => handleTabSwitch('withdrawals')} className="metric-blue-card">
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                  <div className="metric-icon-square" style={{ color: '#E11D48', backgroundColor: '#FFF5F5' }}>
-                    <AlertCircle style={{ width: '16px', height: '16px' }} />
-                  </div>
-                  <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>{metrics.withdrawalsCount}</h3>
-                </div>
-                <span className="metric-card-lbl">
-                  Withdrawal Requests
-                </span>
-                <div className="metric-card-footer">
-                  <span>View All</span>
-                  <ChevronRight style={{ width: '12px', height: '12px' }} />
-                </div>
-              </div>
-
-            </div>
-          </div>
-
-          {/* 4. Recent Applications Block */}
-          <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0', padding: '1.25rem', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-              <h2 style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#0A192F', margin: 0 }}>Recent Applications</h2>
-              <button style={{ border: 'none', background: 'none', color: '#0F52BA', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '2px' }}>
-                <span>View All</span>
-                <ChevronRight style={{ width: '14px', height: '14px' }} />
-              </button>
-            </div>
-
-            {/* Tab Group */}
-            <div style={{ display: 'flex', borderBottom: '1px solid #E2E8F0', marginBottom: '1rem', overflowX: 'auto', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto' }}>
-                <button onClick={() => handleTabSwitch('verifications')} className={`queue-nav-tab ${activeTab === 'verifications' ? 'tab-active' : ''}`} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span>Pending Verifications</span>
-                  {pendingTxns.length > 0 && (
-                    <span style={{ fontSize: '0.6rem', fontWeight: 900, background: '#DC2626', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
-                      {pendingTxns.length}
+            {/* Person Dossier Header Card */}
+            <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '1.25rem', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <h2 style={{ fontSize: '1.125rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                      {viewingUserDossier.name}
+                    </h2>
+                    <span style={{ 
+                      fontSize: '0.625rem', 
+                      fontWeight: 800, 
+                      padding: '2px 8px', 
+                      borderRadius: '4px',
+                      background: viewingUserDossier.dossierType === 'SUPER_DISTRIBUTOR' ? '#F3E8FF' : viewingUserDossier.dossierType === 'DISTRIBUTOR' ? '#EFF6FF' : '#ECFDF5',
+                      color: viewingUserDossier.dossierType === 'SUPER_DISTRIBUTOR' ? '#7C3AED' : viewingUserDossier.dossierType === 'DISTRIBUTOR' ? '#0F52BA' : '#059669',
+                      border: '1px solid currentColor'
+                    }}>
+                      {viewingUserDossier.dossierType.replace('_', ' ')}
                     </span>
+                    <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: '#D1FAE5', color: '#059669' }}>
+                      Active
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '0.375rem', fontSize: '0.75rem', color: '#64748B', flexWrap: 'wrap' }}>
+                    <span><strong>ID:</strong> {viewingUserDossier.id}</span>
+                    <span><strong>Mobile:</strong> {viewingUserDossier.mobile}</span>
+                    <span><strong>Parent:</strong> {viewingUserDossier.creator_name || viewingUserDossier.parent_sd_name || 'Super Admin'}</span>
+                  </div>
+
+                  {/* Hardware & Vendor Information Tags (Exact Client Requirement) */}
+                  {viewingUserDossier.dossierType === 'MERCHANT' && (
+                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#F1F5F9', color: '#334155', padding: '3px 8px', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
+                        Machine: {viewingUserDossier.pos_provider || 'Pine Labs'} ({viewingUserDossier.pos_terminal || 'PL-TS'})
+                      </span>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '3px 8px', borderRadius: '6px', border: '1px solid #BFDBFE' }}>
+                        Settlement Entity: {viewingUserDossier.pos_vendor || 'Rose Navaneetham Enterprises'}
+                      </span>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#FEF3C7', color: '#B45309', padding: '3px 8px', borderRadius: '6px', border: '1px solid #FDE68A' }}>
+                        Plan: {viewingUserDossier.pos_plan === 'LIFETIME' ? 'Lifetime Purchase' : 'Monthly Rental (₹499/mo)'}
+                      </span>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#ECFDF5', color: '#059669', padding: '3px 8px', borderRadius: '6px', border: '1px solid #A7F3D0' }}>
+                        Mode: {viewingUserDossier.pos_settlement === 'INSTANT' ? 'Instant Settlement' : 'T+1 Settlement (1.53% MDR)'}
+                      </span>
+                    </div>
                   )}
-                </button>
-                <button onClick={() => handleTabSwitch('hierarchy')} className={`queue-nav-tab ${activeTab === 'hierarchy' ? 'tab-active' : ''}`}>
-                  Network Hierarchy & POS
-                </button>
-                <button onClick={() => handleTabSwitch('loans')} className={`queue-nav-tab ${activeTab === 'loans' ? 'tab-active' : ''}`}>
-                  Loan Applications
-                </button>
-                <button onClick={() => handleTabSwitch('franchise')} className={`queue-nav-tab ${activeTab === 'franchise' ? 'tab-active' : ''}`}>
-                  ATM/CDM Requests
-                </button>
-                <button onClick={() => handleTabSwitch('transactions')} className={`queue-nav-tab ${activeTab === 'transactions' ? 'tab-active' : ''}`}>
-                  BBPS Transactions
-                </button>
-                <button onClick={() => handleTabSwitch('withdrawals')} className={`queue-nav-tab ${activeTab === 'withdrawals' ? 'tab-active' : ''}`}>
-                  Payment Transactions
+                </div>
+
+                <button
+                  onClick={() => copyToClipboard(`ID: ${viewingUserDossier.id}\nMobile: ${viewingUserDossier.mobile}`, viewingUserDossier.id)}
+                  style={{ background: '#F8FAFC', border: '1px solid #CBD5E1', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                >
+                  <Copy style={{ width: '12px', height: '12px' }} />
+                  <span>{copiedId[viewingUserDossier.id] ? 'Copied!' : 'Copy Info'}</span>
                 </button>
               </div>
 
-              {activeTab === 'hierarchy' && (
-                <button 
-                  onClick={() => setIsCreateUserModalOpen(true)}
-                  className="btn btn-primary btn-sm"
-                  style={{ whiteSpace: 'nowrap', fontSize: '0.75rem', fontWeight: 800, padding: '0.35rem 0.75rem', marginBottom: '0.5rem' }}
-                >
-                  <PlusCircle style={{ width: '14px', height: '14px' }} />
-                  + Onboard Partner Store
-                </button>
+              {/* 3 Financial Summary Cards for this Person */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginTop: '1.25rem' }}>
+                <div style={{ background: '#F8FAFC', padding: '0.75rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                  <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 800, textTransform: 'uppercase' }}>Total Sales / Volume</span>
+                  <strong style={{ display: 'block', fontSize: '1.125rem', fontWeight: 900, color: '#0A192F', marginTop: '2px' }}>
+                    ₹{viewingUserDossier.totalVol.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </strong>
+                </div>
+
+                <div style={{ background: '#ECFDF5', padding: '0.75rem', borderRadius: '8px', border: '1px solid #A7F3D0' }}>
+                  <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800, textTransform: 'uppercase' }}>Admin Profit Earned</span>
+                  <strong style={{ display: 'block', fontSize: '1.125rem', fontWeight: 900, color: '#059669', marginTop: '2px' }}>
+                    +₹{viewingUserDossier.profitEarned.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </strong>
+                </div>
+
+                <div style={{ background: '#EFF6FF', padding: '0.75rem', borderRadius: '8px', border: '1px solid #BFDBFE' }}>
+                  <span style={{ fontSize: '0.625rem', color: '#0F52BA', fontWeight: 800, textTransform: 'uppercase' }}>Wallet Balance</span>
+                  <strong style={{ display: 'block', fontSize: '1.125rem', fontWeight: 900, color: '#0F52BA', marginTop: '2px' }}>
+                    ₹{parseFloat(viewingUserDossier.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+            {/* Downline Roster for Super Dist: District Distributors & Area Distributors & Retail Stores */}
+            {viewingUserDossier.dossierType === 'SUPER_DISTRIBUTOR' && (
+              <>
+                {viewingUserDossier.district_distributors && viewingUserDossier.district_distributors.length > 0 && (
+                  <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '1rem' }}>
+                    <h3 style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#0A192F', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>🏛️</span> Downline District Distributors ({viewingUserDossier.district_distributors.length})
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {viewingUserDossier.district_distributors.map(dd => (
+                        <div key={dd.id} onClick={() => handleOpenDossier(dd, 'DISTRICT_DISTRIBUTOR', true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#FFFFFF', borderRadius: '8px', border: '1px solid #E2E8F0', cursor: 'pointer' }}>
+                          <div>
+                            <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{dd.name}</strong>
+                            <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>ID: {dd.id} • {dd.mobile}</span>
+                          </div>
+                          <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#0A192F' }}>
+                              ₹{parseFloat(dd.downline_volume || dd.total_sales || 0).toLocaleString('en-IN')}
+                            </span>
+                            <ChevronRight style={{ width: '14px', height: '14px', color: '#94A3B8' }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {viewingUserDossier.distributors && viewingUserDossier.distributors.length > 0 && (
+                  <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '1rem' }}>
+                    <h3 style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#0A192F', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>📦</span> Downline Area Distributors ({viewingUserDossier.distributors.length})
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {viewingUserDossier.distributors.map(d => (
+                        <div key={d.id} onClick={() => handleOpenDossier(d, 'DISTRIBUTOR', true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#FFFFFF', borderRadius: '8px', border: '1px solid #E2E8F0', cursor: 'pointer' }}>
+                          <div>
+                            <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{d.name}</strong>
+                            <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>ID: {d.id} • {d.mobile}</span>
+                          </div>
+                          <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#0A192F' }}>
+                              ₹{parseFloat(d.downline_volume || d.total_sales || 0).toLocaleString('en-IN')}
+                            </span>
+                            <ChevronRight style={{ width: '14px', height: '14px', color: '#94A3B8' }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {viewingUserDossier.merchants && viewingUserDossier.merchants.length > 0 && (
+                  <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '1rem' }}>
+                    <h3 style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#0A192F', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>🏪</span> Downline Retail Stores / POS Machines ({viewingUserDossier.merchants.length})
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {viewingUserDossier.merchants.map(m => (
+                        <div key={m.id} onClick={() => handleOpenDossier(m, 'MERCHANT', true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#FFFFFF', borderRadius: '8px', border: '1px solid #E2E8F0', cursor: 'pointer' }}>
+                          <div>
+                            <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{m.name}</strong>
+                            <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>MID: {m.id} • {m.mobile} • {m.pos_provider || 'Pine Labs'}</span>
+                          </div>
+                          <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#059669' }}>
+                              ₹{parseFloat(m.total_sales || 0).toLocaleString('en-IN')}
+                            </span>
+                            <ChevronRight style={{ width: '14px', height: '14px', color: '#94A3B8' }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Downline Roster for District Distributor */}
+            {viewingUserDossier.dossierType === 'DISTRICT_DISTRIBUTOR' && (
+              <>
+                {viewingUserDossier.distributors && viewingUserDossier.distributors.length > 0 && (
+                  <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '1rem' }}>
+                    <h3 style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#0A192F', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>📦</span> Downline Area Distributors ({viewingUserDossier.distributors.length})
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {viewingUserDossier.distributors.map(d => (
+                        <div key={d.id} onClick={() => handleOpenDossier(d, 'DISTRIBUTOR', true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#FFFFFF', borderRadius: '8px', border: '1px solid #E2E8F0', cursor: 'pointer' }}>
+                          <div>
+                            <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{d.name}</strong>
+                            <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>ID: {d.id} • {d.mobile}</span>
+                          </div>
+                          <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#0A192F' }}>
+                              ₹{parseFloat(d.downline_volume || d.total_sales || 0).toLocaleString('en-IN')}
+                            </span>
+                            <ChevronRight style={{ width: '14px', height: '14px', color: '#94A3B8' }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {viewingUserDossier.merchants && viewingUserDossier.merchants.length > 0 && (
+                  <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '1rem' }}>
+                    <h3 style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#0A192F', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>🏪</span> Downline Retail Stores ({viewingUserDossier.merchants.length})
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {viewingUserDossier.merchants.map(m => (
+                        <div key={m.id} onClick={() => handleOpenDossier(m, 'MERCHANT', true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#FFFFFF', borderRadius: '8px', border: '1px solid #E2E8F0', cursor: 'pointer' }}>
+                          <div>
+                            <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{m.name}</strong>
+                            <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>MID: {m.id} • {m.mobile}</span>
+                          </div>
+                          <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#059669' }}>
+                              ₹{parseFloat(m.total_sales || 0).toLocaleString('en-IN')}
+                            </span>
+                            <ChevronRight style={{ width: '14px', height: '14px', color: '#94A3B8' }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Downline Roster for Distributor (Retail Stores) */}
+            {viewingUserDossier.dossierType === 'DISTRIBUTOR' && viewingUserDossier.merchants && viewingUserDossier.merchants.length > 0 && (
+              <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '1rem' }}>
+                <h3 style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#0A192F', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>🏪</span> Downline Retail Stores ({viewingUserDossier.merchants.length})
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {viewingUserDossier.merchants.map(m => (
+                    <div key={m.id} onClick={() => handleOpenDossier(m, 'MERCHANT', true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#FFFFFF', borderRadius: '8px', border: '1px solid #E2E8F0', cursor: 'pointer' }}>
+                      <div>
+                        <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{m.name}</strong>
+                        <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>MID: {m.id} • {m.mobile}</span>
+                      </div>
+                      <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#059669' }}>
+                          ₹{parseFloat(m.total_sales || 0).toLocaleString('en-IN')}
+                        </span>
+                        <ChevronRight style={{ width: '14px', height: '14px', color: '#94A3B8' }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Chronological Transaction History Log */}
+            <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                <h3 style={{ fontSize: '0.875rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                  Chronological Transaction History ({viewingUserDossier.transactions?.length || 0})
+                </h3>
+                <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 600 }}>Live SQLite Ledger</span>
+              </div>
+
+              {(!viewingUserDossier.transactions || viewingUserDossier.transactions.length === 0) ? (
+                <div style={{ padding: '2rem', textAlign: 'center', background: '#F8FAFC', borderRadius: '8px', border: '1px dashed #CBD5E1', color: '#64748B', fontSize: '0.75rem' }}>
+                  No recorded transactions found for this account yet.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {viewingUserDossier.transactions.map(t => (
+                    <div key={t.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0A192F' }}>
+                            {t.type === 'POS_SWIPE' ? '💳 Card Swipe' : t.type === 'BBPS_BILL' ? '⚡ Utility Bill' : '📱 Payment'}
+                          </span>
+                          <span style={{
+                            fontSize: '0.55rem',
+                            fontWeight: 800,
+                            padding: '1px 5px',
+                            borderRadius: '3px',
+                            background: t.status === 'APPROVED' || t.status === 'Success' ? '#D1FAE5' : '#FEE2E2',
+                            color: t.status === 'APPROVED' || t.status === 'Success' ? '#059669' : '#DC2626'
+                          }}>
+                            {t.status}
+                          </span>
+                        </div>
+                        <span style={{ display: 'block', fontSize: '0.625rem', color: '#64748B', marginTop: '2px' }}>
+                          TXN: {t.id} • {new Date(t.created_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+
+                      <div style={{ textAlign: 'right' }}>
+                        <strong style={{ fontSize: '0.875rem', fontWeight: 900, color: '#059669', display: 'block' }}>
+                          ₹{parseFloat(t.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </strong>
+                        <span style={{ fontSize: '0.5625rem', color: '#0F52BA', fontWeight: 700 }}>
+                          Admin Cut: +₹{(parseFloat(t.amount || 0) * 0.0015).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
 
-            {/* Content list with dynamic Skeleton support */}
-            {tabLoading ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '0.5rem 0' }}>
-                <div className="skeleton-line" style={{ width: '100%', height: '40px', borderRadius: '6px' }}></div>
-                <div className="skeleton-line" style={{ width: '100%', height: '40px', borderRadius: '6px' }}></div>
-                <div className="skeleton-line" style={{ width: '100%', height: '40px', borderRadius: '6px' }}></div>
+          </div>
+        ) : (
+          /* STANDARD TABBED SECTIONS (Zero Bloat, Zero Clutter) */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+            {/* TAB VIEW 1: EXECUTIVE COMMAND DASHBOARD */}
+            {activeTab === 'overview' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                
+                {/* 4 Core Financial KPI Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
+                  
+                  {/* Card 1: Total Sales */}
+                  <div style={{ background: '#FFFFFF', padding: '1rem', borderRadius: '12px', border: '1px solid #E2E8F0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>Total Sales</span>
+                      <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#EFF6FF', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <TrendingUp style={{ width: '15px', height: '15px' }} />
+                      </div>
+                    </div>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: '6px 0 2px' }}>
+                      ₹{totalVolumeDisplay}
+                    </h3>
+                    <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 700 }}>All Shops Combined</span>
+                  </div>
+
+                  {/* Card 2: Admin Profit */}
+                  <div style={{ background: '#ECFDF5', padding: '1rem', borderRadius: '12px', border: '1px solid #A7F3D0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#059669', textTransform: 'uppercase' }}>Admin Profit</span>
+                      <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#D1FAE5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <DollarSign style={{ width: '15px', height: '15px' }} />
+                      </div>
+                    </div>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#059669', margin: '6px 0 2px' }}>
+                      ₹{adminProfitDisplay}
+                    </h3>
+                    <span style={{ fontSize: '0.625rem', color: '#047857', fontWeight: 700 }}>Company Earnings</span>
+                  </div>
+
+                  {/* Card 3: Pending Payout Requests */}
+                  <div 
+                    onClick={() => handleTabSwitch('payouts')}
+                    style={{ background: '#FFFFFF', padding: '1rem', borderRadius: '12px', border: pendingPayouts.length > 0 ? '1.5px solid #F87171' : '1px solid #E2E8F0', cursor: 'pointer' }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>Pending Payouts</span>
+                      <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#FEE2E2', color: '#DC2626', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Landmark style={{ width: '15px', height: '15px' }} />
+                      </div>
+                    </div>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: pendingPayouts.length > 0 ? '#DC2626' : '#0A192F', margin: '6px 0 2px' }}>
+                      {pendingPayouts.length}
+                    </h3>
+                    <span style={{ fontSize: '0.625rem', color: '#DC2626', fontWeight: 700 }}>
+                      {pendingPayouts.length > 0 ? 'Action Needed' : 'All Cleared'}
+                    </span>
+                  </div>
+
+                  {/* Card 4: Hardware POS & Device Plans */}
+                  <div style={{ background: '#FFFFFF', padding: '1rem', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>Active Machines</span>
+                      <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#FEF3C7', color: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <CreditCard style={{ width: '15px', height: '15px' }} />
+                      </div>
+                    </div>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: '6px 0 2px' }}>
+                      {metrics.devicePlanSummary?.rentalCount + metrics.devicePlanSummary?.lifetimeCount || merchantsList.length}
+                    </h3>
+                    <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 700 }}>
+                      {metrics.devicePlanSummary?.rentalCount || 0} Rental • {metrics.devicePlanSummary?.lifetimeCount || 0} Lifetime
+                    </span>
+                  </div>
+
+                </div>
+
+                {/* 1. NETWORK DIRECTORY (4 TIERS) + QUICK ONBOARD BUTTON */}
+                <div style={{ background: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0', padding: '1.25rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.875rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <div>
+                      <h3 style={{ fontSize: '0.875rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                        Network Hierarchy Directory (4 Tiers)
+                      </h3>
+                      <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: '#64748B' }}>
+                        {superDistributorsList.length + districtDistributorsList.length + distributorsList.length + merchantsList.length} Active Partners in System
+                      </span>
+                    </div>
+
+                    {/* Prominent Quick Action Button for Admin */}
+                    <button
+                      onClick={() => setIsCreateModalOpen(true)}
+                      style={{
+                        background: '#0F52BA',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        padding: '0.45rem 0.875rem',
+                        borderRadius: '8px',
+                        fontSize: '0.6875rem',
+                        fontWeight: 900,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.35rem',
+                        boxShadow: '0 2px 6px rgba(15, 82, 186, 0.25)'
+                      }}
+                    >
+                      <PlusCircle style={{ width: '14px', height: '14px' }} />
+                      <span>+ Onboard Partner / Shop</span>
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.625rem' }}>
+                    
+                    {/* Tier 1: Super Distributors */}
+                    <button 
+                      onClick={() => handleTabSwitch('super_distributors')}
+                      style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', padding: '0.875rem', borderRadius: '8px', textAlign: 'left', cursor: 'pointer' }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '1.25rem' }}>⚡</span>
+                        <strong style={{ fontSize: '1.125rem', color: '#7C3AED' }}>{superDistributorsList.length}</strong>
+                      </div>
+                      <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#0A192F', marginTop: '4px' }}>Super Distributors</span>
+                      <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Regional Hubs →</span>
+                    </button>
+
+                    {/* Tier 2: District Distributors */}
+                    <button 
+                      onClick={() => handleTabSwitch('district_distributors')}
+                      style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', padding: '0.875rem', borderRadius: '8px', textAlign: 'left', cursor: 'pointer' }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '1.25rem' }}>🏛️</span>
+                        <strong style={{ fontSize: '1.125rem', color: '#D97706' }}>{districtDistributorsList.length}</strong>
+                      </div>
+                      <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#0A192F', marginTop: '4px' }}>District Distributors</span>
+                      <span style={{ fontSize: '0.625rem', color: '#64748B' }}>DIST Franchises →</span>
+                    </button>
+
+                    {/* Tier 3: Distributors */}
+                    <button 
+                      onClick={() => handleTabSwitch('distributors')}
+                      style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', padding: '0.875rem', borderRadius: '8px', textAlign: 'left', cursor: 'pointer' }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '1.25rem' }}>📦</span>
+                        <strong style={{ fontSize: '1.125rem', color: '#0F52BA' }}>{distributorsList.length}</strong>
+                      </div>
+                      <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#0A192F', marginTop: '4px' }}>Distributors</span>
+                      <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Area Managers →</span>
+                    </button>
+
+                    {/* Tier 4: Retail Merchants */}
+                    <button 
+                      onClick={() => handleTabSwitch('merchants')}
+                      style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', padding: '0.875rem', borderRadius: '8px', textAlign: 'left', cursor: 'pointer' }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '1.25rem' }}>🏪</span>
+                        <strong style={{ fontSize: '1.125rem', color: '#059669' }}>{merchantsList.length}</strong>
+                      </div>
+                      <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#0A192F', marginTop: '4px' }}>Retail Merchants</span>
+                      <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Stores & POS →</span>
+                    </button>
+
+                  </div>
+                </div>
+
+                {/* 2. REDESIGNED MERCHANT BANK PAYOUTS: NORMAL SLIM BAR WITH ALERT */}
+                <div 
+                  onClick={() => handleTabSwitch('payouts')}
+                  style={{
+                    background: pendingPayouts.length > 0 ? '#FEF2F2' : '#F0FDF4',
+                    border: pendingPayouts.length > 0 ? '1.5px solid #FCA5A5' : '1px solid #BBF7D0',
+                    borderRadius: '10px',
+                    padding: '0.75rem 1rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    cursor: 'pointer',
+                    boxShadow: pendingPayouts.length > 0 ? '0 2px 8px rgba(220, 38, 38, 0.08)' : 'none'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                    <div style={{
+                      width: '26px',
+                      height: '26px',
+                      borderRadius: '6px',
+                      background: pendingPayouts.length > 0 ? '#DC2626' : '#22C55E',
+                      color: '#FFFFFF',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '0.75rem',
+                      fontWeight: 900
+                    }}>
+                      {pendingPayouts.length > 0 ? '!' : '✓'}
+                    </div>
+                    <div>
+                      <strong style={{ fontSize: '0.8125rem', color: pendingPayouts.length > 0 ? '#991B1B' : '#166534' }}>
+                        {pendingPayouts.length > 0 
+                          ? `⚠️ Alert: ${pendingPayouts.length} Merchant Payout(s) Waiting For Approval`
+                          : 'Merchant Bank Payouts: All Cleared'}
+                      </strong>
+                      <span style={{ display: 'block', fontSize: '0.625rem', color: pendingPayouts.length > 0 ? '#B91C1C' : '#15803D' }}>
+                        {pendingPayouts.length > 0 
+                          ? 'Tap to review withdrawal requests and approve bank transfers'
+                          : 'Zero pending withdrawals • All merchant payouts are up to date'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    style={{
+                      background: pendingPayouts.length > 0 ? '#DC2626' : '#FFFFFF',
+                      color: pendingPayouts.length > 0 ? '#FFFFFF' : '#15803D',
+                      border: pendingPayouts.length > 0 ? 'none' : '1px solid #86EFAC',
+                      padding: '0.35rem 0.65rem',
+                      borderRadius: '6px',
+                      fontSize: '0.6875rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {pendingPayouts.length > 0 ? `Review (${pendingPayouts.length}) →` : 'History →'}
+                  </button>
+                </div>
+
+                {/* 3. RECENT SWIPES & LIVE TRANSACTION ACTIVITY */}
+                {transactionsLedger && transactionsLedger.length > 0 && (
+                  <div style={{ background: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0', padding: '1.25rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                      <div>
+                        <h3 style={{ fontSize: '0.875rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                          Live Swipes & Transactions
+                        </h3>
+                        <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
+                          Recent POS machine transactions and profit cuts
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '2px 8px', borderRadius: '4px' }}>
+                        Live Feed
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {transactionsLedger.slice(0, 4).map(txn => (
+                        <div key={txn.id || txn.txn_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.625rem 0.75rem', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          <div>
+                            <strong style={{ fontSize: '0.75rem', color: '#0A192F' }}>
+                              {txn.merchant_name || txn.title || 'Merchant Swipe'}
+                            </strong>
+                            <span style={{ display: 'block', fontSize: '0.625rem', color: '#64748B' }}>
+                              {txn.pos_provider || 'POS Machine'} • {new Date(txn.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <strong style={{ fontSize: '0.875rem', fontWeight: 900, color: '#0A192F' }}>
+                              ₹{parseFloat(txn.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </strong>
+                            <span style={{ display: 'block', fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>
+                              +₹{parseFloat(txn.admin_margin || txn.admin_cut || (txn.amount * 0.0015)).toFixed(2)} Profit
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 4. AT THE VERY LAST: LEGAL SETTLEMENT ACCOUNTS & VENDOR LEDGERS */}
+                <div style={{ background: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0', padding: '1.25rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.875rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <div>
+                      <h3 style={{ fontSize: '0.875rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                        Legal Settlement Accounts & Vendor Ledgers
+                      </h3>
+                      <p style={{ fontSize: '0.6875rem', color: '#64748B', margin: '2px 0 0' }}>
+                        Official settlement routing according to client partner agreements
+                      </p>
+                    </div>
+                    <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '2px 6px', borderRadius: '4px' }}>
+                      3 Vendors Active
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem' }}>
+                    
+                    {/* Vendor 1: Rose Navaneetham Enterprises (Pine Labs) */}
+                    <div style={{ background: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '0.875rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B' }}>Rose Navaneetham Enterprises</span>
+                        <span style={{ fontSize: '0.55rem', fontWeight: 800, background: '#EFF6FF', color: '#1D4ED8', padding: '1px 5px', borderRadius: '4px' }}>
+                          Pine Labs (Single Vendor)
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.5rem' }}>
+                        <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F' }}>
+                          ₹{(metrics.vendorSummary?.roseNavaneethamVolume || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </strong>
+                        <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>
+                          +₹{(metrics.vendorSummary?.roseNavaneethamProfit || 0).toFixed(2)} Profit
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '0.6rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                        MDR: 1.53% (T+1) / 1.83% (Instant)
+                      </span>
+                    </div>
+
+                    {/* Vendor 2: RONAV Technologies (Payswiff Vendor 01) */}
+                    <div style={{ background: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '0.875rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B' }}>RONAV Technologies</span>
+                        <span style={{ fontSize: '0.55rem', fontWeight: 800, background: '#FEF3C7', color: '#B45309', padding: '1px 5px', borderRadius: '4px' }}>
+                          Payswiff (Vendor 01)
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.5rem' }}>
+                        <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F' }}>
+                          ₹{(metrics.vendorSummary?.ronavTechVolume || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </strong>
+                        <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>
+                          ₹0.30/Instant Fee
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '0.6rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                        Settlement A/C 01 Active
+                      </span>
+                    </div>
+
+                    {/* Vendor 3: R.P. Technologies (Payswiff Vendor 02) */}
+                    <div style={{ background: '#F8FAFC', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '0.875rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B' }}>R.P. Technologies</span>
+                        <span style={{ fontSize: '0.55rem', fontWeight: 800, background: '#ECFDF5', color: '#059669', padding: '1px 5px', borderRadius: '4px' }}>
+                          Payswiff (Vendor 02)
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.5rem' }}>
+                        <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F' }}>
+                          ₹{(metrics.vendorSummary?.rpTechVolume || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </strong>
+                        <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>
+                          ₹0.30/Instant Fee
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '0.6rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                        Settlement A/C 02 Active
+                      </span>
+                    </div>
+
+                  </div>
+                </div>
+
               </div>
-            ) : (
-              <div className="adaptive-table-wrapper" style={{ display: 'block' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.75rem' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid #E2E8F0', color: '#64748B', fontSize: '0.625rem', textTransform: 'uppercase' }}>
-                      {activeTab === 'verifications' && (
-                        <>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Merchant / Store</th>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Customer Mobile</th>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Swipe Machine Assigned</th>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Amount</th>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Status</th>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Time</th>
-                          <th style={{ padding: '0.75rem 0.5rem', textAlign: 'right' }}>Action</th>
-                        </>
-                      )}
+            )}
 
-                      {activeTab === 'hierarchy' && (
-                        <>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Account / ID</th>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Mobile Number</th>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Role Hierarchy</th>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Swipe Machine Config</th>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Created By</th>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Live Wallet</th>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Status</th>
-                        </>
-                      )}
+            {/* TAB VIEW 2: DEDICATED SUPER DISTRIBUTORS PAGE */}
+            {activeTab === 'super_distributors' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                
+                {/* Top Action Header: Title + Create SD Button beside it (Clean, No Wasted Subtitles) */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h2 style={{ fontSize: '1.0625rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                    Super Distributors ({filteredSDs.length})
+                  </h2>
+                  <button
+                    onClick={() => handleOpenCreateModal('SUPER_DISTRIBUTOR', 'ADM001')}
+                    style={{
+                      background: '#7C3AED',
+                      color: '#FFFFFF',
+                      border: 'none',
+                      padding: '0.375rem 0.75rem',
+                      borderRadius: '8px',
+                      fontSize: '0.6875rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      boxShadow: '0 2px 5px rgba(124, 58, 237, 0.25)'
+                    }}
+                  >
+                    <PlusCircle style={{ width: '13px', height: '13px' }} />
+                    <span>+ Create SD</span>
+                  </button>
+                </div>
 
-                      {activeTab !== 'verifications' && activeTab !== 'hierarchy' && (
-                        <>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Applicant Name</th>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Mobile Number</th>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Type</th>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Amount</th>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Status</th>
-                          <th style={{ padding: '0.75rem 0.5rem' }}>Applied On</th>
-                          <th style={{ padding: '0.75rem 0.5rem', width: '24px' }}></th>
-                        </>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {activeTab === 'verifications' && (
-                      pendingTxns.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} style={{ textAlign: 'center', padding: '3rem 1rem', color: '#64748B' }}>
-                            <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: '#ECFDF5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.75rem' }}>
-                              <CheckCircle2 style={{ width: '24px', height: '24px' }} />
-                            </div>
-                            <strong style={{ display: 'block', color: '#0F172A', fontSize: '0.875rem' }}>All Merchant Transactions Cleared!</strong>
-                            <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem' }}>When merchants record manual sales, swipe collections, or wallet deposits, they will show up here for your verification.</p>
-                          </td>
-                        </tr>
-                      ) : (
-                        pendingTxns.map((t) => (
-                          <tr key={t.id} className="interactive-table-row">
-                            <td style={{ padding: '0.75rem 0.5rem', fontWeight: 800, color: '#0A192F' }}>
-                              <div style={{ fontSize: '0.8125rem' }}>{t.merchant_name}</div>
-                              <span style={{ fontSize: '0.55rem', color: '#64748B' }}>ID: {t.merchant_id} • Ref: {t.ref_number || 'N/A'}</span>
-                            </td>
-                            <td style={{ padding: '0.75rem 0.5rem', color: '#475569' }}>
-                              {t.customer_mobile || t.merchant_mobile || 'N/A'}
-                            </td>
-                            <td style={{ padding: '0.75rem 0.5rem' }}>
-                              <span style={{
-                                fontSize: '0.625rem',
-                                fontWeight: 800,
-                                padding: '2px 8px',
-                                borderRadius: '4px',
-                                background: t.pos_provider === 'Payswiff' ? '#FEF3C7' : '#DBEAFE',
-                                color: t.pos_provider === 'Payswiff' ? '#B45309' : '#1D4ED8',
-                                border: '1px solid currentColor'
-                              }}>
-                                {t.pos_provider || 'Pine Labs'} POS ({t.pos_rate || '1.25'}% MDR)
-                              </span>
-                            </td>
-                            <td style={{ padding: '0.75rem 0.5rem', fontWeight: 900, color: '#059669', fontSize: '0.875rem' }}>
-                              ₹{parseFloat(t.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td style={{ padding: '0.75rem 0.5rem' }}>
-                              <span style={{ fontSize: '0.5625rem', fontWeight: 800, padding: '0.125rem 0.375rem', background: '#FEF3C7', color: '#D97706', borderRadius: '4px', border: '1px solid #FDE68A' }}>
-                                PENDING VERIFICATION
-                              </span>
-                            </td>
-                            <td style={{ padding: '0.75rem 0.5rem', color: '#64748B', fontSize: '0.6875rem' }}>
-                              {new Date(t.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </td>
-                            <td style={{ padding: '0.75rem 0.5rem', textAlign: 'right' }}>
-                              <div style={{ display: 'flex', gap: '0.375rem', justifyContent: 'flex-end' }}>
-                                <button 
-                                  onClick={() => handleVerifyTxn(t.id, 'APPROVE', t.merchant_name, t.amount)}
-                                  style={{ border: 'none', background: '#059669', color: '#FFF', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, padding: '4px 10px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(5,150,105,0.2)' }}
-                                >
-                                  ✓ Approve & Credit
-                                </button>
-                                <button 
-                                  onClick={() => handleVerifyTxn(t.id, 'REJECT', t.merchant_name, t.amount)}
-                                  style={{ border: '1px solid #EF4444', background: '#FFF', color: '#DC2626', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, padding: '4px 8px', cursor: 'pointer' }}
-                                >
-                                  ✕ Reject
-                                </button>
+                {/* Search Bar */}
+                <div style={{ position: 'relative' }}>
+                  <Search style={{ width: '14px', height: '14px', position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
+                  <input
+                    type="text"
+                    placeholder="Search by SD Name, Mobile, or ID..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{ width: '100%', padding: '0.45rem 0.75rem 0.45rem 2rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.75rem', outline: 'none' }}
+                  />
+                </div>
+
+                {/* Cards List with Interactive Downline Tree Drilldown */}
+                {filteredSDs.length === 0 ? (
+                  <div style={{ padding: '2.5rem 1rem', textAlign: 'center', background: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0', color: '#64748B' }}>
+                    <p style={{ margin: 0, fontSize: '0.8125rem' }}>No Super Distributors found matching search.</p>
+                    <button onClick={() => handleOpenCreateModal('SUPER_DISTRIBUTOR', 'ADM001')} style={{ marginTop: '0.75rem', background: '#7C3AED', color: '#FFF', border: 'none', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800 }}>
+                      + Create First Super Distributor
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {filteredSDs.map(sd => {
+                      const sdVol = parseFloat(sd.network_volume || sd.total_sales || 0);
+                      const sdProfit = sdVol * 0.0015;
+
+                      // Robust Downline Aggregation (District Dist -> Dist -> Shops)
+                      const childDDs = sd.district_distributors || districtDistributorsList.filter(dd => dd.creator_id === sd.id || dd.parent_id === sd.id);
+                      const directDists = sd.distributors || distributorsList.filter(d => d.creator_id === sd.id || d.parent_id === sd.id);
+                      const allDists = [
+                        ...directDists,
+                        ...childDDs.flatMap(dd => dd.distributors || distributorsList.filter(d => d.creator_id === dd.id || d.parent_id === dd.id))
+                      ];
+                      const uniqueDists = Array.from(new Map(allDists.map(d => [d.id, d])).values());
+
+                      const allMerchants = [
+                        ...(sd.direct_merchants || merchantsList.filter(m => m.creator_id === sd.id)),
+                        ...uniqueDists.flatMap(d => d.merchants || merchantsList.filter(m => m.creator_id === d.id || m.parent_id === d.id))
+                      ];
+                      const uniqueMerchants = Array.from(new Map(allMerchants.map(m => [m.id, m])).values());
+                      const totalMachines = uniqueMerchants.length || sd.total_merchant_count || 0;
+
+                      return (
+                        <div
+                          key={sd.id}
+                          onClick={() => handleOpenDossier(sd, 'SUPER_DISTRIBUTOR')}
+                          style={{
+                            background: '#FFFFFF',
+                            border: '1px solid #E2E8F0',
+                            borderRadius: '12px',
+                            padding: '1rem',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
+                            cursor: 'pointer',
+                            transition: 'all 150ms ease'
+                          }}
+                        >
+                          {/* Super Distributor Top Row */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                                <span style={{ fontSize: '1rem' }}>⚡</span>
+                                <strong style={{ fontSize: '0.9375rem', color: '#0A192F' }}>{sd.name}</strong>
                               </div>
-                            </td>
-                          </tr>
-                        ))
-                      )
-                    )}
-
-                    {activeTab === 'hierarchy' && (
-                      networkUsers.map((u) => (
-                        <tr key={u.id} className="interactive-table-row">
-                          <td style={{ padding: '0.75rem 0.5rem', fontWeight: 800, color: '#0A192F' }}>
-                            <div style={{ fontSize: '0.8125rem' }}>{u.name}</div>
-                            <span style={{ fontSize: '0.55rem', color: '#64748B' }}>ID: {u.id}</span>
-                          </td>
-                          <td style={{ padding: '0.75rem 0.5rem', color: '#475569', fontWeight: 600 }}>{u.mobile}</td>
-                          <td style={{ padding: '0.75rem 0.5rem' }}>
-                            <span style={{
-                              fontSize: '0.625rem',
-                              fontWeight: 800,
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              background: u.role === 'ADMIN' ? '#0F172A' : u.role === 'SUPER_DISTRIBUTOR' ? '#7C3AED' : u.role === 'DISTRIBUTOR' ? '#0F52BA' : '#059669',
-                              color: '#FFF'
-                            }}>
-                              {u.role}
-                            </span>
-                          </td>
-                          <td style={{ padding: '0.75rem 0.5rem' }}>
-                            {u.pos_provider ? (
-                              <span style={{
-                                fontSize: '0.625rem',
-                                fontWeight: 800,
-                                padding: '2px 8px',
-                                borderRadius: '4px',
-                                background: u.pos_provider === 'Payswiff' ? '#FEF3C7' : '#DBEAFE',
-                                color: u.pos_provider === 'Payswiff' ? '#B45309' : '#1D4ED8',
-                                border: '1px solid currentColor'
-                              }}>
-                                {u.pos_provider} ({u.pos_rate}% MDR)
+                              <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                                ID: <strong style={{ color: '#7C3AED' }}>{sd.id}</strong> • Mobile: {sd.mobile}
                               </span>
-                            ) : (
-                              <span style={{ color: '#94A3B8', fontSize: '0.625rem' }}>Network Distributor Node</span>
-                            )}
-                          </td>
-                          <td style={{ padding: '0.75rem 0.5rem', color: '#64748B' }}>
-                            {u.creator_name || (u.creator_id ? `By ${u.creator_id}` : 'Root Admin (Super)')}
-                          </td>
-                          <td style={{ padding: '0.75rem 0.5rem', fontWeight: 800, color: '#059669', fontSize: '0.8125rem' }}>
-                            ₹{u.available_balance ? u.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : '0.00'}
-                          </td>
-                          <td style={{ padding: '0.75rem 0.5rem' }}>
-                            <span style={{ fontSize: '0.55rem', color: '#059669', fontWeight: 800, background: '#ECFDF5', padding: '1px 5px', borderRadius: '4px', border: '1px solid #A7F3D0' }}>
-                              ACTIVE
+                            </div>
+
+                            {/* Machines Count Pill */}
+                            <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '3px 7px', borderRadius: '6px', background: '#F3E8FF', color: '#7C3AED', border: '1px solid #E9D5FF', whiteSpace: 'nowrap' }}>
+                              {totalMachines} POS Machines
                             </span>
-                          </td>
-                        </tr>
-                      ))
-                    )}
+                          </div>
 
-                    {activeTab === 'loans' && filteredLoans.map((app) => (
-                      <tr key={app.id} onClick={() => setSelectedLoan(app)} className="interactive-table-row" style={{ cursor: 'pointer' }}>
-                        <td style={{ padding: '0.75rem 0.5rem', fontWeight: 800, color: '#0A192F' }}>{app.name}</td>
-                        <td style={{ padding: '0.75rem 0.5rem', color: '#475569' }}>{app.phone}</td>
-                        <td style={{ padding: '0.75rem 0.5rem', color: '#475569' }}>{app.type}</td>
-                        <td style={{ padding: '0.75rem 0.5rem', fontWeight: 800, color: '#059669' }}>{app.amount}</td>
-                        <td style={{ padding: '0.75rem 0.5rem' }}>
-                          <span style={{ 
-                            fontSize: '0.5625rem', 
-                            fontWeight: 800, 
-                            padding: '0.125rem 0.375rem', 
-                            background: app.status === 'Approved' ? '#D1FAE5' : app.status === 'Under Review' ? '#FEF3C7' : '#EFF6FF', 
-                            color: app.status === 'Approved' ? '#059669' : app.status === 'Under Review' ? '#D97706' : '#0F52BA', 
-                            borderRadius: '4px',
-                            border: app.status === 'Approved' ? '1px solid #A7F3D0' : app.status === 'Under Review' ? '1px solid #FDE68A' : '1px solid #BFDBFE'
-                          }}>
-                            {app.status}
-                          </span>
-                        </td>
-                        <td style={{ padding: '0.75rem 0.5rem', color: '#64748B' }}>{app.date}</td>
-                        <td style={{ padding: '0.75rem 0.5rem', color: '#64748B' }}>
-                          <ChevronRight style={{ width: '14px', height: '14px' }} />
-                        </td>
-                      </tr>
+                          {/* 3 Metric Pills: [Swipe Amount] [Instant Swipes] [Admin Profit] */}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.375rem', marginTop: '0.625rem', background: '#F8FAFC', padding: '0.5rem 0.625rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                            <div>
+                              <span style={{ fontSize: '0.55rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Swipe Amount</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#0A192F', fontWeight: 900 }}>
+                                ₹{sdVol.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                              </strong>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.55rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Instant Swipes</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#D97706', fontWeight: 900 }}>
+                                ₹{Math.round(sdVol * 0.45).toLocaleString('en-IN')}
+                              </strong>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.55rem', color: '#059669', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Admin Profit</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#059669', fontWeight: 900 }}>
+                                +₹{sdProfit.toFixed(2)}
+                              </strong>
+                            </div>
+                          </div>
+
+                          {/* Action Footer Bar */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #F1F5F9', marginTop: '0.75rem', paddingTop: '0.75rem' }}>
+                            <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 700 }}>
+                              Downline: {childDDs.length} DD • {uniqueDists.length} Dist • {totalMachines} Stores
+                            </span>
+                            <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#7C3AED', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                              View Details & Team <ChevronRight style={{ width: '12px', height: '12px' }} />
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+              </div>
+            )}
+
+            {/* TAB VIEW 3: DEDICATED DISTRICT DISTRIBUTORS PAGE */}
+            {activeTab === 'district_distributors' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                
+                {/* Top Action Header: Clean Title + Button Beside It */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h2 style={{ fontSize: '1.0625rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                    District Distributors ({filteredDDs.length})
+                  </h2>
+                  <button
+                    onClick={() => handleOpenCreateModal('DISTRICT_DISTRIBUTOR', '')}
+                    style={{
+                      background: '#D97706',
+                      color: '#FFF',
+                      border: 'none',
+                      padding: '0.375rem 0.75rem',
+                      borderRadius: '8px',
+                      fontSize: '0.6875rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      boxShadow: '0 2px 5px rgba(217, 119, 6, 0.25)'
+                    }}
+                  >
+                    <PlusCircle style={{ width: '13px', height: '13px' }} />
+                    <span>+ Create DD</span>
+                  </button>
+                </div>
+
+                {/* Search Bar */}
+                <div style={{ position: 'relative' }}>
+                  <Search style={{ width: '14px', height: '14px', position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
+                  <input
+                    type="text"
+                    placeholder="Search by District Distributor Name, Mobile, DD ID, or Parent SD..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{ width: '100%', padding: '0.5rem 0.75rem 0.5rem 2rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.75rem', outline: 'none' }}
+                  />
+                </div>
+
+                {/* Mobile Cards List for District Distributors */}
+                {filteredDDs.length === 0 ? (
+                  <div style={{ padding: '3rem 1rem', textAlign: 'center', background: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0', color: '#64748B' }}>
+                    <p style={{ margin: 0, fontSize: '0.875rem' }}>No District Distributors found matching search.</p>
+                    <button onClick={() => handleOpenCreateModal('DISTRICT_DISTRIBUTOR', '')} style={{ marginTop: '0.75rem', background: '#D97706', color: '#FFF', border: 'none', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>
+                      + Create First District Distributor
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {filteredDDs.map(dd => {
+                      const ddVol = parseFloat(dd.downline_volume || dd.total_sales || 0);
+                      const ddProfit = ddVol * 0.0008;
+
+                      return (
+                        <div
+                          key={dd.id}
+                          onClick={() => handleOpenDossier(dd, 'DISTRICT_DISTRIBUTOR')}
+                          style={{
+                            background: '#FFFFFF',
+                            border: '1px solid #E2E8F0',
+                            borderRadius: '12px',
+                            padding: '1rem',
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.02)',
+                            transition: 'all 150ms ease'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                                <span style={{ fontSize: '1rem' }}>🏛️</span>
+                                <strong style={{ fontSize: '0.9375rem', color: '#0A192F' }}>{dd.name}</strong>
+                              </div>
+                              <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                                ID: <strong style={{ color: '#D97706' }}>{dd.id}</strong> • Mobile: {dd.mobile}
+                              </span>
+                              <span style={{ fontSize: '0.625rem', color: '#475569', display: 'block', marginTop: '1px' }}>
+                                Under: <strong>{dd.parent_sd_name || 'Super Admin'}</strong>
+                              </span>
+                            </div>
+                            <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: '#FEF3C7', color: '#B45309', border: '1px solid #FDE68A' }}>
+                              {dd.distributor_count || (dd.distributors?.length || 0)} Dists • {dd.total_merchant_count || 0} Stores
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #F1F5F9', marginTop: '0.75rem', paddingTop: '0.75rem' }}>
+                            <div>
+                              <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Total Sales</span>
+                              <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F' }}>
+                                ₹{ddVol.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </strong>
+                            </div>
+
+                            <div style={{ textAlign: 'right' }}>
+                              <span style={{ fontSize: '0.625rem', color: '#059669', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Admin Profit</span>
+                              <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#059669' }}>
+                                +₹{ddProfit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </strong>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                            <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#D97706', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                              View Details & Dists <ChevronRight style={{ width: '12px', height: '12px' }} />
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+              </div>
+            )}
+
+            {/* TAB VIEW 4: DEDICATED DISTRIBUTORS PAGE */}
+            {activeTab === 'distributors' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                
+                {/* Top Action Header: Clean Title + Button Beside It */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h2 style={{ fontSize: '1.0625rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                    Distributors ({filteredDists.length})
+                  </h2>
+                  <button
+                    onClick={() => handleOpenCreateModal('DISTRIBUTOR', '')}
+                    style={{
+                      background: '#0F52BA',
+                      color: '#FFF',
+                      border: 'none',
+                      padding: '0.375rem 0.75rem',
+                      borderRadius: '8px',
+                      fontSize: '0.6875rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      boxShadow: '0 2px 5px rgba(15, 82, 186, 0.25)'
+                    }}
+                  >
+                    <PlusCircle style={{ width: '13px', height: '13px' }} />
+                    <span>+ Create Dist</span>
+                  </button>
+                </div>
+
+                {/* Search Bar */}
+                <div style={{ position: 'relative' }}>
+                  <Search style={{ width: '14px', height: '14px', position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
+                  <input
+                    type="text"
+                    placeholder="Search by Distributor Name, Mobile, ID, or Parent SD..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{ width: '100%', padding: '0.5rem 0.75rem 0.5rem 2rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.75rem', outline: 'none' }}
+                  />
+                </div>
+
+                {/* Mobile Cards List for Distributors */}
+                {filteredDists.length === 0 ? (
+                  <div style={{ padding: '3rem 1rem', textAlign: 'center', background: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0', color: '#64748B' }}>
+                    <p style={{ margin: 0, fontSize: '0.875rem' }}>No Distributors found matching search.</p>
+                    <button onClick={() => handleOpenCreateModal('DISTRIBUTOR', '')} style={{ marginTop: '0.75rem', background: '#0F52BA', color: '#FFF', border: 'none', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>
+                      + Create First Distributor
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {filteredDists.map(d => {
+                      const distVol = parseFloat(d.downline_volume || d.total_sales || 0);
+                      const distProfit = distVol * 0.0006;
+
+                      return (
+                        <div
+                          key={d.id}
+                          onClick={() => handleOpenDossier(d, 'DISTRIBUTOR')}
+                          style={{
+                            background: '#FFFFFF',
+                            border: '1px solid #E2E8F0',
+                            borderRadius: '12px',
+                            padding: '1rem',
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                                <span style={{ fontSize: '1rem' }}>📦</span>
+                                <strong style={{ fontSize: '0.9375rem', color: '#0A192F' }}>{d.name}</strong>
+                              </div>
+                              <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                                ID: <strong style={{ color: '#0F52BA' }}>{d.id}</strong> • Mobile: {d.mobile}
+                              </span>
+                              <span style={{ fontSize: '0.625rem', color: '#475569', display: 'block', marginTop: '1px' }}>
+                                Under: <strong>{d.parent_sd_name || 'Super Admin'}</strong>
+                              </span>
+                            </div>
+                            <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: '#EFF6FF', color: '#0F52BA', border: '1px solid #BFDBFE' }}>
+                              {d.merchant_count || (d.merchants?.length || 0)} Stores
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #F1F5F9', marginTop: '0.75rem', paddingTop: '0.75rem' }}>
+                            <div>
+                              <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Total Sales</span>
+                              <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F' }}>
+                                ₹{distVol.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </strong>
+                            </div>
+
+                            <div style={{ textAlign: 'right' }}>
+                              <span style={{ fontSize: '0.625rem', color: '#059669', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Admin Profit</span>
+                              <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#059669' }}>
+                                +₹{distProfit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </strong>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                            <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0F52BA', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                              View Details & Stores <ChevronRight style={{ width: '12px', height: '12px' }} />
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+              </div>
+            )}
+
+            {/* TAB VIEW 5: DEDICATED MERCHANTS & RETAILERS PAGE */}
+            {activeTab === 'merchants' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                
+                {/* Top Action Header: Clean Title + Button Beside It */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h2 style={{ fontSize: '1.0625rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                    Merchants & Retailers ({filteredMerchants.length})
+                  </h2>
+                  <button
+                    onClick={() => handleOpenCreateModal('MERCHANT', '')}
+                    style={{
+                      background: '#059669',
+                      color: '#FFF',
+                      border: 'none',
+                      padding: '0.375rem 0.75rem',
+                      borderRadius: '8px',
+                      fontSize: '0.6875rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      boxShadow: '0 2px 5px rgba(5, 150, 105, 0.25)'
+                    }}
+                  >
+                    <PlusCircle style={{ width: '13px', height: '13px' }} />
+                    <span>+ Create Shop</span>
+                  </button>
+                </div>
+
+                {/* Search Bar */}
+                <div style={{ position: 'relative' }}>
+                  <Search style={{ width: '14px', height: '14px', position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
+                  <input
+                    type="text"
+                    placeholder="Search by Store Name, MID, Mobile, Vendor..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{ width: '100%', padding: '0.5rem 0.75rem 0.5rem 2rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.75rem', outline: 'none' }}
+                  />
+                </div>
+
+                {/* Mobile Cards List for Merchants */}
+                {filteredMerchants.length === 0 ? (
+                  <div style={{ padding: '3rem 1rem', textAlign: 'center', background: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0', color: '#64748B' }}>
+                    <p style={{ margin: 0, fontSize: '0.875rem' }}>No Merchants found matching search.</p>
+                    <button onClick={() => handleOpenCreateModal('MERCHANT', '')} style={{ marginTop: '0.75rem', background: '#059669', color: '#FFF', border: 'none', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800 }}>
+                      + Create First Merchant
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {filteredMerchants.map(m => {
+                      const sales = parseFloat(m.total_sales || 0);
+                      const isPine = (m.pos_provider || '').includes('Pine');
+                      const isInstant = (m.pos_settlement || '').includes('INSTANT');
+                      const rate = isPine ? (isInstant ? 0.0025 : 0.0015) : 0.0005;
+                      const adminProfit = sales * rate;
+
+                      return (
+                        <div
+                          key={m.id}
+                          onClick={() => handleOpenDossier(m, 'MERCHANT')}
+                          style={{
+                            background: '#FFFFFF',
+                            border: '1px solid #E2E8F0',
+                            borderRadius: '12px',
+                            padding: '1rem',
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                                <span style={{ fontSize: '1rem' }}>🏪</span>
+                                <strong style={{ fontSize: '0.9375rem', color: '#0A192F' }}>{m.name}</strong>
+                              </div>
+                              <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                                MID: <strong style={{ color: '#059669' }}>{m.id}</strong> • Mobile: {m.mobile}
+                              </span>
+                              <span style={{ fontSize: '0.625rem', color: '#475569', display: 'block', marginTop: '1px' }}>
+                                Sponsor: <strong>{m.creator_name || 'Super Admin'}</strong>
+                              </span>
+                            </div>
+                            <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: '#ECFDF5', color: '#059669', border: '1px solid #A7F3D0' }}>
+                              Wallet: ₹{parseFloat(m.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+
+                          {/* Machine & Vendor Badges */}
+                          <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#334155', padding: '2px 6px', borderRadius: '4px' }}>
+                              {m.pos_provider || 'Pine Labs'} ({m.pos_terminal || 'PL-TS'})
+                            </span>
+                            <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '2px 6px', borderRadius: '4px' }}>
+                              {m.pos_vendor || 'Rose Navaneetham'}
+                            </span>
+                            <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#FEF3C7', color: '#B45309', padding: '2px 6px', borderRadius: '4px' }}>
+                              {m.pos_plan === 'LIFETIME' ? 'Lifetime' : 'Rental Plan'}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #F1F5F9', marginTop: '0.75rem', paddingTop: '0.75rem' }}>
+                            <div>
+                              <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Total Sales</span>
+                              <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F' }}>
+                                ₹{sales.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </strong>
+                            </div>
+
+                            <div style={{ textAlign: 'right' }}>
+                              <span style={{ fontSize: '0.625rem', color: '#059669', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Admin Profit</span>
+                              <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#059669' }}>
+                                +₹{adminProfit.toFixed(2)}
+                              </strong>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                            <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#059669', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                              View Details & Sales <ChevronRight style={{ width: '12px', height: '12px' }} />
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+              </div>
+            )}
+
+            {/* TAB VIEW 5: DEDICATED PAYOUT APPROVALS QUEUE */}
+            {activeTab === 'payouts' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div>
+                  <h2 style={{ fontSize: '1.125rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                    Bank Payout Approvals ({pendingPayouts.length})
+                  </h2>
+                  <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
+                    Merchants requesting wallet fund transfers to their verified bank accounts
+                  </span>
+                </div>
+
+                {pendingPayouts.length === 0 ? (
+                  <div style={{ padding: '3rem 1rem', textAlign: 'center', background: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0', color: '#059669' }}>
+                    <CheckCircle2 style={{ width: '32px', height: '32px', margin: '0 auto 0.5rem', color: '#059669' }} />
+                    <strong style={{ fontSize: '1rem', display: 'block' }}>Zero Pending Payouts</strong>
+                    <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: '#64748B' }}>All withdrawal requests have been verified and disbursed.</p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {pendingPayouts.map(p => (
+                      <div key={p.id} style={{ background: '#FFFFFF', border: '1.5px solid #FCA5A5', borderRadius: '12px', padding: '1rem', boxShadow: '0 2px 4px rgba(0,0,0,0.03)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <strong style={{ fontSize: '0.9375rem', color: '#0A192F' }}>{p.merchant_name}</strong>
+                              <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#FEE2E2', color: '#DC2626', padding: '2px 6px', borderRadius: '4px' }}>
+                                Awaiting Approval
+                              </span>
+                            </div>
+                            <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                              MID: {p.merchant_id} • Phone: {p.merchant_mobile || 'Registered Mobile'}
+                            </span>
+                            <span style={{ fontSize: '0.75rem', color: '#0A192F', fontWeight: 700, display: 'block', marginTop: '4px' }}>
+                              Bank: {p.bank_name} • A/C: ••••{p.account_number?.slice(-4) || '••••'} • IFSC: {p.ifsc || 'Verified'}
+                            </span>
+                          </div>
+
+                          <div style={{ textAlign: 'right' }}>
+                            <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Withdrawal Amount</span>
+                            <strong style={{ fontSize: '1.25rem', fontWeight: 900, color: '#DC2626' }}>
+                              ₹{parseFloat(p.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </strong>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', borderTop: '1px solid #F1F5F9', marginTop: '0.875rem', paddingTop: '0.875rem' }}>
+                          <button
+                            onClick={() => handlePayoutAction(p.id, 'REJECT', p.merchant_name, p.amount)}
+                            style={{ background: '#F1F5F9', color: '#475569', border: '1px solid #CBD5E1', padding: '0.45rem 0.875rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}
+                          >
+                            ✕ Reject Request
+                          </button>
+                          <button
+                            onClick={() => handlePayoutAction(p.id, 'APPROVE', p.merchant_name, p.amount)}
+                            style={{ background: '#059669', color: '#FFF', border: 'none', padding: '0.45rem 1.25rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer', boxShadow: '0 2px 6px rgba(5,150,105,0.3)' }}
+                          >
+                            ✓ Approve & Disburse Payout
+                          </button>
+                        </div>
+                      </div>
                     ))}
+                  </div>
+                )}
 
-                    {activeTab === 'franchise' && filteredFranchises.map((f) => (
-                      <tr key={f.id} onClick={() => setSelectedFranchise(f)} className="interactive-table-row" style={{ cursor: 'pointer' }}>
-                        <td style={{ padding: '0.75rem 0.5rem', fontWeight: 800, color: '#0A192F' }}>{f.name}</td>
-                        <td style={{ padding: '0.75rem 0.5rem', color: '#475569' }}>{f.phone}</td>
-                        <td style={{ padding: '0.75rem 0.5rem', color: '#475569' }}>ATM Franchise</td>
-                        <td style={{ padding: '0.75rem 0.5rem', fontWeight: 800, color: '#059669' }}>-</td>
-                        <td style={{ padding: '0.75rem 0.5rem' }}>
-                          <span style={{ 
-                            fontSize: '0.5625rem', 
-                            fontWeight: 800, 
-                            padding: '0.125rem 0.375rem', 
-                            background: f.status === 'Approved' ? '#D1FAE5' : '#FEF3C7', 
-                            color: f.status === 'Approved' ? '#059669' : '#D97706', 
-                            borderRadius: '4px',
-                            border: f.status === 'Approved' ? '1px solid #A7F3D0' : '1px solid #FDE68A'
-                          }}>{f.status}</span>
-                        </td>
-                        <td style={{ padding: '0.75rem 0.5rem', color: '#64748B' }}>{f.date}</td>
-                        <td style={{ padding: '0.75rem 0.5rem', color: '#64748B' }}>
-                          <ChevronRight style={{ width: '14px', height: '14px' }} />
-                        </td>
-                      </tr>
-                    ))}
-
-                    {activeTab === 'transactions' && filteredTxns.map((t) => (
-                      <tr key={t.id} className="interactive-table-row">
-                        <td style={{ padding: '0.75rem 0.5rem', fontWeight: 800, color: '#0A192F' }}>{t.merchant}</td>
-                        <td style={{ padding: '0.75rem 0.5rem', color: '#475569' }}>MID: {t.mid}</td>
-                        <td style={{ padding: '0.75rem 0.5rem', color: '#475569' }}>{t.type}</td>
-                        <td style={{ padding: '0.75rem 0.5rem', fontWeight: 800, color: '#0A192F' }}>{t.amount}</td>
-                        <td style={{ padding: '0.75rem 0.5rem' }}>
-                          <span style={{ 
-                            fontSize: '0.5625rem', 
-                            fontWeight: 800, 
-                            padding: '0.125rem 0.375rem', 
-                            background: t.status === 'Success' ? '#D1FAE5' : '#FEE2E2', 
-                            color: t.status === 'Success' ? '#059669' : '#DC2626', 
-                            borderRadius: '4px' 
-                          }}>{t.status}</span>
-                        </td>
-                        <td style={{ padding: '0.75rem 0.5rem', color: '#64748B' }}>{t.date}</td>
-                        <td style={{ padding: '0.75rem 0.5rem', color: '#64748B' }}>
-                          <ChevronRight style={{ width: '14px', height: '14px' }} />
-                        </td>
-                      </tr>
-                    ))}
-
-                    {activeTab === 'withdrawals' && withdrawalsList.map((w) => (
-                      <tr key={w.id} className="interactive-table-row">
-                        <td style={{ padding: '0.75rem 0.5rem', fontWeight: 800, color: '#0A192F' }}>{w.merchant}</td>
-                        <td style={{ padding: '0.75rem 0.5rem', color: '#475569' }}>MID: {w.mid}</td>
-                        <td style={{ padding: '0.75rem 0.5rem', color: '#475569' }}>Settlement Payout</td>
-                        <td style={{ padding: '0.75rem 0.5rem', fontWeight: 800, color: '#059669' }}>{w.amount}</td>
-                        <td style={{ padding: '0.75rem 0.5rem' }}>
-                          <span style={{ 
-                            fontSize: '0.5625rem', 
-                            fontWeight: 800, 
-                            padding: '0.125rem 0.375rem', 
-                            background: w.status === 'Approved' ? '#D1FAE5' : '#FEF3C7', 
-                            color: w.status === 'Approved' ? '#059669' : '#D97706', 
-                            borderRadius: '4px' 
-                          }}>{w.status}</span>
-                        </td>
-                        <td style={{ padding: '0.75rem 0.5rem', color: '#64748B' }}>{w.date}</td>
-                        <td style={{ padding: '0.75rem 0.5rem', color: '#64748B' }}>
-                          <ChevronRight style={{ width: '14px', height: '14px' }} />
-                        </td>
-                      </tr>
-                    ))}
-
-                  </tbody>
-                </table>
               </div>
             )}
 
           </div>
+        )}
 
-          {/* 5. Transactions Overview Grid Breakdown */}
-          <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0', padding: '1.25rem', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-              <h2 style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#0A192F', margin: 0 }}>Transactions Overview</h2>
-              
-              {/* Date Filter Selector Dropdown */}
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: '0.5rem', 
-                border: '1px solid #CBD5E1', 
-                padding: '0.375rem 0.75rem', 
-                borderRadius: '8px',
-                fontSize: '0.75rem',
-                color: '#475569',
-                backgroundColor: '#FFFFFF',
-                cursor: 'pointer'
-              }}>
-                <Calendar style={{ width: '14px', height: '14px', color: '#64748B' }} />
-                <span style={{ fontWeight: 600 }}>09 May 2025 - 16 May 2025</span>
-                <ChevronDown style={{ width: '12px', height: '12px', color: '#64748B' }} />
-              </div>
-            </div>
-
-            {/* 4 Cards Subgrid (Matches 2nd image colors exactly) */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-              
-              {/* Subcard 1: BBPS Transactions */}
-              <div style={{ backgroundColor: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: '10px', padding: '1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#7C3AED', marginBottom: '0.5rem' }}>
-                  <Receipt style={{ width: '16px', height: '16px' }} />
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>BBPS Transactions</span>
-                </div>
-                <h3 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>{metrics.bbpsTxns}</h3>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', borderTop: '1px dashed #DDD6FE', paddingTop: '0.5rem' }}>
-                  <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0A192F' }}>Live Records</span>
-                  <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Total Count</span>
-                </div>
-              </div>
-
-              {/* Subcard 2: PG & POS Payments */}
-              <div style={{ backgroundColor: '#FFF7ED', border: '1px solid #FFEDD5', borderRadius: '10px', padding: '1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#EA580C', marginBottom: '0.5rem' }}>
-                  <CreditCard style={{ width: '16px', height: '16px' }} />
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>PG & POS Payments</span>
-                </div>
-                <h3 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>{metrics.pgPosTxns}</h3>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', borderTop: '1px dashed #FFEDD5', paddingTop: '0.5rem' }}>
-                  <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0A192F' }}>Card Swipes</span>
-                  <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Total Count</span>
-                </div>
-              </div>
-
-              {/* Subcard 3: ATM Transactions */}
-              <div style={{ backgroundColor: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: '10px', padding: '1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#0284C7', marginBottom: '0.5rem' }}>
-                  <Smartphone style={{ width: '16px', height: '16px' }} />
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>ATM Transactions</span>
-                </div>
-                <h3 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>{metrics.atmTxns}</h3>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', borderTop: '1px dashed #BAE6FD', paddingTop: '0.5rem' }}>
-                  <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0A192F' }}>ATM / QR</span>
-                  <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Total Count</span>
-                </div>
-              </div>
-
-              {/* Subcard 4: Total Volume */}
-              <div style={{ backgroundColor: '#F0FDF4', border: '1px solid #A7F3D0', borderRadius: '10px', padding: '1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#059669', marginBottom: '0.5rem' }}>
-                  <TrendingUp style={{ width: '16px', height: '16px' }} />
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>Total Volume</span>
-                </div>
-                <h3 style={{ fontSize: '1.5rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
-                  ₹{(metrics.totalVolume || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </h3>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', borderTop: '1px dashed #A7F3D0', paddingTop: '0.5rem' }}>
-                  <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#059669' }}>
-                    {metrics.pgPosTxns + metrics.bbpsTxns + metrics.atmTxns} Txns
-                  </span>
-                  <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Settled Ecosystem</span>
-                </div>
-              </div>
-
-            </div>
-          </div>
-
-          {/* 6. Withdrawal Requests Table Card */}
-          <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0', padding: '1.25rem', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-              <h2 style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#0A192F', margin: 0 }}>Withdrawal Requests</h2>
-              <button onClick={() => handleTabSwitch('withdrawals')} style={{ border: 'none', background: 'none', color: '#0F52BA', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '2px' }}>
-                <span>View All</span>
-                <ChevronRight style={{ width: '14px', height: '14px' }} />
-              </button>
-            </div>
-
-            <div className="adaptive-table-wrapper" style={{ display: 'block' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.75rem' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid #E2E8F0', color: '#64748B', fontSize: '0.625rem', textTransform: 'uppercase' }}>
-                    <th style={{ padding: '0.75rem 0.5rem' }}>Merchant Name</th>
-                    <th style={{ padding: '0.75rem 0.5rem' }}>Merchant ID</th>
-                    <th style={{ padding: '0.75rem 0.5rem' }}>Amount</th>
-                    <th style={{ padding: '0.75rem 0.5rem' }}>Bank Details</th>
-                    <th style={{ padding: '0.75rem 0.5rem' }}>Status</th>
-                    <th style={{ padding: '0.75rem 0.5rem' }}>Requested On</th>
-                    <th style={{ padding: '0.75rem 0.5rem', width: '24px' }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {withdrawalsList.map((w) => (
-                    <tr key={w.id} className="interactive-table-row">
-                      <td style={{ padding: '0.75rem 0.5rem', fontWeight: 800, color: '#0A192F' }}>{w.merchant}</td>
-                      <td style={{ padding: '0.75rem 0.5rem', color: '#475569' }}>{w.mid}</td>
-                      <td style={{ padding: '0.75rem 0.5rem', fontWeight: 800, color: '#0A192F' }}>{w.amount}</td>
-                      <td style={{ padding: '0.75rem 0.5rem', color: '#475569' }}>{w.bank}</td>
-                      <td style={{ padding: '0.75rem 0.5rem' }}>
-                        <span style={{ 
-                          fontSize: '0.5625rem', 
-                          fontWeight: 800, 
-                          padding: '0.125rem 0.375rem', 
-                          background: w.status === 'Approved' ? '#D1FAE5' : w.status === 'Rejected' ? '#FEE2E2' : '#FEF3C7', 
-                          color: w.status === 'Approved' ? '#059669' : w.status === 'Rejected' ? '#DC2626' : '#D97706', 
-                          borderRadius: '4px',
-                          border: w.status === 'Approved' ? '1px solid #A7F3D0' : w.status === 'Rejected' ? '1px solid #FCA5A5' : '1px solid #FDE68A'
-                        }}>{w.status}</span>
-                      </td>
-                      <td style={{ padding: '0.75rem 0.5rem', color: '#64748B' }}>{w.date}</td>
-                      <td style={{ padding: '0.75rem 0.5rem', color: '#64748B' }}>
-                        {w.status === 'Pending' ? (
-                          <div style={{ display: 'flex', gap: '0.25rem' }}>
-                            <button onClick={() => handleApprovePayout(w.id, w.merchant, w.amount)} style={{ border: 'none', background: '#059669', color: '#FFF', borderRadius: '4px', fontSize: '0.625rem', padding: '2px 6px', cursor: 'pointer' }}>Clear</button>
-                          </div>
-                        ) : (
-                          <ChevronRight style={{ width: '14px', height: '14px' }} />
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-        </div>
       </main>
 
-      {/* DETAIL DRAWER: LOAN ASSESSMENT */}
-      {selectedLoan && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          right: 0,
-          width: '100%',
-          maxWidth: '480px',
-          height: '100vh',
-          backgroundColor: '#FFFFFF',
-          borderLeft: '1px solid #E2E8F0',
-          zIndex: 999,
-          boxShadow: '-10px 0 30px rgba(0,0,0,0.05)',
-          padding: '1.5rem',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'space-between',
-          animation: 'slideLeft 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards'
-        }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyBetween: 'space-between', borderBottom: '1px solid #E2E8F0', paddingBottom: '1rem', marginBottom: '1rem' }}>
-              <div>
-                <span style={{ fontSize: '0.625rem', color: '#0F52BA', fontWeight: 800 }}>{selectedLoan.id}</span>
-                <h3 style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>Review Loan Request</h3>
-              </div>
-              <button 
-                onClick={() => setSelectedLoan(null)} 
-                style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer' }}
-                aria-label="Close"
-              >
-                <X style={{ width: '20px', height: '20px' }} />
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto', maxHeight: 'calc(100vh - 200px)' }}>
-              <div>
-                <label style={{ fontSize: '0.625rem', color: '#64748B', textTransform: 'uppercase', fontWeight: 800 }}>Applicant Name</label>
-                <span style={{ fontSize: '0.875rem', fontWeight: 700, color: '#0A192F', display: 'block' }}>{selectedLoan.name}</span>
-                <span style={{ fontSize: '0.75rem', color: '#64748B' }}>Business Type: {selectedLoan.businessType}</span>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                <div>
-                  <label style={{ fontSize: '0.625rem', color: '#64748B', textTransform: 'uppercase', fontWeight: 800 }}>Loan Type</label>
-                  <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#0A192F', display: 'block' }}>{selectedLoan.type}</span>
-                </div>
-                <div>
-                  <label style={{ fontSize: '0.625rem', color: '#64748B', textTransform: 'uppercase', fontWeight: 800 }}>Requested Value</label>
-                  <span style={{ fontSize: '0.875rem', fontWeight: 800, color: '#059669', display: 'block' }}>{selectedLoan.amount}</span>
-                </div>
-              </div>
-
-              <div style={{ backgroundColor: '#F8FAFC', padding: '0.875rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
-                <span style={{ fontSize: '0.625rem', color: '#64748B', textTransform: 'uppercase', fontWeight: 800, display: 'block' }}>Credit Profile Score</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem' }}>
-                  <span style={{ fontSize: '1.25rem', fontWeight: 900, color: selectedLoan.creditScore >= 750 ? '#059669' : '#D97706' }}>
-                    {selectedLoan.creditScore}
-                  </span>
-                  <span style={{ fontSize: '0.6875rem', padding: '2px 6px', borderRadius: '4px', backgroundColor: selectedLoan.creditScore >= 750 ? '#D1FAE5' : '#FEF3C7', color: selectedLoan.creditScore >= 750 ? '#059669' : '#D97706' }}>
-                    {selectedLoan.creditScore >= 750 ? 'Low Risk' : 'Medium Risk'}
-                  </span>
-                </div>
-              </div>
-
-              <div>
-                <label style={{ fontSize: '0.625rem', color: '#64748B', textTransform: 'uppercase', fontWeight: 800 }}>Compliance Parameters</label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', marginTop: '0.375rem', fontSize: '0.75rem', color: '#334155' }}>
-                  <div>PAN / KYC Match: <b>PASSED</b></div>
-                  <div>Audit Account Log: <b>VERIFIED</b></div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px solid #E2E8F0', paddingTop: '1rem', marginTop: '1rem' }}>
-            <button 
-              onClick={() => handleCreateAndIssueCredentials(selectedLoan)}
-              className="btn btn-primary" 
-              style={{ backgroundColor: '#059669', border: 'none', minHeight: '44px', color: '#FFF', fontWeight: 800 }}
-            >
-              Approve & Issue Merchant Credentials →
-            </button>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button 
-                onClick={() => handleUpdateLoanStatus(selectedLoan.id, 'Under Review')}
-                className="btn btn-secondary" 
-                style={{ flex: 1, color: '#475569', backgroundColor: '#F1F5F9', border: 'none', minHeight: '40px' }}
-              >
-                Escalate Check
-              </button>
-              <button 
-                onClick={() => setSelectedLoan(null)}
-                className="btn btn-secondary" 
-                style={{ flex: 1, color: '#64748B', backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1' }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* DETAIL DRAWER: FRANCHISE */}
-      {selectedFranchise && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          right: 0,
-          width: '100%',
-          maxWidth: '480px',
-          height: '100vh',
-          backgroundColor: '#FFFFFF',
-          borderLeft: '1px solid #E2E8F0',
-          zIndex: 999,
-          boxShadow: '-10px 0 30px rgba(0,0,0,0.05)',
-          padding: '1.5rem',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'space-between',
-          animation: 'slideLeft 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards'
-        }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #E2E8F0', paddingBottom: '1rem', marginBottom: '1rem' }}>
-              <div>
-                <span style={{ fontSize: '0.625rem', color: '#0F52BA', fontWeight: 800 }}>{selectedFranchise.id}</span>
-                <h3 style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>Review Franchise Request</h3>
-              </div>
-              <button onClick={() => setSelectedFranchise(null)} style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer' }}>
-                <X style={{ width: '20px', height: '20px' }} />
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div>
-                <label style={{ fontSize: '0.625rem', color: '#64748B', textTransform: 'uppercase', fontWeight: 800 }}>Applicant Name</label>
-                <span style={{ fontSize: '0.875rem', fontWeight: 700, color: '#0A192F', display: 'block' }}>{selectedFranchise.name}</span>
-                <span style={{ fontSize: '0.75rem', color: '#64748B' }}>Phone: {selectedFranchise.phone}</span>
-              </div>
-              <div>
-                <label style={{ fontSize: '0.625rem', color: '#64748B', textTransform: 'uppercase', fontWeight: 800 }}>ATM Premises Space</label>
-                <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#0A192F', display: 'block' }}>{selectedFranchise.location}</span>
-                <span style={{ fontSize: '0.75rem', color: '#64748B' }}>Area: {selectedFranchise.spaceArea}</span>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px solid #E2E8F0', paddingTop: '1rem' }}>
-            <button 
-              onClick={() => handleCreateAndIssueCredentials(selectedFranchise)}
-              className="btn btn-primary" 
-              style={{ backgroundColor: '#0F52BA', border: 'none', minHeight: '44px', color: '#FFF', fontWeight: 800 }}
-            >
-              Approve & Issue Franchise Credentials →
-            </button>
-            <button 
-              onClick={() => setSelectedFranchise(null)}
-              className="btn btn-secondary" 
-              style={{ color: '#475569', backgroundColor: '#F1F5F9', border: 'none' }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ISSUED CREDENTIALS MODAL */}
-      {issuedCredsModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(15, 23, 42, 0.65)',
-          backdropFilter: 'blur(8px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-          padding: '1rem'
-        }}>
-          <div style={{
-            backgroundColor: '#FFFFFF',
-            borderRadius: '20px',
-            maxWidth: '480px',
-            width: '100%',
-            padding: '2rem',
-            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
-            border: '1px solid #E2E8F0',
-            textAlign: 'center'
-          }}>
-            <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#ECFDF5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
-              <CheckCircle2 style={{ width: '32px', height: '32px' }} />
-            </div>
-
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0F172A', margin: '0 0 0.25rem' }}>
-              Partner Credentials Generated!
-            </h3>
-            <p style={{ fontSize: '0.75rem', color: '#64748B', margin: '0 0 1.5rem' }}>
-              Provide these login details to <strong>{issuedCredsModal.name}</strong> ({issuedCredsModal.phone}).
-            </p>
-
-            <div style={{ backgroundColor: '#F8FAFC', borderRadius: '12px', border: '1px solid #E2E8F0', padding: '1rem', textAlign: 'left', marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 700 }}>USER ID / MID:</span>
-                <strong style={{ fontSize: '0.9375rem', color: '#0F52BA', fontFamily: 'monospace' }}>{issuedCredsModal.mid}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 700 }}>TEMP PASSWORD:</span>
-                <strong style={{ fontSize: '0.9375rem', color: '#059669', fontFamily: 'monospace' }}>{issuedCredsModal.password}</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 700 }}>ASSIGNED ROLE:</span>
-                <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', background: '#EFF6FF', padding: '2px 8px', borderRadius: '4px' }}>{issuedCredsModal.role}</span>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '0.75rem' }}>
-              <button 
-                onClick={() => {
-                  const text = `Hello ${issuedCredsModal.name}, your RONAV partner credentials are: User ID: ${issuedCredsModal.mid}, Password: ${issuedCredsModal.password}, Role: ${issuedCredsModal.role}. Login at Partner Portal.`;
-                  copyToClipboard(text, 'creds');
-                }}
-                className="btn btn-primary"
-                style={{ flex: 1, backgroundColor: '#0F52BA', justifyContent: 'center' }}
-              >
-                <Copy style={{ width: '16px', height: '16px' }} />
-                <span>Copy SMS / WhatsApp Text</span>
-              </button>
-              <button 
-                onClick={() => setIssuedCredsModal(null)}
-                className="btn btn-secondary"
-                style={{ flex: 0.5, justifyContent: 'center' }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SYSTEM ACCESS FOOTER */}
-      <footer style={{ borderTop: '1px solid #E2E8F0', padding: '1.25rem 0', textAlign: 'center', fontSize: '0.6875rem', color: '#64748B', backgroundColor: '#FFFFFF', marginBottom: '56px' }} className="mobile-footer-margin">
-        <p style={{ margin: 0 }}>© 2021 – RONAV TECHNOLOGIES. All Rights Reserved.</p>
-      </footer>
-
-      {/* Mobile Sticky Tab Navigation Bar (Matches the second image exactly) */}
-      <div className="mobile-only" style={{
+      {/* 5. Mobile Sticky Bottom Navigation Bar (100% Touch-Friendly - 6 Tiers/Actions) */}
+      <nav style={{
         position: 'fixed',
         bottom: 0,
         left: 0,
@@ -1382,327 +1809,440 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         backgroundColor: '#0A192F',
         borderTop: '1px solid #1E293B',
         display: 'grid',
-        gridTemplateColumns: 'repeat(7, 1fr)',
-        padding: '0.5rem 0',
+        gridTemplateColumns: 'repeat(6, 1fr)',
+        padding: '0.4rem 0',
         zIndex: 90
       }}>
-        <button onClick={() => handleTabSwitch('loans')} style={{ background: 'none', border: 'none', color: activeTab === 'loans' ? '#38BDF8' : '#8E9A9D', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
-          <Landmark style={{ width: '16px', height: '16px' }} />
-          <span style={{ fontSize: '0.5rem', fontWeight: 700 }}>Dashboard</span>
+        <button 
+          onClick={() => handleTabSwitch('overview')} 
+          style={{ background: 'none', border: 'none', color: activeTab === 'overview' ? '#38BDF8' : '#94A3B8', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
+        >
+          <Activity style={{ width: '16px', height: '16px' }} />
+          <span style={{ fontSize: '0.5rem', fontWeight: 800 }}>Overview</span>
         </button>
 
-        <button onClick={() => handleTabSwitch('loans')} style={{ background: 'none', border: 'none', color: activeTab === 'loans' ? '#38BDF8' : '#8E9A9D', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
-          <Landmark style={{ width: '16px', height: '16px' }} />
-          <span style={{ fontSize: '0.5rem', fontWeight: 700 }}>Loans</span>
+        <button 
+          onClick={() => handleTabSwitch('super_distributors')} 
+          style={{ background: 'none', border: 'none', color: activeTab === 'super_distributors' ? '#38BDF8' : '#94A3B8', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
+        >
+          <GitFork style={{ width: '16px', height: '16px' }} />
+          <span style={{ fontSize: '0.5rem', fontWeight: 800 }}>Super Dist</span>
         </button>
 
-        <button onClick={() => handleTabSwitch('franchise')} style={{ background: 'none', border: 'none', color: activeTab === 'franchise' ? '#38BDF8' : '#8E9A9D', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+        <button 
+          onClick={() => handleTabSwitch('district_distributors')} 
+          style={{ background: 'none', border: 'none', color: activeTab === 'district_distributors' ? '#38BDF8' : '#94A3B8', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
+        >
           <Building2 style={{ width: '16px', height: '16px' }} />
-          <span style={{ fontSize: '0.5rem', fontWeight: 700 }}>Franchise</span>
+          <span style={{ fontSize: '0.5rem', fontWeight: 800 }}>District Dist</span>
         </button>
 
-        <button onClick={() => handleTabSwitch('transactions')} style={{ background: 'none', border: 'none', color: activeTab === 'transactions' ? '#38BDF8' : '#8E9A9D', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
-          <Receipt style={{ width: '16px', height: '16px' }} />
-          <span style={{ fontSize: '0.5rem', fontWeight: 700 }}>Txns</span>
+        <button 
+          onClick={() => handleTabSwitch('distributors')} 
+          style={{ background: 'none', border: 'none', color: activeTab === 'distributors' ? '#38BDF8' : '#94A3B8', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
+        >
+          <Layers style={{ width: '16px', height: '16px' }} />
+          <span style={{ fontSize: '0.5rem', fontWeight: 800 }}>Dist</span>
         </button>
 
-        <button style={{ background: 'none', border: 'none', color: '#8E9A9D', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
-          <Users style={{ width: '16px', height: '16px' }} />
-          <span style={{ fontSize: '0.5rem', fontWeight: 700 }}>Merchants</span>
+        <button 
+          onClick={() => handleTabSwitch('merchants')} 
+          style={{ background: 'none', border: 'none', color: activeTab === 'merchants' ? '#38BDF8' : '#94A3B8', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
+        >
+          <Store style={{ width: '16px', height: '16px' }} />
+          <span style={{ fontSize: '0.5rem', fontWeight: 800 }}>Merchants</span>
         </button>
 
-        <button onClick={() => handleTabSwitch('withdrawals')} style={{ background: 'none', border: 'none', color: activeTab === 'withdrawals' ? '#38BDF8' : '#8E9A9D', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
-          <CreditCard style={{ width: '16px', height: '16px' }} />
-          <span style={{ fontSize: '0.5rem', fontWeight: 700 }}>Payouts</span>
+        <button 
+          onClick={() => handleTabSwitch('payouts')} 
+          style={{ position: 'relative', background: 'none', border: 'none', color: activeTab === 'payouts' ? '#38BDF8' : '#94A3B8', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
+        >
+          <Landmark style={{ width: '16px', height: '16px' }} />
+          <span style={{ fontSize: '0.5rem', fontWeight: 800 }}>Payouts</span>
+          {pendingPayouts.length > 0 && (
+            <span style={{
+              position: 'absolute',
+              top: '-2px',
+              right: '12px',
+              width: '7px',
+              height: '7px',
+              borderRadius: '50%',
+              backgroundColor: '#DC2626'
+            }} />
+          )}
         </button>
+      </nav>
 
-        <button onClick={onLogout} style={{ background: 'none', border: 'none', color: '#FCA5A5', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
-          <LogOut style={{ width: '16px', height: '16px' }} />
-          <span style={{ fontSize: '0.5rem', fontWeight: 700 }}>Exit</span>
-        </button>
-      </div>
-
-      {/* MODAL: ONBOARD DOWNSTREAM PARTNER STORE (HIERARCHY ENGINE) */}
-      {isCreateUserModalOpen && (
-        <div className="modal-backdrop" onClick={() => setIsCreateUserModalOpen(false)}>
-          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '460px', padding: '1.25rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #E2E8F0', paddingBottom: '0.5rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <div style={{ width: '34px', height: '34px', borderRadius: '8px', background: '#EFF6FF', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Users style={{ width: '18px', height: '18px' }} />
-                </div>
-                <div>
-                  <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#0A192F', margin: 0 }}>Onboard Downstream Partner</h3>
-                  <p style={{ fontSize: '0.625rem', color: '#64748B', margin: 0 }}>Enforce Network Hierarchy & Assign POS Machine</p>
-                </div>
+      {/* 6. Universal Onboard Partner / Merchant Modal */}
+      {isCreateModalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(10, 25, 47, 0.75)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '1rem'
+        }}>
+          <div style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '480px',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            padding: '1.25rem',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #E2E8F0', paddingBottom: '0.75rem' }}>
+              <div>
+                <h3 style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                  Onboard {onboardForm.role.replace('_', ' ')}
+                </h3>
+                <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>Create partner in ecosystem hierarchy</span>
               </div>
-              <button onClick={() => setIsCreateUserModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8' }}>
+              <button onClick={() => setIsCreateModalOpen(false)} style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer' }}>
                 <X style={{ width: '20px', height: '20px' }} />
               </button>
             </div>
 
-            <form onSubmit={handleCreateDownstreamUser} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+            <form onSubmit={handleSubmitOnboard} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+              
+              {/* Role Selector */}
               <div>
-                <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.25rem' }}>
-                  Select Hierarchy Role *
+                <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                  Select Hierarchy Role
                 </label>
-                <select 
-                  value={newUserForm.role}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value })}
-                  style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', color: '#0F172A', fontWeight: 700 }}
-                >
-                  <option value="MERCHANT">Retailer / Merchant (End-User Counter)</option>
-                  <option value="DISTRIBUTOR">Distributor (Franchise Partner)</option>
-                  <option value="SUPER_DISTRIBUTOR">Super Distributor (Master Hub)</option>
-                </select>
-                <p style={{ fontSize: '0.6rem', color: '#64748B', marginTop: '3px' }}>
-                  {newUserForm.role === 'MERCHANT' ? 'ℹ️ End-user: Cannot create accounts below him.' : 'ℹ️ Network node: Can onboard accounts below him.'}
-                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.375rem' }}>
+                  {[
+                    { role: 'SUPER_DISTRIBUTOR', label: '⚡ Super Dist', color: '#7C3AED', bg: '#F3E8FF' },
+                    { role: 'DISTRICT_DISTRIBUTOR', label: '🏛️ District Dist', color: '#D97706', bg: '#FEF3C7' },
+                    { role: 'DISTRIBUTOR', label: '📦 Distributor', color: '#0F52BA', bg: '#EFF6FF' },
+                    { role: 'MERCHANT', label: '🏪 Retailer / Shop', color: '#059669', bg: '#ECFDF5' }
+                  ].map(item => (
+                    <button
+                      key={item.role}
+                      type="button"
+                      onClick={() => setOnboardForm(prev => ({ ...prev, role: item.role }))}
+                      style={{
+                        padding: '0.45rem 0.25rem',
+                        fontSize: '0.6875rem',
+                        fontWeight: 800,
+                        borderRadius: '6px',
+                        border: onboardForm.role === item.role ? `2px solid ${item.color}` : '1px solid #CBD5E1',
+                        background: onboardForm.role === item.role ? item.bg : '#FFFFFF',
+                        color: onboardForm.role === item.role ? item.color : '#475569',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              <div>
-                <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.25rem' }}>
-                  Partner Store / Business Name *
-                </label>
-                <input 
-                  type="text" 
-                  placeholder="e.g. Balaji Telecom & Grocery"
-                  required
-                  value={newUserForm.name}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, name: e.target.value })}
-                  style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.875rem', color: '#0F172A', fontWeight: 600 }}
-                />
+              {/* Name & Mobile */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                    Full Name / Store Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Ramesh Enterprises"
+                    value={onboardForm.name}
+                    onChange={(e) => setOnboardForm(prev => ({ ...prev, name: e.target.value }))}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                    Mobile Number *
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    maxLength={10}
+                    placeholder="10-digit mobile"
+                    value={onboardForm.mobile}
+                    onChange={(e) => setOnboardForm(prev => ({ ...prev, mobile: e.target.value }))}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem' }}
+                  />
+                </div>
               </div>
 
-              <div>
-                <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.25rem' }}>
-                  Mobile Number (Unique Login ID) *
-                </label>
-                <input 
-                  type="tel" 
-                  placeholder="10-digit mobile"
-                  required
-                  value={newUserForm.mobile}
-                  onChange={(e) => setNewUserForm({ ...newUserForm, mobile: e.target.value })}
-                  style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.875rem', color: '#0F172A', fontWeight: 600 }}
-                />
-              </div>
-
-              {/* POS Machine Provider Selection (Only for Merchants) */}
-              {newUserForm.role === 'MERCHANT' && (
-                <div style={{ padding: '0.75rem', background: '#F8FAFC', borderRadius: '10px', border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                    <CreditCard style={{ width: '16px', height: '16px', color: '#0F52BA' }} />
-                    <strong style={{ fontSize: '0.75rem', color: '#0F172A' }}>Swipe Machine Hardware Provider</strong>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                    <label style={{
-                      padding: '0.5rem',
-                      borderRadius: '8px',
-                      border: newUserForm.pos_provider === 'Pine Labs' ? '2px solid #0F52BA' : '1px solid #CBD5E1',
-                      background: newUserForm.pos_provider === 'Pine Labs' ? '#EFF6FF' : '#FFFFFF',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '2px'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <input 
-                          type="radio" 
-                          name="pos_provider" 
-                          value="Pine Labs" 
-                          checked={newUserForm.pos_provider === 'Pine Labs'}
-                          onChange={() => setNewUserForm({ ...newUserForm, pos_provider: 'Pine Labs', commission_rate: '1.25' })}
-                        />
-                        <strong style={{ fontSize: '0.75rem', color: '#0F172A' }}>🌲 Pine Labs</strong>
-                      </div>
-                      <span style={{ fontSize: '0.6rem', color: '#0F52BA', fontWeight: 700 }}>MDR Rate: 1.25%</span>
-                    </label>
-
-                    <label style={{
-                      padding: '0.5rem',
-                      borderRadius: '8px',
-                      border: newUserForm.pos_provider === 'Payswiff' ? '2px solid #D97706' : '1px solid #CBD5E1',
-                      background: newUserForm.pos_provider === 'Payswiff' ? '#FFFBEB' : '#FFFFFF',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '2px'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <input 
-                          type="radio" 
-                          name="pos_provider" 
-                          value="Payswiff" 
-                          checked={newUserForm.pos_provider === 'Payswiff'}
-                          onChange={() => setNewUserForm({ ...newUserForm, pos_provider: 'Payswiff', commission_rate: '1.65' })}
-                        />
-                        <strong style={{ fontSize: '0.75rem', color: '#0F172A' }}>⚡ Payswiff</strong>
-                      </div>
-                      <span style={{ fontSize: '0.6rem', color: '#D97706', fontWeight: 700 }}>MDR Rate: 1.65%</span>
-                    </label>
-                  </div>
-
-                  <div>
-                    <label style={{ fontSize: '0.65rem', fontWeight: 700, color: '#64748B', display: 'block', marginBottom: '2px' }}>
-                      Assigned MDR Commission (%)
-                    </label>
-                    <input 
-                      type="number" 
-                      step="0.01"
-                      value={newUserForm.commission_rate}
-                      onChange={(e) => setNewUserForm({ ...newUserForm, commission_rate: e.target.value })}
-                      style={{ width: '100%', padding: '0.375rem 0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem' }}
-                    />
-                  </div>
+              {/* Parent Selector for District Distributor */}
+              {onboardForm.role === 'DISTRICT_DISTRIBUTOR' && (
+                <div>
+                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                    Assign Parent Super Distributor
+                  </label>
+                  <select
+                    value={onboardForm.parent_id}
+                    onChange={(e) => setOnboardForm(prev => ({ ...prev, parent_id: e.target.value }))}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem' }}
+                  >
+                    <option value="">-- Direct to Super Admin --</option>
+                    {superDistributorsList.map(sd => (
+                      <option key={sd.id} value={sd.id}>{sd.name} ({sd.id})</option>
+                    ))}
+                  </select>
                 </div>
               )}
 
-              <button 
-                type="submit" 
-                disabled={isSubmittingUser}
-                className="btn btn-primary"
-                style={{ width: '100%', justifyContent: 'center', fontWeight: 800, padding: '0.625rem' }}
-              >
-                {isSubmittingUser ? 'Registering...' : `Create ${newUserForm.role} Account in SQLite →`}
-              </button>
+              {/* Parent Selector for Distributor */}
+              {onboardForm.role === 'DISTRIBUTOR' && (
+                <div>
+                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                    Assign Parent District Distributor / Super Distributor
+                  </label>
+                  <select
+                    value={onboardForm.parent_id}
+                    onChange={(e) => setOnboardForm(prev => ({ ...prev, parent_id: e.target.value }))}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem' }}
+                  >
+                    <option value="">-- Direct to Super Admin --</option>
+                    {districtDistributorsList.length > 0 && (
+                      <optgroup label="District Distributors (DIST Franchise)">
+                        {districtDistributorsList.map(dd => (
+                          <option key={dd.id} value={dd.id}>{dd.name} ({dd.id})</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    <optgroup label="Super Distributors">
+                      {superDistributorsList.map(sd => (
+                        <option key={sd.id} value={sd.id}>{sd.name} ({sd.id})</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </div>
+              )}
+
+              {/* Parent Selector for Merchant */}
+              {onboardForm.role === 'MERCHANT' && (
+                <div>
+                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                    Assign Parent Distributor
+                  </label>
+                  <select
+                    value={onboardForm.parent_id}
+                    onChange={(e) => setOnboardForm(prev => ({ ...prev, parent_id: e.target.value }))}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem' }}
+                  >
+                    <option value="">-- Direct to Super Admin --</option>
+                    {distributorsList.map(d => (
+                      <option key={d.id} value={d.id}>{d.name} ({d.id})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Merchant Hardware & Legal Vendor Configuration (Client Specification) */}
+              {onboardForm.role === 'MERCHANT' && (
+                <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  
+                  {/* Hardware Provider */}
+                  <div>
+                    <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '4px' }}>
+                      POS Hardware Provider
+                    </label>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                      {['Pine Labs', 'Payswiff'].map(p => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => handleProviderChange(p)}
+                          style={{
+                            padding: '0.45rem',
+                            fontSize: '0.6875rem',
+                            fontWeight: 800,
+                            borderRadius: '6px',
+                            border: onboardForm.pos_provider === p ? '2px solid #0F52BA' : '1px solid #CBD5E1',
+                            background: onboardForm.pos_provider === p ? '#EFF6FF' : '#FFFFFF',
+                            color: onboardForm.pos_provider === p ? '#0F52BA' : '#475569',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {p === 'Pine Labs' ? '🌲 Pine Labs' : '⚡ Payswiff'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Vendor Settlement Entity */}
+                  <div>
+                    <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '4px' }}>
+                      Settlement Account & Legal Vendor
+                    </label>
+                    {onboardForm.pos_provider === 'Pine Labs' ? (
+                      <div style={{ padding: '0.45rem', background: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 700, color: '#0F52BA' }}>
+                        Rose Navaneetham Enterprises (Locked for Pine Labs)
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.375rem' }}>
+                        {['RONAV Technologies', 'R.P. Technologies'].map(v => (
+                          <button
+                            key={v}
+                            type="button"
+                            onClick={() => setOnboardForm(prev => ({ ...prev, pos_vendor: v }))}
+                            style={{
+                              padding: '0.4rem',
+                              fontSize: '0.625rem',
+                              fontWeight: 800,
+                              borderRadius: '6px',
+                              border: onboardForm.pos_vendor === v ? '2px solid #D97706' : '1px solid #CBD5E1',
+                              background: onboardForm.pos_vendor === v ? '#FEF3C7' : '#FFFFFF',
+                              color: onboardForm.pos_vendor === v ? '#B45309' : '#475569',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {v === 'RONAV Technologies' ? 'RONAV Tech (V01)' : 'R.P. Tech (V02)'}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Device Plan & Settlement Mode */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '4px' }}>
+                        Device Plan
+                      </label>
+                      <select
+                        value={onboardForm.device_plan}
+                        onChange={(e) => setOnboardForm(prev => ({ ...prev, device_plan: e.target.value }))}
+                        style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.6875rem' }}
+                      >
+                        <option value="RENTAL">Monthly Rental (₹499/mo)</option>
+                        <option value="LIFETIME">Lifetime Purchase</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '4px' }}>
+                        Settlement Speed
+                      </label>
+                      <select
+                        value={onboardForm.settlement_type}
+                        onChange={(e) => setOnboardForm(prev => ({ ...prev, settlement_type: e.target.value }))}
+                        style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.6875rem' }}
+                      >
+                        <option value="T1">T+1 Standard (1.53% MDR)</option>
+                        <option value="INSTANT">Instant (+0.30p / 1.83%)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Client Math Verification Badge */}
+                  <div style={{ padding: '0.375rem 0.5rem', background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: '6px', fontSize: '0.625rem', color: '#065F46', fontWeight: 700 }}>
+                    💡 Configured MDR: {onboardForm.settlement_type === 'INSTANT' && onboardForm.pos_provider === 'Pine Labs' ? '1.83%' : '1.53%'}
+                    {onboardForm.pos_provider === 'Payswiff' && onboardForm.settlement_type === 'INSTANT' ? ' + ₹0.30 flat vendor surcharge' : ''}
+                  </div>
+
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsCreateModalOpen(false)}
+                  style={{ flex: 1, padding: '0.5rem', background: '#F1F5F9', border: 'none', borderRadius: '8px', color: '#475569', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  style={{ flex: 2, padding: '0.5rem', background: '#0F52BA', border: 'none', borderRadius: '8px', color: '#FFFFFF', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer' }}
+                >
+                  {isSubmitting ? 'Creating...' : `Confirm & Create ${onboardForm.role}`}
+                </button>
+              </div>
+
             </form>
           </div>
         </div>
       )}
 
-      {/* CSS Styling Injection */}
+      {/* 7. Created Credentials Card Modal */}
+      {createdResultModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(10, 25, 47, 0.8)',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '1rem'
+        }}>
+          <div style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '400px',
+            padding: '1.5rem',
+            textAlign: 'center',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)'
+          }}>
+            <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: '#D1FAE5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.75rem' }}>
+              <CheckCircle2 style={{ width: '28px', height: '28px' }} />
+            </div>
+
+            <h3 style={{ fontSize: '1.125rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+              Account Created Successfully!
+            </h3>
+            <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+              Partner onboarded into live SQLite hierarchy
+            </span>
+
+            <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.875rem', margin: '1rem 0', textAlign: 'left', fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <div><strong>Name:</strong> {createdResultModal.name}</div>
+              <div><strong>Role:</strong> {createdResultModal.role}</div>
+              <div><strong>User ID:</strong> <span style={{ color: '#0F52BA', fontWeight: 800 }}>{createdResultModal.id}</span></div>
+              <div><strong>Mobile:</strong> {createdResultModal.mobile}</div>
+              <div><strong>Temp Password:</strong> <span style={{ color: '#059669', fontWeight: 800 }}>{createdResultModal.password}</span></div>
+              <div><strong>Sponsor:</strong> {createdResultModal.parent_name}</div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                onClick={() => {
+                  const shareText = `*RONAV Partner Welcome*\nName: ${createdResultModal.name}\nRole: ${createdResultModal.role}\nUser ID: ${createdResultModal.id}\nMobile: ${createdResultModal.mobile}\nPassword: ${createdResultModal.password}\nLogin Portal: http://localhost:3000/`;
+                  copyToClipboard(shareText, 'share-creds');
+                }}
+                style={{ flex: 1, padding: '0.5rem', background: '#059669', color: '#FFF', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+              >
+                <Copy style={{ width: '14px', height: '14px' }} />
+                <span>Copy WhatsApp Text</span>
+              </button>
+
+              <button
+                onClick={() => setCreatedResultModal(null)}
+                style={{ padding: '0.5rem 1rem', background: '#F1F5F9', color: '#475569', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Embedded Animations */}
       <style>{`
-        @keyframes slideLeft {
-          from { transform: translateX(100%); }
-          to { transform: translateX(0); }
-        }
         @keyframes slideIn {
-          from { transform: translateY(-20px); opacity: 0; }
+          from { transform: translateY(-12px); opacity: 0; }
           to { transform: translateY(0); opacity: 1; }
-        }
-        @keyframes skeletonPulse {
-          0% { background-color: #F1F5F9; }
-          50% { background-color: #E2E8F0; }
-          100% { background-color: #F1F5F9; }
-        }
-
-        .skeleton-line {
-          animation: skeletonPulse 1.2s infinite ease-in-out;
-        }
-
-        .interactive-table-row {
-          border-bottom: 1px solid #E2E8F0;
-          transition: background-color 150ms ease;
-        }
-        .interactive-table-row:hover {
-          background-color: #F8FAFC;
-        }
-
-        /* --- Replicating the exact Metric cards style of screenshot 2 --- */
-        .metric-blue-card {
-          background-color: #FFFFFF;
-          border: 1px solid #E2E8F0;
-          border-radius: 12px;
-          padding: 0.75rem 0.875rem;
-          cursor: pointer;
-          display: flex;
-          flex-direction: column;
-          justify-content: space-between;
-          min-height: 110px;
-          transition: all 200ms ease;
-          box-shadow: 0 4px 6px -1px rgba(0,0,0,0.01);
-        }
-        .metric-blue-card:hover {
-          transform: translateY(-2px);
-          border-color: #CBD5E1;
-          box-shadow: 0 10px 15px -3px rgba(0,0,0,0.04);
-        }
-        .metric-icon-square {
-          width: 32px;
-          height: 32px;
-          border-radius: 8px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-        }
-        .metric-card-lbl {
-          font-size: 0.6875rem;
-          color: #64748B;
-          font-weight: 700;
-          margin-top: 0.375rem;
-          line-height: 1.25;
-          display: block;
-          min-height: 28px;
-        }
-        .metric-card-footer {
-          border-top: 1px solid #F1F5F9;
-          margin-top: 0.375rem;
-          padding-top: 0.25rem;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          color: #0F52BA;
-          font-size: 0.65rem;
-          font-weight: 700;
-        }
-
-        /* --- Queue Navigation tabs --- */
-        .queue-nav-tab {
-          border: none;
-          background: none;
-          color: #64748B;
-          font-size: 0.75rem;
-          font-weight: 800;
-          padding: 0.625rem 0.875rem;
-          cursor: pointer;
-          white-space: nowrap;
-          transition: all 200ms ease;
-          border-bottom: 2px solid transparent;
-        }
-        .queue-nav-tab:hover {
-          color: #0A192F;
-        }
-        .tab-active {
-          color: #0F52BA !important;
-          border-bottom: 2px solid #0F52BA !important;
-        }
-
-        /* Adaptive Grid for Metric Cards - Start with 2 Columns side-by-side on mobile */
-        .metrics-adaptive-grid {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 0.625rem;
-        }
-        
-        /* Balanced span for odd 7th card on mobile/tablet viewports */
-        .metrics-adaptive-grid > div:nth-child(7) {
-          grid-column: span 2;
-        }
-
-        @media (min-width: 640px) {
-          .metrics-adaptive-grid {
-            grid-template-columns: repeat(3, 1fr);
-          }
-          .metrics-adaptive-grid > div:nth-child(7) {
-            grid-column: span 3;
-          }
-        }
-        @media (min-width: 1024px) {
-          .metrics-adaptive-grid {
-            grid-template-columns: repeat(7, 1fr);
-          }
-          .metrics-adaptive-grid > div:nth-child(7) {
-            grid-column: span 1;
-          }
-        }
-
-        @media (max-width: 767px) {
-          .mobile-footer-margin {
-            margin-bottom: 56px !important;
-          }
         }
       `}</style>
 

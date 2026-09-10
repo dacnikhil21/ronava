@@ -120,5 +120,11 @@ Thumbs.db
 
 # Personal / Local Documents
 resume.html
+portfolio.html
+serve_portfolio.cjs
+extract_images.js
+avighna_preview.png
+hero_bg.jpg
 *.pdf
+vite.config.js.timestamp*
 

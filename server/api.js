@@ -81,9 +81,17 @@ export async function handleApiRequest(req, res) {
                p.provider AS pos_provider, 
                p.terminal_id AS pos_terminal, 
                p.commission_rate AS pos_rate,
+               p.vendor_entity AS pos_vendor,
+               p.device_plan AS pos_plan,
+               p.monthly_rent AS pos_rent,
+               p.settlement_type AS pos_settlement,
+               p.instant_surcharge AS pos_instant_fee,
                c.name AS creator_name,
+               c.role AS creator_role,
                w.available_balance,
-               w.total_sales
+               w.total_sales,
+               w.pending_balance,
+               w.received_sales
         FROM users u
         LEFT JOIN merchant_pos p ON u.id = p.merchant_id
         LEFT JOIN users c ON u.creator_id = c.id
@@ -94,9 +102,162 @@ export async function handleApiRequest(req, res) {
       return sendJson(res, 200, { success: true, users });
     }
 
-    // Create a new downstream user (Strict Hierarchy Enforcement)
+    // Comprehensive Hierarchy Tree with Roll-Up Metrics
+    if (pathname === '/api/hierarchy/tree' && method === 'GET') {
+      const users = db.prepare(`
+        SELECT u.*, 
+               p.provider AS pos_provider, 
+               p.terminal_id AS pos_terminal, 
+               p.commission_rate AS pos_rate,
+               p.vendor_entity AS pos_vendor,
+               p.device_plan AS pos_plan,
+               p.monthly_rent AS pos_rent,
+               p.settlement_type AS pos_settlement,
+               p.instant_surcharge AS pos_instant_fee,
+               c.name AS creator_name,
+               c.role AS creator_role,
+               w.available_balance,
+               w.total_sales,
+               w.pending_balance,
+               w.received_sales
+        FROM users u
+        LEFT JOIN merchant_pos p ON u.id = p.merchant_id
+        LEFT JOIN users c ON u.creator_id = c.id
+        LEFT JOIN wallets w ON u.id = w.user_id
+        ORDER BY u.created_at ASC
+      `).all();
+
+      const txCounts = db.prepare(`
+        SELECT merchant_id, COUNT(*) as txn_count, COALESCE(SUM(amount), 0) as total_txn_volume
+        FROM transactions
+        GROUP BY merchant_id
+      `).all();
+      const txMap = {};
+      txCounts.forEach(t => {
+        txMap[t.merchant_id] = t;
+      });
+
+      const enriched = users.map(u => ({
+        ...u,
+        txn_count: txMap[u.id]?.txn_count || 0,
+        total_txn_volume: txMap[u.id]?.total_txn_volume || 0
+      }));
+
+      const superDistributors = enriched.filter(u => u.role === 'SUPER_DISTRIBUTOR');
+      const districtDistributors = enriched.filter(u => u.role === 'DISTRICT_DISTRIBUTOR' || u.role === 'DIST_FRANCHISE');
+      const distributors = enriched.filter(u => u.role === 'DISTRIBUTOR');
+      const merchants = enriched.filter(u => u.role === 'MERCHANT');
+
+      const merchantsByParent = {};
+      merchants.forEach(m => {
+        const pId = m.creator_id || 'DIRECT';
+        if (!merchantsByParent[pId]) merchantsByParent[pId] = [];
+        merchantsByParent[pId].push(m);
+      });
+
+      const enrichedDistributors = distributors.map(d => {
+        const downlineMerchants = merchantsByParent[d.id] || [];
+        const downlineVolume = downlineMerchants.reduce((sum, m) => sum + (parseFloat(m.total_sales) || 0), 0);
+        return {
+          ...d,
+          merchants: downlineMerchants,
+          merchant_count: downlineMerchants.length,
+          downline_volume: downlineVolume
+        };
+      });
+
+      const enrichedDistrictDistributors = districtDistributors.map(dd => {
+        const directDists = enrichedDistributors.filter(d => d.creator_id === dd.id);
+        const directMerchants = merchantsByParent[dd.id] || [];
+        
+        let totalStores = directMerchants.length;
+        let totalVol = directMerchants.reduce((sum, m) => sum + (parseFloat(m.total_sales) || 0), 0);
+        
+        directDists.forEach(d => {
+          totalStores += d.merchant_count;
+          totalVol += d.downline_volume;
+        });
+
+        return {
+          ...dd,
+          distributors: directDists,
+          distributor_count: directDists.length,
+          total_merchant_count: totalStores,
+          downline_volume: totalVol
+        };
+      });
+
+      const enrichedSDs = superDistributors.map(sd => {
+        const childDDs = enrichedDistrictDistributors.filter(dd => dd.creator_id === sd.id);
+        const directDists = enrichedDistributors.filter(d => d.creator_id === sd.id);
+        const directMerchants = merchantsByParent[sd.id] || [];
+        
+        let totalMerchantsInSD = directMerchants.length;
+        let totalVolumeInSD = directMerchants.reduce((sum, m) => sum + (parseFloat(m.total_sales) || 0), 0);
+
+        childDDs.forEach(dd => {
+          totalMerchantsInSD += dd.total_merchant_count;
+          totalVolumeInSD += dd.downline_volume;
+        });
+
+        directDists.forEach(d => {
+          totalMerchantsInSD += d.merchant_count;
+          totalVolumeInSD += d.downline_volume;
+        });
+
+        return {
+          ...sd,
+          district_distributors: childDDs,
+          distributors: directDists,
+          direct_merchants: directMerchants,
+          district_count: childDDs.length,
+          distributor_count: directDists.length,
+          total_merchant_count: totalMerchantsInSD,
+          network_volume: totalVolumeInSD
+        };
+      });
+
+      const totalNetworkTurnover = merchants.reduce((sum, m) => sum + (parseFloat(m.total_sales) || 0), 0);
+      const pineTerminals = merchants.filter(m => (m.pos_provider || '').toLowerCase().includes('pine')).length;
+      const payswiffTerminals = merchants.filter(m => (m.pos_provider || '').toLowerCase().includes('payswiff')).length;
+
+      return sendJson(res, 200, {
+        success: true,
+        tree: {
+          superDistributors: enrichedSDs,
+          districtDistributors: enrichedDistrictDistributors,
+          distributors: enrichedDistributors,
+          merchants: merchants
+        },
+        flatUsers: enriched,
+        summary: {
+          totalSuperDistributors: superDistributors.length,
+          totalDistrictDistributors: districtDistributors.length,
+          totalDistributors: distributors.length,
+          totalMerchants: merchants.length,
+          totalTerminals: pineTerminals + payswiffTerminals,
+          pineTerminals,
+          payswiffTerminals,
+          totalNetworkTurnover
+        }
+      });
+    }
+
+    // Create a new downstream user (Strict Hierarchy Enforcement & Omnipotent Admin Creation)
     if (pathname === '/api/users/create' && method === 'POST') {
-      const { creator_id, name, mobile, role, pos_provider, commission_rate } = await parseJsonBody(req);
+      const { 
+        creator_id, 
+        parent_id, 
+        name, 
+        mobile, 
+        role, 
+        pos_provider, 
+        pos_vendor,
+        device_plan,
+        monthly_rent,
+        settlement_type,
+        commission_rate 
+      } = await parseJsonBody(req);
 
       if (!creator_id || !name || !mobile || !role) {
         return sendJson(res, 400, { success: false, message: 'Missing required fields (creator_id, name, mobile, role).' });
@@ -107,44 +268,46 @@ export async function handleApiRequest(req, res) {
         return sendJson(res, 403, { success: false, message: 'Invalid creator ID.' });
       }
 
-      // Hierarchy Rule 1: Merchants CANNOT create downstream users
-      if (creator.role === 'MERCHANT') {
-        return sendJson(res, 403, { 
-          success: false, 
-          message: 'Permission denied: Merchants are end-users and cannot create accounts.' 
-        });
+      const isAdmin = creator.role === 'ADMIN' || creator.role === 'MASTER';
+
+      // If Admin is initiating, determine actual hierarchy parent
+      let assignedCreatorId = creator.id;
+      if (isAdmin && parent_id && parent_id !== 'ADM001' && parent_id !== 'DIRECT') {
+        const targetParent = db.prepare(`SELECT * FROM users WHERE id = ?`).get(parent_id);
+        if (targetParent) {
+          assignedCreatorId = targetParent.id;
+        }
       }
 
-      // Hierarchy Rule 2: Distributor can ONLY create Merchants
-      if (creator.role === 'DISTRIBUTOR' && role !== 'MERCHANT') {
-        return sendJson(res, 403, { 
-          success: false, 
-          message: 'Permission denied: Distributors can only create Retailers / Merchants.' 
-        });
-      }
+      // Hierarchy rules for non-admin creators
+      if (!isAdmin) {
+        if (creator.role === 'MERCHANT') {
+          return sendJson(res, 403, { 
+            success: false, 
+            message: 'Permission denied: Merchants are end-users and cannot create accounts.' 
+          });
+        }
 
-      // Hierarchy Rule 3: DIST Franchise / District Distributor can create Distributor or Merchant
-      if ((creator.role === 'DISTRICT_DISTRIBUTOR' || creator.role === 'DIST_FRANCHISE') && role !== 'DISTRIBUTOR' && role !== 'MERCHANT') {
-        return sendJson(res, 403, { 
-          success: false, 
-          message: 'Permission denied: DIST Franchise can only create Distributors or Merchants.' 
-        });
-      }
+        if (creator.role === 'DISTRIBUTOR' && role !== 'MERCHANT') {
+          return sendJson(res, 403, { 
+            success: false, 
+            message: 'Permission denied: Distributors can only create Retailers / Merchants.' 
+          });
+        }
 
-      // Hierarchy Rule 4: Super Distributor can create DIST Franchise, Distributor, or Merchant
-      if (creator.role === 'SUPER_DISTRIBUTOR' && role !== 'DISTRICT_DISTRIBUTOR' && role !== 'DIST_FRANCHISE' && role !== 'DISTRIBUTOR' && role !== 'MERCHANT') {
-        return sendJson(res, 403, { 
-          success: false, 
-          message: 'Permission denied: Super Distributors cannot create Super Distributors or Admins.' 
-        });
-      }
+        if ((creator.role === 'DISTRICT_DISTRIBUTOR' || creator.role === 'DIST_FRANCHISE') && role !== 'DISTRIBUTOR' && role !== 'MERCHANT') {
+          return sendJson(res, 403, { 
+            success: false, 
+            message: 'Permission denied: DIST Franchise can only create Distributors or Merchants.' 
+          });
+        }
 
-      // Hierarchy Rule 5: Master / Admin can create SD, DD/Franchise, Distributor, or Merchant
-      if ((creator.role === 'MASTER' || creator.role === 'ADMIN') && role === 'ADMIN') {
-        return sendJson(res, 403, { 
-          success: false, 
-          message: 'Permission denied: Cannot create Admin accounts via downstream onboarding.' 
-        });
+        if (creator.role === 'SUPER_DISTRIBUTOR' && role !== 'DISTRICT_DISTRIBUTOR' && role !== 'DIST_FRANCHISE' && role !== 'DISTRIBUTOR' && role !== 'MERCHANT') {
+          return sendJson(res, 403, { 
+            success: false, 
+            message: 'Permission denied: Super Distributors cannot create Super Distributors or Admins.' 
+          });
+        }
       }
 
       // Generate Clean ID based on role
@@ -163,7 +326,7 @@ export async function handleApiRequest(req, res) {
         db.prepare(`
           INSERT INTO users (id, name, mobile, role, creator_id)
           VALUES (?, ?, ?, ?, ?)
-        `).run(newUserId, name, mobile, role, creator.id);
+        `).run(newUserId, name, mobile, role, assignedCreatorId);
 
         // Initialize user wallet
         db.prepare(`
@@ -171,23 +334,51 @@ export async function handleApiRequest(req, res) {
           VALUES (?, 0.0, 0.0, 0.0, 0.0, 0.0)
         `).run(newUserId);
 
-        // If Merchant, configure Swipe Machine Provider (Pine Labs vs Payswiff) with official 1.53% Retailer MDR
+        // If Merchant, configure Swipe Machine Provider (Pine Labs vs Payswiff) with official MDR & Vendor rules
+        let createdPOS = null;
         if (role === 'MERCHANT') {
           const provider = pos_provider === 'Payswiff' ? 'Payswiff' : 'Pine Labs';
-          const defaultRate = 1.53; // Official Retailer MDR from T+1 tables
-          const rate = commission_rate ? parseFloat(commission_rate) : defaultRate;
-          const terminalPrefix = provider === 'Payswiff' ? 'SWIFF-TS' : 'PL-HYD';
+          const settlement = settlement_type === 'INSTANT' ? 'INSTANT' : 'T1';
+          const plan = device_plan === 'LIFETIME' ? 'LIFETIME' : 'RENTAL';
+          const rentFee = plan === 'RENTAL' ? (parseFloat(monthly_rent) || 499.0) : 0.0;
+
+          // Official Vendor Entity according to client rule
+          let vendorEntity = 'Rose Navaneetham Enterprises';
+          if (provider === 'Payswiff') {
+            vendorEntity = pos_vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
+          }
+
+          // Exact client spreadsheet MDR rate
+          let rate = 1.53;
+          let instantFee = 0.0;
+          if (provider === 'Pine Labs') {
+            rate = settlement === 'INSTANT' ? 1.83 : 1.53;
+          } else {
+            rate = 1.53;
+            if (settlement === 'INSTANT') {
+              instantFee = 0.30; // 30 paise to chosen vendor
+            }
+          }
+
+          const terminalPrefix = provider === 'Payswiff' ? 'SWIFF' : 'PL';
           const terminalId = `${terminalPrefix}-${Math.floor(1000 + Math.random() * 9000)}`;
 
           db.prepare(`
-            INSERT INTO merchant_pos (merchant_id, provider, terminal_id, commission_rate, assigned_by)
-            VALUES (?, ?, ?, ?, ?)
-          `).run(newUserId, provider, terminalId, rate, creator.id);
+            INSERT INTO merchant_pos (
+              merchant_id, provider, terminal_id, commission_rate, assigned_by,
+              vendor_entity, device_plan, monthly_rent, settlement_type, instant_surcharge
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            newUserId, provider, terminalId, rate, assignedCreatorId,
+            vendorEntity, plan, rentFee, settlement, instantFee
+          );
+          
+          createdPOS = db.prepare(`SELECT * FROM merchant_pos WHERE merchant_id = ?`).get(newUserId);
         }
 
         const createdUser = db.prepare(`SELECT * FROM users WHERE id = ?`).get(newUserId);
-        const createdPOS = db.prepare(`SELECT * FROM merchant_pos WHERE merchant_id = ?`).get(newUserId);
         const createdWallet = db.prepare(`SELECT * FROM wallets WHERE user_id = ?`).get(newUserId);
+        const parentUser = db.prepare(`SELECT * FROM users WHERE id = ?`).get(assignedCreatorId);
 
         // Async sync to Supabase
         syncToSupabase('users', createdUser).catch(() => {});
@@ -196,14 +387,16 @@ export async function handleApiRequest(req, res) {
 
         return sendJson(res, 201, {
           success: true,
-          message: `Successfully created ${role} account (${newUserId}).`,
+          message: `Successfully onboarded ${role} account (${newUserId}) under ${parentUser ? parentUser.name : 'Super Admin'}!`,
           user: createdUser,
+          parent: parentUser || null,
           pos: createdPOS || null,
           credentials: {
             id: newUserId,
             name: createdUser.name,
             mobile: createdUser.mobile,
             role: createdUser.role,
+            parent_name: parentUser ? parentUser.name : 'Super Admin',
             password: 'Ronav@' + newUserId.slice(-4)
           }
         });
@@ -498,16 +691,74 @@ export async function handleApiRequest(req, res) {
         LIMIT 100
       `).all();
 
+      // Calculate real vendor & margin statistics according to client spreadsheets
+      const pineTxns = db.prepare(`
+        SELECT COALESCE(SUM(t.amount), 0) as vol, COUNT(*) as cnt
+        FROM transactions t
+        LEFT JOIN merchant_pos p ON t.merchant_id = p.merchant_id
+        WHERE t.status = 'APPROVED' AND (p.provider = 'Pine Labs' OR t.provider = 'Pine Labs')
+      `).get();
+
+      const payswiffTxns = db.prepare(`
+        SELECT COALESCE(SUM(t.amount), 0) as vol, COUNT(*) as cnt
+        FROM transactions t
+        LEFT JOIN merchant_pos p ON t.merchant_id = p.merchant_id
+        WHERE t.status = 'APPROVED' AND (p.provider = 'Payswiff' OR t.provider = 'Payswiff')
+      `).get();
+
+      const ronavTechVol = db.prepare(`
+        SELECT COALESCE(SUM(t.amount), 0) as vol, COUNT(*) as cnt
+        FROM transactions t
+        JOIN merchant_pos p ON t.merchant_id = p.merchant_id
+        WHERE t.status = 'APPROVED' AND p.vendor_entity = 'RONAV Technologies'
+      `).get();
+
+      const rpTechVol = db.prepare(`
+        SELECT COALESCE(SUM(t.amount), 0) as vol, COUNT(*) as cnt
+        FROM transactions t
+        JOIN merchant_pos p ON t.merchant_id = p.merchant_id
+        WHERE t.status = 'APPROVED' AND p.vendor_entity = 'R.P. Technologies'
+      `).get();
+
+      const rentalStats = db.prepare(`
+        SELECT 
+          SUM(CASE WHEN device_plan = 'RENTAL' OR device_plan IS NULL THEN 1 ELSE 0 END) as rental_count,
+          SUM(CASE WHEN device_plan = 'LIFETIME' THEN 1 ELSE 0 END) as lifetime_count,
+          COALESCE(SUM(CASE WHEN device_plan = 'RENTAL' OR device_plan IS NULL THEN monthly_rent ELSE 0 END), 0) as monthly_rent_total
+        FROM merchant_pos
+      `).get();
+
+      // Client Margins: Pine Labs = 0.15% (T+1), Payswiff = 0.05% (T+1)
+      const pineAdminProfit = (pineTxns?.vol || 0) * 0.0015;
+      const payswiffAdminProfit = (payswiffTxns?.vol || 0) * 0.0005;
+      const adminNetProfit = pineAdminProfit + payswiffAdminProfit;
+
       const stats = {
         totalMerchants: db.prepare(`SELECT COUNT(*) as c FROM users WHERE role = 'MERCHANT'`).get().c,
+        totalSuperDistributors: db.prepare(`SELECT COUNT(*) as c FROM users WHERE role = 'SUPER_DISTRIBUTOR'`).get().c,
+        totalDistributors: db.prepare(`SELECT COUNT(*) as c FROM users WHERE role = 'DISTRIBUTOR' OR role = 'DISTRICT_DISTRIBUTOR' OR role = 'DIST_FRANCHISE'`).get().c,
         loansCount: db.prepare(`SELECT COUNT(*) as c FROM inquiries WHERE type = 'LOAN'`).get().c,
         franchiseRequests: db.prepare(`SELECT COUNT(*) as c FROM inquiries WHERE type = 'FRANCHISE'`).get().c,
         bbpsTxns: db.prepare(`SELECT COUNT(*) as c FROM transactions WHERE type = 'BBPS_BILL'`).get().c,
         pgPosTxns: db.prepare(`SELECT COUNT(*) as c FROM transactions WHERE type = 'POS_SWIPE'`).get().c,
         atmTxns: db.prepare(`SELECT COUNT(*) as c FROM transactions WHERE type = 'QR_COLLECT'`).get().c,
         withdrawalsCount: db.prepare(`SELECT COUNT(*) as c FROM withdrawals`).get().c,
+        pendingWithdrawalsCount: pendingWithdrawals.length,
         totalVolume: db.prepare(`SELECT COALESCE(SUM(amount), 0) as s FROM transactions WHERE status = 'APPROVED'`).get().s,
-        pendingVolume: db.prepare(`SELECT COALESCE(SUM(amount), 0) as s FROM transactions WHERE status = 'PENDING'`).get().s
+        pendingVolume: db.prepare(`SELECT COALESCE(SUM(amount), 0) as s FROM transactions WHERE status = 'PENDING'`).get().s,
+        adminNetProfit: parseFloat(adminNetProfit.toFixed(2)),
+        vendorSummary: {
+          roseNavaneethamVolume: pineTxns?.vol || 0,
+          roseNavaneethamProfit: parseFloat(pineAdminProfit.toFixed(2)),
+          ronavTechVolume: ronavTechVol?.vol || 0,
+          rpTechVolume: rpTechVol?.vol || 0,
+          payswiffAdminProfit: parseFloat(payswiffAdminProfit.toFixed(2))
+        },
+        devicePlanSummary: {
+          rentalCount: rentalStats?.rental_count || 0,
+          lifetimeCount: rentalStats?.lifetime_count || 0,
+          monthlyRentDue: rentalStats?.monthly_rent_total || 0
+        }
       };
 
       return sendJson(res, 200, {
