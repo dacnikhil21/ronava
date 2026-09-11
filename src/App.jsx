@@ -190,6 +190,7 @@ export default function App() {
       <MerchantLoginPage 
         onLoginSuccess={handleMerchantLoginSuccess}
         onBackToHome={handleBackToHome}
+        onNavigate={handleNavigate}
       />
     );
   }

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Lock, Eye, EyeOff, ShieldCheck, Headphones, Zap, TrendingUp, Phone, Mail, X, Menu, ArrowRight, ArrowLeft, Layers, CheckCircle2, Send, ChevronDown, ChevronUp, Check, CreditCard, Shield, Copy, AlertCircle } from 'lucide-react';
-import { loginUser, submitInquiry, verifySponsor, registerWithReferral, resetUserPassword } from '../services/api';
+import { User, Lock, Eye, EyeOff, ShieldCheck, Headphones, Zap, TrendingUp, Phone, Mail, X, Menu, ArrowRight, ArrowLeft, Layers, CheckCircle2, Send, ChevronDown, ChevronUp, Check, CreditCard, Shield, Copy, AlertCircle, UserPlus } from 'lucide-react';
+import { loginUser, resetUserPassword } from '../services/api';
 
-export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
+export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavigate }) {
   const [selectedRole, setSelectedRole] = useState('Retailer');
   const [isRoleDropdownOpen, setIsRoleDropdownOpen] = useState(false);
   const roleDropdownRef = useRef(null);
@@ -11,26 +11,15 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showForgotModal, setShowForgotModal] = useState(false);
-  const [forgotMobile, setForgotMobile] = useState('');
-  const [forgotSuccess, setForgotSuccess] = useState(false);
-  const [showRegisterModal, setShowRegisterModal] = useState(false);
-  const [registerSuccess, setRegisterSuccess] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [animated, setAnimated] = useState(false);
-
-  // Mandatory Sponsor Verification & Registration State
-  const [sponsorCode, setSponsorCode] = useState('');
-  const [verifiedSponsor, setVerifiedSponsor] = useState(null);
-  const [isVerifyingSponsor, setIsVerifyingSponsor] = useState(false);
-  const [sponsorError, setSponsorError] = useState('');
-  const [createdCredentials, setCreatedCredentials] = useState(null);
-  const [copiedCreds, setCopiedCreds] = useState(false);
 
   // Forgot Password & Reset State
   const [forgotQuery, setForgotQuery] = useState('');
   const [forgotResult, setForgotResult] = useState(null);
   const [forgotError, setForgotError] = useState('');
   const [isResetting, setIsResetting] = useState(false);
+  const [copiedCreds, setCopiedCreds] = useState(false);
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -42,82 +31,16 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const [registerData, setRegisterData] = useState({
-    name: '',
-    mobile: '',
-    service: 'PG & POS Solutions',
-    role: selectedRole,
-    pos_provider: 'Pine Labs',
-    message: ''
-  });
-
-  const handleOpenRegister = () => {
-    setRegisterData((prev) => ({ ...prev, role: selectedRole }));
-    setRegisterSuccess(false);
-    setCreatedCredentials(null);
-    setSponsorError('');
-    setShowRegisterModal(true);
-  };
-
-  // Live Verify Sponsor Referral Code
-  const handleVerifySponsor = async (codeToVerify) => {
-    const code = (codeToVerify || sponsorCode).trim();
-    if (!code) {
-      setSponsorError('Please enter a Sponsor / Referral ID');
-      setVerifiedSponsor(null);
-      return;
-    }
-    setIsVerifyingSponsor(true);
-    setSponsorError('');
-    try {
-      const res = await verifySponsor(code);
-      if (res && res.success && res.sponsor) {
-        setVerifiedSponsor(res.sponsor);
-        setSponsorError('');
-      } else {
-        setVerifiedSponsor(null);
-        setSponsorError(res?.message || 'Invalid sponsor referral ID');
-      }
-    } catch (err) {
-      setVerifiedSponsor(null);
-      setSponsorError('Connection error verifying sponsor');
-    } finally {
-      setIsVerifyingSponsor(false);
-    }
-  };
-
-  // Submit Referral Registration
-  const handleRegisterSubmit = async (e) => {
-    e.preventDefault();
-    if (!verifiedSponsor) {
-      setSponsorError('⚠️ A verified Sponsor / Referral Code is mandatory to onboard in the RONAV network.');
-      return;
-    }
-    if (!registerData.name.trim() || !registerData.mobile.trim()) {
-      setSponsorError('Please enter both Full Name and 10-digit Mobile Number.');
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const res = await registerWithReferral({
-        sponsor_id: verifiedSponsor.id,
-        name: registerData.name.trim(),
-        mobile: registerData.mobile.trim(),
-        role: selectedRole === 'Retailer' ? 'MERCHANT' : selectedRole,
-        pos_provider: registerData.pos_provider || 'Pine Labs'
-      });
-
-      if (res && res.success && res.credentials) {
-        setCreatedCredentials(res.credentials);
-        setRegisterSuccess(true);
-      } else {
-        setSponsorError(res?.message || 'Error creating partner account');
-      }
-    } catch (err) {
-      setSponsorError('Connection error registering account');
-    } finally {
-      setIsLoading(false);
+  // Redirect to Public Website Services Section for Service Inquiry & Onboarding
+  const handleSignUpRedirect = () => {
+    if (onNavigate) {
+      onNavigate('services');
+    } else if (onBackToHome) {
+      onBackToHome();
+      setTimeout(() => {
+        const el = document.getElementById('services');
+        if (el) el.scrollIntoView({ behavior: 'smooth' });
+      }, 150);
     }
   };
 
@@ -669,27 +592,29 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
             </div>
 
             {/* Dynamic New Partner Registration Button */}
+            {/* New Merchant Sign Up Outlined Button -> Redirects to Services */}
             <button
               type="button"
-              onClick={handleOpenRegister}
+              onClick={handleSignUpRedirect}
               style={{
                 width: '100%',
-                height: '42px',
+                height: '46px',
                 borderRadius: '10px',
                 backgroundColor: '#FFFFFF',
                 color: '#0F52BA',
                 border: '1.5px solid #0F52BA',
                 fontWeight: 700,
-                fontSize: '0.8125rem',
+                fontSize: '0.875rem',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '0.375rem',
+                gap: '0.5rem',
                 transition: 'all 200ms ease'
               }}
             >
-              <span>Apply as New {selectedRole} Partner →</span>
+              <UserPlus style={{ width: '18px', height: '18px' }} />
+              <span>New Merchant? Sign Up</span>
             </button>
 
             {/* QUICK 1-CLICK TESTING PROFILES (FOR LEAD / NON-CODER TESTING) */}
@@ -992,273 +917,6 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
                 </div>
               </form>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* 6. Invite & Referral-Only Network Registration Modal */}
-      {showRegisterModal && (
-        <div className="modal-backdrop" onClick={() => setShowRegisterModal(false)}>
-          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '540px', maxHeight: '90vh', overflowY: 'auto', padding: '1.75rem', borderRadius: '24px' }}>
-            
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem' }}>
-              <div>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', background: '#FEF3C7', color: '#92400E', padding: '3px 8px', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, marginBottom: '0.375rem' }}>
-                  <Shield style={{ width: '12px', height: '12px' }} />
-                  INVITE & REFERRAL ONLY
-                </div>
-                <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#0F172A', margin: '0 0 0.25rem' }}>
-                  Network Partner Registration
-                </h3>
-                <p style={{ fontSize: '0.8125rem', color: '#64748B', margin: 0, lineHeight: 1.4 }}>
-                  Every new partner must be linked directly to an authorized upline sponsor in RONAV's network.
-                </p>
-              </div>
-              <button 
-                onClick={() => setShowRegisterModal(false)}
-                style={{ background: '#F1F5F9', border: 'none', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748B' }}
-              >
-                <X style={{ width: '18px', height: '18px' }} />
-              </button>
-            </div>
-
-            {registerSuccess && createdCredentials ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                <div style={{ padding: '1.5rem', background: '#F0FDF4', border: '1.5px solid #86EFAC', borderRadius: '18px', textAlign: 'center' }}>
-                  <CheckCircle2 style={{ width: '52px', height: '52px', color: '#059669', margin: '0 auto 0.75rem' }} />
-                  <h4 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#065F46', margin: '0 0 0.375rem' }}>
-                    Partner Account Activated!
-                  </h4>
-                  <p style={{ fontSize: '0.8125rem', color: '#047857', margin: '0 auto 1.25rem', maxWidth: '420px', lineHeight: 1.5 }}>
-                    Account for <strong>{createdCredentials.name}</strong> has been registered under sponsor <strong>{createdCredentials.sponsor_name}</strong> ({createdCredentials.sponsor_id}).
-                  </p>
-
-                  <div style={{ background: '#FFFFFF', border: '1px solid #BBF7D0', borderRadius: '14px', padding: '1.25rem', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.5rem' }}>
-                      <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 700 }}>Network Role:</span>
-                      <span style={{ background: '#EFF6FF', color: '#1E40AF', padding: '2px 8px', borderRadius: '6px', fontWeight: 800, fontSize: '0.75rem' }}>
-                        {createdCredentials.role}
-                      </span>
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 800, textTransform: 'uppercase', display: 'block' }}>User ID</span>
-                        <strong style={{ fontSize: '1rem', color: '#0F52BA', fontFamily: 'monospace' }}>{createdCredentials.user_id}</strong>
-                      </div>
-                      <button 
-                        type="button" 
-                        onClick={() => handleCopyCreds(createdCredentials.user_id)}
-                        className="btn btn-secondary"
-                        style={{ padding: '0.25rem 0.625rem', fontSize: '0.6875rem' }}
-                      >
-                        Copy ID
-                      </button>
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 800, textTransform: 'uppercase', display: 'block' }}>Default Password</span>
-                        <strong style={{ fontSize: '1rem', color: '#0F172A', fontFamily: 'monospace' }}>{createdCredentials.password}</strong>
-                      </div>
-                      <button 
-                        type="button" 
-                        onClick={() => handleCopyCreds(createdCredentials.password)}
-                        className="btn btn-secondary"
-                        style={{ padding: '0.25rem 0.625rem', fontSize: '0.6875rem' }}
-                      >
-                        Copy Pass
-                      </button>
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #F1F5F9', paddingTop: '0.5rem' }}>
-                      <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 700 }}>Initial Wallet:</span>
-                      <strong style={{ color: '#059669', fontSize: '0.8125rem' }}>₹0.00 (Ready for POS/BBPS)</strong>
-                    </div>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: '0.75rem' }}>
-                  <button 
-                    type="button" 
-                    onClick={() => handleCopyCreds(`User ID: ${createdCredentials.user_id}\nPassword: ${createdCredentials.password}`)}
-                    className="btn btn-secondary"
-                    style={{ flex: 1, height: '46px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
-                  >
-                    <Copy style={{ width: '16px', height: '16px' }} />
-                    {copiedCreds ? 'Copied Both!' : 'Copy All'}
-                  </button>
-                  <button 
-                    type="button" 
-                    onClick={() => {
-                      setUserId(createdCredentials.user_id);
-                      setPassword(createdCredentials.password);
-                      setShowRegisterModal(false);
-                      setRegisterSuccess(false);
-                      setCreatedCredentials(null);
-                    }}
-                    className="btn btn-primary"
-                    style={{ flex: 1.2, height: '46px', fontWeight: 800, backgroundColor: '#0F52BA' }}
-                  >
-                    Auto-Fill & Sign In →
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <form onSubmit={handleRegisterSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                
-                {/* Step 1: Sponsor / Referral Verification */}
-                <div style={{ background: '#F8FAFC', border: '1.5px solid #E2E8F0', borderRadius: '16px', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <label style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#0F172A', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                      <ShieldCheck style={{ width: '16px', height: '16px', color: '#0F52BA' }} />
-                      Step 1: Authorized Sponsor Code *
-                    </label>
-                    <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 600 }}>Mandatory Referral</span>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <input 
-                      type="text"
-                      placeholder="Enter Sponsor ID (e.g. ADM001, SD1001, DIST2001) or Mobile"
-                      value={sponsorCode}
-                      onChange={(e) => {
-                        setSponsorCode(e.target.value);
-                        setSponsorError('');
-                        setVerifiedSponsor(null);
-                      }}
-                      className="form-input"
-                      style={{ flex: 1, minHeight: '44px', borderRadius: '10px', fontSize: '0.8125rem' }}
-                    />
-                    <button 
-                      type="button" 
-                      onClick={() => handleVerifySponsor()}
-                      disabled={isVerifyingSponsor || !sponsorCode.trim()}
-                      className="btn btn-primary"
-                      style={{ padding: '0 1rem', height: '44px', fontWeight: 800, fontSize: '0.8125rem', backgroundColor: '#0F52BA', whiteSpace: 'nowrap' }}
-                    >
-                      {isVerifyingSponsor ? 'Verifying...' : 'Verify Sponsor'}
-                    </button>
-                  </div>
-
-                  {/* Sponsor Status Pill */}
-                  {verifiedSponsor && (
-                    <div style={{ background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: '10px', padding: '0.625rem 0.875rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <CheckCircle2 style={{ width: '16px', height: '16px', color: '#059669' }} />
-                        <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: '#065F46' }}>
-                          {verifiedSponsor.name} ({verifiedSponsor.custom_id || verifiedSponsor.id})
-                        </span>
-                      </div>
-                      <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E40AF', background: '#DBEAFE', padding: '2px 6px', borderRadius: '4px' }}>
-                        {verifiedSponsor.role}
-                      </span>
-                    </div>
-                  )}
-
-                  {sponsorError && (
-                    <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '10px', padding: '0.625rem 0.875rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#B91C1C', fontSize: '0.75rem', fontWeight: 600 }}>
-                      <AlertCircle style={{ width: '16px', height: '16px', flexShrink: 0 }} />
-                      <span>{sponsorError}</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Step 2: Account Details (Requires verified sponsor) */}
-                <div style={{ opacity: verifiedSponsor ? 1 : 0.6, pointerEvents: verifiedSponsor ? 'auto' : 'none', display: 'flex', flexDirection: 'column', gap: '0.875rem', transition: 'all 200ms ease' }}>
-                  
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>
-                      Partner Full Name / Store Name *
-                    </label>
-                    <input 
-                      type="text" 
-                      required 
-                      placeholder="e.g. Rajesh Kumar or Rajesh Enterprises"
-                      value={registerData.name}
-                      onChange={(e) => setRegisterData({ ...registerData, name: e.target.value })}
-                      className="form-input"
-                      style={{ minHeight: '44px', borderRadius: '10px' }}
-                    />
-                  </div>
-
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>
-                      10-Digit Mobile Number *
-                    </label>
-                    <input 
-                      type="tel" 
-                      required 
-                      maxLength="10"
-                      placeholder="e.g. 9876543210"
-                      value={registerData.mobile}
-                      onChange={(e) => setRegisterData({ ...registerData, mobile: e.target.value })}
-                      className="form-input"
-                      style={{ minHeight: '44px', borderRadius: '10px' }}
-                    />
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>
-                        Hierarchy Tier
-                      </label>
-                      <select 
-                        value={selectedRole}
-                        onChange={(e) => setSelectedRole(e.target.value)}
-                        className="form-input"
-                        style={{ minHeight: '44px', borderRadius: '10px', fontWeight: 700 }}
-                      >
-                        <option value="Retailer">Merchant / Retailer</option>
-                        <option value="Distributor">Distributor</option>
-                        <option value="DIST Franchise">DIST Franchise</option>
-                        <option value="Super Distributor">Super Distributor</option>
-                      </select>
-                    </div>
-
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>
-                        POS Device Setup
-                      </label>
-                      <select 
-                        value={registerData.pos_provider}
-                        onChange={(e) => setRegisterData({ ...registerData, pos_provider: e.target.value })}
-                        className="form-input"
-                        style={{ minHeight: '44px', borderRadius: '10px', fontWeight: 700 }}
-                      >
-                        <option value="Pine Labs">Pine Labs POS</option>
-                        <option value="Paytm POS">Paytm Soundbox / POS</option>
-                        <option value="MSwipe">MSwipe Terminal</option>
-                        <option value="Mosambee">Mosambee Mini</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                <button 
-                  type="submit" 
-                  disabled={isLoading || !verifiedSponsor}
-                  className="btn btn-primary"
-                  style={{ 
-                    width: '100%', 
-                    justifyContent: 'center', 
-                    height: '48px', 
-                    fontWeight: 800, 
-                    fontSize: '0.9375rem', 
-                    backgroundColor: verifiedSponsor ? '#0F52BA' : '#94A3B8',
-                    cursor: verifiedSponsor ? 'pointer' : 'not-allowed',
-                    marginTop: '0.25rem' 
-                  }}
-                >
-                  {isLoading ? 'Creating Partner Account...' : 'Generate Partner Credentials →'}
-                </button>
-
-                <p style={{ fontSize: '0.6875rem', color: '#94A3B8', textAlign: 'center', margin: 0 }}>
-                  🔒 Direct enrollment into RONAV Network. Sponsor commission upline is linked instantly.
-                </p>
-              </form>
-            )}
-
           </div>
         </div>
       )}
