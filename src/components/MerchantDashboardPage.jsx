@@ -5,7 +5,7 @@ import {
   LogOut, PlusCircle, Home, User, Bell, Phone, CheckCircle2, 
   Clock, AlertCircle, X, ChevronRight, Check, ArrowRight,
   Search, Calendar, ArrowLeft, RefreshCw, FileText, Filter, ShieldCheck, LayoutGrid, MoreHorizontal,
-  Users, Share2, Copy, ExternalLink, UserPlus, ChevronDown, ChevronUp
+  Users, Share2, Copy, ExternalLink, UserPlus, ChevronDown, ChevronUp, TrendingUp, Building2, MessageCircle
 } from 'lucide-react';
 import { 
   getWallet, 
@@ -346,10 +346,14 @@ export default function MerchantDashboardPage({ user, onLogout }) {
     today_network_profit: 0,
     commission_rate_pct: 0.25
   });
+  const [creatorPos, setCreatorPos] = useState(null);
   const [isLoadingNetwork, setIsLoadingNetwork] = useState(false);
   const [selectedPartner, setSelectedPartner] = useState(null);
   const [partnerTxns, setPartnerTxns] = useState([]);
   const [isLoadingPartnerTxns, setIsLoadingPartnerTxns] = useState(false);
+  const [showOnboardForm, setShowOnboardForm] = useState(false);
+  const [peopleSearch, setPeopleSearch] = useState('');
+  const [peopleRoleFilter, setPeopleRoleFilter] = useState('ALL');
   const [onboardForm, setOnboardForm] = useState({
     name: '',
     mobile: '',
@@ -370,10 +374,10 @@ export default function MerchantDashboardPage({ user, onLogout }) {
 
     if (isPine) {
       // -------------------------------------------------------------------
-      // 1. PINE LABS T+1: 4 Tiers (Super Distributor is strictly OMITTED)
+      // 1. PINE LABS T+1: 4 Tiers (Super Distributor / Master can create Franchises, Distributors, and Retailers)
       // MASTER (1.21%) -> DIST Franchise (1.41%) -> Distributor (1.47%) -> Retailer (1.53%)
       // -------------------------------------------------------------------
-      if (r.includes('MASTER') || r.includes('ADMIN')) {
+      if (r.includes('MASTER') || r.includes('ADMIN') || r.includes('SUPER')) {
         return [
           { value: 'DIST_FRANCHISE', label: 'DIST Franchise', badge: 'MDR 1.41% • Margin +0.06%', icon: '🏢' },
           { value: 'DISTRIBUTOR', label: 'Distributor', badge: 'MDR 1.47% • Margin +0.06%', icon: '📦' },
@@ -474,6 +478,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
     try {
       const res = await getDownstreamNetwork(merchantId);
       if (res.success) {
+        setCreatorPos(res.creator_pos || null);
         setNetworkData({
           partners: res.partners || [],
           total_commission_earned: res.total_commission_earned || 0,
@@ -802,6 +807,33 @@ export default function MerchantDashboardPage({ user, onLogout }) {
     }
   };
 
+  // Filtered Downline People list
+  const filteredPartners = useMemo(() => {
+    let list = networkData.partners || [];
+    if (peopleRoleFilter === 'SHOPS') {
+      list = list.filter(p => p.role === 'MERCHANT' || p.id.startsWith('MID'));
+    } else if (peopleRoleFilter === 'DISTRIBUTORS') {
+      list = list.filter(p => p.role === 'DISTRIBUTOR' || p.id.startsWith('DIST'));
+    } else if (peopleRoleFilter === 'DISTRICT') {
+      list = list.filter(p => p.role === 'DISTRICT_DISTRIBUTOR' || p.role === 'DIST_FRANCHISE' || p.id.startsWith('DD') || p.id.startsWith('DF'));
+    }
+    if (peopleSearch.trim()) {
+      const q = peopleSearch.toLowerCase().trim();
+      list = list.filter(p => 
+        (p.name && p.name.toLowerCase().includes(q)) ||
+        (p.id && p.id.toLowerCase().includes(q)) ||
+        (p.mobile && p.mobile.includes(q)) ||
+        (p.pos_terminal && p.pos_terminal.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [networkData.partners, peopleRoleFilter, peopleSearch]);
+
+  const directPartnersCount = networkData.partners.filter(p => p.is_direct).length;
+  const indirectPartnersCount = networkData.partners.filter(p => !p.is_direct).length;
+  const totalTeamVolume = networkData.partners.reduce((sum, p) => sum + (p.total_volume || 0), 0);
+  const totalTodayVolume = networkData.partners.reduce((sum, p) => sum + (p.today_volume || 0), 0);
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans merchant-responsive-wrapper">
       
@@ -901,14 +933,12 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                 >
                   Transaction History
                 </button>
-                {userRole !== 'MERCHANT' && userRole !== 'Retailer' && (
-                  <button 
-                    onClick={() => setActiveTab('network')} 
-                    style={{ background: 'none', border: 'none', color: activeTab === 'network' ? '#0F52BA' : '#64748B', fontWeight: 800, fontSize: '0.8125rem', cursor: 'pointer', borderBottom: activeTab === 'network' ? '2px solid #0F52BA' : '2px solid transparent', paddingBottom: '0.25rem' }}
-                  >
-                    My Network
-                  </button>
-                )}
+                <button 
+                  onClick={() => setActiveTab('network')} 
+                  style={{ background: 'none', border: 'none', color: activeTab === 'network' ? '#0F52BA' : '#64748B', fontWeight: 800, fontSize: '0.8125rem', cursor: 'pointer', borderBottom: activeTab === 'network' ? '2px solid #0F52BA' : '2px solid transparent', paddingBottom: '0.25rem' }}
+                >
+                  My People
+                </button>
               </nav>
 
               {/* Right: Phone Hotline & Merchant Profile */}
@@ -1310,13 +1340,13 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                       </div>
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                          <h4 style={{ margin: 0, fontSize: '0.78125rem', fontWeight: 800, color: '#0F172A' }}>My Team &amp; Referral Profit</h4>
+                          <h4 style={{ margin: 0, fontSize: '0.78125rem', fontWeight: 800, color: '#0F172A' }}>My People &amp; Team Earnings</h4>
                           <span style={{ fontSize: '0.5rem', fontWeight: 800, color: '#0F52BA', background: '#FFFFFF', padding: '1px 5px', borderRadius: '8px', border: '1px solid #BFDBFE' }}>
                             {networkData.partners.length} Members
                           </span>
                         </div>
                         <p style={{ margin: '1px 0 0', fontSize: '0.59rem', color: '#475569', fontWeight: 500 }}>
-                          Add members, see daily sales &amp; check your profit
+                          All downline shops, POS machines &amp; daily commission profit
                         </p>
                       </div>
                     </div>
@@ -3037,483 +3067,735 @@ export default function MerchantDashboardPage({ user, onLogout }) {
           )}
 
           {/* ========================================================= */}
-          {/* VIEW 6: DEDICATED "MY NETWORK & REFERRALS" PAGE           */}
+          {/* VIEW 6: DEDICATED "MY PEOPLE & TEAM EARNINGS" PAGE       */}
           {/* ========================================================= */}
           {activeTab === 'network' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', width: '100%', boxSizing: 'border-box', paddingBottom: '2rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%', boxSizing: 'border-box', paddingBottom: '2.5rem' }}>
               
-              {/* Header Title & Refresh */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+              {/* 1. Header Title & Quick Actions */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
                 <div>
-                  <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0F172A', margin: 0, letterSpacing: '-0.01em' }}>
-                    My Team &amp; Referral Earnings
-                  </h1>
-                  <p style={{ fontSize: '0.75rem', color: '#64748B', margin: '2px 0 0' }}>
-                    Add your members, see their daily work, and check your profit.
-                  </p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#EFF6FF', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Users style={{ width: '20px', height: '20px' }} />
+                    </div>
+                    <div>
+                      <h1 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0F172A', margin: 0, letterSpacing: '-0.01em' }}>
+                        My People &amp; Team Network
+                      </h1>
+                      <p style={{ fontSize: '0.75rem', color: '#64748B', margin: '2px 0 0' }}>
+                        Complete directory of people you onboarded, their stores, active POS machines, and daily commission earned.
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <button 
                     onClick={fetchNetworkData}
                     disabled={isLoadingNetwork}
-                    style={{ background: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '0.35rem 0.75rem', fontSize: '0.75rem', fontWeight: 700, color: '#334155', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    style={{ background: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '0.45rem 0.875rem', fontSize: '0.75rem', fontWeight: 700, color: '#334155', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}
                   >
-                    <RefreshCw style={{ width: '13px', height: '13px', animation: isLoadingNetwork ? 'spin 1s linear infinite' : 'none' }} />
+                    <RefreshCw style={{ width: '14px', height: '14px', animation: isLoadingNetwork ? 'spin 1s linear infinite' : 'none' }} />
                     <span>Refresh</span>
+                  </button>
+
+                  <button 
+                    onClick={() => setShowOnboardForm(!showOnboardForm)}
+                    style={{ 
+                      background: showOnboardForm ? '#F1F5F9' : 'linear-gradient(135deg, #0F52BA 0%, #083B8A 100%)', 
+                      color: showOnboardForm ? '#0F172A' : '#FFFFFF', 
+                      border: showOnboardForm ? '1px solid #CBD5E1' : 'none', 
+                      borderRadius: '8px', 
+                      padding: '0.45rem 0.875rem', 
+                      fontSize: '0.75rem', 
+                      fontWeight: 800, 
+                      cursor: 'pointer', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '5px',
+                      boxShadow: showOnboardForm ? 'none' : '0 2px 8px rgba(15,82,186,0.25)' 
+                    }}
+                  >
+                    <UserPlus style={{ width: '15px', height: '15px' }} />
+                    <span>{showOnboardForm ? 'Close Form' : '+ Onboard Person / Shop'}</span>
                   </button>
                 </div>
               </div>
 
-              {/* 1. SLIM & COMPACT TOP BANNER: REFERRAL PROFIT FIRST */}
-              <div style={{
-                position: 'relative',
-                background: 'linear-gradient(135deg, #09204A 0%, #0F52BA 55%, #184196 100%)',
-                borderRadius: '16px',
-                padding: '0.875rem 1.125rem',
-                color: '#FFFFFF',
-                boxShadow: '0 6px 18px rgba(10,34,82,0.18)',
-                overflow: 'hidden'
-              }}>
-                <div style={{ position: 'relative', zIndex: 2 }}>
-                  {/* Top line: Label & Tier */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                    <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#93C5FD', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      Total Referral Profit
+              {/* 2. TOP EXECUTIVE STATS GRID (4 Mathematical Pillars) */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem' }}>
+                
+                {/* Stat 1: Total Team Members */}
+                <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '14px', padding: '0.875rem 1rem', boxShadow: '0 1px 4px rgba(0,0,0,0.02)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                      Total Downline Team
                     </span>
-                    <span style={{ fontSize: '0.5625rem', fontWeight: 800, background: 'rgba(255,255,255,0.18)', padding: '2px 7px', borderRadius: '10px' }}>
-                      ★ {userRole}
-                    </span>
+                    <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#EFF6FF', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Users style={{ width: '14px', height: '14px' }} />
+                    </div>
                   </div>
+                  <h3 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#0F172A', margin: '0 0 2px', letterSpacing: '-0.02em' }}>
+                    {networkData.partners.length} <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#64748B' }}>Members</span>
+                  </h3>
+                  <span style={{ fontSize: '0.65rem', color: '#64748B' }}>
+                    {directPartnersCount} Direct • {indirectPartnersCount} Downline
+                  </span>
+                </div>
 
-                  {/* Primary Hero Metric: Total Referral Profit */}
+                {/* Stat 2: Total Team Sales Volume */}
+                <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '14px', padding: '0.875rem 1rem', boxShadow: '0 1px 4px rgba(0,0,0,0.02)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                      Total Team Sales
+                    </span>
+                    <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#ECFDF5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <CreditCard style={{ width: '14px', height: '14px' }} />
+                    </div>
+                  </div>
+                  <h3 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#0F172A', margin: '0 0 2px', letterSpacing: '-0.02em' }}>
+                    ₹{totalTeamVolume.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </h3>
+                  <span style={{ fontSize: '0.65rem', color: '#059669', fontWeight: 700 }}>
+                    Across all shops &amp; POS terminals
+                  </span>
+                </div>
+
+                {/* Stat 3: Total Commission Profit */}
+                <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '14px', padding: '0.875rem 1rem', boxShadow: '0 1px 4px rgba(0,0,0,0.02)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                      My Total Profit Cut
+                    </span>
+                    <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#FEF3C7', color: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <TrendingUp style={{ width: '14px', height: '14px' }} />
+                    </div>
+                  </div>
+                  <h3 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#059669', margin: '0 0 2px', letterSpacing: '-0.02em' }}>
+                    ₹{networkData.total_commission_earned.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </h3>
+                  <span style={{ fontSize: '0.65rem', color: '#0F52BA', fontWeight: 800, background: '#EFF6FF', padding: '1px 6px', borderRadius: '4px' }}>
+                    +{parseFloat(userTierMargin) > 0 ? userTierMargin : networkData.commission_rate_pct}% {onboardForm.pos_provider} Profit Margin
+                  </span>
+                </div>
+
+                {/* Stat 4: Today's Team Volume & Profit */}
+                <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '14px', padding: '0.875rem 1rem', boxShadow: '0 1px 4px rgba(0,0,0,0.02)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                      Today's Team Profit
+                    </span>
+                    <div style={{ width: '28px', height: '28px', borderRadius: '8px', background: '#F3E8FF', color: '#7C3AED', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Zap style={{ width: '14px', height: '14px' }} />
+                    </div>
+                  </div>
+                  <h3 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#7C3AED', margin: '0 0 2px', letterSpacing: '-0.02em' }}>
+                    +₹{networkData.today_network_profit.toFixed(2)}
+                  </h3>
+                  <span style={{ fontSize: '0.65rem', color: '#64748B' }}>
+                    On ₹{totalTodayVolume.toLocaleString('en-IN', { minimumFractionDigits: 2 })} today's team sales
+                  </span>
+                </div>
+
+              </div>
+
+              {/* 3. RETAILER OWN STORE & POS TERMINAL CARD (Visible for Retailers) */}
+              {(userRole === 'MERCHANT' || userRole === 'Retailer') && (
+                <div style={{ background: '#FFFFFF', border: '1px solid #BFDBFE', borderRadius: '16px', padding: '1.25rem', boxShadow: '0 2px 10px rgba(15,82,186,0.04)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-                    <h2 style={{ fontSize: '1.625rem', fontWeight: 900, margin: 0, letterSpacing: '-0.02em', fontFeatureSettings: '"tnum"', lineHeight: 1.1, color: '#FFFFFF' }}>
-                      ₹{networkData.total_commission_earned.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </h2>
-                    <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#10B981', color: '#FFFFFF', padding: '3px 8px', borderRadius: '8px' }}>
-                      +{parseFloat(userTierMargin) > 0 ? userTierMargin : networkData.commission_rate_pct}% {onboardForm.pos_provider} Profit Margin
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                      <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#0F52BA', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900 }}>
+                        🏪
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <h3 style={{ fontSize: '1rem', fontWeight: 900, color: '#0F172A', margin: 0 }}>
+                            {merchantName}
+                          </h3>
+                          <span style={{ fontSize: '0.6rem', fontWeight: 800, color: '#059669', background: '#ECFDF5', border: '1px solid #A7F3D0', padding: '2px 7px', borderRadius: '6px' }}>
+                            Active Retailer Store
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
+                          Merchant ID: <strong style={{ fontFamily: 'monospace', color: '#0F52BA' }}>{merchantId}</strong> • Mobile: <strong>{user?.mobile || '6301646462'}</strong>
+                        </span>
+                      </div>
+                    </div>
+
+                    <button 
+                      onClick={() => setActiveTab('record-sale')}
+                      style={{ background: '#0F52BA', color: '#FFFFFF', border: 'none', borderRadius: '8px', padding: '0.45rem 0.875rem', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      <Plus style={{ width: '14px', height: '14px' }} />
+                      <span>Record Card Swipe</span>
+                    </button>
                   </div>
 
-                  {/* Compact Bottom Row: 3 metrics */}
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, 1fr)',
-                    gap: '0.375rem',
-                    paddingTop: '0.625rem',
-                    borderTop: '1px solid rgba(255,255,255,0.15)',
-                    textAlign: 'center'
-                  }}>
+                  {/* Machine & Hardware Specs Box */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem', background: '#F8FAFC', borderRadius: '10px', padding: '0.75rem', border: '1px solid #E2E8F0', fontSize: '0.75rem' }}>
                     <div>
-                      <span style={{ color: '#93C5FD', display: 'block', fontSize: '0.5625rem', fontWeight: 700, marginBottom: '1px' }}>
-                        Today's Profit
-                      </span>
-                      <strong style={{ color: '#FCD34D', fontSize: '0.875rem', fontWeight: 800 }}>
-                        ₹{networkData.today_network_profit.toFixed(2)}
-                      </strong>
+                      <span style={{ color: '#64748B', display: 'block', fontSize: '0.625rem', fontWeight: 700 }}>POS Machine Provider</span>
+                      <strong style={{ color: '#0F172A' }}>🌲 {creatorPos?.provider || 'Pine Labs POS'}</strong>
                     </div>
-
-                    <div style={{ borderLeft: '1px solid rgba(255,255,255,0.12)', borderRight: '1px solid rgba(255,255,255,0.12)' }}>
-                      <span style={{ color: '#93C5FD', display: 'block', fontSize: '0.5625rem', fontWeight: 700, marginBottom: '1px' }}>
-                        My Team
-                      </span>
-                      <strong style={{ color: '#6EE7B7', fontSize: '0.875rem', fontWeight: 800 }}>
-                        {networkData.partners.length} Active
-                      </strong>
-                    </div>
-
                     <div>
-                      <span style={{ color: '#93C5FD', display: 'block', fontSize: '0.5625rem', fontWeight: 700, marginBottom: '1px' }}>
-                        Wallet Balance
-                      </span>
-                      <strong style={{ color: '#FFFFFF', fontSize: '0.875rem', fontWeight: 800 }}>
-                        ₹{wallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </strong>
+                      <span style={{ color: '#64748B', display: 'block', fontSize: '0.625rem', fontWeight: 700 }}>Terminal ID (TID)</span>
+                      <strong style={{ fontFamily: 'monospace', color: '#0F52BA', fontWeight: 800 }}>{creatorPos?.terminal_id || 'PL-7796'}</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748B', display: 'block', fontSize: '0.625rem', fontWeight: 700 }}>Device Plan</span>
+                      <strong style={{ color: '#0F172A' }}>{creatorPos?.device_plan || 'RENTAL'} (₹{creatorPos?.monthly_rent || 499}/mo)</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748B', display: 'block', fontSize: '0.625rem', fontWeight: 700 }}>Settlement Timing</span>
+                      <strong style={{ color: '#059669' }}>⚡ {creatorPos?.settlement_type || 'T+1'} Auto Bank Payout</strong>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* 4. COLLAPSIBLE ONBOARDING FORM DRAWER */}
+              {showOnboardForm && (
+                <div style={{ background: '#FFFFFF', border: '1.5px solid #0F52BA', borderRadius: '16px', padding: '1.25rem', boxShadow: '0 4px 20px rgba(15,82,186,0.08)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#EFF6FF', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <UserPlus style={{ width: '16px', height: '16px' }} />
+                      </div>
+                      <div>
+                        <h3 style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
+                          Onboard New Partner / Shop Owner
+                        </h3>
+                        <span style={{ fontSize: '0.65rem', color: '#64748B' }}>
+                          Select role, configure POS machine, and issue login credentials
+                        </span>
+                      </div>
+                    </div>
+
+                    <button 
+                      onClick={() => setShowOnboardForm(false)}
+                      style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: '4px' }}
+                    >
+                      <X style={{ width: '18px', height: '18px' }} />
+                    </button>
+                  </div>
+
+                  {/* Instant Generated Credentials Card */}
+                  {createdPartnerCreds && (
+                    <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: '12px', padding: '0.875rem', marginBottom: '1rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#15803D', fontSize: '0.8125rem', fontWeight: 800 }}>
+                          <CheckCircle2 style={{ width: '16px', height: '16px' }} />
+                          <span>Member Onboarded Successfully!</span>
+                        </div>
+                        <button 
+                          onClick={() => setCreatedPartnerCreds(null)}
+                          style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', padding: '2px' }}
+                        >
+                          <X style={{ width: '14px', height: '14px' }} />
+                        </button>
+                      </div>
+
+                      <div style={{ background: '#FFFFFF', border: '1px solid #BBF7D0', borderRadius: '8px', padding: '0.625rem', marginBottom: '0.625rem', fontSize: '0.78125rem', lineHeight: 1.6 }}>
+                        <div><strong>Full Name:</strong> {createdPartnerCreds.name}</div>
+                        <div><strong>Login ID:</strong> <span style={{ fontFamily: 'monospace', fontWeight: 900, color: '#0F52BA' }}>{createdPartnerCreds.id}</span></div>
+                        <div><strong>Password:</strong> <span style={{ fontFamily: 'monospace', fontWeight: 900, color: '#059669' }}>{createdPartnerCreds.password}</span></div>
+                        <div><strong>Role Tier:</strong> <span style={{ fontWeight: 700 }}>{createdPartnerCreds.role}</span></div>
+                        <div><strong>POS Provider:</strong> <span style={{ fontWeight: 700 }}>{createdPartnerCreds.pos_provider || 'Pine Labs'} (T+1 Settlement)</span></div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button 
+                          onClick={() => {
+                            const text = `Hello ${createdPartnerCreds.name}, your RONAV portal login credentials are:\nLogin ID: ${createdPartnerCreds.id}\nPassword: ${createdPartnerCreds.password}\nAccount Type: ${createdPartnerCreds.role}\nLogin Link: ${window.location.origin}`;
+                            navigator.clipboard.writeText(text);
+                            showToast('✓ Login credentials copied!');
+                          }}
+                          style={{ flex: 1, background: '#FFFFFF', border: '1px solid #86EFAC', color: '#15803D', borderRadius: '8px', padding: '0.45rem', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}
+                        >
+                          <Copy style={{ width: '14px', height: '14px' }} />
+                          <span>Copy Details</span>
+                        </button>
+
+                        <a 
+                          href={`https://api.whatsapp.com/send?phone=${createdPartnerCreds.mobile}&text=${encodeURIComponent(`Hello ${createdPartnerCreds.name}, your RONAV portal login credentials are:\n\nLogin ID: ${createdPartnerCreds.id}\nPassword: ${createdPartnerCreds.password}\nAccount Type: ${createdPartnerCreds.role}\n\nLogin Link: ${window.location.origin}`)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ flex: 1, background: '#25D366', color: '#FFFFFF', borderRadius: '8px', padding: '0.45rem', fontSize: '0.75rem', fontWeight: 800, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}
+                        >
+                          <Share2 style={{ width: '14px', height: '14px' }} />
+                          <span>Share on WhatsApp</span>
+                        </a>
+                      </div>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleOnboardSubmit} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.875rem' }}>
+                    {/* Machine & Settlement Provider Dropdown */}
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                        <span>POS Machine Provider *</span>
+                        <span style={{ fontSize: '0.625rem', color: '#0F52BA', background: '#EFF6FF', padding: '1px 6px', borderRadius: '4px', fontWeight: 800 }}>T+1 Settlement</span>
+                      </label>
+                      <select 
+                        id="pos-provider-select"
+                        value={onboardForm.pos_provider} 
+                        onChange={(e) => setOnboardForm({ ...onboardForm, pos_provider: e.target.value })}
+                        style={{ width: '100%', boxSizing: 'border-box', padding: '0.625rem 0.75rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', fontWeight: 700, color: '#0F172A', background: '#FFFFFF', cursor: 'pointer', outline: 'none' }}
+                      >
+                        <option value="Pine Labs">🌲 Pine Labs (T+1 Settlement • 4 Tiers)</option>
+                        <option value="Payswiff">⚡ Payswiff (T+1 Settlement • 5 Tiers)</option>
+                      </select>
+                    </div>
+
+                    {/* Dynamic Account Type Dropdown */}
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.3rem' }}>
+                        Account Role Tier *
+                      </label>
+                      <select 
+                        id="account-type-select"
+                        value={onboardForm.role} 
+                        onChange={(e) => setOnboardForm({ ...onboardForm, role: e.target.value })}
+                        style={{ width: '100%', boxSizing: 'border-box', padding: '0.625rem 0.75rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', fontWeight: 700, color: '#0F172A', background: '#FFFFFF', cursor: 'pointer', outline: 'none' }}
+                      >
+                        {allowedRolesForCreator.map(r => (
+                          <option key={r.value} value={r.value} style={{ padding: '8px', fontWeight: 600 }}>
+                            {r.icon} {r.label} ({r.badge})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Full Name */}
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.3rem' }}>
+                        Full Name (Person or Shop Name) *
+                      </label>
+                      <input 
+                        type="text" 
+                        placeholder="e.g. Ramesh Retail Stores"
+                        value={onboardForm.name}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, name: e.target.value })}
+                        required
+                        style={{ width: '100%', boxSizing: 'border-box', padding: '0.625rem 0.75rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', fontWeight: 600, color: '#0F172A', outline: 'none' }}
+                      />
+                    </div>
+
+                    {/* Mobile Number */}
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.3rem' }}>
+                        Mobile Number (10 digits) *
+                      </label>
+                      <input 
+                        type="tel" 
+                        placeholder="e.g. 9848011223"
+                        maxLength="10"
+                        value={onboardForm.mobile}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, mobile: e.target.value.replace(/\D/g, '') })}
+                        required
+                        style={{ width: '100%', boxSizing: 'border-box', padding: '0.625rem 0.75rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', fontWeight: 600, color: '#0F172A', outline: 'none' }}
+                      />
+                    </div>
+
+                    {/* Shop / Business Name (Optional) */}
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.3rem' }}>
+                        Shop / Enterprise Name (Optional)
+                      </label>
+                      <input 
+                        type="text" 
+                        placeholder="e.g. Sri Balaji Supermarket"
+                        value={onboardForm.shop_name}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, shop_name: e.target.value })}
+                        style={{ width: '100%', boxSizing: 'border-box', padding: '0.625rem 0.75rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', fontWeight: 600, color: '#0F172A', outline: 'none' }}
+                      />
+                    </div>
+
+                    {/* Submit Button */}
+                    <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                      <button 
+                        type="submit"
+                        disabled={isSubmittingOnboard}
+                        style={{ width: '100%', background: 'linear-gradient(135deg, #0F52BA 0%, #083B8A 100%)', color: '#FFFFFF', border: 'none', borderRadius: '8px', padding: '0.625rem 1rem', fontSize: '0.8125rem', fontWeight: 800, cursor: isSubmittingOnboard ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', height: '39px', boxShadow: '0 2px 8px rgba(15,82,186,0.25)' }}
+                      >
+                        {isSubmittingOnboard ? (
+                          <>
+                            <RefreshCw style={{ width: '15px', height: '15px', animation: 'spin 1s linear infinite' }} />
+                            <span>Creating Account...</span>
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 style={{ width: '16px', height: '16px' }} />
+                            <span>Onboard &amp; Generate Credentials</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
+              {/* 5. SEARCH & ROLE FILTER TOOLBAR */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.625rem', background: '#FFFFFF', padding: '0.75rem', borderRadius: '14px', border: '1px solid #E2E8F0' }}>
+                
+                {/* Search Box */}
+                <div style={{ position: 'relative', flex: 1, minWidth: '220px' }}>
+                  <Search style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', width: '15px', height: '15px', color: '#94A3B8' }} />
+                  <input 
+                    type="text" 
+                    placeholder="Search by name, phone, shop, or ID..."
+                    value={peopleSearch}
+                    onChange={(e) => setPeopleSearch(e.target.value)}
+                    style={{ width: '100%', boxSizing: 'border-box', padding: '0.45rem 0.75rem 0.45rem 2rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.78125rem', color: '#0F172A', outline: 'none' }}
+                  />
+                  {peopleSearch && (
+                    <button 
+                      onClick={() => setPeopleSearch('')}
+                      style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: '2px' }}
+                    >
+                      <X style={{ width: '12px', height: '12px' }} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Filter Chips */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', overflowX: 'auto', paddingBottom: '2px' }}>
+                  {[
+                    { key: 'ALL', label: 'All', count: networkData.partners.length },
+                    { key: 'SHOPS', label: 'Shops', count: networkData.partners.filter(p => p.role === 'MERCHANT' || p.id.startsWith('MID')).length },
+                    { key: 'DISTRIBUTORS', label: 'Distributors', count: networkData.partners.filter(p => p.role === 'DISTRIBUTOR' || p.id.startsWith('DIST')).length },
+                    { key: 'DISTRICT', label: 'District Heads', count: networkData.partners.filter(p => p.role === 'DISTRICT_DISTRIBUTOR' || p.role === 'DIST_FRANCHISE' || p.id.startsWith('DD')).length }
+                  ].map(chip => (
+                    <button 
+                      key={chip.key}
+                      onClick={() => setPeopleRoleFilter(chip.key)}
+                      style={{ 
+                        background: peopleRoleFilter === chip.key ? '#0F52BA' : '#F1F5F9', 
+                        color: peopleRoleFilter === chip.key ? '#FFFFFF' : '#475569', 
+                        border: 'none', 
+                        borderRadius: '20px', 
+                        padding: '0.35rem 0.75rem', 
+                        fontSize: '0.71875rem', 
+                        fontWeight: 700, 
+                        cursor: 'pointer', 
+                        whiteSpace: 'nowrap',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      <span>{chip.label}</span>
+                      <span style={{ fontSize: '0.625rem', opacity: 0.9, background: peopleRoleFilter === chip.key ? 'rgba(255,255,255,0.25)' : '#E2E8F0', padding: '1px 5px', borderRadius: '10px' }}>
+                        {chip.count}
+                      </span>
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* Notice if Merchant / Retailer is viewing */}
-              {(userRole === 'MERCHANT' || userRole === 'Retailer') ? (
-                <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '16px', padding: '1.5rem 1rem', textAlign: 'center' }}>
-                  <div style={{ width: '44px', height: '44px', borderRadius: '50%', background: '#EFF6FF', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.75rem' }}>
-                    <Users style={{ width: '22px', height: '22px' }} />
+              {/* 6. END-TO-END PEOPLE & SHOPS CARDS ROSTER */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                {filteredPartners.length === 0 ? (
+                  <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '16px', padding: '3rem 1rem', textAlign: 'center', color: '#94A3B8' }}>
+                    <Users style={{ width: '36px', height: '36px', margin: '0 auto 0.5rem', opacity: 0.4 }} />
+                    <h3 style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#334155', margin: '0 0 0.25rem' }}>
+                      {peopleSearch ? 'No matching people found' : 'No team members added yet'}
+                    </h3>
+                    <p style={{ fontSize: '0.75rem', color: '#64748B', maxWidth: '380px', margin: '0 auto 1rem', lineHeight: 1.5 }}>
+                      {peopleSearch ? 'Try a different search term or clear the filter.' : 'Click the "+ Onboard Person / Shop" button above to add your first distributor or store owner.'}
+                    </p>
+                    {!showOnboardForm && (
+                      <button 
+                        onClick={() => setShowOnboardForm(true)}
+                        style={{ background: '#0F52BA', color: '#FFFFFF', border: 'none', borderRadius: '8px', padding: '0.45rem 1rem', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                      >
+                        <UserPlus style={{ width: '15px', height: '15px' }} />
+                        <span>Onboard First Member</span>
+                      </button>
+                    )}
                   </div>
-                  <h3 style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#0F172A', margin: '0 0 0.35rem' }}>
-                    Shop Owner Account
-                  </h3>
-                  <p style={{ fontSize: '0.78rem', color: '#64748B', maxWidth: '440px', margin: '0 auto', lineHeight: 1.5 }}>
-                    Shop owners and retailers earn profit on direct customer card swipes and bill payments. To add new members or earn team commission, talk to your Distributor.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {/* TWO COLUMN GRID: Add Person (Left) & People List with Inline Transactions (Right) */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem' }}>
-                    
-                    {/* SECTION 1: ADD NEW PERSON / SHOP */}
-                    <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '16px', padding: '1.125rem', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', height: 'fit-content' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.875rem', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.625rem' }}>
-                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#EFF6FF', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <UserPlus style={{ width: '16px', height: '16px' }} />
-                        </div>
-                        <div>
-                          <h3 style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
-                            Add New Person / Shop
-                          </h3>
-                          <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
-                            Choose account type and enter details
-                          </span>
-                        </div>
-                      </div>
+                ) : (
+                  filteredPartners.map((p) => {
+                    const isExpanded = expandedPartnerId === p.id;
+                    const roleBadge = (p.role === 'MERCHANT' || p.id.startsWith('MID'))
+                      ? { label: 'Shop Owner (Retailer)', bg: '#ECFDF5', color: '#059669', border: '#A7F3D0' }
+                      : (p.role === 'DISTRIBUTOR' || p.id.startsWith('DIST'))
+                      ? { label: 'Area Distributor', bg: '#EFF6FF', color: '#0F52BA', border: '#BFDBFE' }
+                      : (p.role === 'DISTRICT_DISTRIBUTOR' || p.role === 'DIST_FRANCHISE' || p.id.startsWith('DD'))
+                      ? { label: 'District Head', bg: '#F3E8FF', color: '#7C3AED', border: '#DDD6FE' }
+                      : { label: 'Super Distributor', bg: '#FEF3C7', color: '#D97706', border: '#FDE68A' };
 
-                      {/* Instant Generated Credentials Card */}
-                      {createdPartnerCreds && (
-                        <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: '12px', padding: '0.75rem', marginBottom: '0.875rem' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#15803D', fontSize: '0.75rem', fontWeight: 800 }}>
-                              <CheckCircle2 style={{ width: '15px', height: '15px' }} />
-                              <span>Person Added Successfully!</span>
-                            </div>
-                            <button 
-                              onClick={() => setCreatedPartnerCreds(null)}
-                              style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer', padding: '2px' }}
-                            >
-                              <X style={{ width: '14px', height: '14px' }} />
-                            </button>
-                          </div>
+                    return (
+                      <div 
+                        key={p.id}
+                        style={{
+                          background: '#FFFFFF',
+                          border: isExpanded ? '1.5px solid #0F52BA' : '1px solid #E2E8F0',
+                          borderRadius: '16px',
+                          boxShadow: isExpanded ? '0 6px 20px rgba(15,82,186,0.09)' : '0 1px 4px rgba(0,0,0,0.02)',
+                          overflow: 'hidden',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        {/* PERSON HEADER & CONTACT DETAILS */}
+                        <div style={{ padding: '1rem', borderBottom: '1px solid #F1F5F9' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem' }}>
+                            
+                            {/* Profile Info */}
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+                              <div style={{ 
+                                width: '42px', 
+                                height: '42px', 
+                                borderRadius: '12px', 
+                                background: isExpanded ? '#0F52BA' : '#F1F5F9', 
+                                color: isExpanded ? '#FFFFFF' : '#0F52BA', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                justifyContent: 'center', 
+                                fontSize: '1rem', 
+                                fontWeight: 900, 
+                                flexShrink: 0,
+                                border: '1px solid #E2E8F0'
+                              }}>
+                                {p.name ? p.name.charAt(0).toUpperCase() : 'U'}
+                              </div>
 
-                          <div style={{ background: '#FFFFFF', border: '1px solid #BBF7D0', borderRadius: '8px', padding: '0.5rem', marginBottom: '0.5rem', fontSize: '0.75rem', lineHeight: 1.5 }}>
-                            <div><strong>Name:</strong> {createdPartnerCreds.name}</div>
-                            <div><strong>Login ID:</strong> <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#0F52BA' }}>{createdPartnerCreds.id}</span></div>
-                            <div><strong>Password:</strong> <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#059669' }}>{createdPartnerCreds.password}</span></div>
-                            <div><strong>Type:</strong> <span style={{ fontWeight: 700 }}>{createdPartnerCreds.role}</span></div>
-                          </div>
-
-                          <div style={{ display: 'flex', gap: '0.5rem' }}>
-                            <button 
-                              onClick={() => {
-                                const text = `Hello ${createdPartnerCreds.name}, your RONAV login details are:\nLogin ID: ${createdPartnerCreds.id}\nPassword: ${createdPartnerCreds.password}\nAccount Type: ${createdPartnerCreds.role}\nLogin here: ${window.location.origin}`;
-                                navigator.clipboard.writeText(text);
-                                showToast('✓ Login details copied!');
-                              }}
-                              style={{ flex: 1, background: '#FFFFFF', border: '1px solid #86EFAC', color: '#15803D', borderRadius: '8px', padding: '0.4rem', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
-                            >
-                              <Copy style={{ width: '12px', height: '12px' }} />
-                              <span>Copy Details</span>
-                            </button>
-
-                            <a 
-                              href={`https://api.whatsapp.com/send?phone=${createdPartnerCreds.mobile}&text=${encodeURIComponent(`Hello ${createdPartnerCreds.name}, your RONAV login details are:\n\nLogin ID: ${createdPartnerCreds.id}\nPassword: ${createdPartnerCreds.password}\nAccount Type: ${createdPartnerCreds.role}\n\nLogin here: ${window.location.origin}`)}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              style={{ flex: 1, background: '#25D366', color: '#FFFFFF', borderRadius: '8px', padding: '0.4rem', fontSize: '0.6875rem', fontWeight: 800, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
-                            >
-                              <Share2 style={{ width: '12px', height: '12px' }} />
-                              <span>WhatsApp</span>
-                            </a>
-                          </div>
-                        </div>
-                      )}
-
-                      <form onSubmit={handleOnboardSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                        {/* 1. Machine & Settlement Provider Dropdown */}
-                        <div>
-                          <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#334155', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                            <span>Machine &amp; Settlement Provider *</span>
-                            <span style={{ fontSize: '0.625rem', color: '#0F52BA', background: '#EFF6FF', padding: '1px 6px', borderRadius: '4px', fontWeight: 800 }}>T+1 Settlement</span>
-                          </label>
-                          <select 
-                            id="pos-provider-select"
-                            value={onboardForm.pos_provider} 
-                            onChange={(e) => setOnboardForm({ ...onboardForm, pos_provider: e.target.value })}
-                            style={{ 
-                              width: '100%', 
-                              boxSizing: 'border-box', 
-                              padding: '0.625rem 0.75rem', 
-                              borderRadius: '8px', 
-                              border: '1px solid #CBD5E1', 
-                              fontSize: '0.8125rem', 
-                              fontWeight: 700, 
-                              color: '#0F172A', 
-                              background: '#FFFFFF',
-                              cursor: 'pointer',
-                              outline: 'none',
-                              boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
-                            }}
-                          >
-                            <option value="Pine Labs">🌲 Pine Labs (T+1 Settlement • 4 Tiers)</option>
-                            <option value="Payswiff">⚡ Payswiff (T+1 Settlement • 5 Tiers)</option>
-                          </select>
-                          <div style={{ marginTop: '0.35rem', fontSize: '0.625rem', color: '#64748B', lineHeight: 1.4 }}>
-                            <span style={{ fontWeight: 700 }}>Chain: </span>
-                            {onboardForm.pos_provider === 'Pine Labs' ? (
-                              <span style={{ color: '#0F52BA', fontWeight: 700 }}>
-                                Master (1.21%) → DIST Franchise (1.41%) → Distributor (1.47%) → Retailer (1.53%)
-                              </span>
-                            ) : (
-                              <span style={{ color: '#D97706', fontWeight: 700 }}>
-                                Master (1.40%) → Super Dist (1.42%) → DIST Franchise (1.45%) → Distributor (1.48%) → Retailer (1.53%)
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* 2. Dynamic Account Type Dropdown */}
-                        <div>
-                          <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.2rem' }}>
-                            Account Type *
-                          </label>
-                          <select 
-                            id="account-type-select"
-                            value={onboardForm.role} 
-                            onChange={(e) => setOnboardForm({ ...onboardForm, role: e.target.value })}
-                            style={{ 
-                              width: '100%', 
-                              boxSizing: 'border-box', 
-                              padding: '0.625rem 0.75rem', 
-                              borderRadius: '8px', 
-                              border: '1px solid #CBD5E1', 
-                              fontSize: '0.8125rem', 
-                              fontWeight: 700, 
-                              color: '#0F172A', 
-                              background: '#FFFFFF',
-                              cursor: 'pointer',
-                              outline: 'none',
-                              boxShadow: '0 1px 2px rgba(0,0,0,0.04)'
-                            }}
-                          >
-                            {allowedRolesForCreator.map(r => (
-                              <option key={r.value} value={r.value} style={{ padding: '8px', fontWeight: 600, color: '#0F172A', background: '#FFFFFF' }}>
-                                {r.icon} {r.label} ({r.badge})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* 3. Full Name */}
-                        <div>
-                          <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.2rem' }}>
-                            Full Name (Person or Shop Name) *
-                          </label>
-                          <input 
-                            type="text" 
-                            required
-                            placeholder="e.g. Ramesh Kumar"
-                            value={onboardForm.name}
-                            onChange={(e) => setOnboardForm({ ...onboardForm, name: e.target.value })}
-                            style={{ width: '100%', boxSizing: 'border-box', padding: '0.5rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.8125rem' }}
-                          />
-                        </div>
-
-                        {/* 4. Mobile Number */}
-                        <div>
-                          <label style={{ fontSize: '0.7rem', fontWeight: 800, color: '#334155', display: 'block', marginBottom: '0.2rem' }}>
-                            Mobile Number *
-                          </label>
-                          <input 
-                            type="tel" 
-                            required
-                            maxLength="10"
-                            placeholder="e.g. 9876543210"
-                            value={onboardForm.mobile}
-                            onChange={(e) => setOnboardForm({ ...onboardForm, mobile: e.target.value.replace(/\D/g, '') })}
-                            style={{ width: '100%', boxSizing: 'border-box', padding: '0.5rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.8125rem' }}
-                          />
-                        </div>
-
-                        <button 
-                          type="submit"
-                          disabled={isSubmittingOnboard}
-                          style={{
-                            marginTop: '0.25rem',
-                            background: '#0F52BA',
-                            color: '#FFFFFF',
-                            border: 'none',
-                            borderRadius: '10px',
-                            padding: '0.625rem',
-                            fontSize: '0.8125rem',
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '6px',
-                            boxShadow: '0 3px 10px rgba(15,82,186,0.25)'
-                          }}
-                        >
-                          <PlusCircle style={{ width: '15px', height: '15px' }} />
-                          <span>{isSubmittingOnboard ? 'Adding Person...' : '+ Add Person Now →'}</span>
-                        </button>
-                      </form>
-                    </div>
-
-                    {/* SECTION 2: PEOPLE YOU ADDED (MY TEAM) WITH INLINE EXPANDABLE TRANSACTIONS */}
-                    <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '16px', padding: '1.125rem', boxShadow: '0 2px 10px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.625rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#F0FDF4', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <Users style={{ width: '16px', height: '16px' }} />
-                          </div>
-                          <div>
-                            <h3 style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
-                              People You Added (My Team)
-                            </h3>
-                            <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
-                              Tap any person to see their daily work &amp; your profit
-                            </span>
-                          </div>
-                        </div>
-                        <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#059669', background: '#ECFDF5', padding: '2px 8px', borderRadius: '12px' }}>
-                          {networkData.partners.length} Members
-                        </span>
-                      </div>
-
-                      {/* People List */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '550px', overflowY: 'auto', paddingRight: '2px' }}>
-                        {networkData.partners.length === 0 ? (
-                          <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: '#94A3B8' }}>
-                            <Users style={{ width: '32px', height: '32px', margin: '0 auto 0.5rem', opacity: 0.5 }} />
-                            <p style={{ margin: 0, fontSize: '0.8125rem', fontWeight: 600 }}>No members added yet</p>
-                            <span style={{ fontSize: '0.6875rem' }}>Use the form to add your first shop owner or distributor.</span>
-                          </div>
-                        ) : (
-                          networkData.partners.map((p) => {
-                            const isExpanded = expandedPartnerId === p.id;
-                            return (
-                              <div 
-                                key={p.id}
-                                style={{
-                                  borderRadius: '12px',
-                                  border: isExpanded ? '1.5px solid #0F52BA' : '1px solid #E2E8F0',
-                                  background: '#FFFFFF',
-                                  boxShadow: isExpanded ? '0 4px 14px rgba(15,82,186,0.08)' : 'none',
-                                  overflow: 'hidden',
-                                  transition: 'all 0.15s ease'
-                                }}
-                              >
-                                {/* Person Summary Card (Click to Expand) */}
-                                <div 
-                                  onClick={() => togglePartnerExpand(p)}
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    padding: '0.75rem',
-                                    background: isExpanded ? '#EFF6FF' : '#F8FAFC',
-                                    cursor: 'pointer'
-                                  }}
-                                >
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-                                    <div style={{ width: '34px', height: '34px', borderRadius: '50%', background: isExpanded ? '#0F52BA' : '#E2E8F0', color: isExpanded ? '#FFF' : '#334155', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8125rem', fontWeight: 800, flexShrink: 0 }}>
-                                      {p.name.charAt(0)}
-                                    </div>
-                                    <div>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
-                                        <strong style={{ fontSize: '0.8125rem', color: '#0F172A' }}>{p.name}</strong>
-                                        <span style={{ fontSize: '0.55rem', fontWeight: 800, color: p.role === 'DISTRICT_DISTRIBUTOR' ? '#7C3AED' : p.role === 'DISTRIBUTOR' ? '#0F52BA' : '#059669', background: '#FFFFFF', border: '1px solid #E2E8F0', padding: '1px 5px', borderRadius: '4px' }}>
-                                          {p.role === 'MERCHANT' ? 'Shop Owner' : p.role === 'DISTRIBUTOR' ? 'Distributor' : 'District Head'}
-                                        </span>
-                                      </div>
-                                      <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
-                                        ID: {p.id} • Phone: {p.mobile}
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-                                    <div>
-                                      <p style={{ fontSize: '0.8125rem', fontWeight: 800, color: '#059669', margin: 0 }}>
-                                        +₹{p.commission_earned.toFixed(2)} Profit
-                                      </p>
-                                      <span style={{ fontSize: '0.5625rem', color: '#64748B' }}>
-                                        Sales: ₹{(p.total_volume || 0).toLocaleString('en-IN')}
-                                      </span>
-                                    </div>
-                                    <div style={{ color: isExpanded ? '#0F52BA' : '#94A3B8' }}>
-                                      {isExpanded ? <ChevronUp style={{ width: '18px', height: '18px' }} /> : <ChevronDown style={{ width: '18px', height: '18px' }} />}
-                                    </div>
-                                  </div>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '2px' }}>
+                                  <h3 style={{ fontSize: '0.9375rem', fontWeight: 900, color: '#0F172A', margin: 0 }}>
+                                    {p.name}
+                                  </h3>
+                                  <span style={{ fontSize: '0.625rem', fontWeight: 800, color: roleBadge.color, background: roleBadge.bg, border: `1px solid ${roleBadge.border}`, padding: '1px 6px', borderRadius: '5px' }}>
+                                    {roleBadge.label}
+                                  </span>
+                                  <span style={{ fontSize: '0.625rem', fontWeight: 700, color: p.is_direct ? '#15803D' : '#64748B', background: p.is_direct ? '#F0FDF4' : '#F8FAFC', border: '1px solid #E2E8F0', padding: '1px 6px', borderRadius: '5px' }}>
+                                    {p.is_direct ? '⭐ Directly Under You' : `🔗 Under: ${p.creator_name || p.creator_id}`}
+                                  </span>
                                 </div>
 
-                                {/* EXPANDED INLINE TRANSACTIONS & PROFIT AUDIT */}
-                                {isExpanded && (
-                                  <div style={{ padding: '0.75rem', background: '#FFFFFF', borderTop: '1px solid #DBEAFE' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.625rem', paddingBottom: '0.5rem', borderBottom: '1px solid #F1F5F9' }}>
-                                      <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#334155' }}>
-                                        Daily Work &amp; Your Profit
-                                      </span>
-                                      <span style={{ fontSize: '0.65rem', color: '#64748B' }}>
-                                        Profit Rate: <strong style={{ color: '#059669' }}>{networkData.commission_rate_pct}%</strong>
-                                      </span>
+                                {/* ID and Phone Strip */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', fontSize: '0.71875rem', color: '#64748B' }}>
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                    <span>ID:</span>
+                                    <strong style={{ fontFamily: 'monospace', color: '#0F52BA' }}>{p.id}</strong>
+                                    <button 
+                                      onClick={() => {
+                                        navigator.clipboard.writeText(p.id);
+                                        showToast(`✓ ID ${p.id} copied!`);
+                                      }}
+                                      title="Copy ID"
+                                      style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: 0, display: 'inline-flex', alignItems: 'center' }}
+                                    >
+                                      <Copy style={{ width: '11px', height: '11px' }} />
+                                    </button>
+                                  </span>
+
+                                  <span>•</span>
+
+                                  <a 
+                                    href={`tel:${p.mobile}`} 
+                                    style={{ color: '#0F172A', textDecoration: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                                  >
+                                    <Phone style={{ width: '12px', height: '12px', color: '#0F52BA' }} />
+                                    <span>{p.mobile}</span>
+                                  </a>
+
+                                  <a 
+                                    href={`https://api.whatsapp.com/send?phone=91${p.mobile}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    title="Chat on WhatsApp"
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', color: '#16A34A', textDecoration: 'none', fontWeight: 700, background: '#F0FDF4', padding: '1px 6px', borderRadius: '4px' }}
+                                  >
+                                    <Share2 style={{ width: '11px', height: '11px' }} />
+                                    <span>WhatsApp</span>
+                                  </a>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Lifetime Earnings Badge */}
+                            <div style={{ textAlign: 'right' }}>
+                              <span style={{ fontSize: '0.625rem', fontWeight: 700, color: '#64748B', display: 'block', textTransform: 'uppercase' }}>
+                                My Earnings From This Person
+                              </span>
+                              <div style={{ fontSize: '1.125rem', fontWeight: 900, color: '#059669', letterSpacing: '-0.01em' }}>
+                                +₹{(p.commission_earned || 0).toFixed(2)}
+                              </div>
+                              <span style={{ fontSize: '0.625rem', color: '#0F52BA', fontWeight: 800, background: '#EFF6FF', padding: '1px 6px', borderRadius: '4px' }}>
+                                {p.commission_rate_pct}% Your Cut Rate
+                              </span>
+                            </div>
+
+                          </div>
+                        </div>
+
+                        {/* HARDWARE & POS MACHINE SPECS SURFACE */}
+                        <div style={{ padding: '0.625rem 1rem', background: '#F8FAFC', borderBottom: '1px solid #F1F5F9' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem', fontSize: '0.6875rem' }}>
+                            <div>
+                              <span style={{ color: '#64748B', display: 'block', fontSize: '0.59rem', fontWeight: 700 }}>POS Machine</span>
+                              <strong style={{ color: '#0F172A' }}>🌲 {p.pos_provider || 'Pine Labs POS'}</strong>
+                            </div>
+
+                            <div>
+                              <span style={{ color: '#64748B', display: 'block', fontSize: '0.59rem', fontWeight: 700 }}>Terminal ID (TID)</span>
+                              <strong style={{ fontFamily: 'monospace', color: '#0F52BA', fontWeight: 800 }}>
+                                {p.pos_terminal || (p.role === 'MERCHANT' ? 'PL-7796' : 'Franchise Node')}
+                              </strong>
+                            </div>
+
+                            <div>
+                              <span style={{ color: '#64748B', display: 'block', fontSize: '0.59rem', fontWeight: 700 }}>Device Plan</span>
+                              <strong style={{ color: '#0F172A' }}>{p.pos_plan || 'RENTAL'} (₹{p.monthly_rent || 499}/mo)</strong>
+                            </div>
+
+                            <div>
+                              <span style={{ color: '#64748B', display: 'block', fontSize: '0.59rem', fontWeight: 700 }}>Settlement Model</span>
+                              <strong style={{ color: '#059669' }}>⚡ {p.settlement_type || 'T+1'} Auto Payout</strong>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* FINANCIAL & VOLUME PILLARS */}
+                        <div style={{ padding: '0.75rem 1rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', alignItems: 'center', borderBottom: '1px solid #F1F5F9' }}>
+                          <div>
+                            <span style={{ fontSize: '0.625rem', fontWeight: 700, color: '#64748B', display: 'block' }}>Total Sales Done</span>
+                            <strong style={{ fontSize: '0.875rem', fontWeight: 900, color: '#0F172A' }}>
+                              ₹{(p.total_volume || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </strong>
+                          </div>
+
+                          <div>
+                            <span style={{ fontSize: '0.625rem', fontWeight: 700, color: '#64748B', display: 'block' }}>Today's Sales Done</span>
+                            <strong style={{ fontSize: '0.875rem', fontWeight: 900, color: '#475569' }}>
+                              ₹{(p.today_volume || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </strong>
+                          </div>
+
+                          <div>
+                            <span style={{ fontSize: '0.625rem', fontWeight: 700, color: '#64748B', display: 'block' }}>Today's Profit to You</span>
+                            <strong style={{ fontSize: '0.875rem', fontWeight: 900, color: '#059669' }}>
+                              +₹{(p.today_profit || 0).toFixed(2)}
+                            </strong>
+                          </div>
+
+                          <div>
+                            <span style={{ fontSize: '0.625rem', fontWeight: 700, color: '#64748B', display: 'block' }}>Total Swipes / Txns</span>
+                            <strong style={{ fontSize: '0.875rem', fontWeight: 900, color: '#0F52BA' }}>
+                              {p.txn_count || 0} Transactions
+                            </strong>
+                          </div>
+                        </div>
+
+                        {/* ACCORDION TOGGLE BUTTON FOR LIVE TRANSACTIONS */}
+                        <div 
+                          onClick={() => togglePartnerExpand(p)}
+                          style={{
+                            padding: '0.625rem 1rem',
+                            background: isExpanded ? '#EFF6FF' : '#FFFFFF',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            cursor: 'pointer',
+                            fontSize: '0.75rem',
+                            fontWeight: 800,
+                            color: isExpanded ? '#0F52BA' : '#475569'
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <CreditCard style={{ width: '15px', height: '15px', color: '#0F52BA' }} />
+                            <span>View Live Customer Swipes &amp; Profit Breakdown ({p.txn_count || 0})</span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: isExpanded ? '#0F52BA' : '#94A3B8' }}>
+                            <span>{isExpanded ? 'Hide Swipes' : 'Show Swipes'}</span>
+                            {isExpanded ? <ChevronUp style={{ width: '16px', height: '16px' }} /> : <ChevronDown style={{ width: '16px', height: '16px' }} />}
+                          </div>
+                        </div>
+
+                        {/* EXPANDED LIVE TRANSACTIONS LEDGER */}
+                        {isExpanded && (
+                          <div style={{ padding: '0.875rem 1rem', background: '#FFFFFF', borderTop: '1px solid #DBEAFE' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.625rem', paddingBottom: '0.5rem', borderBottom: '1px solid #F1F5F9' }}>
+                              <span style={{ fontSize: '0.71875rem', fontWeight: 800, color: '#334155' }}>
+                                Customer Swipes &amp; Your Profit Ledger
+                              </span>
+                              <span style={{ fontSize: '0.65rem', color: '#64748B' }}>
+                                Your Profit Rate: <strong style={{ color: '#059669' }}>{p.commission_rate_pct}% margin</strong>
+                              </span>
+                            </div>
+
+                            {isLoadingPartnerTxns ? (
+                              <div style={{ textAlign: 'center', padding: '1.5rem 0', color: '#64748B' }}>
+                                <RefreshCw style={{ width: '18px', height: '18px', animation: 'spin 1s linear infinite', margin: '0 auto 0.35rem' }} />
+                                <p style={{ margin: 0, fontSize: '0.75rem' }}>Loading live transactions...</p>
+                              </div>
+                            ) : partnerTxns.length === 0 ? (
+                              <div style={{ textAlign: 'center', padding: '1.5rem 0.5rem', color: '#94A3B8' }}>
+                                <CreditCard style={{ width: '28px', height: '28px', margin: '0 auto 0.35rem', opacity: 0.5 }} />
+                                <p style={{ margin: 0, fontSize: '0.78125rem', fontWeight: 600, color: '#475569' }}>No card swipes or bill payments recorded yet.</p>
+                                <span style={{ fontSize: '0.65rem', color: '#64748B' }}>When this member swipes a customer card, your profit cut will appear right here in real time!</span>
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                {partnerTxns.map((t) => (
+                                  <div 
+                                    key={t.id}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      padding: '0.625rem 0.75rem',
+                                      background: '#F8FAFC',
+                                      borderRadius: '10px',
+                                      border: '1px solid #E2E8F0',
+                                      flexWrap: 'wrap',
+                                      gap: '0.5rem'
+                                    }}
+                                  >
+                                    <div>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '2px' }}>
+                                        <span style={{ fontSize: '0.78125rem', fontWeight: 800, color: '#0F172A' }}>
+                                          {t.type === 'BBPS_BILL' ? '⚡ Utility Bill' : '💳 POS Card Swipe'}
+                                        </span>
+                                        <span style={{ fontSize: '0.59rem', color: '#0F52BA', background: '#EFF6FF', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>
+                                          {t.provider || 'Pine Labs'}
+                                        </span>
+                                        <span style={{ fontSize: '0.59rem', color: '#15803D', background: '#ECFDF5', padding: '1px 5px', borderRadius: '4px', fontWeight: 800 }}>
+                                          ✓ Settled (T+1)
+                                        </span>
+                                      </div>
+
+                                      <div style={{ fontSize: '0.65rem', color: '#64748B' }}>
+                                        <strong style={{ fontFamily: 'monospace', color: '#475569' }}>{t.id}</strong> • Customer: <strong>{t.customer_mobile || 'Walk-in'}</strong> • {new Date(t.created_at || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}, {new Date(t.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      </div>
                                     </div>
 
-                                    {isLoadingPartnerTxns ? (
-                                      <div style={{ textAlign: 'center', padding: '1.5rem 0', color: '#64748B' }}>
-                                        <RefreshCw style={{ width: '18px', height: '18px', animation: 'spin 1s linear infinite', margin: '0 auto 0.35rem' }} />
-                                        <p style={{ margin: 0, fontSize: '0.75rem' }}>Loading sales &amp; profit...</p>
+                                    <div style={{ textAlign: 'right' }}>
+                                      <div style={{ fontSize: '0.71875rem', color: '#475569' }}>
+                                        Swipe Amount: <strong>₹{parseFloat(t.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
                                       </div>
-                                    ) : partnerTxns.length === 0 ? (
-                                      <div style={{ textAlign: 'center', padding: '1.25rem 0.5rem', color: '#94A3B8' }}>
-                                        <CreditCard style={{ width: '26px', height: '26px', margin: '0 auto 0.35rem', opacity: 0.5 }} />
-                                        <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 600 }}>No card swipes or bill payments done yet.</p>
-                                        <span style={{ fontSize: '0.625rem' }}>When this shop owner makes a sale, you will see your profit cut right here!</span>
+                                      <div style={{ fontSize: '0.875rem', fontWeight: 900, color: '#059669' }}>
+                                        +₹{t.commission_profit.toFixed(2)} Profit
                                       </div>
-                                    ) : (
-                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                        {partnerTxns.map((t) => (
-                                          <div 
-                                            key={t.id}
-                                            style={{
-                                              display: 'flex',
-                                              alignItems: 'center',
-                                              justifyContent: 'space-between',
-                                              padding: '0.5rem 0.625rem',
-                                              background: '#F8FAFC',
-                                              borderRadius: '8px',
-                                              border: '1px solid #E2E8F0'
-                                            }}
-                                          >
-                                            <div>
-                                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                                                <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A' }}>
-                                                  {t.type === 'BBPS_BILL' ? '⚡ Bill Payment' : '💳 Card Swipe'}
-                                                </span>
-                                                <span style={{ fontSize: '0.5625rem', color: '#64748B' }}>
-                                                  ({t.provider || 'Terminal'})
-                                                </span>
-                                              </div>
-                                              <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
-                                                {new Date(t.created_at || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric' })}, {new Date(t.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • Customer: {t.customer_mobile || 'Walk-in'}
-                                              </span>
-                                            </div>
-
-                                            <div style={{ textAlign: 'right' }}>
-                                              <div style={{ fontSize: '0.6875rem', color: '#475569' }}>
-                                                Sale: <strong>₹{parseFloat(t.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
-                                              </div>
-                                              <div style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#059669' }}>
-                                                +₹{t.commission_profit.toFixed(2)} Profit
-                                              </div>
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
+                                      <span style={{ fontSize: '0.5625rem', color: '#64748B' }}>
+                                        (₹{parseFloat(t.amount).toLocaleString('en-IN')} × {t.commission_rate_pct}% margin)
+                                      </span>
+                                    </div>
                                   </div>
-                                )}
+                                ))}
                               </div>
-                            );
-                          })
+                            )}
+                          </div>
                         )}
-                      </div>
-                    </div>
 
-                  </div>
-                </>
-              )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
 
             </div>
           )}
@@ -3549,30 +3831,20 @@ export default function MerchantDashboardPage({ user, onLogout }) {
         </button>
 
         <button 
-          onClick={() => setActiveTab('withdraw')} 
-          style={{ background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', color: activeTab === 'withdraw' ? '#059669' : '#64748B', cursor: 'pointer', fontSize: '0.625rem', fontWeight: 700 }}
+          onClick={() => setActiveTab('network')} 
+          style={{ background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', color: activeTab === 'network' ? '#0F52BA' : '#64748B', cursor: 'pointer', fontSize: '0.625rem', fontWeight: 700 }}
         >
-          <Send style={{ width: '18px', height: '18px' }} />
-          Withdraw
+          <Users style={{ width: '18px', height: '18px' }} />
+          My People
         </button>
 
-        {userRole !== 'MERCHANT' && userRole !== 'Retailer' ? (
-          <button 
-            onClick={() => setActiveTab('network')} 
-            style={{ background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', color: activeTab === 'network' ? '#0F52BA' : '#64748B', cursor: 'pointer', fontSize: '0.625rem', fontWeight: 700 }}
-          >
-            <Users style={{ width: '18px', height: '18px' }} />
-            Network
-          </button>
-        ) : (
-          <button 
-            onClick={() => setActiveTab('history')} 
-            style={{ background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', color: activeTab === 'history' ? '#0F52BA' : '#64748B', cursor: 'pointer', fontSize: '0.625rem', fontWeight: 700 }}
-          >
-            <History style={{ width: '18px', height: '18px' }} />
-            History
-          </button>
-        )}
+        <button 
+          onClick={() => setActiveTab('history')} 
+          style={{ background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', color: activeTab === 'history' ? '#0F52BA' : '#64748B', cursor: 'pointer', fontSize: '0.625rem', fontWeight: 700 }}
+        >
+          <History style={{ width: '18px', height: '18px' }} />
+          History
+        </button>
       </nav>
 
       {/* 4. MODAL: LINK NEW BANK ACCOUNT (Contained Searchable Design) */}

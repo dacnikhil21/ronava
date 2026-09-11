@@ -963,70 +963,157 @@ export async function getMerchantTransactions(merchantId) {
 // ----------------------------------------------------
 export async function getDownstreamNetwork(creatorId) {
   try {
-    const [creatorRes, partnersRes, txnsRes, walletsRes, posRes] = await Promise.all([
-      supabase.from('users').select('*').eq('id', creatorId).maybeSingle(),
-      supabase.from('users').select('*').eq('creator_id', creatorId).order('created_at', { ascending: false }),
-      supabase.from('transactions').select('*'),
+    const [allUsersRes, txnsRes, walletsRes, posRes] = await Promise.all([
+      supabase.from('users').select('*'),
+      supabase.from('transactions').select('*').order('created_at', { ascending: false }),
       supabase.from('wallets').select('*'),
       supabase.from('merchant_pos').select('*')
     ]);
 
-    const creator = creatorRes.data || null;
-    const partners = partnersRes.data || [];
+    const allUsers = allUsersRes.data || [];
     const allTxns = txnsRes.data || [];
     const wallets = walletsRes.data || [];
     const posList = posRes.data || [];
 
+    const creator = allUsers.find(u => u.id === creatorId) || null;
     const walletMap = {};
     wallets.forEach(w => { walletMap[w.user_id] = w; });
 
     const posMap = {};
     posList.forEach(p => { posMap[p.merchant_id] = p; });
 
-    const creatorRole = creator?.role || 'DISTRIBUTOR';
-    const commissionRatePct = creatorRole === 'SUPER_DISTRIBUTOR' ? 0.50 : 0.25;
+    const userMap = {};
+    allUsers.forEach(u => { userMap[u.id] = u; });
 
+    // Determine viewing creator's default commission rate:
+    // Super Distributor: 0.15% override
+    // District Distributor: 0.08% override
+    // Area Distributor: 0.25% retail commission
+    const isSD = creatorId.startsWith('SD') || creator?.role === 'SUPER_DISTRIBUTOR';
+    const isDD = creatorId.startsWith('DD') || creatorId.startsWith('DF') || creator?.role === 'DIST_FRANCHISE' || creator?.role === 'DISTRICT_DISTRIBUTOR';
+    const commissionRatePct = isSD ? 0.15 : (isDD ? 0.08 : 0.25);
+
+    // Recursively gather all downstream users under creatorId
+    const downstreamIds = new Set();
+    const queue = [creatorId];
+    while (queue.length > 0) {
+      const parentId = queue.shift();
+      const children = allUsers.filter(u => u.creator_id === parentId);
+      children.forEach(c => {
+        if (!downstreamIds.has(c.id)) {
+          downstreamIds.add(c.id);
+          queue.push(c.id);
+        }
+      });
+    }
+
+    const downstreamUsers = allUsers.filter(u => downstreamIds.has(u.id));
     const todayStr = new Date().toISOString().slice(0, 10);
-    let todayProfit = 0;
 
-    const enrichedPartners = partners.map(p => {
+    // Helper to find all merchant IDs under any given user (including themselves if merchant)
+    const getMerchantsUnderUser = (rootId) => {
+      const uObj = userMap[rootId];
+      if (!uObj) return [];
+      if (uObj.role === 'MERCHANT' || rootId.startsWith('MID')) {
+        return [rootId];
+      }
+      const mList = [];
+      const q = [rootId];
+      while (q.length > 0) {
+        const pId = q.shift();
+        const ch = allUsers.filter(u => u.creator_id === pId);
+        ch.forEach(c => {
+          if (c.role === 'MERCHANT' || c.id.startsWith('MID')) {
+            mList.push(c.id);
+          } else {
+            q.push(c.id);
+          }
+        });
+      }
+      return mList;
+    };
+
+    const enrichedPartners = downstreamUsers.map(p => {
       const w = walletMap[p.id] || {};
       const pos = posMap[p.id] || {};
-      const pTxns = allTxns.filter(t => t.merchant_id === p.id);
+      const isDirect = p.creator_id === creatorId;
+      const directParent = userMap[p.creator_id];
 
-      const count = pTxns.length;
-      const volume = pTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-      const commissionEarned = (volume * commissionRatePct) / 100;
+      // Find all merchants contributing volume to this partner card
+      const merchantIds = getMerchantsUnderUser(p.id);
+      const partnerTxns = allTxns.filter(t => merchantIds.includes(t.merchant_id));
 
-      const todayTxns = pTxns.filter(t => (t.created_at || '').slice(0, 10) === todayStr);
+      const totalVolume = partnerTxns
+        .filter(t => t.status === 'APPROVED')
+        .reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+
+      // Determine the exact commission percentage the viewer earns from this partner
+      let partnerCommRatePct = commissionRatePct;
+      if (p.role === 'MERCHANT' || p.id.startsWith('MID')) {
+        if (isDirect && !isSD && !isDD) {
+          partnerCommRatePct = 0.25; // Direct Area Distributor cut
+        } else if (isDirect && isSD) {
+          partnerCommRatePct = 0.40; // Direct Retail from SD
+        } else if (isDD) {
+          partnerCommRatePct = 0.08; // District Override
+        } else if (isSD) {
+          partnerCommRatePct = 0.15; // Super Dist Override
+        }
+      } else {
+        // Intermediary partner (DD or DIST): The viewer's override on that branch
+        if (isSD) partnerCommRatePct = 0.15;
+        else if (isDD) partnerCommRatePct = 0.08;
+      }
+
+      const commissionEarned = parseFloat(((totalVolume * partnerCommRatePct) / 100).toFixed(2));
+
+      const todayTxns = partnerTxns.filter(t => (t.created_at || '').slice(0, 10) === todayStr && t.status === 'APPROVED');
       const todayVol = todayTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-      const partnerTodayProfit = (todayVol * commissionRatePct) / 100;
-      todayProfit += partnerTodayProfit;
+      const partnerTodayProfit = parseFloat(((todayVol * partnerCommRatePct) / 100).toFixed(2));
 
       return {
         ...p,
+        is_direct: isDirect,
+        creator_name: directParent ? directParent.name : 'You (Direct)',
+        creator_id: p.creator_id,
         available_balance: w.available_balance || 0,
-        total_sales: w.total_sales || 0,
+        total_sales: totalVolume || w.total_sales || 0,
         received_sales: w.received_sales || 0,
         pos_provider: pos.provider || null,
         pos_terminal: pos.terminal_id || null,
-        txn_count: count,
-        total_volume: volume,
-        commission_earned: parseFloat(commissionEarned.toFixed(2)),
-        commission_rate_pct: commissionRatePct
+        pos_plan: pos.device_plan || 'RENTAL',
+        monthly_rent: pos.monthly_rent || 499,
+        settlement_type: pos.settlement_type || 'T1',
+        txn_count: partnerTxns.length,
+        total_volume: totalVolume,
+        commission_earned: commissionEarned,
+        commission_rate_pct: partnerCommRatePct,
+        today_volume: todayVol,
+        today_profit: partnerTodayProfit
       };
     });
 
-    const totalCommission = enrichedPartners.reduce((acc, p) => acc + p.commission_earned, 0);
+    // Calculate total unique downline merchant volume for true overall commission
+    const allUniqueDownlineMerchantIds = Array.from(new Set(
+      downstreamUsers.filter(u => u.role === 'MERCHANT' || u.id.startsWith('MID')).map(u => u.id)
+    ));
+    const uniqueMerchantTxns = allTxns.filter(t => allUniqueDownlineMerchantIds.includes(t.merchant_id) && t.status === 'APPROVED');
+    const totalDownlineVolume = uniqueMerchantTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+    const totalCommissionAll = parseFloat(((totalDownlineVolume * commissionRatePct) / 100).toFixed(2));
+    
+    const todayUniqueTxns = uniqueMerchantTxns.filter(t => (t.created_at || '').slice(0, 10) === todayStr);
+    const todayDownlineVol = todayUniqueTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+    const todayProfitAll = parseFloat(((todayDownlineVol * commissionRatePct) / 100).toFixed(2));
 
     return {
       success: true,
       creator,
+      creator_pos: posMap[creatorId] || null,
       commission_rate_pct: commissionRatePct,
       partners: enrichedPartners,
       total_partners: enrichedPartners.length,
-      total_commission_earned: parseFloat(totalCommission.toFixed(2)),
-      today_network_profit: parseFloat(todayProfit.toFixed(2))
+      total_commission_earned: totalCommissionAll,
+      today_network_profit: todayProfitAll
     };
   } catch (err) {
     console.error('getDownstreamNetwork error:', err);
@@ -1036,25 +1123,57 @@ export async function getDownstreamNetwork(creatorId) {
 
 export async function getPartnerTransactions(creatorId, partnerId) {
   try {
-    const [partnerRes, creatorRes, txnsRes] = await Promise.all([
-      supabase.from('users').select('*').eq('id', partnerId).maybeSingle(),
-      creatorId ? supabase.from('users').select('*').eq('id', creatorId).maybeSingle() : Promise.resolve({ data: null }),
-      supabase.from('transactions').select('*').eq('merchant_id', partnerId).order('created_at', { ascending: false })
+    const [allUsersRes, txnsRes] = await Promise.all([
+      supabase.from('users').select('*'),
+      supabase.from('transactions').select('*').order('created_at', { ascending: false })
     ]);
 
-    const partner = partnerRes.data;
-    const creator = creatorRes.data;
-    const creatorRole = creator?.role || 'DISTRIBUTOR';
-    const commissionRatePct = creatorRole === 'SUPER_DISTRIBUTOR' ? 0.50 : 0.25;
+    const allUsers = allUsersRes.data || [];
+    const allTxns = txnsRes.data || [];
+    const userMap = {};
+    allUsers.forEach(u => { userMap[u.id] = u; });
 
-    const txns = txnsRes.data || [];
-    const enrichedTxns = txns.map(t => {
+    const partner = userMap[partnerId];
+    const isSD = creatorId.startsWith('SD');
+    const isDD = creatorId.startsWith('DD') || creatorId.startsWith('DF');
+    const isDirect = partner?.creator_id === creatorId;
+    const commRate = isDirect && !isSD && !isDD ? 0.25 : (isDD ? 0.08 : (isSD ? 0.15 : 0.25));
+
+    // Gather all merchant IDs under partnerId
+    const getMerchantsUnderUser = (rootId) => {
+      const uObj = userMap[rootId];
+      if (!uObj) return [];
+      if (uObj.role === 'MERCHANT' || rootId.startsWith('MID')) {
+        return [rootId];
+      }
+      const mList = [];
+      const q = [rootId];
+      while (q.length > 0) {
+        const pId = q.shift();
+        const ch = allUsers.filter(u => u.creator_id === pId);
+        ch.forEach(c => {
+          if (c.role === 'MERCHANT' || c.id.startsWith('MID')) {
+            mList.push(c.id);
+          } else {
+            q.push(c.id);
+          }
+        });
+      }
+      return mList;
+    };
+
+    const mIds = getMerchantsUnderUser(partnerId);
+    const relevantTxns = allTxns.filter(t => mIds.includes(t.merchant_id));
+
+    const enrichedTxns = relevantTxns.map(t => {
       const amt = parseFloat(t.amount) || 0;
-      const profit = (amt * commissionRatePct) / 100;
+      const profit = (amt * commRate) / 100;
+      const mObj = userMap[t.merchant_id];
       return {
         ...t,
+        merchant_name: mObj ? mObj.name : t.merchant_id,
         commission_profit: parseFloat(profit.toFixed(2)),
-        commission_rate_pct: commissionRatePct
+        commission_rate_pct: commRate
       };
     });
 
@@ -1067,7 +1186,7 @@ export async function getPartnerTransactions(creatorId, partnerId) {
       transactions: enrichedTxns,
       total_sales: totalPartnerSales,
       total_profit_earned: parseFloat(totalProfitEarned.toFixed(2)),
-      commission_rate_pct: commissionRatePct
+      commission_rate_pct: commRate
     };
   } catch (err) {
     console.error('getPartnerTransactions error:', err);
