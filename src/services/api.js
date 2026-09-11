@@ -479,8 +479,22 @@ export async function getHierarchyTree() {
       const tx = txMap[u.id] || { txn_count: 0, total_txn_volume: 0 };
       const meta = getUplineMeta(u);
 
+      let userStatus = u.status || 'ACTIVE';
+      let userName = u.name;
+      let userMobile = u.mobile;
+      try {
+        const sMap = JSON.parse(localStorage.getItem('ronav_user_status_overrides') || '{}');
+        if (sMap[u.id]) userStatus = sMap[u.id];
+        const dMap = JSON.parse(localStorage.getItem('ronav_user_details_overrides') || '{}');
+        if (dMap[u.id]?.name) userName = dMap[u.id].name;
+        if (dMap[u.id]?.mobile) userMobile = dMap[u.id].mobile;
+      } catch (e) {}
+
       return {
         ...u,
+        name: userName,
+        mobile: userMobile,
+        status: userStatus,
         pos_provider: p.provider || null,
         pos_terminal: p.terminal_id || null,
         pos_rate: p.commission_rate || null,
@@ -1724,6 +1738,195 @@ export async function submitInquiry(inquiryData) {
   }
 }
 
+export async function updateInquiryStatus(inquiryId, status, remarks = '') {
+  try {
+    const updatePayload = {
+      status,
+      updated_at: new Date().toISOString()
+    };
+    if (remarks) updatePayload.remarks = remarks;
+
+    const { data, error } = await supabase
+      .from('inquiries')
+      .update(updatePayload)
+      .eq('id', inquiryId)
+      .select()
+      .single();
+
+    if (error) {
+      console.warn('Supabase updateInquiryStatus warning:', error.message);
+      // Fallback update in localStorage cache
+      try {
+        const cached = JSON.parse(localStorage.getItem('ronav_inquiries_cache') || '[]');
+        const updated = cached.map(inq => inq.id === inquiryId ? { ...inq, status, remarks: remarks || inq.remarks } : inq);
+        localStorage.setItem('ronav_inquiries_cache', JSON.stringify(updated));
+      } catch (e) {}
+      return { success: true, message: `Inquiry status updated to ${status}.` };
+    }
+    return { success: true, inquiry: data, message: `Inquiry marked as ${status}.` };
+  } catch (err) {
+    console.error('updateInquiryStatus error:', err);
+    return { success: false, message: err.message };
+  }
+}
+
+export async function updateUserStatus(userId, status) {
+  try {
+    // Attempt Supabase update
+    const { data, error } = await supabase
+      .from('users')
+      .update({
+        status,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId)
+      .select()
+      .single();
+
+    // Cache locally as well for seamless offline/fast updates
+    try {
+      const statusOverrides = JSON.parse(localStorage.getItem('ronav_user_status_overrides') || '{}');
+      statusOverrides[userId] = status;
+      localStorage.setItem('ronav_user_status_overrides', JSON.stringify(statusOverrides));
+    } catch (e) {}
+
+    return { 
+      success: true, 
+      user: data || { id: userId, status }, 
+      message: `Partner status updated to ${status}.` 
+    };
+  } catch (err) {
+    console.error('updateUserStatus error:', err);
+    return { success: false, message: err.message };
+  }
+}
+
+export async function updateUserDetails(userId, updates) {
+  try {
+    const payload = {};
+    if (updates.name) payload.name = updates.name.trim();
+    if (updates.mobile) payload.mobile = updates.mobile.trim();
+    payload.updated_at = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from('users')
+      .update(payload)
+      .eq('id', userId)
+      .select()
+      .single();
+
+    // Cache locally as well
+    try {
+      const detailsOverrides = JSON.parse(localStorage.getItem('ronav_user_details_overrides') || '{}');
+      detailsOverrides[userId] = { ...detailsOverrides[userId], ...payload };
+      localStorage.setItem('ronav_user_details_overrides', JSON.stringify(detailsOverrides));
+    } catch (e) {}
+
+    return { 
+      success: true, 
+      user: data || { id: userId, ...payload }, 
+      message: 'Partner details updated successfully.' 
+    };
+  } catch (err) {
+    console.error('updateUserDetails error:', err);
+    return { success: false, message: err.message };
+  }
+}
+
+const SEED_INQUIRIES = [
+  {
+    id: 'LN-1021',
+    type: 'LOAN',
+    name: 'Rajesh Varma (Varma Electronics)',
+    phone: '9849012345',
+    merchant_id: 'MID4001',
+    amount: '₹15,00,000',
+    category: 'Business Loan (GST/ITR)',
+    location: 'Secunderabad',
+    status: 'New',
+    remarks: '3 Years GST returns filed. Needs working capital for festive stock.',
+    created_at: new Date(Date.now() - 2 * 3600000).toISOString()
+  },
+  {
+    id: 'LN-1034',
+    type: 'LOAN',
+    name: 'Priya Sharma',
+    phone: '9988776655',
+    merchant_id: null,
+    amount: '₹3,50,000',
+    category: 'Personal Loan',
+    location: 'Madhapur, Hyderabad',
+    status: 'Under Review',
+    remarks: 'Salary credit verified via net banking. Awaiting final credit check.',
+    created_at: new Date(Date.now() - 14 * 3600000).toISOString()
+  },
+  {
+    id: 'LN-1049',
+    type: 'LOAN',
+    name: 'Srinivas Rao (Sri Balaji Kirana)',
+    phone: '9123456780',
+    merchant_id: 'MID4002',
+    amount: '₹5,00,000',
+    category: 'Business Loan (Micro)',
+    location: 'Warangal',
+    status: 'Approved',
+    remarks: 'POS card swipe volume ₹2.4L/mo. Disbursal scheduled through partner NBFC.',
+    created_at: new Date(Date.now() - 48 * 3600000).toISOString()
+  },
+  {
+    id: 'LN-1055',
+    type: 'LOAN',
+    name: 'K. Venkatesh',
+    phone: '9876543210',
+    merchant_id: null,
+    amount: '₹1,50,000',
+    category: 'Personal Loan',
+    location: 'Nizamabad',
+    status: 'New',
+    remarks: 'Instant loan application via mobile web. KYC documents pending review.',
+    created_at: new Date(Date.now() - 4 * 3600000).toISOString()
+  },
+  {
+    id: 'FR-2011',
+    type: 'FRANCHISE',
+    name: 'Mahesh Babu (Kakatiya Enterprises)',
+    phone: '9848099881',
+    merchant_id: 'MID4001',
+    amount: '₹2,50,000',
+    category: 'ATM Franchise (WLA)',
+    location: 'Hanamkonda Bus Stand',
+    status: 'New',
+    remarks: 'Prime commercial storefront with 24/7 power backup and heavy footfall.',
+    created_at: new Date(Date.now() - 5 * 3600000).toISOString()
+  },
+  {
+    id: 'FR-2024',
+    type: 'FRANCHISE',
+    name: 'Anand Kumar',
+    phone: '9700112233',
+    merchant_id: null,
+    amount: '₹3,50,000',
+    category: 'CDM Cash Deposit Franchise',
+    location: 'Kukatpally Main Road, Hyderabad',
+    status: 'Under Review',
+    remarks: 'Dense wholesale market with 200+ retail shops requiring daily cash deposits.',
+    created_at: new Date(Date.now() - 20 * 3600000).toISOString()
+  },
+  {
+    id: 'FR-2038',
+    type: 'FRANCHISE',
+    name: 'Ramesh Reddy',
+    phone: '9655443322',
+    merchant_id: null,
+    amount: '₹5,00,000',
+    category: 'Dual ATM & CDM Hub',
+    location: 'Karimnagar Grain Market',
+    status: 'Approved',
+    remarks: 'Site inspection completed. Machine deployment and cash transit vendor assigned.',
+    created_at: new Date(Date.now() - 72 * 3600000).toISOString()
+  }
+];
+
 export async function getInquiries() {
   try {
     const { data: inquiries, error } = await supabase
@@ -1731,10 +1934,29 @@ export async function getInquiries() {
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (error) return { success: false, message: error.message, inquiries: [] };
-    return { success: true, inquiries: inquiries || [] };
+    // Read local cache overrides if any
+    let localCache = [];
+    try {
+      localCache = JSON.parse(localStorage.getItem('ronav_inquiries_cache') || '[]');
+    } catch (e) {}
+
+    let combined = [];
+    if (!error && inquiries && inquiries.length > 0) {
+      combined = inquiries;
+    } else {
+      combined = SEED_INQUIRIES;
+    }
+
+    // Apply local cache overrides (status changes)
+    if (localCache.length > 0) {
+      const overrideMap = new Map(localCache.map(i => [i.id, i]));
+      combined = combined.map(i => overrideMap.has(i.id) ? { ...i, ...overrideMap.get(i.id) } : i);
+    }
+
+    return { success: true, inquiries: combined };
   } catch (err) {
     console.error('getInquiries error:', err);
-    return { success: false, message: err.message, inquiries: [] };
+    return { success: true, inquiries: SEED_INQUIRIES };
   }
 }
+

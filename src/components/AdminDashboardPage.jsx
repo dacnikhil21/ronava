@@ -5,7 +5,8 @@ import {
   Copy, Search, X, TrendingUp, CheckCircle2, Clock, LogOut, 
   Shield, Activity, PlusCircle, RefreshCw, GitFork, Layers, 
   Store, Briefcase, ShieldCheck, ArrowRight, ArrowLeft,
-  Check, Phone, DollarSign, ArrowUpRight, Zap
+  Check, Phone, DollarSign, ArrowUpRight, Zap,
+  Download, Edit3, UserCheck, UserX, FileText, MapPin, BadgeCheck
 } from 'lucide-react';
 import { 
   getAdminPending, 
@@ -14,6 +15,9 @@ import {
   createDownstreamUser, 
   verifyWithdrawal,
   getInquiries,
+  updateInquiryStatus,
+  updateUserStatus,
+  updateUserDetails,
   getHierarchyTree,
   getBeneficiaries,
   getMerchantWithdrawals
@@ -22,7 +26,7 @@ import { subscribeToAdminFeed } from '../services/supabase';
 import RonavLogo from './RonavLogo';
 
 export default function AdminDashboardPage({ onLogout, onNavigate }) {
-  // Navigation View: 'overview' | 'super_distributors' | 'distributors' | 'merchants' | 'payouts'
+  // Navigation View: 'overview' | 'super_distributors' | 'district_distributors' | 'distributors' | 'merchants' | 'payouts' | 'loans' | 'franchises'
   const [activeTab, setActiveTab] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [tabLoading, setTabLoading] = useState(false);
@@ -34,6 +38,21 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   const [dossierHistory, setDossierHistory] = useState([]);
   const [dossierBeneficiaries, setDossierBeneficiaries] = useState([]);
   const [dossierWithdrawals, setDossierWithdrawals] = useState([]);
+
+  // Inquiries State (Loans & ATM/CDM Franchises)
+  const [inquiriesList, setInquiriesList] = useState([]);
+  const [inquiryStatusFilter, setInquiryStatusFilter] = useState('ALL'); // 'ALL' | 'New' | 'Under Review' | 'Approved' | 'Rejected'
+  
+  // Real-Time Date Range Filter
+  const [dateRangeFilter, setDateRangeFilter] = useState('ALL'); // 'ALL' | 'TODAY' | 'YESTERDAY' | 'WEEK' | 'MONTH'
+
+  // Edit Partner Modal State
+  const [editingPartner, setEditingPartner] = useState({
+    isOpen: false,
+    user: null,
+    name: '',
+    mobile: ''
+  });
 
   // Dynamic Data Stores
   const [networkUsers, setNetworkUsers] = useState([]);
@@ -99,11 +118,16 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   // Load Fresh Data from Backend
   const fetchAdminData = async () => {
     try {
-      const [pendingRes, usersRes, treeRes] = await Promise.all([
+      const [pendingRes, usersRes, treeRes, inqRes] = await Promise.all([
         getAdminPending().catch(() => ({ success: false })),
         getAllUsers().catch(() => ({ success: false })),
-        getHierarchyTree().catch(() => ({ success: false }))
+        getHierarchyTree().catch(() => ({ success: false })),
+        getInquiries().catch(() => ({ success: false, inquiries: [] }))
       ]);
+
+      if (inqRes && inqRes.inquiries) {
+        setInquiriesList(inqRes.inquiries);
+      }
 
       if (pendingRes && pendingRes.success) {
         setPendingTxns(pendingRes.pendingTransactions || []);
@@ -520,9 +544,194 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     );
   }, [merchantsList, searchQuery]);
 
-  // Combined Totals for Metrics
-  const totalVolumeDisplay = parseFloat(metrics.totalVolume || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
-  const adminProfitDisplay = parseFloat(metrics.adminNetProfit || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+  // Inquiries Subsets (Loans & Franchises)
+  const loansList = useMemo(() => {
+    return inquiriesList.filter(inq => inq.type === 'LOAN');
+  }, [inquiriesList]);
+
+  const franchisesList = useMemo(() => {
+    return inquiriesList.filter(inq => inq.type === 'FRANCHISE');
+  }, [inquiriesList]);
+
+  const pendingLoansCount = useMemo(() => {
+    return loansList.filter(l => l.status === 'New' || l.status === 'Under Review').length;
+  }, [loansList]);
+
+  const pendingFranchisesCount = useMemo(() => {
+    return franchisesList.filter(f => f.status === 'New' || f.status === 'Under Review').length;
+  }, [franchisesList]);
+
+  const displayedLoans = useMemo(() => {
+    return loansList.filter(l => {
+      const matchSearch = !searchQuery || 
+        l.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        l.phone?.includes(searchQuery) ||
+        l.location?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        l.category?.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchStatus = inquiryStatusFilter === 'ALL' || l.status === inquiryStatusFilter;
+      return matchSearch && matchStatus;
+    });
+  }, [loansList, searchQuery, inquiryStatusFilter]);
+
+  const displayedFranchises = useMemo(() => {
+    return franchisesList.filter(f => {
+      const matchSearch = !searchQuery || 
+        f.name?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        f.phone?.includes(searchQuery) ||
+        f.location?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        f.category?.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchStatus = inquiryStatusFilter === 'ALL' || f.status === inquiryStatusFilter;
+      return matchSearch && matchStatus;
+    });
+  }, [franchisesList, searchQuery, inquiryStatusFilter]);
+
+  // Date Range Filter Engine
+  const filteredData = useMemo(() => {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfYesterday = startOfToday - 86400000;
+    const startOfWeek = now.getTime() - 7 * 86400000;
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+
+    let txns = transactionsLedger || [];
+    let allVol = 0;
+    let allProfit = 0;
+
+    txns.forEach(t => {
+      const amt = parseFloat(t.amount) || 0;
+      if (t.status === 'APPROVED' || t.status === 'Success') {
+        allVol += amt;
+        const prov = t.provider || t.pos_provider || 'Pine Labs';
+        const rate = prov === 'Pine Labs' ? 0.0015 : 0.0005;
+        allProfit += amt * rate;
+      }
+    });
+
+    let filteredTxns = txns;
+    if (dateRangeFilter === 'TODAY') {
+      filteredTxns = txns.filter(t => new Date(t.created_at || Date.now()).getTime() >= startOfToday);
+    } else if (dateRangeFilter === 'YESTERDAY') {
+      filteredTxns = txns.filter(t => {
+        const time = new Date(t.created_at || Date.now()).getTime();
+        return time >= startOfYesterday && time < startOfToday;
+      });
+    } else if (dateRangeFilter === 'WEEK') {
+      filteredTxns = txns.filter(t => new Date(t.created_at || Date.now()).getTime() >= startOfWeek);
+    } else if (dateRangeFilter === 'MONTH') {
+      filteredTxns = txns.filter(t => new Date(t.created_at || Date.now()).getTime() >= startOfMonth);
+    }
+
+    let volume = 0;
+    let adminProfit = 0;
+    filteredTxns.forEach(t => {
+      const amt = parseFloat(t.amount) || 0;
+      if (t.status === 'APPROVED' || t.status === 'Success') {
+        volume += amt;
+        const prov = t.provider || t.pos_provider || 'Pine Labs';
+        const rate = prov === 'Pine Labs' ? 0.0015 : 0.0005;
+        adminProfit += amt * rate;
+      }
+    });
+
+    return {
+      transactions: filteredTxns,
+      volume,
+      adminProfit,
+      allVolume: allVol,
+      allAdminProfit: allProfit,
+      count: filteredTxns.length
+    };
+  }, [transactionsLedger, dateRangeFilter]);
+
+  // Combined Totals for Metrics (Dynamically respecting Date Filter)
+  const displayVolume = dateRangeFilter === 'ALL'
+    ? parseFloat(metrics.totalVolume || filteredData.allVolume || 0)
+    : filteredData.volume;
+  const displayAdminProfit = dateRangeFilter === 'ALL'
+    ? parseFloat(metrics.adminNetProfit || filteredData.allAdminProfit || 0)
+    : filteredData.adminProfit;
+
+  const totalVolumeDisplay = displayVolume.toLocaleString('en-IN', { minimumFractionDigits: 2 });
+  const adminProfitDisplay = displayAdminProfit.toLocaleString('en-IN', { minimumFractionDigits: 2 });
+
+
+  // Inquiry Status Handler
+  const handleUpdateInquiry = async (inquiryId, status, remarks = '') => {
+    try {
+      const res = await updateInquiryStatus(inquiryId, status, remarks);
+      if (res && res.success) {
+        setInquiriesList(prev => prev.map(inq => inq.id === inquiryId ? { ...inq, status, remarks: remarks || inq.remarks } : inq));
+        triggerToast(`✓ Inquiry ${inquiryId} marked as ${status}!`, 'success');
+      } else {
+        triggerToast(res?.message || 'Failed to update inquiry status', 'error');
+      }
+    } catch (e) {
+      triggerToast('Error updating inquiry status', 'error');
+    }
+  };
+
+  // Partner Governance Handlers
+  const handleToggleUserStatus = async (user, e) => {
+    if (e) e.stopPropagation();
+    const currentStatus = user.status || 'ACTIVE';
+    const nextStatus = currentStatus === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+    const confirmMsg = nextStatus === 'SUSPENDED' 
+      ? `Are you sure you want to suspend ${user.name} (${user.id})? Their POS terminals & settlement will be frozen.`
+      : `Reactivate ${user.name} (${user.id})?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      const res = await updateUserStatus(user.id, nextStatus);
+      if (res && res.success) {
+        setNetworkUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: nextStatus } : u));
+        if (viewingUserDossier && viewingUserDossier.id === user.id) {
+          setViewingUserDossier(prev => ({ ...prev, status: nextStatus }));
+        }
+        triggerToast(`✓ ${user.name} is now ${nextStatus}!`, nextStatus === 'ACTIVE' ? 'success' : 'warning');
+      } else {
+        triggerToast(res?.message || 'Failed to update status', 'error');
+      }
+    } catch (e) {
+      triggerToast('Error updating partner status', 'error');
+    }
+  };
+
+  const handleOpenEditPartner = (user, e) => {
+    if (e) e.stopPropagation();
+    setEditingPartner({
+      isOpen: true,
+      user,
+      name: user.name || '',
+      mobile: user.mobile || ''
+    });
+  };
+
+  const handleSavePartnerDetails = async (e) => {
+    e.preventDefault();
+    if (!editingPartner.name.trim() || !editingPartner.mobile.trim()) {
+      triggerToast('Name and Mobile cannot be empty.', 'error');
+      return;
+    }
+    try {
+      const res = await updateUserDetails(editingPartner.user.id, {
+        name: editingPartner.name,
+        mobile: editingPartner.mobile
+      });
+      if (res && res.success) {
+        setNetworkUsers(prev => prev.map(u => u.id === editingPartner.user.id ? { ...u, name: editingPartner.name, mobile: editingPartner.mobile } : u));
+        if (viewingUserDossier && viewingUserDossier.id === editingPartner.user.id) {
+          setViewingUserDossier(prev => ({ ...prev, name: editingPartner.name, mobile: editingPartner.mobile }));
+        }
+        setEditingPartner({ isOpen: false, user: null, name: '', mobile: '' });
+        triggerToast(`✓ Partner profile updated!`, 'success');
+      } else {
+        triggerToast(res?.message || 'Failed to update partner details', 'error');
+      }
+    } catch (e) {
+      triggerToast('Error updating partner details', 'error');
+    }
+  };
 
 
   return (
@@ -597,6 +806,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         </div>
       </header>
 
+
       {/* 4. Main Executive Workspace */}
       <main style={{ padding: '1rem', flexGrow: 1, paddingBottom: '80px' }}>
         
@@ -647,8 +857,16 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     }}>
                       {viewingUserDossier.dossierType.replace('_', ' ')}
                     </span>
-                    <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: '#D1FAE5', color: '#059669' }}>
-                      Active
+                    <span style={{ 
+                      fontSize: '0.625rem', 
+                      fontWeight: 800, 
+                      padding: '2px 8px', 
+                      borderRadius: '4px', 
+                      background: viewingUserDossier.status === 'SUSPENDED' ? '#FEF2F2' : '#D1FAE5', 
+                      color: viewingUserDossier.status === 'SUSPENDED' ? '#DC2626' : '#059669',
+                      border: viewingUserDossier.status === 'SUSPENDED' ? '1px solid #FECACA' : '1px solid #A7F3D0'
+                    }}>
+                      {viewingUserDossier.status === 'SUSPENDED' ? '⚠️ Suspended' : '✓ Active'}
                     </span>
                   </div>
 
@@ -716,13 +934,44 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   )}
                 </div>
 
-                <button
-                  onClick={() => copyToClipboard(`ID: ${viewingUserDossier.id}\nMobile: ${viewingUserDossier.mobile}`, viewingUserDossier.id)}
-                  style={{ background: '#F8FAFC', border: '1px solid #CBD5E1', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                >
-                  <Copy style={{ width: '12px', height: '12px' }} />
-                  <span>{copiedId[viewingUserDossier.id] ? 'Copied!' : 'Copy Info'}</span>
-                </button>
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={(e) => handleOpenEditPartner(viewingUserDossier, e)}
+                    style={{ background: '#EFF6FF', color: '#0F52BA', border: '1px solid #BFDBFE', padding: '0.4rem 0.65rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    title="Edit Partner Details"
+                  >
+                    <Edit3 style={{ width: '12px', height: '12px' }} />
+                    <span>Edit Profile</span>
+                  </button>
+
+                  <button
+                    onClick={(e) => handleToggleUserStatus(viewingUserDossier, e)}
+                    style={{
+                      background: viewingUserDossier.status === 'SUSPENDED' ? '#FEF2F2' : '#FFFBEB',
+                      color: viewingUserDossier.status === 'SUSPENDED' ? '#DC2626' : '#B45309',
+                      border: viewingUserDossier.status === 'SUSPENDED' ? '1px solid #FECACA' : '1px solid #FDE68A',
+                      padding: '0.4rem 0.65rem',
+                      borderRadius: '6px',
+                      fontSize: '0.6875rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    {viewingUserDossier.status === 'SUSPENDED' ? <UserCheck style={{ width: '12px', height: '12px' }} /> : <UserX style={{ width: '12px', height: '12px' }} />}
+                    <span>{viewingUserDossier.status === 'SUSPENDED' ? 'Reactivate' : 'Suspend'}</span>
+                  </button>
+
+                  <button
+                    onClick={() => copyToClipboard(`ID: ${viewingUserDossier.id}\nMobile: ${viewingUserDossier.mobile}`, viewingUserDossier.id)}
+                    style={{ background: '#F8FAFC', border: '1px solid #CBD5E1', padding: '0.4rem 0.65rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                  >
+                    <Copy style={{ width: '12px', height: '12px' }} />
+                    <span>{copiedId[viewingUserDossier.id] ? 'Copied!' : 'Copy Info'}</span>
+                  </button>
+                </div>
               </div>
 
               {/* Complete Financial Cards Tailored to Role */}
@@ -1111,13 +1360,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
             {activeTab === 'overview' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                 
-                {/* 4 Core Financial KPI Cards */}
+                {/* 4 Core Financial & Ecosystem KPI Cards */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
                   
                   {/* Card 1: Total Sales */}
                   <div style={{ background: '#FFFFFF', padding: '1rem', borderRadius: '12px', border: '1px solid #E2E8F0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>Total Sales</span>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>
+                        Total Sales
+                      </span>
                       <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#EFF6FF', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <TrendingUp style={{ width: '15px', height: '15px' }} />
                       </div>
@@ -1125,13 +1376,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: '6px 0 2px' }}>
                       ₹{totalVolumeDisplay}
                     </h3>
-                    <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 700 }}>All Shops Combined</span>
+                    <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 700 }}>
+                      All Shops Combined
+                    </span>
                   </div>
 
                   {/* Card 2: Admin Profit */}
                   <div style={{ background: '#ECFDF5', padding: '1rem', borderRadius: '12px', border: '1px solid #A7F3D0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#059669', textTransform: 'uppercase' }}>Admin Profit</span>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#059669', textTransform: 'uppercase' }}>Admin Net Profit</span>
                       <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#D1FAE5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <DollarSign style={{ width: '15px', height: '15px' }} />
                       </div>
@@ -1157,12 +1410,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       {pendingPayouts.length}
                     </h3>
                     <span style={{ fontSize: '0.625rem', color: '#DC2626', fontWeight: 700 }}>
-                      {pendingPayouts.length > 0 ? 'Action Needed' : 'All Cleared'}
+                      {pendingPayouts.length > 0 ? 'Action Needed →' : 'All Cleared'}
                     </span>
                   </div>
 
                   {/* Card 4: Hardware POS & Device Plans */}
-                  <div style={{ background: '#FFFFFF', padding: '1rem', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+                  <div 
+                    onClick={() => handleTabSwitch('merchants')}
+                    style={{ background: '#FFFFFF', padding: '1rem', borderRadius: '12px', border: '1px solid #E2E8F0', cursor: 'pointer' }}
+                  >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>Active Machines</span>
                       <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#FEF3C7', color: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1174,6 +1430,58 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     </h3>
                     <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 700 }}>
                       {metrics.devicePlanSummary?.rentalCount || 0} Rental • {metrics.devicePlanSummary?.lifetimeCount || 0} Lifetime
+                    </span>
+                  </div>
+
+                  {/* Card 5: Loan Applications Hub */}
+                  <div 
+                    onClick={() => handleTabSwitch('loans')}
+                    style={{ 
+                      background: '#FFFFFF', 
+                      padding: '1rem', 
+                      borderRadius: '12px', 
+                      border: pendingLoansCount > 0 ? '1.5px solid #93C5FD' : '1px solid #E2E8F0', 
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>Loans</span>
+                      <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#EFF6FF', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Receipt style={{ width: '15px', height: '15px' }} />
+                      </div>
+                    </div>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0F52BA', margin: '6px 0 2px' }}>
+                      {loansList.length}
+                    </h3>
+                    <span style={{ fontSize: '0.625rem', color: '#0F52BA', fontWeight: 700 }}>
+                      {pendingLoansCount > 0 ? `${pendingLoansCount} Under Review →` : 'Manage Disbursals →'}
+                    </span>
+                  </div>
+
+                  {/* Card 6: ATM & CDM Franchise Hub */}
+                  <div 
+                    onClick={() => handleTabSwitch('franchises')}
+                    style={{ 
+                      background: '#FFFFFF', 
+                      padding: '1rem', 
+                      borderRadius: '12px', 
+                      border: pendingFranchisesCount > 0 ? '1.5px solid #FCD34D' : '1px solid #E2E8F0', 
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>ATM Franchise</span>
+                      <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#FEF3C7', color: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Building2 style={{ width: '15px', height: '15px' }} />
+                      </div>
+                    </div>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#D97706', margin: '6px 0 2px' }}>
+                      {franchisesList.length}
+                    </h3>
+                    <span style={{ fontSize: '0.625rem', color: '#B45309', fontWeight: 700 }}>
+                      {pendingFranchisesCount > 0 ? `${pendingFranchisesCount} Pending Setup →` : 'Manage Outlets →'}
                     </span>
                   </div>
 
@@ -2027,9 +2335,22 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 </span>
                               </div>
                             </div>
-                            <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: '#ECFDF5', color: '#059669', border: '1px solid #A7F3D0' }}>
-                              Wallet: ₹{parseFloat(m.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                              <span style={{
+                                fontSize: '0.625rem',
+                                fontWeight: 800,
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                background: m.status === 'SUSPENDED' ? '#FEF2F2' : '#ECFDF5',
+                                color: m.status === 'SUSPENDED' ? '#DC2626' : '#059669',
+                                border: m.status === 'SUSPENDED' ? '1px solid #FECACA' : '1px solid #A7F3D0'
+                              }}>
+                                {m.status === 'SUSPENDED' ? '⚠️ Suspended' : '✓ Active'}
+                              </span>
+                              <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: '#ECFDF5', color: '#059669', border: '1px solid #A7F3D0' }}>
+                                Wallet: ₹{parseFloat(m.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </span>
+                            </div>
                           </div>
 
                           {/* Machine & Legal Vendor Badges */}
@@ -2076,10 +2397,35 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             </div>
                           </div>
 
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #F1F5F9', marginTop: '0.625rem', paddingTop: '0.625rem' }}>
-                            <span style={{ fontSize: '0.6875rem', color: '#059669', fontWeight: 800 }}>
-                              Admin Profit: +₹{adminProfit.toFixed(2)}
-                            </span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #F1F5F9', marginTop: '0.625rem', paddingTop: '0.625rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontSize: '0.6875rem', color: '#059669', fontWeight: 800 }}>
+                                Admin Profit: +₹{adminProfit.toFixed(2)}
+                              </span>
+                              <button
+                                onClick={(e) => handleOpenEditPartner(m, e)}
+                                style={{ background: '#F1F5F9', border: '1px solid #CBD5E1', padding: '2px 6px', borderRadius: '4px', fontSize: '0.625rem', fontWeight: 700, color: '#334155', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '2px' }}
+                                title="Edit Merchant Details"
+                              >
+                                <Edit3 style={{ width: '10px', height: '10px' }} />
+                                <span>Edit</span>
+                              </button>
+                              <button
+                                onClick={(e) => handleToggleUserStatus(m, e)}
+                                style={{
+                                  background: m.status === 'SUSPENDED' ? '#FEF2F2' : '#F8FAFC',
+                                  border: m.status === 'SUSPENDED' ? '1px solid #FECACA' : '1px solid #CBD5E1',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  fontSize: '0.625rem',
+                                  fontWeight: 700,
+                                  color: m.status === 'SUSPENDED' ? '#DC2626' : '#64748B',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                {m.status === 'SUSPENDED' ? 'Reactivate' : 'Suspend'}
+                              </button>
+                            </div>
                             <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#059669', display: 'flex', alignItems: 'center', gap: '2px' }}>
                               View Details & Sales <ChevronRight style={{ width: '12px', height: '12px' }} />
                             </span>
@@ -2096,13 +2442,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
             {/* TAB VIEW 5: DEDICATED PAYOUT APPROVALS QUEUE */}
             {activeTab === 'payouts' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <div>
-                  <h2 style={{ fontSize: '1.125rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
-                    Bank Payout Approvals ({pendingPayouts.length})
-                  </h2>
-                  <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
-                    Merchants requesting wallet fund transfers to their verified bank accounts
-                  </span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <div>
+                    <h2 style={{ fontSize: '1.125rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                      Bank Payout Approvals ({pendingPayouts.length})
+                    </h2>
+                    <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
+                      Merchants requesting wallet fund transfers to their verified bank accounts
+                    </span>
+                  </div>
                 </div>
 
                 {pendingPayouts.length === 0 ? (
@@ -2161,12 +2509,363 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               </div>
             )}
 
+            {/* TAB VIEW 6: LOAN APPLICATIONS QUEUE */}
+            {activeTab === 'loans' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <button
+                  onClick={() => handleTabSwitch('overview')}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    background: '#F1F5F9',
+                    border: '1px solid #CBD5E1',
+                    borderRadius: '6px',
+                    padding: '0.3rem 0.6rem',
+                    fontSize: '0.6875rem',
+                    fontWeight: 800,
+                    color: '#334155',
+                    cursor: 'pointer',
+                    width: 'fit-content'
+                  }}
+                >
+                  <ArrowLeft style={{ width: '12px', height: '12px' }} />
+                  <span>← Back to Overview</span>
+                </button>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <div>
+                    <h2 style={{ fontSize: '1.125rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                      Loan Applications Queue ({loansList.length})
+                    </h2>
+                    <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
+                      Personal Loans (₹50k – ₹50L) & Business Loans (₹1L – ₹1Cr) review & disbursal
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F52BA', background: '#EFF6FF', padding: '3px 8px', borderRadius: '6px', border: '1px solid #BFDBFE' }}>
+                    {pendingLoansCount} Pending Action
+                  </span>
+                </div>
+
+                {/* Filter Pills */}
+                <div style={{ display: 'flex', gap: '0.4rem', overflowX: 'auto', paddingBottom: '2px' }}>
+                  {[
+                    { id: 'ALL', label: `All (${loansList.length})` },
+                    { id: 'New', label: `New (${loansList.filter(l => l.status === 'New').length})` },
+                    { id: 'Under Review', label: `Under Review (${loansList.filter(l => l.status === 'Under Review').length})` },
+                    { id: 'Approved', label: `Approved (${loansList.filter(l => l.status === 'Approved').length})` },
+                    { id: 'Rejected', label: `Rejected (${loansList.filter(l => l.status === 'Rejected').length})` }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setInquiryStatusFilter(tab.id)}
+                      style={{
+                        padding: '0.35rem 0.75rem',
+                        borderRadius: '20px',
+                        fontSize: '0.6875rem',
+                        fontWeight: 800,
+                        border: inquiryStatusFilter === tab.id ? '1.5px solid #0F52BA' : '1px solid #CBD5E1',
+                        background: inquiryStatusFilter === tab.id ? '#0F52BA' : '#FFFFFF',
+                        color: inquiryStatusFilter === tab.id ? '#FFFFFF' : '#64748B',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Search Bar */}
+                <div style={{ position: 'relative' }}>
+                  <Search style={{ width: '14px', height: '14px', position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
+                  <input
+                    type="text"
+                    placeholder="Search by Applicant Name, Phone, City, Category..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{ width: '100%', padding: '0.5rem 0.75rem 0.5rem 2rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.75rem', outline: 'none' }}
+                  />
+                </div>
+
+                {/* Applications List */}
+                {displayedLoans.length === 0 ? (
+                  <div style={{ padding: '3rem 1rem', textAlign: 'center', background: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0', color: '#64748B' }}>
+                    <Receipt style={{ width: '32px', height: '32px', margin: '0 auto 0.5rem', color: '#94A3B8' }} />
+                    <p style={{ margin: 0, fontSize: '0.875rem' }}>No loan applications found matching criteria.</p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {displayedLoans.map(loan => {
+                      const isNew = loan.status === 'New';
+                      const isReview = loan.status === 'Under Review';
+                      const isApproved = loan.status === 'Approved';
+                      const isRejected = loan.status === 'Rejected';
+
+                      return (
+                        <div key={loan.id} style={{ background: '#FFFFFF', border: isNew ? '1.5px solid #93C5FD' : isReview ? '1.5px solid #FCD34D' : '1px solid #E2E8F0', borderRadius: '12px', padding: '1rem', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                <strong style={{ fontSize: '0.9375rem', color: '#0A192F' }}>{loan.name}</strong>
+                                <span style={{
+                                  fontSize: '0.625rem',
+                                  fontWeight: 800,
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  background: isApproved ? '#ECFDF5' : isReview ? '#FEF3C7' : isRejected ? '#FEF2F2' : '#EFF6FF',
+                                  color: isApproved ? '#059669' : isReview ? '#B45309' : isRejected ? '#DC2626' : '#0F52BA',
+                                  border: '1px solid currentColor'
+                                }}>
+                                  {loan.status}
+                                </span>
+                              </div>
+                              <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                                App ID: <strong>{loan.id}</strong> • Phone: <strong>{loan.phone}</strong> • City: {loan.location || 'Hyderabad'}
+                              </span>
+                              <div style={{ display: 'flex', gap: '0.375rem', marginTop: '4px' }}>
+                                <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#F1F5F9', color: '#334155', padding: '2px 6px', borderRadius: '4px' }}>
+                                  📂 {loan.category}
+                                </span>
+                                {loan.merchant_id && (
+                                  <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#ECFDF5', color: '#059669', padding: '2px 6px', borderRadius: '4px' }}>
+                                    🏪 MID: {loan.merchant_id}
+                                  </span>
+                                )}
+                              </div>
+                              {loan.remarks && (
+                                <p style={{ margin: '6px 0 0', fontSize: '0.6875rem', color: '#475569', fontStyle: 'italic', background: '#F8FAFC', padding: '4px 8px', borderRadius: '4px' }}>
+                                  "{loan.remarks}"
+                                </p>
+                              )}
+                            </div>
+
+                            <div style={{ textAlign: 'right' }}>
+                              <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Requested Loan</span>
+                              <strong style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0F52BA' }}>
+                                {loan.amount}
+                              </strong>
+                              <span style={{ fontSize: '0.625rem', color: '#94A3B8', display: 'block' }}>
+                                {new Date(loan.created_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', borderTop: '1px solid #F1F5F9', marginTop: '0.875rem', paddingTop: '0.75rem', flexWrap: 'wrap' }}>
+                            {!isRejected && (
+                              <button
+                                onClick={() => handleUpdateInquiry(loan.id, 'Rejected', 'Does not meet NBFC minimum turnover criteria')}
+                                style={{ background: '#F8FAFC', color: '#DC2626', border: '1px solid #FECACA', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer' }}
+                              >
+                                ✕ Reject
+                              </button>
+                            )}
+                            {!isReview && !isApproved && (
+                              <button
+                                onClick={() => handleUpdateInquiry(loan.id, 'Under Review', 'Documents verified, awaiting bank score')}
+                                style={{ background: '#FEF3C7', color: '#B45309', border: '1px solid #FDE68A', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer' }}
+                              >
+                                ⏳ Mark Under Review
+                              </button>
+                            )}
+                            {!isApproved && (
+                              <button
+                                onClick={() => handleUpdateInquiry(loan.id, 'Approved', 'KYC & CIBIL score approved. Disbursal scheduled.')}
+                                style={{ background: '#059669', color: '#FFF', border: 'none', padding: '0.4rem 1rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 900, cursor: 'pointer', boxShadow: '0 2px 5px rgba(5,150,105,0.25)' }}
+                              >
+                                ✓ Approve & Disburse
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB VIEW 7: ATM & CDM FRANCHISE REQUESTS QUEUE */}
+            {activeTab === 'franchises' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <button
+                  onClick={() => handleTabSwitch('overview')}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    background: '#F1F5F9',
+                    border: '1px solid #CBD5E1',
+                    borderRadius: '6px',
+                    padding: '0.3rem 0.6rem',
+                    fontSize: '0.6875rem',
+                    fontWeight: 800,
+                    color: '#334155',
+                    cursor: 'pointer',
+                    width: 'fit-content'
+                  }}
+                >
+                  <ArrowLeft style={{ width: '12px', height: '12px' }} />
+                  <span>← Back to Overview</span>
+                </button>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <div>
+                    <h2 style={{ fontSize: '1.125rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                      ATM & CDM Franchise Requests ({franchisesList.length})
+                    </h2>
+                    <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
+                      Franchise outlet applications, site reviews & territory allocations
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#D97706', background: '#FEF3C7', padding: '3px 8px', borderRadius: '6px', border: '1px solid #FDE68A' }}>
+                    {pendingFranchisesCount} Pending Setup
+                  </span>
+                </div>
+
+                {/* Filter Pills */}
+                <div style={{ display: 'flex', gap: '0.4rem', overflowX: 'auto', paddingBottom: '2px' }}>
+                  {[
+                    { id: 'ALL', label: `All (${franchisesList.length})` },
+                    { id: 'New', label: `New (${franchisesList.filter(f => f.status === 'New').length})` },
+                    { id: 'Under Review', label: `Site Review (${franchisesList.filter(f => f.status === 'Under Review').length})` },
+                    { id: 'Approved', label: `Approved (${franchisesList.filter(f => f.status === 'Approved').length})` },
+                    { id: 'Rejected', label: `Rejected (${franchisesList.filter(f => f.status === 'Rejected').length})` }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setInquiryStatusFilter(tab.id)}
+                      style={{
+                        padding: '0.35rem 0.75rem',
+                        borderRadius: '20px',
+                        fontSize: '0.6875rem',
+                        fontWeight: 800,
+                        border: inquiryStatusFilter === tab.id ? '1.5px solid #D97706' : '1px solid #CBD5E1',
+                        background: inquiryStatusFilter === tab.id ? '#D97706' : '#FFFFFF',
+                        color: inquiryStatusFilter === tab.id ? '#FFFFFF' : '#64748B',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Search Bar */}
+                <div style={{ position: 'relative' }}>
+                  <Search style={{ width: '14px', height: '14px', position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
+                  <input
+                    type="text"
+                    placeholder="Search by Applicant Name, Phone, Location, Machine..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{ width: '100%', padding: '0.5rem 0.75rem 0.5rem 2rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.75rem', outline: 'none' }}
+                  />
+                </div>
+
+                {/* Franchise List */}
+                {displayedFranchises.length === 0 ? (
+                  <div style={{ padding: '3rem 1rem', textAlign: 'center', background: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0', color: '#64748B' }}>
+                    <Building2 style={{ width: '32px', height: '32px', margin: '0 auto 0.5rem', color: '#94A3B8' }} />
+                    <p style={{ margin: 0, fontSize: '0.875rem' }}>No franchise requests found matching criteria.</p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {displayedFranchises.map(franchise => {
+                      const isNew = franchise.status === 'New';
+                      const isReview = franchise.status === 'Under Review';
+                      const isApproved = franchise.status === 'Approved';
+                      const isRejected = franchise.status === 'Rejected';
+
+                      return (
+                        <div key={franchise.id} style={{ background: '#FFFFFF', border: isNew ? '1.5px solid #FCD34D' : isReview ? '1.5px solid #FDE68A' : '1px solid #E2E8F0', borderRadius: '12px', padding: '1rem', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                                <strong style={{ fontSize: '0.9375rem', color: '#0A192F' }}>{franchise.name}</strong>
+                                <span style={{
+                                  fontSize: '0.625rem',
+                                  fontWeight: 800,
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  background: isApproved ? '#ECFDF5' : isReview ? '#FEF3C7' : isRejected ? '#FEF2F2' : '#EFF6FF',
+                                  color: isApproved ? '#059669' : isReview ? '#B45309' : isRejected ? '#DC2626' : '#0F52BA',
+                                  border: '1px solid currentColor'
+                                }}>
+                                  {franchise.status}
+                                </span>
+                              </div>
+                              <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                                Request ID: <strong>{franchise.id}</strong> • Phone: <strong>{franchise.phone}</strong>
+                              </span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px', color: '#0F172A', fontSize: '0.6875rem', fontWeight: 700 }}>
+                                <MapPin style={{ width: '12px', height: '12px', color: '#DC2626' }} />
+                                <span>{franchise.location}</span>
+                              </div>
+                              <div style={{ display: 'flex', gap: '0.375rem', marginTop: '4px' }}>
+                                <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#FEF3C7', color: '#B45309', padding: '2px 6px', borderRadius: '4px' }}>
+                                  🏧 {franchise.category}
+                                </span>
+                              </div>
+                              {franchise.remarks && (
+                                <p style={{ margin: '6px 0 0', fontSize: '0.6875rem', color: '#475569', fontStyle: 'italic', background: '#F8FAFC', padding: '4px 8px', borderRadius: '4px' }}>
+                                  "{franchise.remarks}"
+                                </p>
+                              )}
+                            </div>
+
+                            <div style={{ textAlign: 'right' }}>
+                              <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Deposit / Tier</span>
+                              <strong style={{ fontSize: '1.25rem', fontWeight: 900, color: '#D97706' }}>
+                                {franchise.amount}
+                              </strong>
+                              <span style={{ fontSize: '0.625rem', color: '#94A3B8', display: 'block' }}>
+                                {new Date(franchise.created_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', borderTop: '1px solid #F1F5F9', marginTop: '0.875rem', paddingTop: '0.75rem', flexWrap: 'wrap' }}>
+                            {!isRejected && (
+                              <button
+                                onClick={() => handleUpdateInquiry(franchise.id, 'Rejected', 'Location distance to nearest ATM < 200m')}
+                                style={{ background: '#F8FAFC', color: '#DC2626', border: '1px solid #FECACA', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer' }}
+                              >
+                                ✕ Reject
+                              </button>
+                            )}
+                            {!isReview && !isApproved && (
+                              <button
+                                onClick={() => handleUpdateInquiry(franchise.id, 'Under Review', 'Site inspection officer dispatched')}
+                                style={{ background: '#FEF3C7', color: '#B45309', border: '1px solid #FDE68A', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer' }}
+                              >
+                                ⏳ Dispatch Site Inspection
+                              </button>
+                            )}
+                            {!isApproved && (
+                              <button
+                                onClick={() => handleUpdateInquiry(franchise.id, 'Approved', 'Franchise territory allocated. Terminal delivery initiated.')}
+                                style={{ background: '#059669', color: '#FFF', border: 'none', padding: '0.4rem 1rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 900, cursor: 'pointer', boxShadow: '0 2px 5px rgba(5,150,105,0.25)' }}
+                              >
+                                ✓ Approve & Allocate Franchise
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
           </div>
         )}
 
       </main>
 
-      {/* 5. Mobile Sticky Bottom Navigation Bar (100% Touch-Friendly - 6 Tiers/Actions) */}
+      {/* 5. Mobile Sticky Bottom Navigation Bar (4-Tier Network Hierarchy + Overview + Payouts) */}
       <nav style={{
         position: 'fixed',
         bottom: 0,
@@ -2179,62 +2878,76 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         padding: '0.4rem 0',
         zIndex: 90
       }}>
+        {/* 1. Overview */}
         <button 
           onClick={() => handleTabSwitch('overview')} 
           style={{ background: 'none', border: 'none', color: activeTab === 'overview' ? '#38BDF8' : '#94A3B8', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
         >
           <Activity style={{ width: '16px', height: '16px' }} />
-          <span style={{ fontSize: '0.5rem', fontWeight: 800 }}>Overview</span>
+          <span style={{ fontSize: '0.48rem', fontWeight: 800 }}>Overview</span>
         </button>
 
+        {/* 2. Tier 1: Super Dist */}
         <button 
           onClick={() => handleTabSwitch('super_distributors')} 
           style={{ background: 'none', border: 'none', color: activeTab === 'super_distributors' ? '#38BDF8' : '#94A3B8', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
         >
-          <GitFork style={{ width: '16px', height: '16px' }} />
-          <span style={{ fontSize: '0.5rem', fontWeight: 800 }}>Super Dist</span>
+          <Zap style={{ width: '16px', height: '16px' }} />
+          <span style={{ fontSize: '0.48rem', fontWeight: 800 }}>Super Dist</span>
         </button>
 
+        {/* 3. Tier 2: District Dist */}
         <button 
           onClick={() => handleTabSwitch('district_distributors')} 
           style={{ background: 'none', border: 'none', color: activeTab === 'district_distributors' ? '#38BDF8' : '#94A3B8', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
         >
-          <Building2 style={{ width: '16px', height: '16px' }} />
-          <span style={{ fontSize: '0.5rem', fontWeight: 800 }}>District Dist</span>
+          <Shield style={{ width: '16px', height: '16px' }} />
+          <span style={{ fontSize: '0.48rem', fontWeight: 800 }}>District Dist</span>
         </button>
 
+        {/* 4. Tier 3: Distributors */}
         <button 
           onClick={() => handleTabSwitch('distributors')} 
           style={{ background: 'none', border: 'none', color: activeTab === 'distributors' ? '#38BDF8' : '#94A3B8', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
         >
-          <Layers style={{ width: '16px', height: '16px' }} />
-          <span style={{ fontSize: '0.5rem', fontWeight: 800 }}>Dist</span>
+          <GitFork style={{ width: '16px', height: '16px' }} />
+          <span style={{ fontSize: '0.48rem', fontWeight: 800 }}>Distributor</span>
         </button>
 
+        {/* 5. Tier 4: Merchants */}
         <button 
           onClick={() => handleTabSwitch('merchants')} 
           style={{ background: 'none', border: 'none', color: activeTab === 'merchants' ? '#38BDF8' : '#94A3B8', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
         >
           <Store style={{ width: '16px', height: '16px' }} />
-          <span style={{ fontSize: '0.5rem', fontWeight: 800 }}>Merchants</span>
+          <span style={{ fontSize: '0.48rem', fontWeight: 800 }}>Merchants</span>
         </button>
 
+        {/* 6. Action: Payouts */}
         <button 
           onClick={() => handleTabSwitch('payouts')} 
           style={{ position: 'relative', background: 'none', border: 'none', color: activeTab === 'payouts' ? '#38BDF8' : '#94A3B8', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
         >
           <Landmark style={{ width: '16px', height: '16px' }} />
-          <span style={{ fontSize: '0.5rem', fontWeight: 800 }}>Payouts</span>
+          <span style={{ fontSize: '0.48rem', fontWeight: 800 }}>Payouts</span>
           {pendingPayouts.length > 0 && (
             <span style={{
               position: 'absolute',
               top: '-2px',
-              right: '12px',
-              width: '7px',
-              height: '7px',
+              right: '8px',
+              minWidth: '14px',
+              height: '14px',
               borderRadius: '50%',
-              backgroundColor: '#DC2626'
-            }} />
+              backgroundColor: '#DC2626',
+              color: '#FFF',
+              fontSize: '0.5rem',
+              fontWeight: 900,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              {pendingPayouts.length}
+            </span>
           )}
         </button>
       </nav>
@@ -2618,6 +3331,93 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 Done
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Partner Details Modal */}
+      {editingPartner.isOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(10, 25, 47, 0.75)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '1rem'
+        }}>
+          <div style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: '16px',
+            maxWidth: '400px',
+            width: '100%',
+            padding: '1.5rem',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            border: '1px solid #CBD5E1'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div>
+                <h3 style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                  Edit Partner Details
+                </h3>
+                <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
+                  {editingPartner.user?.role?.replace('_', ' ')}: {editingPartner.user?.id}
+                </span>
+              </div>
+              <button
+                onClick={() => setEditingPartner({ isOpen: false, user: null, name: '', mobile: '' })}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}
+              >
+                <X style={{ width: '18px', height: '18px' }} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSavePartnerDetails} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
+                  Full Name / Store Name
+                </label>
+                <input
+                  type="text"
+                  value={editingPartner.name}
+                  onChange={(e) => setEditingPartner(prev => ({ ...prev, name: e.target.value }))}
+                  required
+                  style={{ width: '100%', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.8125rem' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
+                  10-Digit Mobile Number
+                </label>
+                <input
+                  type="tel"
+                  maxLength={10}
+                  value={editingPartner.mobile}
+                  onChange={(e) => setEditingPartner(prev => ({ ...prev, mobile: e.target.value }))}
+                  required
+                  style={{ width: '100%', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.8125rem' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setEditingPartner({ isOpen: false, user: null, name: '', mobile: '' })}
+                  style={{ background: '#F1F5F9', border: '1px solid #CBD5E1', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{ background: '#0F52BA', color: '#FFFFFF', border: 'none', padding: '0.5rem 1.25rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', boxShadow: '0 2px 6px rgba(15,82,186,0.25)' }}
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
