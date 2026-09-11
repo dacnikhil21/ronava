@@ -600,6 +600,50 @@ export default function MerchantDashboardPage({ user, onLogout }) {
     };
   }, [merchantId]);
 
+  // Reusable Ronav Wallet Balance Banner for Sub-pages
+  const renderWalletBalanceCard = () => (
+    <div style={{
+      background: 'linear-gradient(135deg, #ECFDF5 0%, #F0FDFA 55%, #FFFFFF 100%)',
+      border: '1px solid #D1FAE5',
+      borderRadius: '14px',
+      padding: '0.75rem 1rem',
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      boxShadow: '0 1px 4px rgba(5,150,105,0.04)'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+        <div style={{
+          width: '36px',
+          height: '36px',
+          borderRadius: '10px',
+          background: '#DCFCE7',
+          color: '#059669',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0
+        }}>
+          <Wallet style={{ width: '18px', height: '18px' }} />
+        </div>
+        <div>
+          <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1E293B', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            RONAV WALLET
+          </span>
+        </div>
+      </div>
+
+      <div style={{ textAlign: 'right' }}>
+        <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 600, display: 'block' }}>
+          Available Balance
+        </span>
+        <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#059669', letterSpacing: '-0.01em', marginTop: '1px' }}>
+          ₹{wallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+        </div>
+      </div>
+    </div>
+  );
+
   // Filtered Transactions with Today, Yesterday & Custom Date Range
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
@@ -1593,7 +1637,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
           {/* (PREMIUM NATIVE APP FINTECH EXPERIENCE - MATCHES WITHDRAW) */}
           {/* ========================================================= */}
           {activeTab === 'record-sale' && (
-            <div style={{ maxWidth: '480px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '0.875rem', width: '100%', boxSizing: 'border-box', paddingBottom: '1.5rem' }}>
+            <div className="merchant-subpage-wrapper">
               
               {/* Sub-page Title */}
               <div>
@@ -1602,50 +1646,17 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                 </h1>
               </div>
 
-              {/* 2. Ronav Wallet Balance Card (Identical Mint Gradient Banner) */}
-              <div style={{
-                background: 'linear-gradient(135deg, #ECFDF5 0%, #F0FDFA 55%, #FFFFFF 100%)',
-                border: '1px solid #D1FAE5',
-                borderRadius: '14px',
-                padding: '0.75rem 1rem',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                boxShadow: '0 1px 4px rgba(5,150,105,0.04)'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-                  <div style={{
-                    width: '36px',
-                    height: '36px',
-                    borderRadius: '10px',
-                    background: '#DCFCE7',
-                    color: '#059669',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0
-                  }}>
-                    <Wallet style={{ width: '18px', height: '18px' }} />
-                  </div>
-                  <div>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1E293B', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      RONAV WALLET
-                    </span>
-                  </div>
-                </div>
-
-                <div style={{ textAlign: 'right' }}>
-                  <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 600, display: 'block' }}>
-                    Available Balance
-                  </span>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#059669', letterSpacing: '-0.01em', marginTop: '1px' }}>
-                    ₹{wallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </div>
-                </div>
+              {/* Mobile-Only Wallet Balance Card */}
+              <div className="mobile-only-block">
+                {renderWalletBalanceCard()}
               </div>
 
-              {/* 3. Joint Entry Form Card (Amount + Compulsory Transaction ID / UTR) */}
-              <form onSubmit={handleRecordSaleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+              {/* Split Layout: Form on Left, Balance & Recent Swipes on Right for Desktop */}
+              <div className="subpage-split-grid">
+                
+                {/* Left Column: Form & CTA */}
+                <div className="subpage-col">
+                  <form onSubmit={handleRecordSaleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
                 <div style={{
                   background: '#FFFFFF',
                   borderRadius: '14px',
@@ -1879,9 +1890,16 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                   </span>
                 </button>
               </form>
+                </div>
 
-              {/* 6. Recent Card Swipes Ledger (Below CTA button - Matches Withdraw Recent Ledger) */}
-              <div style={{
+                {/* Right Column: Desktop Wallet Card & Recent Recorded Swipes */}
+                <div className="subpage-col">
+                  <div className="desktop-only-block">
+                    {renderWalletBalanceCard()}
+                  </div>
+
+                  {/* 6. Recent Card Swipes Ledger */}
+                  <div style={{
                 background: '#FFFFFF',
                 borderRadius: '14px',
                 border: '1px solid #EDF2F7',
@@ -1976,6 +1994,9 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                 </div>
               </div>
 
+                </div>
+              </div>
+
             </div>
           )}
 
@@ -1996,7 +2017,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
             const parsedAmount = parseFloat(withdrawAmount) || 0;
 
             return (
-              <div style={{ maxWidth: '480px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '0.875rem', width: '100%', boxSizing: 'border-box', paddingBottom: '1.5rem' }}>
+              <div className="merchant-subpage-wrapper">
                 
                 {/* 1. Main Title & Subtitle (Standard Proportional Heading) */}
                 <div>
@@ -2008,50 +2029,17 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                   </p>
                 </div>
 
-                {/* 2. Ronav Wallet Balance Card (Standard Compact Scale) */}
-                <div style={{
-                  background: 'linear-gradient(135deg, #ECFDF5 0%, #F0FDFA 55%, #FFFFFF 100%)',
-                  border: '1px solid #D1FAE5',
-                  borderRadius: '14px',
-                  padding: '0.75rem 1rem',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  boxShadow: '0 1px 4px rgba(5,150,105,0.04)'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-                    <div style={{
-                      width: '36px',
-                      height: '36px',
-                      borderRadius: '10px',
-                      background: '#DCFCE7',
-                      color: '#059669',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0
-                    }}>
-                      <Wallet style={{ width: '18px', height: '18px' }} />
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1E293B', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                        RONAV WALLET
-                      </span>
-                    </div>
-                  </div>
-
-                  <div style={{ textAlign: 'right' }}>
-                    <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 600, display: 'block' }}>
-                      Available Balance
-                    </span>
-                    <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#059669', letterSpacing: '-0.01em', marginTop: '1px' }}>
-                      ₹{wallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </div>
-                  </div>
+                {/* Mobile-Only Wallet Card */}
+                <div className="mobile-only-block">
+                  {renderWalletBalanceCard()}
                 </div>
 
-                {/* 3. Joint Transfer Form: Amount & Destination Bank in One Box */}
-                <div style={{
+                {/* Split Layout: Form on Left, Balance & Recent Withdrawals on Right for Desktop */}
+                <div className="subpage-split-grid">
+                  
+                  {/* Left Column: Transfer Form, Speed Strip & CTA */}
+                  <div className="subpage-col">
+                    <div style={{
                   background: '#FFFFFF',
                   borderRadius: '14px',
                   border: '1px solid #EDF2F7',
@@ -2323,9 +2311,16 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                         : 'Enter Amount to Transfer →'}
                   </span>
                 </button>
+                  </div>
 
-                {/* 7. Recent Bank Transfers & Withdrawals (Compact Standard Proportions) */}
-                <div style={{
+                  {/* Right Column: Desktop Wallet Balance & Recent Bank Transfers */}
+                  <div className="subpage-col">
+                    <div className="desktop-only-block">
+                      {renderWalletBalanceCard()}
+                    </div>
+
+                    {/* 7. Recent Bank Transfers & Withdrawals (Compact Standard Proportions) */}
+                    <div style={{
                   background: '#FFFFFF',
                   borderRadius: '14px',
                   border: '1px solid #EDF2F7',
@@ -2427,6 +2422,9 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                     })}
                   </div>
                 </div>
+
+                  </div>
+                </div>
               </div>
             );
           })()}
@@ -2436,7 +2434,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
           {/* (PREMIUM FINTECH EXPERIENCE MATCHING USER REFERENCE EXACTLY) */}
           {/* ========================================================= */}
           {activeTab === 'bbps' && (
-            <div style={{ maxWidth: '480px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '0.875rem', width: '100%', boxSizing: 'border-box', paddingBottom: '1.5rem' }}>
+            <div className="merchant-subpage-wrapper">
               
               {/* Top Header Card: Yellow Bolt + Bill Payments & Recharges + Available Pill */}
               <div style={{
@@ -2530,8 +2528,12 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                 })}
               </div>
 
-              {/* 4. Main Payment Form Card */}
-              <div style={{
+              {/* Split Layout: Form on Left, Recent Utility Collections on Right for Desktop */}
+              <div className="subpage-split-grid">
+                
+                {/* Left Column: Main Payment Form Card */}
+                <div className="subpage-col">
+                  <div style={{
                 background: '#FFFFFF',
                 borderRadius: '18px',
                 border: '1px solid #E2E8F0',
@@ -2842,9 +2844,11 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                   </button>
                 </form>
               </div>
+                </div>
 
-              {/* 5. Recent Utility Collections Card matching Screenshot exactly */}
-              <div style={{
+                {/* Right Column: Recent Utility Collections Card */}
+                <div className="subpage-col">
+                  <div style={{
                 background: '#FFFFFF',
                 borderRadius: '18px',
                 border: '1px solid #E2E8F0',
@@ -2911,6 +2915,8 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                   )}
                 </div>
               </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -2919,7 +2925,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
           {/* (SIMPLIFIED DATE FILTER AT TOP & NO NESTED INNER BOX)      */}
           {/* ========================================================= */}
           {activeTab === 'history' && (
-            <div style={{ maxWidth: '480px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '0.875rem', width: '100%', boxSizing: 'border-box', paddingBottom: '1.5rem' }}>
+            <div className="merchant-subpage-wrapper full-width">
               
               {/* Main Card with Date Filter & Search (No inner box, stretches cleanly to outer border) */}
               <div style={{ background: '#FFFFFF', borderRadius: '16px', border: '1px solid #E2E8F0', padding: '1rem', boxShadow: '0 1px 4px rgba(0,0,0,0.02)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -4138,11 +4144,68 @@ export default function MerchantDashboardPage({ user, onLogout }) {
           gap: 0.875rem;
         }
 
-        /* Desktop Mode (>= 1024px): Spacious 1180px FinTech Workspace */
+        /* Subpage Mobile Defaults */
+        .merchant-subpage-wrapper {
+          width: 100%;
+          max-width: 480px;
+          margin: 0 auto;
+          display: flex;
+          flex-direction: column;
+          gap: 0.875rem;
+          box-sizing: border-box;
+          padding-bottom: 1.5rem;
+        }
+
+        .subpage-split-grid {
+          display: flex;
+          flex-direction: column;
+          gap: 0.875rem;
+          width: 100%;
+        }
+
+        .subpage-col {
+          display: flex;
+          flex-direction: column;
+          gap: 0.875rem;
+          width: 100%;
+        }
+
+        .mobile-only-block {
+          display: block;
+        }
+
+        .desktop-only-block {
+          display: none !important;
+        }
+
+        /* Desktop Mode (>= 1024px): Spacious 1440px Enterprise Workspace */
         @media (min-width: 1024px) {
           .merchant-container {
-            max-width: 1180px !important;
-            padding: 0 1.5rem !important;
+            max-width: 1440px !important;
+            padding: 0 2rem !important;
+          }
+
+          .merchant-subpage-wrapper {
+            max-width: 1320px !important;
+          }
+
+          .merchant-subpage-wrapper.full-width {
+            max-width: 1440px !important;
+          }
+
+          .subpage-split-grid {
+            display: grid !important;
+            grid-template-columns: 1.15fr 0.85fr !important;
+            gap: 1.5rem !important;
+            align-items: start !important;
+          }
+
+          .mobile-only-block {
+            display: none !important;
+          }
+
+          .desktop-only-block {
+            display: block !important;
           }
 
           .desktop-header-nav {
@@ -4155,11 +4218,26 @@ export default function MerchantDashboardPage({ user, onLogout }) {
 
           .desktop-split-grid {
             grid-template-columns: 1.1fr 1fr !important;
-            gap: 1.25rem !important;
+            gap: 1.5rem !important;
           }
 
           main {
-            padding-bottom: 2.5rem !important;
+            padding-bottom: 3rem !important;
+          }
+        }
+
+        @media (min-width: 1440px) {
+          .merchant-container {
+            max-width: 1560px !important;
+            padding: 0 2.5rem !important;
+          }
+
+          .merchant-subpage-wrapper {
+            max-width: 1440px !important;
+          }
+
+          .merchant-subpage-wrapper.full-width {
+            max-width: 1560px !important;
           }
         }
       `}</style>
