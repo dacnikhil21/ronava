@@ -14,7 +14,9 @@ import {
   createDownstreamUser, 
   verifyWithdrawal,
   getInquiries,
-  getHierarchyTree
+  getHierarchyTree,
+  getBeneficiaries,
+  getMerchantWithdrawals
 } from '../services/api';
 import { subscribeToAdminFeed } from '../services/supabase';
 import RonavLogo from './RonavLogo';
@@ -30,6 +32,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   // Active Person Dossier Drilldown View (When clicking ANY card)
   const [viewingUserDossier, setViewingUserDossier] = useState(null);
   const [dossierHistory, setDossierHistory] = useState([]);
+  const [dossierBeneficiaries, setDossierBeneficiaries] = useState([]);
+  const [dossierWithdrawals, setDossierWithdrawals] = useState([]);
 
   // Dynamic Data Stores
   const [networkUsers, setNetworkUsers] = useState([]);
@@ -346,6 +350,32 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       setDossierHistory([]);
     }
 
+    // Trace full upline chain (Super Admin -> SD -> DD -> DIST -> User)
+    const uplineChain = [];
+    let currParentId = user.creator_id;
+    while (currParentId && currParentId !== 'ADM001') {
+      const parentObj = networkUsers.find(u => u.id === currParentId);
+      if (!parentObj) break;
+      uplineChain.unshift(parentObj);
+      currParentId = parentObj.creator_id;
+    }
+
+    // If Merchant, fetch their linked bank accounts and withdrawal records
+    if (type === 'MERCHANT') {
+      getBeneficiaries(user.id).then(res => {
+        if (res && res.success) setDossierBeneficiaries(res.beneficiaries || []);
+        else setDossierBeneficiaries([]);
+      }).catch(() => setDossierBeneficiaries([]));
+
+      getMerchantWithdrawals(user.id).then(res => {
+        if (res && res.success) setDossierWithdrawals(res.withdrawals || []);
+        else setDossierWithdrawals([]);
+      }).catch(() => setDossierWithdrawals([]));
+    } else {
+      setDossierBeneficiaries([]);
+      setDossierWithdrawals([]);
+    }
+
     // Robust Downline Entity Resolution
     let childDDs = [];
     let childDists = [];
@@ -413,7 +443,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       if (totalVol === 0 && childMerchants.length > 0) {
         totalVol = childMerchants.reduce((sum, m) => sum + parseFloat(m.total_sales || 0), 0);
       }
-      profitEarned = totalVol * 0.0006;
+      profitEarned = totalVol * 0.0025;
       downlineCount = childMerchants.length;
     } else {
       totalVol = parseFloat(user.total_sales || 0);
@@ -433,6 +463,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       totalVol,
       profitEarned,
       downlineCount,
+      uplineChain,
       district_distributors: childDDs,
       distributors: childDists,
       merchants: childMerchants,
@@ -614,13 +645,52 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     </span>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '0.375rem', fontSize: '0.75rem', color: '#64748B', flexWrap: 'wrap' }}>
-                    <span><strong>ID:</strong> {viewingUserDossier.id}</span>
-                    <span><strong>Mobile:</strong> {viewingUserDossier.mobile}</span>
-                    <span><strong>Parent:</strong> {viewingUserDossier.creator_name || viewingUserDossier.parent_sd_name || 'Super Admin'}</span>
+                  {/* Interactive Hierarchy Chain Breadcrumb */}
+                  <div style={{ marginTop: '0.625rem', display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 800 }}>Chain:</span>
+                    <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: '#0F172A', color: '#FFF' }}>
+                      👑 Super Admin
+                    </span>
+                    {viewingUserDossier.uplineChain && viewingUserDossier.uplineChain.map(ancestor => (
+                      <React.Fragment key={ancestor.id}>
+                        <span style={{ color: '#94A3B8', fontSize: '0.75rem' }}>➔</span>
+                        <button
+                          onClick={() => handleOpenDossier(ancestor, ancestor.role, true)}
+                          style={{
+                            fontSize: '0.625rem',
+                            fontWeight: 800,
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            background: ancestor.role === 'SUPER_DISTRIBUTOR' ? '#F3E8FF' : ancestor.role === 'DISTRICT_DISTRIBUTOR' ? '#FEF3C7' : '#EFF6FF',
+                            color: ancestor.role === 'SUPER_DISTRIBUTOR' ? '#7C3AED' : ancestor.role === 'DISTRICT_DISTRIBUTOR' ? '#B45309' : '#0F52BA',
+                            border: '1px solid currentColor',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                          title={`View ${ancestor.name}`}
+                        >
+                          <span>{ancestor.role === 'SUPER_DISTRIBUTOR' ? '⚡' : ancestor.role === 'DISTRICT_DISTRIBUTOR' ? '🏛️' : '📦'}</span>
+                          <span>{ancestor.name} ({ancestor.id})</span>
+                        </button>
+                      </React.Fragment>
+                    ))}
+                    <span style={{ color: '#94A3B8', fontSize: '0.75rem' }}>➔</span>
+                    <span style={{
+                      fontSize: '0.625rem',
+                      fontWeight: 900,
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      background: '#ECFDF5',
+                      color: '#059669',
+                      border: '1px solid #10B981'
+                    }}>
+                      {viewingUserDossier.name} ({viewingUserDossier.id}) [Current]
+                    </span>
                   </div>
 
-                  {/* Hardware & Vendor Information Tags (Exact Client Requirement) */}
+                  {/* Hardware & Vendor Information Tags for Merchant */}
                   {viewingUserDossier.dossierType === 'MERCHANT' && (
                     <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#F1F5F9', color: '#334155', padding: '3px 8px', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
@@ -648,30 +718,154 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 </button>
               </div>
 
-              {/* 3 Financial Summary Cards for this Person */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginTop: '1.25rem' }}>
-                <div style={{ background: '#F8FAFC', padding: '0.75rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
-                  <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 800, textTransform: 'uppercase' }}>Total Sales / Volume</span>
-                  <strong style={{ display: 'block', fontSize: '1.125rem', fontWeight: 900, color: '#0A192F', marginTop: '2px' }}>
-                    ₹{viewingUserDossier.totalVol.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </strong>
-                </div>
-
-                <div style={{ background: '#ECFDF5', padding: '0.75rem', borderRadius: '8px', border: '1px solid #A7F3D0' }}>
-                  <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800, textTransform: 'uppercase' }}>Admin Profit Earned</span>
-                  <strong style={{ display: 'block', fontSize: '1.125rem', fontWeight: 900, color: '#059669', marginTop: '2px' }}>
-                    +₹{viewingUserDossier.profitEarned.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </strong>
-                </div>
-
-                <div style={{ background: '#EFF6FF', padding: '0.75rem', borderRadius: '8px', border: '1px solid #BFDBFE' }}>
-                  <span style={{ fontSize: '0.625rem', color: '#0F52BA', fontWeight: 800, textTransform: 'uppercase' }}>Wallet Balance</span>
-                  <strong style={{ display: 'block', fontSize: '1.125rem', fontWeight: 900, color: '#0F52BA', marginTop: '2px' }}>
-                    ₹{parseFloat(viewingUserDossier.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </strong>
-                </div>
+              {/* Complete Financial Cards Tailored to Role */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.625rem', marginTop: '1.25rem' }}>
+                {viewingUserDossier.dossierType === 'MERCHANT' ? (
+                  <>
+                    <div style={{ background: '#EFF6FF', padding: '0.75rem', borderRadius: '8px', border: '1px solid #BFDBFE' }}>
+                      <span style={{ fontSize: '0.625rem', color: '#0F52BA', fontWeight: 800, textTransform: 'uppercase' }}>Available Wallet</span>
+                      <strong style={{ display: 'block', fontSize: '1.0625rem', fontWeight: 900, color: '#0F52BA', marginTop: '2px' }}>
+                        ₹{parseFloat(viewingUserDossier.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                    <div style={{ background: '#F8FAFC', padding: '0.75rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                      <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 800, textTransform: 'uppercase' }}>Total Sales</span>
+                      <strong style={{ display: 'block', fontSize: '1.0625rem', fontWeight: 900, color: '#0A192F', marginTop: '2px' }}>
+                        ₹{viewingUserDossier.totalVol.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                    <div style={{ background: '#FFFBEB', padding: '0.75rem', borderRadius: '8px', border: '1px solid #FDE68A' }}>
+                      <span style={{ fontSize: '0.625rem', color: '#B45309', fontWeight: 800, textTransform: 'uppercase' }}>Pending Balance</span>
+                      <strong style={{ display: 'block', fontSize: '1.0625rem', fontWeight: 900, color: '#D97706', marginTop: '2px' }}>
+                        ₹{parseFloat(viewingUserDossier.pending_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                    <div style={{ background: '#F0FDF4', padding: '0.75rem', borderRadius: '8px', border: '1px solid #BBF7D0' }}>
+                      <span style={{ fontSize: '0.625rem', color: '#15803D', fontWeight: 800, textTransform: 'uppercase' }}>Withdrawn to Bank</span>
+                      <strong style={{ display: 'block', fontSize: '1.0625rem', fontWeight: 900, color: '#16A34A', marginTop: '2px' }}>
+                        ₹{parseFloat(viewingUserDossier.withdrawn_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                    <div style={{ background: '#ECFDF5', padding: '0.75rem', borderRadius: '8px', border: '1px solid #A7F3D0' }}>
+                      <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800, textTransform: 'uppercase' }}>Admin Profit</span>
+                      <strong style={{ display: 'block', fontSize: '1.0625rem', fontWeight: 900, color: '#059669', marginTop: '2px' }}>
+                        +₹{viewingUserDossier.profitEarned.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ background: '#F8FAFC', padding: '0.75rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                      <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 800, textTransform: 'uppercase' }}>Downline Turnover</span>
+                      <strong style={{ display: 'block', fontSize: '1.0625rem', fontWeight: 900, color: '#0A192F', marginTop: '2px' }}>
+                        ₹{viewingUserDossier.totalVol.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                    <div style={{ background: '#F5F3FF', padding: '0.75rem', borderRadius: '8px', border: '1px solid #DDD6FE' }}>
+                      <span style={{ fontSize: '0.625rem', color: '#6D28D9', fontWeight: 800, textTransform: 'uppercase' }}>Commission Earned</span>
+                      <strong style={{ display: 'block', fontSize: '1.0625rem', fontWeight: 900, color: '#7C3AED', marginTop: '2px' }}>
+                        +₹{(viewingUserDossier.totalVol * (viewingUserDossier.dossierType === 'SUPER_DISTRIBUTOR' ? 0.0015 : 0.0025)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                    <div style={{ background: '#EFF6FF', padding: '0.75rem', borderRadius: '8px', border: '1px solid #BFDBFE' }}>
+                      <span style={{ fontSize: '0.625rem', color: '#0F52BA', fontWeight: 800, textTransform: 'uppercase' }}>Wallet Balance</span>
+                      <strong style={{ display: 'block', fontSize: '1.0625rem', fontWeight: 900, color: '#0F52BA', marginTop: '2px' }}>
+                        ₹{parseFloat(viewingUserDossier.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                    <div style={{ background: '#ECFDF5', padding: '0.75rem', borderRadius: '8px', border: '1px solid #A7F3D0' }}>
+                      <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800, textTransform: 'uppercase' }}>Admin Profit</span>
+                      <strong style={{ display: 'block', fontSize: '1.0625rem', fontWeight: 900, color: '#059669', marginTop: '2px' }}>
+                        +₹{viewingUserDossier.profitEarned.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
+
+            {/* Verified Bank Accounts for Merchant Payouts */}
+            {viewingUserDossier.dossierType === 'MERCHANT' && (
+              <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <h3 style={{ fontSize: '0.875rem', fontWeight: 900, color: '#0A192F', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>🏦</span> Linked Bank Accounts for Payouts ({dossierBeneficiaries.length})
+                  </h3>
+                  <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>Verified for IMPS Settlements</span>
+                </div>
+                {dossierBeneficiaries.length === 0 ? (
+                  <div style={{ padding: '1rem', background: '#F8FAFC', borderRadius: '8px', border: '1px dashed #CBD5E1', fontSize: '0.75rem', color: '#64748B', textAlign: 'center' }}>
+                    No bank accounts linked yet.
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.625rem' }}>
+                    {dossierBeneficiaries.map(b => (
+                      <div key={b.id} style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.75rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{b.bank_name}</strong>
+                          {b.is_primary === 1 && (
+                            <span style={{ fontSize: '0.55rem', fontWeight: 800, background: '#D1FAE5', color: '#059669', padding: '1px 6px', borderRadius: '3px' }}>PRIMARY</span>
+                          )}
+                        </div>
+                        <span style={{ display: 'block', fontSize: '0.75rem', color: '#334155', marginTop: '4px', fontFamily: 'monospace', fontWeight: 700 }}>
+                          A/C: ••••{b.account_number.slice(-4)}
+                        </span>
+                        <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
+                          IFSC: {b.ifsc} • {b.holder_name}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Merchant Withdrawal Settlements Log */}
+            {viewingUserDossier.dossierType === 'MERCHANT' && (
+              <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <h3 style={{ fontSize: '0.875rem', fontWeight: 900, color: '#0A192F', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>💸</span> Bank Withdrawal Settlements ({dossierWithdrawals.length})
+                  </h3>
+                  <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 700 }}>Direct IMPS Bank Settlements</span>
+                </div>
+                {dossierWithdrawals.length === 0 ? (
+                  <div style={{ padding: '1rem', background: '#F8FAFC', borderRadius: '8px', border: '1px dashed #CBD5E1', fontSize: '0.75rem', color: '#64748B', textAlign: 'center' }}>
+                    No withdrawal requests submitted by this merchant yet.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {dossierWithdrawals.map(w => (
+                      <div key={w.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                        <div>
+                          <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>
+                            ₹{parseFloat(w.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })} ➔ {w.bank_name}
+                          </strong>
+                          <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
+                            A/C: ••••{w.account_number.slice(-4)} • {new Date(w.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {w.admin_remark && (
+                            <span style={{ display: 'block', fontSize: '0.625rem', color: '#475569', fontStyle: 'italic', marginTop: '2px' }}>
+                              Remark: "{w.admin_remark}"
+                            </span>
+                          )}
+                        </div>
+                        <span style={{
+                          fontSize: '0.625rem',
+                          fontWeight: 800,
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          background: w.status === 'APPROVED' ? '#D1FAE5' : w.status === 'PENDING' ? '#FEF3C7' : '#FEE2E2',
+                          color: w.status === 'APPROVED' ? '#059669' : w.status === 'PENDING' ? '#B45309' : '#DC2626'
+                        }}>
+                          {w.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Downline Roster for Super Dist: District Distributors & Area Distributors & Retail Stores */}
             {viewingUserDossier.dossierType === 'SUPER_DISTRIBUTOR' && (
@@ -734,12 +928,19 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         <div key={m.id} onClick={() => handleOpenDossier(m, 'MERCHANT', true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#FFFFFF', borderRadius: '8px', border: '1px solid #E2E8F0', cursor: 'pointer' }}>
                           <div>
                             <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{m.name}</strong>
-                            <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>MID: {m.id} • {m.mobile} • {m.pos_provider || 'Pine Labs'}</span>
-                          </div>
-                          <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <span style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#059669' }}>
-                              ₹{parseFloat(m.total_sales || 0).toLocaleString('en-IN')}
+                            <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
+                              MID: {m.id} • {m.mobile} • {m.pos_provider || 'Pine Labs'} ({m.pos_terminal || 'PL-TS'})
                             </span>
+                          </div>
+                          <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div>
+                              <strong style={{ fontSize: '0.8125rem', color: '#0A192F', display: 'block' }}>
+                                ₹{parseFloat(m.total_sales || 0).toLocaleString('en-IN')}
+                              </strong>
+                              <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>
+                                Bal: ₹{parseFloat(m.available_balance || 0).toFixed(0)}
+                              </span>
+                            </div>
                             <ChevronRight style={{ width: '14px', height: '14px', color: '#94A3B8' }} />
                           </div>
                         </div>
@@ -787,12 +988,19 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         <div key={m.id} onClick={() => handleOpenDossier(m, 'MERCHANT', true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#FFFFFF', borderRadius: '8px', border: '1px solid #E2E8F0', cursor: 'pointer' }}>
                           <div>
                             <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{m.name}</strong>
-                            <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>MID: {m.id} • {m.mobile}</span>
-                          </div>
-                          <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <span style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#059669' }}>
-                              ₹{parseFloat(m.total_sales || 0).toLocaleString('en-IN')}
+                            <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
+                              MID: {m.id} • {m.mobile} • {m.pos_provider || 'Pine Labs'} ({m.pos_terminal || 'PL-TS'})
                             </span>
+                          </div>
+                          <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div>
+                              <strong style={{ fontSize: '0.8125rem', color: '#0A192F', display: 'block' }}>
+                                ₹{parseFloat(m.total_sales || 0).toLocaleString('en-IN')}
+                              </strong>
+                              <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>
+                                Bal: ₹{parseFloat(m.available_balance || 0).toFixed(0)}
+                              </span>
+                            </div>
                             <ChevronRight style={{ width: '14px', height: '14px', color: '#94A3B8' }} />
                           </div>
                         </div>
@@ -814,12 +1022,19 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     <div key={m.id} onClick={() => handleOpenDossier(m, 'MERCHANT', true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#FFFFFF', borderRadius: '8px', border: '1px solid #E2E8F0', cursor: 'pointer' }}>
                       <div>
                         <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{m.name}</strong>
-                        <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>MID: {m.id} • {m.mobile}</span>
-                      </div>
-                      <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <span style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#059669' }}>
-                          ₹{parseFloat(m.total_sales || 0).toLocaleString('en-IN')}
+                        <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
+                          MID: {m.id} • {m.mobile} • {m.pos_provider || 'Pine Labs'} ({m.pos_terminal || 'PL-TS'})
                         </span>
+                      </div>
+                      <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div>
+                          <strong style={{ fontSize: '0.8125rem', color: '#0A192F', display: 'block' }}>
+                            ₹{parseFloat(m.total_sales || 0).toLocaleString('en-IN')}
+                          </strong>
+                          <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>
+                            Bal: ₹{parseFloat(m.available_balance || 0).toFixed(0)}
+                          </span>
+                        </div>
                         <ChevronRight style={{ width: '14px', height: '14px', color: '#94A3B8' }} />
                       </div>
                     </div>
@@ -834,7 +1049,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 <h3 style={{ fontSize: '0.875rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
                   Chronological Transaction History ({viewingUserDossier.transactions?.length || 0})
                 </h3>
-                <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 600 }}>Live SQLite Ledger</span>
+                <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>Live Supabase PostgreSQL Ledger</span>
               </div>
 
               {(!viewingUserDossier.transactions || viewingUserDossier.transactions.length === 0) ? (
@@ -1407,22 +1622,28 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             </span>
                           </div>
 
-                          {/* 3 Metric Pills: [Swipe Amount] [Instant Swipes] [Admin Profit] */}
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.375rem', marginTop: '0.625rem', background: '#F8FAFC', padding: '0.5rem 0.625rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                          {/* 4 Metric Pills: [Turnover] [SD Commission 0.15%] [SD Wallet] [Admin Profit] */}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.375rem', marginTop: '0.625rem', background: '#F8FAFC', padding: '0.5rem 0.625rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
                             <div>
-                              <span style={{ fontSize: '0.55rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Swipe Amount</span>
+                              <span style={{ fontSize: '0.55rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Network Turnover</span>
                               <strong style={{ fontSize: '0.8125rem', color: '#0A192F', fontWeight: 900 }}>
                                 ₹{sdVol.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                               </strong>
                             </div>
                             <div>
-                              <span style={{ fontSize: '0.55rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Instant Swipes</span>
-                              <strong style={{ fontSize: '0.8125rem', color: '#D97706', fontWeight: 900 }}>
-                                ₹{Math.round(sdVol * 0.45).toLocaleString('en-IN')}
+                              <span style={{ fontSize: '0.55rem', color: '#7C3AED', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>SD Cut (0.15%)</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#7C3AED', fontWeight: 900 }}>
+                                +₹{(sdVol * 0.0015).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                               </strong>
                             </div>
                             <div>
-                              <span style={{ fontSize: '0.55rem', color: '#059669', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Admin Profit</span>
+                              <span style={{ fontSize: '0.55rem', color: '#0F52BA', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>SD Wallet</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#0F52BA', fontWeight: 900 }}>
+                                ₹{parseFloat(sd.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </strong>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.55rem', color: '#059669', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Admin Net</span>
                               <strong style={{ fontSize: '0.8125rem', color: '#059669', fontWeight: 900 }}>
                                 +₹{sdProfit.toFixed(2)}
                               </strong>
@@ -1536,18 +1757,30 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             </span>
                           </div>
 
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #F1F5F9', marginTop: '0.75rem', paddingTop: '0.75rem' }}>
+                          {/* 4 Metric Pills for District Distributor */}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.375rem', marginTop: '0.625rem', background: '#F8FAFC', padding: '0.5rem 0.625rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
                             <div>
-                              <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Total Sales</span>
-                              <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F' }}>
-                                ₹{ddVol.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              <span style={{ fontSize: '0.55rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Downline Sales</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#0A192F', fontWeight: 900 }}>
+                                ₹{ddVol.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                               </strong>
                             </div>
-
-                            <div style={{ textAlign: 'right' }}>
-                              <span style={{ fontSize: '0.625rem', color: '#059669', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Admin Profit</span>
-                              <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#059669' }}>
-                                +₹{ddProfit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            <div>
+                              <span style={{ fontSize: '0.55rem', color: '#D97706', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>DD Cut (0.08%)</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#D97706', fontWeight: 900 }}>
+                                +₹{(ddVol * 0.0008).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </strong>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.55rem', color: '#0F52BA', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>DD Wallet</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#0F52BA', fontWeight: 900 }}>
+                                ₹{parseFloat(dd.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </strong>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.55rem', color: '#059669', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Admin Net</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#059669', fontWeight: 900 }}>
+                                +₹{ddProfit.toFixed(2)}
                               </strong>
                             </div>
                           </div>
@@ -1654,18 +1887,30 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             </span>
                           </div>
 
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #F1F5F9', marginTop: '0.75rem', paddingTop: '0.75rem' }}>
+                          {/* 4 Metric Pills for Distributor */}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.375rem', marginTop: '0.625rem', background: '#F8FAFC', padding: '0.5rem 0.625rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
                             <div>
-                              <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Total Sales</span>
-                              <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F' }}>
-                                ₹{distVol.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              <span style={{ fontSize: '0.55rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Downline Sales</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#0A192F', fontWeight: 900 }}>
+                                ₹{distVol.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                               </strong>
                             </div>
-
-                            <div style={{ textAlign: 'right' }}>
-                              <span style={{ fontSize: '0.625rem', color: '#059669', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Admin Profit</span>
-                              <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#059669' }}>
-                                +₹{distProfit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            <div>
+                              <span style={{ fontSize: '0.55rem', color: '#0F52BA', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Dist Cut (0.25%)</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#0F52BA', fontWeight: 900 }}>
+                                +₹{(distVol * 0.0025).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </strong>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.55rem', color: '#10B981', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Dist Wallet</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#059669', fontWeight: 900 }}>
+                                ₹{parseFloat(d.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </strong>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.55rem', color: '#059669', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Admin Net</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#059669', fontWeight: 900 }}>
+                                +₹{distProfit.toFixed(2)}
                               </strong>
                             </div>
                           </div>
@@ -1766,45 +2011,68 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
                                 MID: <strong style={{ color: '#059669' }}>{m.id}</strong> • Mobile: {m.mobile}
                               </span>
-                              <span style={{ fontSize: '0.625rem', color: '#475569', display: 'block', marginTop: '1px' }}>
-                                Sponsor: <strong>{m.creator_name || 'Super Admin'}</strong>
-                              </span>
+                              
+                              {/* Full Upline Hierarchy Chain */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 800 }}>Upline Chain:</span>
+                                <span style={{ fontSize: '0.625rem', color: '#0F172A', fontWeight: 700, background: '#F1F5F9', padding: '2px 6px', borderRadius: '4px', border: '1px solid #E2E8F0' }}>
+                                  {m.upline_path_str || (m.parent_sd_name ? `Super Admin ➔ ⚡ ${m.parent_sd_name} ➔ 📦 ${m.creator_name}` : `Super Admin ➔ ${m.creator_name}`)}
+                                </span>
+                              </div>
                             </div>
                             <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: '#ECFDF5', color: '#059669', border: '1px solid #A7F3D0' }}>
                               Wallet: ₹{parseFloat(m.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                             </span>
                           </div>
 
-                          {/* Machine & Vendor Badges */}
+                          {/* Machine & Legal Vendor Badges */}
                           <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
                             <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#334155', padding: '2px 6px', borderRadius: '4px' }}>
-                              {m.pos_provider || 'Pine Labs'} ({m.pos_terminal || 'PL-TS'})
+                              📟 {m.pos_provider || 'Pine Labs'} ({m.pos_terminal || 'PL-TS'})
                             </span>
                             <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '2px 6px', borderRadius: '4px' }}>
-                              {m.pos_vendor || 'Rose Navaneetham'}
+                              🏢 {m.pos_vendor || 'Rose Navaneetham'}
                             </span>
                             <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#FEF3C7', color: '#B45309', padding: '2px 6px', borderRadius: '4px' }}>
-                              {m.pos_plan === 'LIFETIME' ? 'Lifetime' : 'Rental Plan'}
+                              {m.pos_plan === 'LIFETIME' ? 'Lifetime Purchase' : 'Rental Plan (₹499/mo)'}
+                            </span>
+                            <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#ECFDF5', color: '#059669', padding: '2px 6px', borderRadius: '4px' }}>
+                              {m.pos_settlement === 'INSTANT' ? '⚡ Instant (1.83%)' : '📅 T+1 (1.53%)'}
                             </span>
                           </div>
 
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #F1F5F9', marginTop: '0.75rem', paddingTop: '0.75rem' }}>
+                          {/* 4 Financial Metrics Grid */}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.375rem', marginTop: '0.625rem', background: '#F8FAFC', padding: '0.5rem 0.625rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
                             <div>
-                              <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Total Sales</span>
-                              <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F' }}>
+                              <span style={{ fontSize: '0.55rem', color: '#0F52BA', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Available Wallet</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#0F52BA', fontWeight: 900 }}>
+                                ₹{parseFloat(m.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </strong>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.55rem', color: parseFloat(m.pending_balance || 0) > 0 ? '#D97706' : '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Pending Swipes</span>
+                              <strong style={{ fontSize: '0.8125rem', color: parseFloat(m.pending_balance || 0) > 0 ? '#D97706' : '#64748B', fontWeight: 900 }}>
+                                ₹{parseFloat(m.pending_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </strong>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.55rem', color: '#0A192F', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Total Sales</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#0A192F', fontWeight: 900 }}>
                                 ₹{sales.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                               </strong>
                             </div>
-
-                            <div style={{ textAlign: 'right' }}>
-                              <span style={{ fontSize: '0.625rem', color: '#059669', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Admin Profit</span>
-                              <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#059669' }}>
-                                +₹{adminProfit.toFixed(2)}
+                            <div>
+                              <span style={{ fontSize: '0.55rem', color: '#16A34A', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Withdrawn to Bank</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#16A34A', fontWeight: 900 }}>
+                                ₹{parseFloat(m.withdrawn_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                               </strong>
                             </div>
                           </div>
 
-                          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #F1F5F9', marginTop: '0.625rem', paddingTop: '0.625rem' }}>
+                            <span style={{ fontSize: '0.6875rem', color: '#059669', fontWeight: 800 }}>
+                              Admin Profit: +₹{adminProfit.toFixed(2)}
+                            </span>
                             <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#059669', display: 'flex', alignItems: 'center', gap: '2px' }}>
                               View Details & Sales <ChevronRight style={{ width: '12px', height: '12px' }} />
                             </span>
@@ -2119,7 +2387,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               {onboardForm.role === 'MERCHANT' && (
                 <div>
                   <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '4px' }}>
-                    Assign Parent Distributor
+                    Assign Parent / Sponsor
                   </label>
                   <select
                     value={onboardForm.parent_id}
@@ -2127,9 +2395,27 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem' }}
                   >
                     <option value="">-- Direct to Super Admin --</option>
-                    {distributorsList.map(d => (
-                      <option key={d.id} value={d.id}>{d.name} ({d.id})</option>
-                    ))}
+                    {distributorsList.length > 0 && (
+                      <optgroup label="Area Distributors">
+                        {distributorsList.map(d => (
+                          <option key={d.id} value={d.id}>{d.name} ({d.id}) - Under {d.parent_sd_name || 'Admin'}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {districtDistributorsList.length > 0 && (
+                      <optgroup label="District Distributors">
+                        {districtDistributorsList.map(dd => (
+                          <option key={dd.id} value={dd.id}>{dd.name} ({dd.id})</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {superDistributorsList.length > 0 && (
+                      <optgroup label="Super Distributors (Direct)">
+                        {superDistributorsList.map(sd => (
+                          <option key={sd.id} value={sd.id}>{sd.name} ({sd.id})</option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
                 </div>
               )}

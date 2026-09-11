@@ -78,10 +78,55 @@ export async function getAllUsers() {
     const userMap = {};
     users.forEach(u => { userMap[u.id] = u; });
 
+    // Helper to trace full upline chain for any user
+    const getUplineMeta = (u) => {
+      const upline = [];
+      let currId = u.creator_id;
+      let safety = 0;
+      while (currId && currId !== 'ADM001' && safety < 10) {
+        safety++;
+        const parent = userMap[currId];
+        if (!parent) break;
+        upline.unshift(parent);
+        currId = parent.creator_id;
+      }
+
+      const directParent = userMap[u.creator_id] || null;
+      const creator_name = directParent ? directParent.name : (u.creator_id === 'ADM001' ? 'RONAV Super Admin' : (u.creator_id || 'RONAV Super Admin'));
+      const creator_role = directParent ? directParent.role : 'ADMIN';
+
+      const sdAncestor = upline.find(a => a.role === 'SUPER_DISTRIBUTOR');
+      const distAncestor = upline.find(a => a.role === 'DISTRIBUTOR');
+
+      const parent_sd_name = sdAncestor ? sdAncestor.name : (directParent?.role === 'SUPER_DISTRIBUTOR' ? directParent.name : 'Super Admin');
+      const parent_sd_id = sdAncestor ? sdAncestor.id : (directParent?.role === 'SUPER_DISTRIBUTOR' ? directParent.id : 'ADM001');
+
+      const parent_dist_name = distAncestor ? distAncestor.name : (directParent?.role === 'DISTRIBUTOR' ? directParent.name : null);
+      const parent_dist_id = distAncestor ? distAncestor.id : (directParent?.role === 'DISTRIBUTOR' ? directParent.id : null);
+
+      let pathParts = ['Super Admin'];
+      upline.forEach(a => {
+        const roleIcon = a.role === 'SUPER_DISTRIBUTOR' ? '⚡' : (a.role === 'DISTRICT_DISTRIBUTOR' || a.role === 'DIST_FRANCHISE') ? '🏛️' : '📦';
+        pathParts.push(`${roleIcon} ${a.name}`);
+      });
+      const upline_path_str = pathParts.join(' ➔ ');
+
+      return {
+        creator_name,
+        creator_role,
+        parent_sd_name,
+        parent_sd_id,
+        parent_dist_name,
+        parent_dist_id,
+        upline_chain: upline,
+        upline_path_str
+      };
+    };
+
     const enriched = users.map(u => {
       const w = walletMap[u.id] || {};
       const p = posMap[u.id] || {};
-      const creator = userMap[u.creator_id] || null;
+      const meta = getUplineMeta(u);
 
       return {
         ...u,
@@ -93,12 +138,19 @@ export async function getAllUsers() {
         pos_rent: p.monthly_rent || 499.0,
         pos_settlement: p.settlement_type || 'T1',
         pos_instant_fee: p.instant_surcharge || 0.0,
-        creator_name: creator ? creator.name : (u.creator_id ? u.creator_id : 'RONAV Super Admin'),
-        creator_role: creator ? creator.role : 'ADMIN',
+        creator_name: meta.creator_name,
+        creator_role: meta.creator_role,
+        parent_sd_name: meta.parent_sd_name,
+        parent_sd_id: meta.parent_sd_id,
+        parent_dist_name: meta.parent_dist_name,
+        parent_dist_id: meta.parent_dist_id,
+        upline_chain: meta.upline_chain,
+        upline_path_str: meta.upline_path_str,
         available_balance: w.available_balance || 0,
         total_sales: w.total_sales || 0,
         pending_balance: w.pending_balance || 0,
-        received_sales: w.received_sales || 0
+        received_sales: w.received_sales || 0,
+        withdrawn_amount: w.withdrawn_amount || 0
       };
     });
 
@@ -142,11 +194,56 @@ export async function getHierarchyTree() {
       txMap[t.merchant_id].total_txn_volume += parseFloat(t.amount || 0);
     });
 
+    // Helper to trace full upline chain for any user
+    const getUplineMeta = (u) => {
+      const upline = [];
+      let currId = u.creator_id;
+      let safety = 0;
+      while (currId && currId !== 'ADM001' && safety < 10) {
+        safety++;
+        const parent = userMap[currId];
+        if (!parent) break;
+        upline.unshift(parent);
+        currId = parent.creator_id;
+      }
+
+      const directParent = userMap[u.creator_id] || null;
+      const creator_name = directParent ? directParent.name : (u.creator_id === 'ADM001' ? 'RONAV Super Admin' : (u.creator_id || 'RONAV Super Admin'));
+      const creator_role = directParent ? directParent.role : 'ADMIN';
+
+      const sdAncestor = upline.find(a => a.role === 'SUPER_DISTRIBUTOR');
+      const distAncestor = upline.find(a => a.role === 'DISTRIBUTOR');
+
+      const parent_sd_name = sdAncestor ? sdAncestor.name : (directParent?.role === 'SUPER_DISTRIBUTOR' ? directParent.name : 'Super Admin');
+      const parent_sd_id = sdAncestor ? sdAncestor.id : (directParent?.role === 'SUPER_DISTRIBUTOR' ? directParent.id : 'ADM001');
+
+      const parent_dist_name = distAncestor ? distAncestor.name : (directParent?.role === 'DISTRIBUTOR' ? directParent.name : null);
+      const parent_dist_id = distAncestor ? distAncestor.id : (directParent?.role === 'DISTRIBUTOR' ? directParent.id : null);
+
+      let pathParts = ['Super Admin'];
+      upline.forEach(a => {
+        const roleIcon = a.role === 'SUPER_DISTRIBUTOR' ? '⚡' : (a.role === 'DISTRICT_DISTRIBUTOR' || a.role === 'DIST_FRANCHISE') ? '🏛️' : '📦';
+        pathParts.push(`${roleIcon} ${a.name}`);
+      });
+      const upline_path_str = pathParts.join(' ➔ ');
+
+      return {
+        creator_name,
+        creator_role,
+        parent_sd_name,
+        parent_sd_id,
+        parent_dist_name,
+        parent_dist_id,
+        upline_chain: upline,
+        upline_path_str
+      };
+    };
+
     const enriched = users.map(u => {
       const w = walletMap[u.id] || {};
       const p = posMap[u.id] || {};
-      const creator = userMap[u.creator_id] || null;
       const tx = txMap[u.id] || { txn_count: 0, total_txn_volume: 0 };
+      const meta = getUplineMeta(u);
 
       return {
         ...u,
@@ -158,12 +255,19 @@ export async function getHierarchyTree() {
         pos_rent: p.monthly_rent || 499.0,
         pos_settlement: p.settlement_type || 'T1',
         pos_instant_fee: p.instant_surcharge || 0.0,
-        creator_name: creator ? creator.name : (u.creator_id ? u.creator_id : 'RONAV Super Admin'),
-        creator_role: creator ? creator.role : 'ADMIN',
+        creator_name: meta.creator_name,
+        creator_role: meta.creator_role,
+        parent_sd_name: meta.parent_sd_name,
+        parent_sd_id: meta.parent_sd_id,
+        parent_dist_name: meta.parent_dist_name,
+        parent_dist_id: meta.parent_dist_id,
+        upline_chain: meta.upline_chain,
+        upline_path_str: meta.upline_path_str,
         available_balance: w.available_balance || 0,
         total_sales: w.total_sales || 0,
         pending_balance: w.pending_balance || 0,
         received_sales: w.received_sales || 0,
+        withdrawn_amount: w.withdrawn_amount || 0,
         txn_count: tx.txn_count,
         total_txn_volume: tx.total_txn_volume
       };
@@ -184,11 +288,14 @@ export async function getHierarchyTree() {
     const enrichedDistributors = distributors.map(d => {
       const downlineMerchants = merchantsByParent[d.id] || [];
       const downlineVolume = downlineMerchants.reduce((sum, m) => sum + (parseFloat(m.total_sales) || 0), 0);
+      const commissionEarned = parseFloat((downlineVolume * 0.0025).toFixed(2));
       return {
         ...d,
         merchants: downlineMerchants,
         merchant_count: downlineMerchants.length,
-        downline_volume: downlineVolume
+        downline_volume: downlineVolume,
+        commission_earned: commissionEarned,
+        parent_sd_name: d.parent_sd_name || 'Super Admin'
       };
     });
 
@@ -204,12 +311,16 @@ export async function getHierarchyTree() {
         totalVol += d.downline_volume;
       });
 
+      const commissionEarned = parseFloat((totalVol * 0.0008).toFixed(2));
+
       return {
         ...dd,
         distributors: directDists,
         distributor_count: directDists.length,
         total_merchant_count: totalStores,
-        downline_volume: totalVol
+        downline_volume: totalVol,
+        commission_earned: commissionEarned,
+        parent_sd_name: dd.parent_sd_name || 'Super Admin'
       };
     });
 
@@ -231,6 +342,8 @@ export async function getHierarchyTree() {
         totalVolumeInSD += d.downline_volume;
       });
 
+      const commissionEarned = parseFloat((totalVolumeInSD * 0.0015).toFixed(2));
+
       return {
         ...sd,
         district_distributors: childDDs,
@@ -239,7 +352,8 @@ export async function getHierarchyTree() {
         district_count: childDDs.length,
         distributor_count: directDists.length,
         total_merchant_count: totalMerchantsInSD,
-        network_volume: totalVolumeInSD
+        network_volume: totalVolumeInSD,
+        commission_earned: commissionEarned
       };
     });
 
@@ -951,6 +1065,46 @@ export async function verifyTransaction(txnId, action, remark = '') {
         .single();
 
       updatedWallet = wRes;
+
+      // Rollback upline commissions and volume credited during sale creation
+      try {
+        const { data: allUsersRes } = await supabase.from('users').select('*');
+        const allUsers = allUsersRes || [];
+        const merchantUser = allUsers.find(u => u.id === merchantId);
+        let currentChild = merchantUser;
+
+        while (currentChild && currentChild.creator_id && currentChild.creator_id !== 'ADM001') {
+          const parentId = currentChild.creator_id;
+          const parentUser = allUsers.find(u => u.id === parentId);
+          if (!parentUser) break;
+
+          const commPct = parentUser.role === 'SUPER_DISTRIBUTOR' ? 0.0015 : 0.0025;
+          const commEarned = parseFloat((amount * commPct).toFixed(2));
+
+          const { data: pWallet } = await supabase
+            .from('wallets')
+            .select('*')
+            .eq('user_id', parentId)
+            .maybeSingle();
+
+          if (pWallet) {
+            const pBal = parseFloat(pWallet.available_balance || 0);
+            const pTotal = parseFloat(pWallet.total_sales || 0);
+
+            await supabase
+              .from('wallets')
+              .update({
+                available_balance: Math.max(0.0, pBal - commEarned),
+                total_sales: Math.max(0.0, pTotal - amount),
+                updated_at: new Date().toISOString()
+              })
+              .eq('user_id', parentId);
+          }
+          currentChild = parentUser;
+        }
+      } catch (rollErr) {
+        console.warn('Upline rollback non-fatal error:', rollErr);
+      }
     }
 
     const { data: updatedTxn } = await supabase.from('transactions').select('*').eq('id', txnId).single();
