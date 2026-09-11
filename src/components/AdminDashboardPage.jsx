@@ -313,7 +313,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     if (hierarchyData?.tree?.districtDistributors) {
       return hierarchyData.tree.districtDistributors;
     }
-    return networkUsers.filter(u => u.role === 'DISTRICT_DISTRIBUTOR' || u.role === 'DIST_FRANCHISE').map(u => ({
+    return networkUsers.filter(u => 
+      u.role === 'DISTRICT_DISTRIBUTOR' || 
+      u.role === 'DIST_FRANCHISE' || 
+      (u.id && (u.id.startsWith('DD') || u.id.startsWith('DF')))
+    ).map(u => ({
       ...u,
       parent_sd_name: u.creator_name || 'Super Admin',
       distributor_count: 0,
@@ -328,7 +332,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     if (hierarchyData?.tree?.distributors) {
       return hierarchyData.tree.distributors;
     }
-    return networkUsers.filter(u => u.role === 'DISTRIBUTOR').map(u => ({
+    return networkUsers.filter(u => 
+      u.role === 'DISTRIBUTOR' && 
+      !(u.id && (u.id.startsWith('DD') || u.id.startsWith('DF')))
+    ).map(u => ({
       ...u,
       parent_sd_name: u.creator_name || 'Super Admin',
       merchant_count: 0,
@@ -2580,7 +2587,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               Account Created Successfully!
             </h3>
             <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
-              Partner onboarded into live SQLite hierarchy
+              Partner onboarded into live RONAV Supabase network hierarchy
             </span>
 
             <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.875rem', margin: '1rem 0', textAlign: 'left', fontSize: '0.75rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>

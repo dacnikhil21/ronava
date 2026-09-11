@@ -14,6 +14,8 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [animated, setAnimated] = useState(false);
 
+  const [loginError, setLoginError] = useState('');
+
   // Forgot Password & Reset State
   const [forgotQuery, setForgotQuery] = useState('');
   const [forgotResult, setForgotResult] = useState(null);
@@ -94,19 +96,32 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const cleanId = (userId || '').trim();
+    const cleanPass = (password || '').trim();
+
+    if (!cleanId) {
+      setLoginError(`Please enter your ${selectedRole} User ID or Mobile.`);
+      return;
+    }
+    if (!cleanPass) {
+      setLoginError('Please enter your password.');
+      return;
+    }
+
     setIsLoading(true);
+    setLoginError('');
     try {
-      const searchId = userId || (
-        selectedRole === 'Retailer' ? 'MID3001' : 
-        (selectedRole === 'Distributor' ? 'DIST2001' : 
-        (selectedRole === 'MASTER' ? 'MST1001' : 'SD1001'))
-      );
+      const rolePayload = selectedRole === 'Retailer' 
+        ? 'MERCHANT' 
+        : (selectedRole === 'DIST Franchise' ? 'DIST_FRANCHISE' : (selectedRole === 'Super Distributor' ? 'SUPER_DISTRIBUTOR' : selectedRole));
+
       const res = await loginUser({ 
-        id: searchId, 
-        role: selectedRole === 'Retailer' ? 'MERCHANT' : selectedRole 
+        id: cleanId, 
+        role: rolePayload,
+        password: cleanPass
       });
 
-      if (res.success && res.user) {
+      if (res && res.success && res.user) {
         onLoginSuccess({
           id: res.user.id,
           name: res.user.name,
@@ -115,22 +130,11 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
           pos: res.pos || null
         });
       } else {
-        const fallbackId = selectedRole === 'MASTER' ? 'MST1001' : (selectedRole === 'Distributor' ? 'DIST2001' : (selectedRole === 'Super Distributor' ? 'SD1001' : 'MID3001'));
-        onLoginSuccess({
-          id: fallbackId,
-          name: userId || (selectedRole === 'MASTER' ? 'RONAV Apex Master Hub' : 'Ravi Kirana Store'),
-          mid: fallbackId,
-          role: selectedRole
-        });
+        setLoginError(res?.message || `Access Denied: Invalid credentials or account is not registered as ${selectedRole}.`);
       }
     } catch (err) {
-      const fallbackId = selectedRole === 'MASTER' ? 'MST1001' : (selectedRole === 'Distributor' ? 'DIST2001' : (selectedRole === 'Super Distributor' ? 'SD1001' : 'MID3001'));
-      onLoginSuccess({
-        id: fallbackId,
-        name: userId || (selectedRole === 'MASTER' ? 'RONAV Apex Master Hub' : 'Ravi Kirana Store'),
-        mid: fallbackId,
-        role: selectedRole
-      });
+      console.error(err);
+      setLoginError('Authentication error. Please verify your connection.');
     } finally {
       setIsLoading(false);
     }
@@ -439,6 +443,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
                       onClick={() => {
                         setSelectedRole(role.id);
                         setIsRoleDropdownOpen(false);
+                        setLoginError('');
                       }}
                       style={{
                         width: '100%',
@@ -483,6 +488,27 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
 
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.125rem' }}>
             
+            {loginError && (
+              <div style={{
+                backgroundColor: '#FEF2F2',
+                border: '1.5px solid #FCA5A5',
+                borderRadius: '10px',
+                padding: '0.75rem 0.875rem',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.5rem',
+                color: '#991B1B',
+                fontSize: '0.8125rem',
+                lineHeight: 1.4
+              }}>
+                <AlertCircle style={{ width: '18px', height: '18px', color: '#DC2626', flexShrink: 0, marginTop: '2px' }} />
+                <div>
+                  <strong style={{ display: 'block', fontWeight: 800, color: '#7F1D1D' }}>Login Failed</strong>
+                  <span>{loginError}</span>
+                </div>
+              </div>
+            )}
+
             {/* User ID Field */}
             <div className="form-group" style={{ margin: 0 }}>
               <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#0F172A', marginBottom: '0.375rem' }}>
@@ -621,7 +647,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
             <div style={{ marginTop: '1rem', padding: '0.875rem', background: '#F8FAFC', borderRadius: '12px', border: '1.5px dashed #CBD5E1', textAlign: 'left' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                 <span style={{ fontSize: '0.6875rem', fontWeight: 900, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  🧪 1-Click Test Login (SQLite)
+                  🧪 1-Click Quick Demo Profiles (Supabase Live)
                 </span>
                 <span style={{ fontSize: '0.55rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '1px 5px', borderRadius: '4px' }}>
                   Real Working DB

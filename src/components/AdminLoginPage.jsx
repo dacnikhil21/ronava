@@ -15,14 +15,17 @@ import {
   Settings,
   TrendingUp,
   Headphones,
-  CheckCircle2
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
+import { loginUser } from '../services/api';
 
 export default function AdminLoginPage({ onLoginSuccess, onBackToHome }) {
   const [adminId, setAdminId] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [forgotMobile, setForgotMobile] = useState('');
   const [forgotSuccess, setForgotSuccess] = useState(false);
@@ -36,13 +39,41 @@ export default function AdminLoginPage({ onLoginSuccess, onBackToHome }) {
     return () => clearTimeout(timer);
   }, []);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    const cleanId = (adminId || '').trim();
+    const cleanPass = (password || '').trim();
+
+    if (!cleanId) {
+      setLoginError('Please enter your Admin ID or Mobile.');
+      return;
+    }
+    if (!cleanPass) {
+      setLoginError('Please enter your Admin Password.');
+      return;
+    }
+
     setIsLoading(true);
-    setTimeout(() => {
+    setLoginError('');
+
+    try {
+      const res = await loginUser({
+        id: cleanId,
+        role: 'ADMIN',
+        password: cleanPass
+      });
+
+      if (res && res.success && (res.user?.role === 'ADMIN' || res.user?.id === 'ADM001')) {
+        onLoginSuccess();
+      } else {
+        setLoginError(res?.message || 'Access Denied: You do not have Administrator privileges. Please login through your designated partner portal.');
+      }
+    } catch (err) {
+      console.error(err);
+      setLoginError('Authentication error. Please verify your connection.');
+    } finally {
       setIsLoading(false);
-      onLoginSuccess();
-    }, 800);
+    }
   };
 
   const handleForgotSubmit = (e) => {
@@ -248,6 +279,27 @@ export default function AdminLoginPage({ onLoginSuccess, onBackToHome }) {
           
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.125rem' }}>
             
+            {loginError && (
+              <div style={{
+                backgroundColor: '#FEF2F2',
+                border: '1.5px solid #FCA5A5',
+                borderRadius: '10px',
+                padding: '0.75rem 0.875rem',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.5rem',
+                color: '#991B1B',
+                fontSize: '0.8125rem',
+                lineHeight: 1.4
+              }}>
+                <AlertCircle style={{ width: '18px', height: '18px', color: '#DC2626', flexShrink: 0, marginTop: '2px' }} />
+                <div>
+                  <strong style={{ display: 'block', fontWeight: 800, color: '#7F1D1D' }}>Admin Access Denied</strong>
+                  <span>{loginError}</span>
+                </div>
+              </div>
+            )}
+
             {/* Admin ID field */}
             <div className="form-group" style={{ margin: 0 }}>
               <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#0F172A', marginBottom: '0.375rem' }}>
