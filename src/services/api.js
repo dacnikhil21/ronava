@@ -54,6 +54,134 @@ export async function loginUser(credentials) {
   }
 }
 
+export async function verifySponsor(query) {
+  try {
+    if (!query || !query.trim()) {
+      return { success: false, message: 'Please enter a Sponsor ID or Mobile Number.' };
+    }
+    const clean = query.trim();
+
+    if (clean.toUpperCase() === 'ADM001' || clean.toLowerCase() === 'admin') {
+      return {
+        success: true,
+        sponsor: { id: 'ADM001', name: 'RONAV Super Admin', role: 'ADMIN', mobile: '9966203053' }
+      };
+    }
+
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('id, name, role, mobile')
+      .or(`id.eq.${clean},mobile.eq.${clean}`);
+
+    if (error || !users || users.length === 0) {
+      return { 
+        success: false, 
+        message: 'Invalid Sponsor ID. In the RONAV ecosystem, you can only register if referred by an authorized partner.' 
+      };
+    }
+
+    const sponsor = users[0];
+    return {
+      success: true,
+      sponsor: {
+        id: sponsor.id,
+        name: sponsor.name,
+        role: sponsor.role,
+        mobile: sponsor.mobile
+      }
+    };
+  } catch (err) {
+    console.error('verifySponsor error:', err);
+    return { success: false, message: err.message };
+  }
+}
+
+export async function registerWithReferral(data) {
+  try {
+    const { sponsor_id, name, mobile, role = 'MERCHANT', pos_provider = 'Pine Labs', notes } = data;
+
+    if (!sponsor_id || !name || !mobile) {
+      return { success: false, message: 'Sponsor ID, Name, and Mobile are strictly required.' };
+    }
+
+    // 1. Verify sponsor exists
+    const sponsorRes = await verifySponsor(sponsor_id);
+    if (!sponsorRes.success || !sponsorRes.sponsor) {
+      return { success: false, message: sponsorRes.message || 'Invalid sponsor referral.' };
+    }
+
+    const sponsor = sponsorRes.sponsor;
+
+    // 2. Delegate to createDownstreamUser with sponsor as creator_id
+    const payload = {
+      creator_id: sponsor.id,
+      parent_id: sponsor.id,
+      name: name.trim(),
+      mobile: mobile.trim(),
+      role: role || 'MERCHANT',
+      pos_provider: pos_provider || 'Pine Labs',
+      pos_vendor: pos_provider === 'Pine Labs' ? 'Rose Navaneetham Enterprises' : 'RONAV Technologies',
+      device_plan: 'RENTAL',
+      monthly_rent: '499',
+      settlement_type: 'T1'
+    };
+
+    const res = await createDownstreamUser(payload);
+    if (!res.success) {
+      return res;
+    }
+
+    return {
+      success: true,
+      message: `✓ Successfully registered under ${sponsor.name}!`,
+      credentials: res.credentials,
+      sponsor
+    };
+  } catch (err) {
+    console.error('registerWithReferral error:', err);
+    return { success: false, message: err.message };
+  }
+}
+
+export async function resetUserPassword(query) {
+  try {
+    if (!query || !query.trim()) {
+      return { success: false, message: 'Please enter your registered User ID or Mobile Number.' };
+    }
+    const clean = query.trim();
+
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('*')
+      .or(`id.eq.${clean},mobile.eq.${clean}`);
+
+    if (error || !users || users.length === 0) {
+      return { 
+        success: false, 
+        message: 'No registered account found with this User ID or Mobile Number. Please check or contact your sponsor.' 
+      };
+    }
+
+    const user = users[0];
+    const temporaryPassword = 'Ronav@' + user.id.slice(-4);
+
+    return {
+      success: true,
+      message: 'Password reset verified!',
+      user: {
+        id: user.id,
+        name: user.name,
+        mobile: user.mobile,
+        role: user.role
+      },
+      temporaryPassword
+    };
+  } catch (err) {
+    console.error('resetUserPassword error:', err);
+    return { success: false, message: err.message };
+  }
+}
+
 // ----------------------------------------------------
 // 2. USER ROSTER & HIERARCHY TREE
 // ----------------------------------------------------
@@ -625,19 +753,36 @@ export async function recordMerchantSale(saleData) {
       .single();
 
     // 3. HIERARCHY COMMISSION & VOLUME ROLL-UP TO CONNECTED PERSONS
-    // Climbs: Merchant -> Distributor -> Super Distributor -> Admin
+    // Climbs: Merchant -> Direct Sponsor (Distributor or District Distributor or Super Distributor) -> Upper Hierarchy -> Admin
     const allUsers = allUsersRes.data || [];
     let currentChild = merchant;
+    let isDirectParent = true;
 
     while (currentChild && currentChild.creator_id && currentChild.creator_id !== 'ADM001') {
       const parentId = currentChild.creator_id;
       const parentUser = allUsers.find(u => u.id === parentId);
       if (!parentUser) break;
 
-      // Commission rates: Distributor = 0.25%, Super Distributor = 0.15%
-      let commPct = 0.0025;
-      if (parentUser.role === 'SUPER_DISTRIBUTOR') {
-        commPct = 0.0015;
+      let commPct = 0;
+
+      if (isDirectParent) {
+        // Direct Creator / Sponsor ALWAYS receives the Direct Retail Acquisition Cut: 0.25%
+        // If the direct creator is also a Super Distributor, they get 0.25% (direct retail work) + 0.15% (SD franchise) = 0.40%!
+        if (parentUser.role === 'SUPER_DISTRIBUTOR') {
+          commPct = 0.0040; // 0.25% direct + 0.15% SD
+        } else {
+          commPct = 0.0025; // 0.25% direct distributor cut (earned by Area Dist or District Dist)
+        }
+        isDirectParent = false;
+      } else {
+        // Upline Tier Overrides
+        if (parentUser.role === 'SUPER_DISTRIBUTOR') {
+          commPct = 0.0015; // 0.15% Regional SD franchise override
+        } else if (parentUser.role === 'DISTRICT_DISTRIBUTOR' || parentUser.role === 'DIST_FRANCHISE') {
+          commPct = 0.0008; // 0.08% District override
+        } else {
+          commPct = 0.0005; // Secondary margin
+        }
       }
 
       const commissionEarned = parseFloat((numAmount * commPct).toFixed(2));
@@ -1072,13 +1217,27 @@ export async function verifyTransaction(txnId, action, remark = '') {
         const allUsers = allUsersRes || [];
         const merchantUser = allUsers.find(u => u.id === merchantId);
         let currentChild = merchantUser;
+        let isDirectParent = true;
 
         while (currentChild && currentChild.creator_id && currentChild.creator_id !== 'ADM001') {
           const parentId = currentChild.creator_id;
           const parentUser = allUsers.find(u => u.id === parentId);
           if (!parentUser) break;
 
-          const commPct = parentUser.role === 'SUPER_DISTRIBUTOR' ? 0.0015 : 0.0025;
+          let commPct = 0;
+          if (isDirectParent) {
+            commPct = parentUser.role === 'SUPER_DISTRIBUTOR' ? 0.0040 : 0.0025;
+            isDirectParent = false;
+          } else {
+            if (parentUser.role === 'SUPER_DISTRIBUTOR') {
+              commPct = 0.0015;
+            } else if (parentUser.role === 'DISTRICT_DISTRIBUTOR' || parentUser.role === 'DIST_FRANCHISE') {
+              commPct = 0.0008;
+            } else {
+              commPct = 0.0005;
+            }
+          }
+
           const commEarned = parseFloat((amount * commPct).toFixed(2));
 
           const { data: pWallet } = await supabase

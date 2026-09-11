@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Lock, Eye, EyeOff, ShieldCheck, Headphones, Zap, TrendingUp, Phone, Mail, X, Menu, ArrowRight, ArrowLeft, Layers, CheckCircle2, Send, ChevronDown, ChevronUp, Check, CreditCard, Shield } from 'lucide-react';
-import { loginUser, submitInquiry } from '../services/api';
+import { User, Lock, Eye, EyeOff, ShieldCheck, Headphones, Zap, TrendingUp, Phone, Mail, X, Menu, ArrowRight, ArrowLeft, Layers, CheckCircle2, Send, ChevronDown, ChevronUp, Check, CreditCard, Shield, Copy, AlertCircle } from 'lucide-react';
+import { loginUser, submitInquiry, verifySponsor, registerWithReferral, resetUserPassword } from '../services/api';
 
 export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
   const [selectedRole, setSelectedRole] = useState('Retailer');
@@ -18,6 +18,20 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [animated, setAnimated] = useState(false);
 
+  // Mandatory Sponsor Verification & Registration State
+  const [sponsorCode, setSponsorCode] = useState('');
+  const [verifiedSponsor, setVerifiedSponsor] = useState(null);
+  const [isVerifyingSponsor, setIsVerifyingSponsor] = useState(false);
+  const [sponsorError, setSponsorError] = useState('');
+  const [createdCredentials, setCreatedCredentials] = useState(null);
+  const [copiedCreds, setCopiedCreds] = useState(false);
+
+  // Forgot Password & Reset State
+  const [forgotQuery, setForgotQuery] = useState('');
+  const [forgotResult, setForgotResult] = useState(null);
+  const [forgotError, setForgotError] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+
   useEffect(() => {
     function handleClickOutside(event) {
       if (roleDropdownRef.current && !roleDropdownRef.current.contains(event.target)) {
@@ -27,35 +41,115 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
   const [registerData, setRegisterData] = useState({
     name: '',
     mobile: '',
     service: 'PG & POS Solutions',
     role: selectedRole,
+    pos_provider: 'Pine Labs',
     message: ''
   });
 
   const handleOpenRegister = () => {
     setRegisterData((prev) => ({ ...prev, role: selectedRole }));
     setRegisterSuccess(false);
+    setCreatedCredentials(null);
+    setSponsorError('');
     setShowRegisterModal(true);
   };
 
-  const handleRegisterSubmit = (e) => {
+  // Live Verify Sponsor Referral Code
+  const handleVerifySponsor = async (codeToVerify) => {
+    const code = (codeToVerify || sponsorCode).trim();
+    if (!code) {
+      setSponsorError('Please enter a Sponsor / Referral ID');
+      setVerifiedSponsor(null);
+      return;
+    }
+    setIsVerifyingSponsor(true);
+    setSponsorError('');
+    try {
+      const res = await verifySponsor(code);
+      if (res && res.success && res.sponsor) {
+        setVerifiedSponsor(res.sponsor);
+        setSponsorError('');
+      } else {
+        setVerifiedSponsor(null);
+        setSponsorError(res?.message || 'Invalid sponsor referral ID');
+      }
+    } catch (err) {
+      setVerifiedSponsor(null);
+      setSponsorError('Connection error verifying sponsor');
+    } finally {
+      setIsVerifyingSponsor(false);
+    }
+  };
+
+  // Submit Referral Registration
+  const handleRegisterSubmit = async (e) => {
     e.preventDefault();
-    if (!registerData.name || !registerData.mobile) return;
+    if (!verifiedSponsor) {
+      setSponsorError('⚠️ A verified Sponsor / Referral Code is mandatory to onboard in the RONAV network.');
+      return;
+    }
+    if (!registerData.name.trim() || !registerData.mobile.trim()) {
+      setSponsorError('Please enter both Full Name and 10-digit Mobile Number.');
+      return;
+    }
 
-    submitInquiry({
-      type: 'ONBOARDING',
-      name: registerData.name,
-      phone: registerData.mobile,
-      category: registerData.service || 'Partner Application',
-      location: 'Hyderabad / AP & TS',
-      amount: registerData.role || selectedRole,
-      remarks: registerData.message || 'New partner onboarding application'
-    }).catch(err => console.error(err));
+    setIsLoading(true);
+    try {
+      const res = await registerWithReferral({
+        sponsor_id: verifiedSponsor.id,
+        name: registerData.name.trim(),
+        mobile: registerData.mobile.trim(),
+        role: selectedRole === 'Retailer' ? 'MERCHANT' : selectedRole,
+        pos_provider: registerData.pos_provider || 'Pine Labs'
+      });
 
-    setRegisterSuccess(true);
+      if (res && res.success && res.credentials) {
+        setCreatedCredentials(res.credentials);
+        setRegisterSuccess(true);
+      } else {
+        setSponsorError(res?.message || 'Error creating partner account');
+      }
+    } catch (err) {
+      setSponsorError('Connection error registering account');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Forgot Password / Recovery Submit
+  const handleForgotSubmit = async (e) => {
+    e.preventDefault();
+    if (!forgotQuery.trim()) return;
+
+    setIsResetting(true);
+    setForgotError('');
+    setForgotResult(null);
+
+    try {
+      const res = await resetUserPassword(forgotQuery.trim());
+      if (res && res.success && res.user) {
+        setForgotResult(res);
+      } else {
+        setForgotError(res?.message || 'No registered account found.');
+      }
+    } catch (err) {
+      setForgotError('Connection error verifying account.');
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
+  // Clipboard Copy Helper
+  const handleCopyCreds = (text) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedCreds(true);
+    setTimeout(() => setCopiedCreds(false), 2000);
   };
 
   const roleOptions = [
@@ -117,16 +211,6 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleForgotSubmit = (e) => {
-    e.preventDefault();
-    setForgotSuccess(true);
-    setTimeout(() => {
-      setForgotSuccess(false);
-      setShowForgotModal(false);
-      setForgotMobile('');
-    }, 2500);
   };
 
   return (
@@ -766,39 +850,132 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
         © 2021 – RONAV TECHNOLOGIES. All Rights Reserved.
       </footer>
 
-      {/* Forgot Password Recovery Modal */}
+      {/* 5. Live Forgot Password Recovery Modal */}
       {showForgotModal && (
         <div className="modal-backdrop" onClick={() => setShowForgotModal(false)}>
-          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '380px', padding: '1.75rem', borderRadius: '20px' }}>
-            <h3 style={{ fontSize: '1.125rem', fontWeight: 800, color: '#0F172A', marginBottom: '0.375rem' }}>
-              Password Reset
-            </h3>
-            <p style={{ fontSize: '0.75rem', color: '#64748B', marginBottom: '1rem' }}>
-              Enter your registered {selectedRole} User ID or Mobile Number to receive a password reset OTP.
-            </p>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '440px', padding: '1.75rem', borderRadius: '22px' }}>
+            
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+              <div>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0F172A', margin: '0 0 0.25rem' }}>
+                  Account Password Recovery
+                </h3>
+                <p style={{ fontSize: '0.8125rem', color: '#64748B', margin: 0, lineHeight: 1.4 }}>
+                  Verify your account against the live RONAV network directory to recover credentials.
+                </p>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowForgotModal(false);
+                  setForgotResult(null);
+                  setForgotError('');
+                }}
+                style={{ background: '#F1F5F9', border: 'none', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748B' }}
+              >
+                <X style={{ width: '18px', height: '18px' }} />
+              </button>
+            </div>
 
-            {forgotSuccess ? (
-              <div style={{ padding: '1rem', background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: '12px', color: '#059669', textAlign: 'center', fontSize: '0.8125rem', fontWeight: 800 }}>
-                ✓ Password Reset OTP sent to your mobile number!
+            {forgotResult ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div style={{ padding: '1.25rem', background: '#F0FDF4', border: '1.5px solid #86EFAC', borderRadius: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', color: '#166534', fontWeight: 800, fontSize: '0.9375rem', marginBottom: '0.75rem' }}>
+                    <CheckCircle2 style={{ width: '20px', height: '20px', color: '#16A34A' }} />
+                    <span>Account Verified Successfully</span>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.8125rem', color: '#1E293B' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#64748B' }}>Account Holder:</span>
+                      <strong>{forgotResult.user?.name}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#64748B' }}>Assigned Role:</span>
+                      <span style={{ background: '#DBEAFE', color: '#1E40AF', padding: '2px 8px', borderRadius: '6px', fontWeight: 700, fontSize: '0.75rem' }}>
+                        {forgotResult.user?.role}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#64748B' }}>User ID:</span>
+                      <strong style={{ fontFamily: 'monospace', color: '#0F52BA' }}>{forgotResult.user?.custom_id}</strong>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: '1rem', padding: '0.875rem', background: '#FFFFFF', border: '1px solid #BBF7D0', borderRadius: '12px' }}>
+                    <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 800, textTransform: 'uppercase', display: 'block', marginBottom: '0.25rem' }}>
+                      Active Password
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <code style={{ fontSize: '1.125rem', fontWeight: 800, color: '#0F172A', letterSpacing: '0.05em' }}>
+                        {forgotResult.tempPassword}
+                      </code>
+                      <button 
+                        type="button" 
+                        onClick={() => handleCopyCreds(forgotResult.tempPassword)}
+                        className="btn btn-secondary"
+                        style={{ padding: '0.375rem 0.75rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}
+                      >
+                        <Copy style={{ width: '14px', height: '14px' }} />
+                        {copiedCreds ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      setUserId(forgotResult.user?.custom_id || '');
+                      setPassword(forgotResult.tempPassword || '');
+                      setShowForgotModal(false);
+                      setForgotResult(null);
+                    }}
+                    className="btn btn-primary"
+                    style={{ flex: 1, height: '46px', fontWeight: 800, backgroundColor: '#0F52BA' }}
+                  >
+                    Auto-Fill & Sign In →
+                  </button>
+                </div>
               </div>
             ) : (
-              <form onSubmit={handleForgotSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <div className="form-group">
-                  <label className="form-label">User ID / Registered Mobile</label>
+              <form onSubmit={handleForgotSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <p style={{ fontSize: '0.8125rem', color: '#475569', margin: 0 }}>
+                  Enter your registered <strong>User ID</strong> (e.g. <code>MID3001</code>, <code>DIST2001</code>, <code>SD1001</code>) or your <strong>10-digit registered mobile number</strong>:
+                </p>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>
+                    User ID or Mobile Number *
+                  </label>
                   <input
                     type="text"
                     required
-                    placeholder="Enter User ID or 9966203053"
-                    value={forgotMobile}
-                    onChange={(e) => setForgotMobile(e.target.value)}
+                    placeholder="e.g. MID3001 or 9966203053"
+                    value={forgotQuery}
+                    onChange={(e) => {
+                      setForgotQuery(e.target.value);
+                      setForgotError('');
+                    }}
                     className="form-input"
+                    style={{ minHeight: '46px', borderRadius: '10px' }}
                   />
                 </div>
+
+                {forgotError && (
+                  <div style={{ padding: '0.75rem 1rem', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '10px', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#B91C1C', fontSize: '0.8125rem', fontWeight: 600 }}>
+                    <AlertCircle style={{ width: '16px', height: '16px', flexShrink: 0 }} />
+                    <span>{forgotError}</span>
+                  </div>
+                )}
                 
-                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.25rem' }}>
                   <button 
                     type="button" 
-                    onClick={() => setShowForgotModal(false)}
+                    onClick={() => {
+                      setShowForgotModal(false);
+                      setForgotError('');
+                    }}
                     className="btn btn-secondary"
                     style={{ flex: 1 }}
                   >
@@ -806,10 +983,11 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
                   </button>
                   <button 
                     type="submit" 
+                    disabled={isResetting || !forgotQuery.trim()}
                     className="btn btn-primary"
-                    style={{ flex: 1 }}
+                    style={{ flex: 1, backgroundColor: '#0F52BA' }}
                   >
-                    Send OTP →
+                    {isResetting ? 'Verifying...' : 'Find & Recover →'}
                   </button>
                 </div>
               </form>
@@ -818,18 +996,22 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
         </div>
       )}
 
-      {/* Quick Partner Inquiry & Sign Up Modal */}
+      {/* 6. Invite & Referral-Only Network Registration Modal */}
       {showRegisterModal && (
         <div className="modal-backdrop" onClick={() => setShowRegisterModal(false)}>
-          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px', padding: '2rem 1.75rem', borderRadius: '24px' }}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '540px', maxHeight: '90vh', overflowY: 'auto', padding: '1.75rem', borderRadius: '24px' }}>
             
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem' }}>
               <div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', background: '#FEF3C7', color: '#92400E', padding: '3px 8px', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, marginBottom: '0.375rem' }}>
+                  <Shield style={{ width: '12px', height: '12px' }} />
+                  INVITE & REFERRAL ONLY
+                </div>
                 <h3 style={{ fontSize: '1.35rem', fontWeight: 900, color: '#0F172A', margin: '0 0 0.25rem' }}>
-                  Quick Partner Inquiry Form
+                  Network Partner Registration
                 </h3>
                 <p style={{ fontSize: '0.8125rem', color: '#64748B', margin: 0, lineHeight: 1.4 }}>
-                  Fill in your details to get a callback from our merchant team within 2 hours.
+                  Every new partner must be linked directly to an authorized upline sponsor in RONAV's network.
                 </p>
               </div>
               <button 
@@ -840,107 +1022,239 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome }) {
               </button>
             </div>
 
-            {registerSuccess ? (
-              <div style={{ padding: '2rem 1.5rem', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '16px', textAlign: 'center' }}>
-                <CheckCircle2 style={{ width: '52px', height: '52px', color: '#059669', margin: '0 auto 1rem' }} />
-                <h4 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#065F46', margin: '0 0 0.5rem' }}>
-                  Inquiry Submitted Successfully!
-                </h4>
-                <p style={{ fontSize: '0.875rem', color: '#047857', lineHeight: 1.6, margin: '0 auto 1.5rem', maxWidth: '420px' }}>
-                  Thank you, <strong>{registerData.name}</strong>. Your onboarding request for <strong>{registerData.role}</strong> has been received by RONAV Technologies. Credentials will be generated for <strong>{registerData.mobile}</strong> shortly.
-                </p>
-                <button 
-                  onClick={() => setShowRegisterModal(false)}
-                  className="btn btn-primary"
-                  style={{ backgroundColor: '#059669', borderColor: '#047857', padding: '0.625rem 1.75rem', fontWeight: 800 }}
-                >
-                  Done
-                </button>
+            {registerSuccess && createdCredentials ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                <div style={{ padding: '1.5rem', background: '#F0FDF4', border: '1.5px solid #86EFAC', borderRadius: '18px', textAlign: 'center' }}>
+                  <CheckCircle2 style={{ width: '52px', height: '52px', color: '#059669', margin: '0 auto 0.75rem' }} />
+                  <h4 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#065F46', margin: '0 0 0.375rem' }}>
+                    Partner Account Activated!
+                  </h4>
+                  <p style={{ fontSize: '0.8125rem', color: '#047857', margin: '0 auto 1.25rem', maxWidth: '420px', lineHeight: 1.5 }}>
+                    Account for <strong>{createdCredentials.name}</strong> has been registered under sponsor <strong>{createdCredentials.sponsor_name}</strong> ({createdCredentials.sponsor_id}).
+                  </p>
+
+                  <div style={{ background: '#FFFFFF', border: '1px solid #BBF7D0', borderRadius: '14px', padding: '1.25rem', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.5rem' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 700 }}>Network Role:</span>
+                      <span style={{ background: '#EFF6FF', color: '#1E40AF', padding: '2px 8px', borderRadius: '6px', fontWeight: 800, fontSize: '0.75rem' }}>
+                        {createdCredentials.role}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 800, textTransform: 'uppercase', display: 'block' }}>User ID</span>
+                        <strong style={{ fontSize: '1rem', color: '#0F52BA', fontFamily: 'monospace' }}>{createdCredentials.user_id}</strong>
+                      </div>
+                      <button 
+                        type="button" 
+                        onClick={() => handleCopyCreds(createdCredentials.user_id)}
+                        className="btn btn-secondary"
+                        style={{ padding: '0.25rem 0.625rem', fontSize: '0.6875rem' }}
+                      >
+                        Copy ID
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 800, textTransform: 'uppercase', display: 'block' }}>Default Password</span>
+                        <strong style={{ fontSize: '1rem', color: '#0F172A', fontFamily: 'monospace' }}>{createdCredentials.password}</strong>
+                      </div>
+                      <button 
+                        type="button" 
+                        onClick={() => handleCopyCreds(createdCredentials.password)}
+                        className="btn btn-secondary"
+                        style={{ padding: '0.25rem 0.625rem', fontSize: '0.6875rem' }}
+                      >
+                        Copy Pass
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #F1F5F9', paddingTop: '0.5rem' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 700 }}>Initial Wallet:</span>
+                      <strong style={{ color: '#059669', fontSize: '0.8125rem' }}>₹0.00 (Ready for POS/BBPS)</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                  <button 
+                    type="button" 
+                    onClick={() => handleCopyCreds(`User ID: ${createdCredentials.user_id}\nPassword: ${createdCredentials.password}`)}
+                    className="btn btn-secondary"
+                    style={{ flex: 1, height: '46px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+                  >
+                    <Copy style={{ width: '16px', height: '16px' }} />
+                    {copiedCreds ? 'Copied Both!' : 'Copy All'}
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={() => {
+                      setUserId(createdCredentials.user_id);
+                      setPassword(createdCredentials.password);
+                      setShowRegisterModal(false);
+                      setRegisterSuccess(false);
+                      setCreatedCredentials(null);
+                    }}
+                    className="btn btn-primary"
+                    style={{ flex: 1.2, height: '46px', fontWeight: 800, backgroundColor: '#0F52BA' }}
+                  >
+                    Auto-Fill & Sign In →
+                  </button>
+                </div>
               </div>
             ) : (
               <form onSubmit={handleRegisterSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>FULL NAME *</label>
-                  <input 
-                    type="text" 
-                    required 
-                    placeholder="e.g. Ramesh Kumar"
-                    value={registerData.name}
-                    onChange={(e) => setRegisterData({ ...registerData, name: e.target.value })}
-                    className="form-input"
-                    style={{ minHeight: '46px', borderRadius: '10px' }}
-                  />
+                {/* Step 1: Sponsor / Referral Verification */}
+                <div style={{ background: '#F8FAFC', border: '1.5px solid #E2E8F0', borderRadius: '16px', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#0F172A', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                      <ShieldCheck style={{ width: '16px', height: '16px', color: '#0F52BA' }} />
+                      Step 1: Authorized Sponsor Code *
+                    </label>
+                    <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 600 }}>Mandatory Referral</span>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <input 
+                      type="text"
+                      placeholder="Enter Sponsor ID (e.g. ADM001, SD1001, DIST2001) or Mobile"
+                      value={sponsorCode}
+                      onChange={(e) => {
+                        setSponsorCode(e.target.value);
+                        setSponsorError('');
+                        setVerifiedSponsor(null);
+                      }}
+                      className="form-input"
+                      style={{ flex: 1, minHeight: '44px', borderRadius: '10px', fontSize: '0.8125rem' }}
+                    />
+                    <button 
+                      type="button" 
+                      onClick={() => handleVerifySponsor()}
+                      disabled={isVerifyingSponsor || !sponsorCode.trim()}
+                      className="btn btn-primary"
+                      style={{ padding: '0 1rem', height: '44px', fontWeight: 800, fontSize: '0.8125rem', backgroundColor: '#0F52BA', whiteSpace: 'nowrap' }}
+                    >
+                      {isVerifyingSponsor ? 'Verifying...' : 'Verify Sponsor'}
+                    </button>
+                  </div>
+
+                  {/* Sponsor Status Pill */}
+                  {verifiedSponsor && (
+                    <div style={{ background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: '10px', padding: '0.625rem 0.875rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <CheckCircle2 style={{ width: '16px', height: '16px', color: '#059669' }} />
+                        <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: '#065F46' }}>
+                          {verifiedSponsor.name} ({verifiedSponsor.custom_id || verifiedSponsor.id})
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E40AF', background: '#DBEAFE', padding: '2px 6px', borderRadius: '4px' }}>
+                        {verifiedSponsor.role}
+                      </span>
+                    </div>
+                  )}
+
+                  {sponsorError && (
+                    <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '10px', padding: '0.625rem 0.875rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#B91C1C', fontSize: '0.75rem', fontWeight: 600 }}>
+                      <AlertCircle style={{ width: '16px', height: '16px', flexShrink: 0 }} />
+                      <span>{sponsorError}</span>
+                    </div>
+                  )}
                 </div>
 
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>MOBILE NUMBER *</label>
-                  <input 
-                    type="tel" 
-                    required 
-                    placeholder="10-digit Mobile No."
-                    value={registerData.mobile}
-                    onChange={(e) => setRegisterData({ ...registerData, mobile: e.target.value })}
-                    className="form-input"
-                    style={{ minHeight: '46px', borderRadius: '10px' }}
-                  />
-                </div>
+                {/* Step 2: Account Details (Requires verified sponsor) */}
+                <div style={{ opacity: verifiedSponsor ? 1 : 0.6, pointerEvents: verifiedSponsor ? 'auto' : 'none', display: 'flex', flexDirection: 'column', gap: '0.875rem', transition: 'all 200ms ease' }}>
+                  
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>
+                      Partner Full Name / Store Name *
+                    </label>
+                    <input 
+                      type="text" 
+                      required 
+                      placeholder="e.g. Rajesh Kumar or Rajesh Enterprises"
+                      value={registerData.name}
+                      onChange={(e) => setRegisterData({ ...registerData, name: e.target.value })}
+                      className="form-input"
+                      style={{ minHeight: '44px', borderRadius: '10px' }}
+                    />
+                  </div>
 
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>SERVICE INTERESTED</label>
-                  <select 
-                    value={registerData.service}
-                    onChange={(e) => setRegisterData({ ...registerData, service: e.target.value })}
-                    className="form-input"
-                    style={{ minHeight: '46px', borderRadius: '10px', fontWeight: 700 }}
-                  >
-                    <option value="Personal & Business Loans">Personal & Business Loans</option>
-                    <option value="ATM & CDM Franchise">ATM & CDM Franchise</option>
-                    <option value="PG & POS Solutions">PG & POS Solutions</option>
-                    <option value="BBPS Utility Bill Payments">BBPS Utility Bill Payments</option>
-                    <option value="All Financial Ecosystem Services">All Financial Ecosystem Services</option>
-                  </select>
-                </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>
+                      10-Digit Mobile Number *
+                    </label>
+                    <input 
+                      type="tel" 
+                      required 
+                      maxLength="10"
+                      placeholder="e.g. 9876543210"
+                      value={registerData.mobile}
+                      onChange={(e) => setRegisterData({ ...registerData, mobile: e.target.value })}
+                      className="form-input"
+                      style={{ minHeight: '44px', borderRadius: '10px' }}
+                    />
+                  </div>
 
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>PARTNER CATEGORY</label>
-                  <select 
-                    value={registerData.role}
-                    onChange={(e) => setRegisterData({ ...registerData, role: e.target.value })}
-                    className="form-input"
-                    style={{ minHeight: '46px', borderRadius: '10px', fontWeight: 700 }}
-                  >
-                    <option value="Merchant / Retailer">Merchant / Retailer</option>
-                    <option value="Distributor">Distributor</option>
-                    <option value="DIST Franchise">DIST Franchise (Distributor Franchise)</option>
-                    <option value="Super Distributor">Super Distributor</option>
-                    <option value="MASTER">MASTER (Master Distributor)</option>
-                  </select>
-                </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>
+                        Hierarchy Tier
+                      </label>
+                      <select 
+                        value={selectedRole}
+                        onChange={(e) => setSelectedRole(e.target.value)}
+                        className="form-input"
+                        style={{ minHeight: '44px', borderRadius: '10px', fontWeight: 700 }}
+                      >
+                        <option value="Retailer">Merchant / Retailer</option>
+                        <option value="Distributor">Distributor</option>
+                        <option value="DIST Franchise">DIST Franchise</option>
+                        <option value="Super Distributor">Super Distributor</option>
+                      </select>
+                    </div>
 
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>ADDITIONAL MESSAGE / REQUIREMENT</label>
-                  <textarea 
-                    rows="2" 
-                    placeholder="Briefly describe your business location or loan requirement..."
-                    value={registerData.message}
-                    onChange={(e) => setRegisterData({ ...registerData, message: e.target.value })}
-                    className="form-input"
-                    style={{ borderRadius: '10px' }}
-                  ></textarea>
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', color: '#334155' }}>
+                        POS Device Setup
+                      </label>
+                      <select 
+                        value={registerData.pos_provider}
+                        onChange={(e) => setRegisterData({ ...registerData, pos_provider: e.target.value })}
+                        className="form-input"
+                        style={{ minHeight: '44px', borderRadius: '10px', fontWeight: 700 }}
+                      >
+                        <option value="Pine Labs">Pine Labs POS</option>
+                        <option value="Paytm POS">Paytm Soundbox / POS</option>
+                        <option value="MSwipe">MSwipe Terminal</option>
+                        <option value="Mosambee">Mosambee Mini</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
 
                 <button 
                   type="submit" 
+                  disabled={isLoading || !verifiedSponsor}
                   className="btn btn-primary"
-                  style={{ width: '100%', justifyContent: 'center', height: '48px', fontWeight: 800, fontSize: '0.9375rem', backgroundColor: '#0F52BA', marginTop: '0.25rem' }}
+                  style={{ 
+                    width: '100%', 
+                    justifyContent: 'center', 
+                    height: '48px', 
+                    fontWeight: 800, 
+                    fontSize: '0.9375rem', 
+                    backgroundColor: verifiedSponsor ? '#0F52BA' : '#94A3B8',
+                    cursor: verifiedSponsor ? 'pointer' : 'not-allowed',
+                    marginTop: '0.25rem' 
+                  }}
                 >
-                  <span>Submit</span>
-                  <Send style={{ width: '16px', height: '16px' }} />
+                  {isLoading ? 'Creating Partner Account...' : 'Generate Partner Credentials →'}
                 </button>
 
                 <p style={{ fontSize: '0.6875rem', color: '#94A3B8', textAlign: 'center', margin: 0 }}>
-                  🔒 Fast callback & credential dispatch by RONAV Technologies.
+                  🔒 Direct enrollment into RONAV Network. Sponsor commission upline is linked instantly.
                 </p>
               </form>
             )}
