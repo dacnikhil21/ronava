@@ -657,20 +657,11 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.375rem' }}>
                 <button
                   type="button"
-                  onClick={() => onLoginSuccess({ id: 'MID3001', name: 'Ravi Kirana Store', mid: 'MID3001', role: 'Retailer' })}
+                  onClick={() => onLoginSuccess({ id: 'MID6925', name: 'nikhil slicers', mid: 'MID6925', role: 'Retailer' })}
                   style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#0F52BA', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', textAlign: 'left' }}
                 >
-                  🌲 Pine Labs (MID3001)
-                  <span style={{ display: 'block', fontSize: '0.55rem', color: '#64748B', fontWeight: 600 }}>1.25% MDR Swipe</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onLoginSuccess({ id: 'MID3002', name: 'Lakshmi Mobile Point', mid: 'MID3002', role: 'Retailer' })}
-                  style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid #FDE68A', background: '#FFFBEB', color: '#D97706', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', textAlign: 'left' }}
-                >
-                  ⚡ Payswiff (MID3002)
-                  <span style={{ display: 'block', fontSize: '0.55rem', color: '#64748B', fontWeight: 600 }}>1.65% MDR Swipe</span>
+                  🏪 Retailer (MID6925)
+                  <span style={{ display: 'block', fontSize: '0.55rem', color: '#64748B', fontWeight: 600 }}>nikhil slicers • POS</span>
                 </button>
 
                 <button
@@ -679,18 +670,25 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
                   style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#334155', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', textAlign: 'left' }}
                 >
                   📦 Distributor (DIST2001)
-                  <span style={{ display: 'block', fontSize: '0.55rem', color: '#64748B', fontWeight: 600 }}>Franchise Node</span>
+                  <span style={{ display: 'block', fontSize: '0.55rem', color: '#64748B', fontWeight: 600 }}>Sri Sai Distribution</span>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => {
-                    window.location.pathname = '/admin';
-                  }}
-                  style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid #A7F3D0', background: '#ECFDF5', color: '#065F46', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', textAlign: 'left' }}
+                  onClick={() => onLoginSuccess({ id: 'DD4729', name: 'black bee', mid: 'DD4729', role: 'DIST_FRANCHISE' })}
+                  style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid #FDE68A', background: '#FFFBEB', color: '#D97706', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', textAlign: 'left' }}
                 >
-                  🛡️ Admin Command (/admin)
-                  <span style={{ display: 'block', fontSize: '0.55rem', color: '#64748B', fontWeight: 600 }}>Verifications Center</span>
+                  🏛️ District Dist (DD4729)
+                  <span style={{ display: 'block', fontSize: '0.55rem', color: '#64748B', fontWeight: 600 }}>black bee • Franchise</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onLoginSuccess({ id: 'SD1001', name: 'Ronav South Hub', mid: 'SD1001', role: 'SUPER_DISTRIBUTOR' })}
+                  style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid #E9D5FF', background: '#F5F3FF', color: '#7C3AED', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', textAlign: 'left' }}
+                >
+                  ⚡ Super Dist (SD1001)
+                  <span style={{ display: 'block', fontSize: '0.55rem', color: '#64748B', fontWeight: 600 }}>Ronav South Hub</span>
                 </button>
               </div>
             </div>
