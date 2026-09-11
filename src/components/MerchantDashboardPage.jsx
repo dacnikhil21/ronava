@@ -1073,11 +1073,21 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                       <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: 0, letterSpacing: '-0.02em', fontFeatureSettings: '"tnum"', lineHeight: 1.15 }}>
                         {showBalance ? `₹${wallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '••••••••'}
                       </h2>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.25rem' }}>
-                        <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#10B981', display: 'inline-block', boxShadow: '0 0 5px #10B981' }} />
-                        <span style={{ fontSize: '0.625rem', color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>
-                          Available Balance for Withdrawal
-                        </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10B981', display: 'inline-block', boxShadow: '0 0 5px #10B981' }} />
+                          <span style={{ fontSize: '0.625rem', color: 'rgba(255,255,255,0.85)', fontWeight: 600 }}>
+                            Available for Withdrawal
+                          </span>
+                        </div>
+                        {wallet.pending_balance > 0 && (
+                          <div style={{ background: 'rgba(245, 158, 11, 0.25)', border: '1px solid rgba(251, 191, 36, 0.4)', borderRadius: '6px', padding: '1px 6px', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                            <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#F59E0B', display: 'inline-block' }} />
+                            <span style={{ fontSize: '0.58rem', color: '#FDE68A', fontWeight: 700 }}>
+                              ₹{wallet.pending_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })} Pending Settlement
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -1107,7 +1117,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                     </button>
                   </div>
 
-                  {/* 3 Bottom Metrics: Total Credited, Sent to Bank, In Transit (Settlement removed) */}
+                  {/* 3 Bottom Metrics: Total Sales, Sent to Bank, In Transit */}
                   <div style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(3, 1fr)',
@@ -1115,13 +1125,13 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                     borderTop: '1px solid rgba(255,255,255,0.14)',
                     textAlign: 'center'
                   }}>
-                    {/* Col 1: Total Credited */}
+                    {/* Col 1: Total Sales */}
                     <div style={{ padding: '0 0.25rem' }}>
                       <span style={{ color: '#93C5FD', display: 'block', fontSize: '0.59rem', fontWeight: 700, marginBottom: '2px', whiteSpace: 'nowrap' }}>
-                        Total Credited
+                        Total Sales
                       </span>
                       <strong style={{ color: '#FFFFFF', fontSize: '0.8125rem', fontWeight: 800, whiteSpace: 'nowrap' }}>
-                        ₹{(wallet.total_sales / 100000).toFixed(2)}L
+                        ₹{wallet.total_sales.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </strong>
                     </div>
 
@@ -1131,7 +1141,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                         Sent to Bank
                       </span>
                       <strong style={{ color: '#34D399', fontSize: '0.8125rem', fontWeight: 800, whiteSpace: 'nowrap' }}>
-                        ₹{(wallet.withdrawn_amount / 100000).toFixed(2)}L
+                        ₹{wallet.withdrawn_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </strong>
                     </div>
 
@@ -1141,7 +1151,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                         In Transit
                       </span>
                       <strong style={{ color: '#FCD34D', fontSize: '0.8125rem', fontWeight: 800, whiteSpace: 'nowrap' }}>
-                        ₹{wallet.pending_balance > 0 ? (wallet.pending_balance / 1000).toFixed(1) + 'k' : '0'}
+                        ₹{wallet.pending_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </strong>
                     </div>
                   </div>
