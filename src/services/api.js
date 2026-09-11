@@ -36,9 +36,10 @@ export async function loginUser(credentials) {
       const validPasswords = [
         `Ronav@${last4Id}`,
         `Ronav@${last4Mob}`,
+        'Ronav@123',
+        'Admin@123',
         'Ronav@Admin2024',
         'Ronav@3053',
-        'Admin@123',
         '123456'
       ];
       if (!validPasswords.includes(cleanPass)) {
