@@ -1,4 +1,5 @@
 import React from 'react';
+import RonavLogo from './RonavLogo';
 import { Phone, Mail, ShieldCheck, Activity } from 'lucide-react';
 
 export default function Footer({ onOpenLogin, onOpenOfficeModal, onNavigate }) {
@@ -13,8 +14,8 @@ export default function Footer({ onOpenLogin, onOpenOfficeModal, onNavigate }) {
             <span>ALL FINANCIAL GATEWAYS OPERATIONAL</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.6875rem', color: '#94A3B8' }}>
-            <Activity style={{ width: '14px', height: '14px', color: '#38BDF8' }} />
-            <span>99.99% Monthly Settlement Uptime • 24x7 Engine</span>
+            <Activity style={{ width: '13px', height: '13px', color: '#38BDF8' }} />
+            <span>Core FinTech Switch Latency: 42ms</span>
           </div>
         </div>
 
@@ -24,94 +25,15 @@ export default function Footer({ onOpenLogin, onOpenOfficeModal, onNavigate }) {
           {/* Brand & Corporate Mission */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', marginBottom: '1.25rem' }}>
-              {/* Symmetrical Vector TR Monogram Symbol (Official Shape, Dark Contrast) */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <img 
-                  src="/logo_tr_transparent.png" 
-                  alt="TR Monogram" 
-                  style={{ 
-                    height: '42px', 
-                    width: 'auto', 
-                    display: 'block',
-                    flexShrink: 0 
-                  }} 
-                />
-              </div>
-
-              {/* Brand Text Styling */}
-              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <div 
-                  style={{ 
-                    fontSize: '1.35rem', 
-                    fontWeight: 900, 
-                    color: '#FFFFFF', 
-                    letterSpacing: '0.04em', 
-                    lineHeight: 1, 
-                    display: 'flex',
-                    alignItems: 'center'
-                  }}
-                >
-                  <span>R</span>
-                  <span>O</span>
-                  <span>N</span>
-                  {/* A (Inverted V Chevron) */}
-                  <span
-                    style={{
-                      display: 'inline-flex',
-                      width: '0.95rem',
-                      height: '0.95rem',
-                      marginRight: '2px',
-                      marginLeft: '2px',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}
-                  >
-                    <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', height: '100%', display: 'block' }}>
-                      <defs>
-                        <linearGradient id="footerTGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#0066FF" />
-                          <stop offset="100%" stopColor="#003399" />
-                        </linearGradient>
-                      </defs>
-                      <path d="M12 90 L50 15 L88 90" stroke="url(#footerTGrad)" strokeWidth="22" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </span>
-                  <span>V</span>
-
-                  <span style={{ fontSize: '0.55rem', fontWeight: 800, padding: '0.125rem 0.375rem', background: 'rgba(255,255,255,0.1)', color: '#BFDBFE', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.2)', marginLeft: '0.375rem', alignSelf: 'center' }}>EST. 2021</span>
-                </div>
+              <RonavLogo height="38px" variant="white" />
+              <span style={{ fontSize: '0.55rem', fontWeight: 800, padding: '0.125rem 0.375rem', background: 'rgba(255,255,255,0.1)', color: '#BFDBFE', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.2)', alignSelf: 'center' }}>EST. 2021</span>
+            </div>
                 
-                {/* TECHNOLOGIES with gradient accent lines */}
-                <div 
-                  style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.25rem',
-                    marginTop: '3px'
-                  }}
-                >
-                  {/* Accent Line Left */}
-                  <div style={{ height: '1.5px', width: '10px', background: 'linear-gradient(90deg, transparent, #0066FF)', borderRadius: '1px' }} />
-                  <span 
-                    style={{ 
-                      fontSize: '0.5rem', 
-                      fontWeight: 800, 
-                      color: '#94A3B8', 
-                      letterSpacing: '0.16em', 
-                      lineHeight: 1
-                    }}
-                  >
-                    TECHNOLOGIES
-                  </span>
-                  {/* Accent Line Right */}
-                  <div style={{ height: '1.5px', width: '10px', background: 'linear-gradient(90deg, #0066FF, transparent)', borderRadius: '1px' }} />
-                </div>
-                
-                {/* Powered by Rose Navaneetham Enterprises */}
-                <span style={{ fontSize: '0.625rem', color: '#38BDF8', fontWeight: 800, marginTop: '5px', letterSpacing: '0.04em' }}>
-                  Powered by Rose Navaneetham Enterprises
-                </span>
-              </div>
+            {/* Powered by Rose Navaneetham Enterprises */}
+            <div style={{ marginBottom: '1rem' }}>
+              <span style={{ fontSize: '0.625rem', color: '#38BDF8', fontWeight: 800, letterSpacing: '0.04em' }}>
+                Powered by Rose Navaneetham Enterprises
+              </span>
             </div>
 
             <p style={{ fontSize: '0.8125rem', color: '#94A3B8', lineHeight: 1.65, marginBottom: '1.25rem' }}>

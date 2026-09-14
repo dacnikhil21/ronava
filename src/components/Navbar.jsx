@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import RonavLogo from './RonavLogo';
 import { 
   Menu, 
   X, 
@@ -146,121 +147,12 @@ export default function Navbar({ onOpenLogin, onNavigate, currentView = 'home' }
               padding: 0, 
               display: 'flex', 
               alignItems: 'center', 
-              gap: '0.5rem',
               textAlign: 'left'
             }}
           >
-          {/* Symmetrical Vector TR Monogram Symbol */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <img 
-              src="/logo_tr_transparent.png" 
-              alt="TR Monogram" 
-              style={{ 
-                height: 'var(--logo-height)', 
-                width: 'auto', 
-                display: 'block',
-                flexShrink: 0 
-              }} 
-            />
-          </div>
-
-          {/* Letter-by-Letter Writing Animation Naming */}
-          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-            <div 
-              style={{ 
-                fontSize: 'clamp(1.2rem, 3.8vw, 1.5rem)', 
-                fontWeight: 900, 
-                color: '#0A192F', 
-                letterSpacing: '0.04em', 
-                lineHeight: 1, 
-                display: 'flex',
-                alignItems: 'center'
-              }}
-            >
-              {/* R */}
-              <span style={{
-                display: 'inline-block',
-                opacity: animated ? 1 : 0,
-                transform: animated ? 'translateX(0)' : 'translateX(-6px)',
-                transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 300ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 300ms`
-              }}>R</span>
-              {/* O */}
-              <span style={{
-                display: 'inline-block',
-                opacity: animated ? 1 : 0,
-                transform: animated ? 'translateX(0)' : 'translateX(-6px)',
-                transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 370ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 370ms`
-              }}>O</span>
-              {/* N */}
-              <span style={{
-                display: 'inline-block',
-                opacity: animated ? 1 : 0,
-                transform: animated ? 'translateX(0)' : 'translateX(-6px)',
-                transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 440ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 440ms`
-              }}>N</span>
-              {/* A (Inverted V Chevron) */}
-              <span
-                style={{
-                  display: 'inline-flex',
-                  opacity: animated ? 1 : 0,
-                  transform: animated ? 'translateX(0)' : 'translateX(-6px)',
-                  transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 510ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 510ms`,
-                  width: 'clamp(0.95rem, 3vw, 1.15rem)',
-                  height: 'clamp(0.95rem, 3vw, 1.15rem)',
-                  marginRight: '2px',
-                  marginLeft: '2px',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', height: '100%', display: 'block' }}>
-                  <defs>
-                    <linearGradient id="logoTGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#0066FF" />
-                      <stop offset="100%" stopColor="#003399" />
-                    </linearGradient>
-                  </defs>
-                  <path d="M12 90 L50 15 L88 90" stroke="url(#logoTGrad)" strokeWidth="22" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </span>
-              {/* V */}
-              <span style={{
-                display: 'inline-block',
-                opacity: animated ? 1 : 0,
-                transform: animated ? 'translateX(0)' : 'translateX(-6px)',
-                transition: `opacity 300ms cubic-bezier(0.16, 1, 0.3, 1) 580ms, transform 300ms cubic-bezier(0.16, 1, 0.3, 1) 580ms`
-              }}>V</span>
-            </div>
-            
-            {/* TECHNOLOGIES with gradient accent lines */}
-            <div 
-              style={{ 
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.25rem',
-                opacity: animated ? 1 : 0,
-                transform: animated ? 'translateY(0)' : 'translateY(3px)',
-                transition: `opacity 400ms cubic-bezier(0.16, 1, 0.3, 1) 750ms, transform 400ms cubic-bezier(0.16, 1, 0.3, 1) 750ms`,
-                marginTop: '3px'
-              }}
-            >
-              <div style={{ height: '2px', width: '12px', background: 'linear-gradient(90deg, transparent, #0066FF)', borderRadius: '1px' }} />
-              <span 
-                style={{ 
-                  fontSize: 'clamp(0.45rem, 1.4vw, 0.58rem)', 
-                  fontWeight: 800, 
-                  color: '#475569', 
-                  letterSpacing: '0.16em', 
-                  lineHeight: 1
-                }}
-              >
-                TECHNOLOGIES
-              </span>
-              <div style={{ height: '2px', width: '12px', background: 'linear-gradient(90deg, #0066FF, transparent)', borderRadius: '1px' }} />
-            </div>
-          </div>
-        </button>
-      </div>
+            <RonavLogo size="medium" />
+          </button>
+        </div>
 
         {/* Desktop Navigation Links */}
         <nav className="nav-links-desktop" style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>

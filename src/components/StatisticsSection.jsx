@@ -1,10 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Users, TrendingUp, Landmark, Building2 } from 'lucide-react';
+import { getPlatformPublicStats } from '../services/api';
 
 export default function StatisticsSection() {
   const [counts, setCounts] = useState({ merchants: 0, volume: 0, disbursed: 0, outlets: 0 });
+  const [targets, setTargets] = useState({ merchants: 2538, volume: 33.45, disbursed: 15.8, outlets: 184 });
   const [hasTriggered, setHasTriggered] = useState(false);
   const sectionRef = useRef(null);
+
+  useEffect(() => {
+    getPlatformPublicStats().then(res => {
+      if (res && res.success) {
+        setTargets({
+          merchants: res.merchants,
+          volume: res.volume,
+          disbursed: res.disbursed,
+          outlets: res.outlets
+        });
+      }
+    }).catch(() => {});
+  }, []);
 
   // Scroll-reveal observer for card animations
   useEffect(() => {
@@ -37,7 +52,7 @@ export default function StatisticsSection() {
     }
 
     return () => observer.disconnect();
-  }, [hasTriggered]);
+  }, [hasTriggered, targets]);
 
   const startCountAnimation = () => {
     let start = 0;
@@ -50,15 +65,15 @@ export default function StatisticsSection() {
       const progress = start / steps;
       
       setCounts({
-        merchants: Math.round(2538 * progress),
-        volume: Number((33.45 * progress).toFixed(2)),
-        disbursed: Number((15.8 * progress).toFixed(1)),
-        outlets: Math.round(184 * progress)
+        merchants: Math.round(targets.merchants * progress),
+        volume: Number((targets.volume * progress).toFixed(2)),
+        disbursed: Number((targets.disbursed * progress).toFixed(1)),
+        outlets: Math.round(targets.outlets * progress)
       });
 
       if (start >= steps) {
         clearInterval(timer);
-        setCounts({ merchants: 2538, volume: 33.45, disbursed: 15.8, outlets: 184 });
+        setCounts(targets);
       }
     }, intervalTime);
   };

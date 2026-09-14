@@ -200,8 +200,12 @@ function seedDefaultData() {
   insertUser.run('ADM001', 'RONAV Super Admin', '9966203053', 'ADMIN', null);
   insertWallet.run('ADM001', 500000.0, 1250000.0, 1200000.0, 0.0, 50000.0);
 
-  // 2. Super Distributor (Created by Admin)
-  insertUser.run('SD1001', 'Ronav South Hub (SD)', '9848011223', 'SUPER_DISTRIBUTOR', 'ADM001');
+  // 1B. Master Distributor (Apex Command - Created by Admin)
+  insertUser.run('MST1001', 'RONAV Apex Master Command', '9966203000', 'MASTER', 'ADM001');
+  insertWallet.run('MST1001', 250000.0, 850000.0, 800000.0, 10000.0, 40000.0);
+
+  // 2. Super Distributor (Created by Master Distributor)
+  insertUser.run('SD1001', 'Ronav South Hub (SD)', '9848011223', 'SUPER_DISTRIBUTOR', 'MST1001');
   insertWallet.run('SD1001', 85000.0, 340000.0, 310000.0, 15000.0, 15000.0);
 
   // 3. Distributor (Created by Super Distributor)
@@ -260,6 +264,63 @@ function seedDefaultData() {
     'PENDING',
     new Date(Date.now() - 30 * 60 * 1000).toISOString(),
     null
+  );
+
+  // Seed sample initial Company QR UPI transactions (Instant Settlement)
+  insertTxn.run(
+    'TXN-QR-301',
+    'MID3001',
+    '9966123456',
+    1850.0,
+    'QR',
+    'Company QR (UPI)',
+    'UPI/PhonePe/4291882001',
+    'PhonePe Instant Payment to Company QR',
+    'APPROVED',
+    new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+    new Date(Date.now() - 10 * 60 * 1000).toISOString()
+  );
+
+  insertTxn.run(
+    'TXN-QR-302',
+    'MID3001',
+    '9849554433',
+    3200.0,
+    'QR',
+    'Company QR (UPI)',
+    'UPI/GPay/5092773411',
+    'Google Pay Instant Payment to Company QR',
+    'APPROVED',
+    new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+    new Date(Date.now() - 45 * 60 * 1000).toISOString()
+  );
+
+  insertTxn.run(
+    'TXN-QR-303',
+    'MID3001',
+    '9121887766',
+    750.0,
+    'QR',
+    'Company QR (UPI)',
+    'UPI/Paytm/6190223450',
+    'Paytm UPI Instant Payment to Company QR',
+    'APPROVED',
+    new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
+    new Date(Date.now() - 2 * 3600 * 1000).toISOString()
+  );
+
+  insertTxn.run(
+    'TXN-QR-304',
+    'MID3002',
+    '9000112244',
+    2100.0,
+    'QR',
+    'Company QR (UPI)',
+    'UPI/PhonePe/7182991002',
+    'PhonePe Instant Payment to Company QR',
+    'APPROVED',
+    new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+    new Date(Date.now() - 20 * 60 * 1000).toISOString()
   );
 
   // Seed initial beneficiaries for merchants

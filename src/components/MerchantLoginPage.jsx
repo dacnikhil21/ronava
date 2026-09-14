@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import RonavLogo from './RonavLogo';
 import { User, Lock, Eye, EyeOff, ShieldCheck, Headphones, Zap, TrendingUp, Phone, Mail, X, Menu, ArrowRight, ArrowLeft, Layers, CheckCircle2, Send, ChevronDown, ChevronUp, Check, CreditCard, Shield, Copy, AlertCircle, UserPlus } from 'lucide-react';
 import { loginUser, resetUserPassword } from '../services/api';
 
@@ -169,7 +170,6 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
               <ArrowLeft style={{ width: '22px', height: '22px', color: '#0F172A' }} />
             </button>
 
-            {/* Logo (Clean Brand without Partner badge) */}
             <button 
               onClick={onBackToHome}
               style={{ 
@@ -179,85 +179,10 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
                 padding: 0, 
                 display: 'flex', 
                 alignItems: 'center', 
-                gap: '0.5rem',
                 textAlign: 'left'
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <img 
-                  src="/logo_tr_transparent.png" 
-                  alt="TR Monogram" 
-                  style={{ 
-                    height: 'var(--logo-height)', 
-                    width: 'auto', 
-                    display: 'block',
-                    flexShrink: 0 
-                  }} 
-                />
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <div 
-                  style={{ 
-                    fontSize: 'clamp(1.15rem, 3.8vw, 1.45rem)', 
-                    fontWeight: 900, 
-                    color: '#0A192F', 
-                    letterSpacing: '0.04em', 
-                    lineHeight: 1, 
-                    display: 'flex',
-                    alignItems: 'center'
-                  }}
-                >
-                  <span style={{ display: 'inline-block' }}>R</span>
-                  <span style={{ display: 'inline-block' }}>O</span>
-                  <span style={{ display: 'inline-block' }}>N</span>
-                  <span
-                    style={{
-                      display: 'inline-flex',
-                      width: 'clamp(0.9rem, 2.8vw, 1.1rem)',
-                      height: 'clamp(0.9rem, 2.8vw, 1.1rem)',
-                      marginRight: '2px',
-                      marginLeft: '2px',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}
-                  >
-                    <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', height: '100%', display: 'block' }}>
-                      <defs>
-                        <linearGradient id="logoTGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stopColor="#0066FF" />
-                          <stop offset="100%" stopColor="#003399" />
-                        </linearGradient>
-                      </defs>
-                      <path d="M12 90 L50 15 L88 90" stroke="url(#logoTGrad)" strokeWidth="22" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </span>
-                  <span style={{ display: 'inline-block' }}>V</span>
-                </div>
-                
-                <div 
-                  style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.25rem',
-                    marginTop: '3px'
-                  }}
-                >
-                  <div style={{ height: '2px', width: '10px', background: 'linear-gradient(90deg, transparent, #0066FF)', borderRadius: '1px' }} />
-                  <span 
-                    style={{ 
-                      fontSize: 'clamp(0.42rem, 1.3vw, 0.55rem)', 
-                      fontWeight: 800, 
-                      color: '#475569', 
-                      letterSpacing: '0.16em', 
-                      lineHeight: 1
-                    }}
-                  >
-                    TECHNOLOGIES
-                  </span>
-                  <div style={{ height: '2px', width: '10px', background: 'linear-gradient(90deg, #0066FF, transparent)', borderRadius: '1px' }} />
-                </div>
-              </div>
+              <RonavLogo size="medium" />
             </button>
           </div>
 
@@ -572,8 +497,11 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
                 </button>
               </div>
 
-              {/* Forgot Password Link */}
-              <div style={{ textAlign: 'right', marginTop: '0.375rem' }}>
+              {/* Password Info & Forgot Password Link */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.375rem' }}>
+                <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
+                  Default: <strong>Ronav@&lt;last4Id&gt;</strong>
+                </span>
                 <button
                   type="button"
                   onClick={() => setShowForgotModal(true)}
@@ -642,56 +570,6 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
               <UserPlus style={{ width: '18px', height: '18px' }} />
               <span>New Merchant? Sign Up</span>
             </button>
-
-            {/* QUICK 1-CLICK TESTING PROFILES (FOR LEAD / NON-CODER TESTING) */}
-            <div style={{ marginTop: '1rem', padding: '0.875rem', background: '#F8FAFC', borderRadius: '12px', border: '1.5px dashed #CBD5E1', textAlign: 'left' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                <span style={{ fontSize: '0.6875rem', fontWeight: 900, color: '#0F172A', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  🧪 1-Click Quick Demo Profiles (Supabase Live)
-                </span>
-                <span style={{ fontSize: '0.55rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '1px 5px', borderRadius: '4px' }}>
-                  Real Working DB
-                </span>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.375rem' }}>
-                <button
-                  type="button"
-                  onClick={() => onLoginSuccess({ id: 'MID6925', name: 'nikhil slicers', mid: 'MID6925', role: 'Retailer' })}
-                  style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid #BFDBFE', background: '#EFF6FF', color: '#0F52BA', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', textAlign: 'left' }}
-                >
-                  🏪 Retailer (MID6925)
-                  <span style={{ display: 'block', fontSize: '0.55rem', color: '#64748B', fontWeight: 600 }}>nikhil slicers • POS</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onLoginSuccess({ id: 'DIST2001', name: 'Sri Sai Distribution', mid: 'DIST2001', role: 'Distributor' })}
-                  style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#334155', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', textAlign: 'left' }}
-                >
-                  📦 Distributor (DIST2001)
-                  <span style={{ display: 'block', fontSize: '0.55rem', color: '#64748B', fontWeight: 600 }}>Sri Sai Distribution</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onLoginSuccess({ id: 'DD4729', name: 'black bee', mid: 'DD4729', role: 'DIST_FRANCHISE' })}
-                  style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid #FDE68A', background: '#FFFBEB', color: '#D97706', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', textAlign: 'left' }}
-                >
-                  🏛️ District Dist (DD4729)
-                  <span style={{ display: 'block', fontSize: '0.55rem', color: '#64748B', fontWeight: 600 }}>black bee • Franchise</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => onLoginSuccess({ id: 'SD1001', name: 'Ronav South Hub', mid: 'SD1001', role: 'SUPER_DISTRIBUTOR' })}
-                  style={{ padding: '0.4rem', borderRadius: '6px', border: '1px solid #E9D5FF', background: '#F5F3FF', color: '#7C3AED', fontSize: '0.65rem', fontWeight: 800, cursor: 'pointer', textAlign: 'left' }}
-                >
-                  ⚡ Super Dist (SD1001)
-                  <span style={{ display: 'block', fontSize: '0.55rem', color: '#64748B', fontWeight: 600 }}>Ronav South Hub</span>
-                </button>
-              </div>
-            </div>
 
           </form>
 
@@ -839,51 +717,88 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
                       <strong>{forgotResult.user?.name}</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ color: '#64748B' }}>Assigned Role:</span>
+                      <span style={{ color: '#64748B' }}>Role:</span>
                       <span style={{ background: '#DBEAFE', color: '#1E40AF', padding: '2px 8px', borderRadius: '6px', fontWeight: 700, fontSize: '0.75rem' }}>
                         {forgotResult.user?.role}
                       </span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: '#64748B' }}>User ID:</span>
-                      <strong style={{ fontFamily: 'monospace', color: '#0F52BA' }}>{forgotResult.user?.custom_id}</strong>
+                      <strong style={{ fontFamily: 'monospace', color: '#0F52BA' }}>{forgotResult.user?.id}</strong>
                     </div>
                   </div>
 
-                  <div style={{ marginTop: '1rem', padding: '0.875rem', background: '#FFFFFF', border: '1px solid #BBF7D0', borderRadius: '12px' }}>
-                    <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 800, textTransform: 'uppercase', display: 'block', marginBottom: '0.25rem' }}>
-                      Active Password
+                  <div style={{ marginTop: '1rem', padding: '0.875rem', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px' }}>
+                    <span style={{ fontSize: '0.75rem', color: '#0F172A', fontWeight: 800, display: 'block', marginBottom: '0.25rem' }}>
+                      🔒 Security Verification
                     </span>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <code style={{ fontSize: '1.125rem', fontWeight: 800, color: '#0F172A', letterSpacing: '0.05em' }}>
-                        {forgotResult.tempPassword}
-                      </code>
-                      <button 
-                        type="button" 
-                        onClick={() => handleCopyCreds(forgotResult.tempPassword)}
-                        className="btn btn-secondary"
-                        style={{ padding: '0.375rem 0.75rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}
-                      >
-                        <Copy style={{ width: '14px', height: '14px' }} />
-                        {copiedCreds ? 'Copied!' : 'Copy'}
-                      </button>
-                    </div>
+                    <p style={{ fontSize: '0.75rem', color: '#64748B', margin: 0, lineHeight: 1.4 }}>
+                      To protect your business wallet and payout settlements, password resets are processed directly by Admin Support. Tap below to send a verified reset request on WhatsApp.
+                    </p>
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '0.75rem' }}>
-                  <button 
-                    type="button" 
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <a
+                    href={`https://api.whatsapp.com/send?phone=9966203053&text=${encodeURIComponent(`Hello Admin, I forgot my password for RONAV account:\nName: ${forgotResult.user?.name}\nUser ID: ${forgotResult.user?.id}\nMobile: ${forgotResult.user?.mobile}\n\nPlease reset my password.`)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.5rem',
+                      padding: '0.75rem 1rem',
+                      background: '#25D366',
+                      color: '#FFFFFF',
+                      textDecoration: 'none',
+                      borderRadius: '12px',
+                      fontWeight: 800,
+                      fontSize: '0.875rem',
+                      boxShadow: '0 2px 6px rgba(37, 211, 102, 0.25)'
+                    }}
+                  >
+                    <span>💬 Request Reset via WhatsApp (9966203053)</span>
+                  </a>
+
+                  <a
+                    href="tel:9966203053"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.5rem',
+                      padding: '0.625rem 1rem',
+                      background: '#F8FAFC',
+                      color: '#0F52BA',
+                      textDecoration: 'none',
+                      border: '1px solid #BFDBFE',
+                      borderRadius: '12px',
+                      fontWeight: 700,
+                      fontSize: '0.8125rem'
+                    }}
+                  >
+                    <span>📞 Call Support: +91 9966203053</span>
+                  </a>
+
+                  <button
+                    type="button"
                     onClick={() => {
-                      setUserId(forgotResult.user?.custom_id || '');
-                      setPassword(forgotResult.tempPassword || '');
                       setShowForgotModal(false);
                       setForgotResult(null);
                     }}
-                    className="btn btn-primary"
-                    style={{ flex: 1, height: '46px', fontWeight: 800, backgroundColor: '#0F52BA' }}
+                    style={{
+                      marginTop: '0.25rem',
+                      padding: '0.5rem',
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#64748B',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
                   >
-                    Auto-Fill & Sign In →
+                    Back to Login
                   </button>
                 </div>
               </div>

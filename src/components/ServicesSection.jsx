@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Landmark, 
-  Building2, 
-  Receipt, 
-  CreditCard, 
-  ShieldCheck, 
+import {
+  Landmark,
+  Building2,
+  Receipt,
+  CreditCard,
+  ShieldCheck,
   Calculator,
   Zap,
   QrCode
@@ -36,7 +36,7 @@ export default function ServicesSection({ onOpenLogin, onShowToast, onNavigate }
   return (
     <section id="services" ref={sectionRef} className="section-padding bg-white" style={{ width: '100%', padding: '4rem 0' }}>
       <div className="container" style={{ maxWidth: '860px', margin: '0 auto', padding: '0 1rem' }}>
-        
+
         {/* Section Header */}
         <div className="section-header reveal" style={{ textAlign: 'center', marginBottom: '3.5rem' }}>
           <span className="section-tag">COMPREHENSIVE FINTECH ECOSYSTEM</span>
@@ -51,12 +51,12 @@ export default function ServicesSection({ onOpenLogin, onShowToast, onNavigate }
 
         {/* Core Services Grid (Design 1 - Exact Layout Sync) */}
         <div className="services-grid-design1 reveal-scale" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem', marginBottom: '3rem' }}>
-          
+
           {/* Card 1: Loans (Emerald Green Theme - Design 1) */}
-          <div 
-            className="service-card-design1" 
-            style={{ 
-              backgroundColor: '#FFFFFF', 
+          <div
+            className="service-card-design1"
+            style={{
+              backgroundColor: '#FFFFFF',
               borderColor: '#E2E8F0',
               borderWidth: '1px',
               borderStyle: 'solid',
@@ -92,9 +92,9 @@ export default function ServicesSection({ onOpenLogin, onShowToast, onNavigate }
 
               {/* Centered 3D Illustration (Rupee + Plant + Checkmark) */}
               <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '1rem 0 1.5rem' }}>
-                <img 
-                  src="/loans_rupee.png" 
-                  alt="Personal & Business Loans 3D Illustration" 
+                <img
+                  src="/loans_rupee.png"
+                  alt="Personal & Business Loans 3D Illustration"
                   style={{ width: '100%', maxWidth: '210px', height: 'auto', objectFit: 'contain' }}
                 />
               </div>
@@ -122,10 +122,10 @@ export default function ServicesSection({ onOpenLogin, onShowToast, onNavigate }
           </div>
 
           {/* Card 2: ATM & CDM Franchise (Royal Navy Blue Theme - Design 1) */}
-          <div 
-            className="service-card-design1" 
-            style={{ 
-              backgroundColor: '#FFFFFF', 
+          <div
+            className="service-card-design1"
+            style={{
+              backgroundColor: '#FFFFFF',
               borderColor: '#E2E8F0',
               borderWidth: '1px',
               borderStyle: 'solid',
@@ -161,9 +161,9 @@ export default function ServicesSection({ onOpenLogin, onShowToast, onNavigate }
 
               {/* Centered 3D Illustration (ATM Lobby Machine) */}
               <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '1rem 0 1.5rem' }}>
-                <img 
-                  src="/atm_lobby.png" 
-                  alt="ATM & CDM Franchise 3D Illustration" 
+                <img
+                  src="/atm_lobby.png"
+                  alt="ATM & CDM Franchise 3D Illustration"
                   style={{ width: '100%', maxWidth: '210px', height: 'auto', objectFit: 'contain' }}
                 />
               </div>
@@ -195,10 +195,10 @@ export default function ServicesSection({ onOpenLogin, onShowToast, onNavigate }
           </div>
 
           {/* Card 3: BBPS Bill Payments (Amber/Orange Theme) */}
-          <div 
-            className="service-card-design1" 
-            style={{ 
-              backgroundColor: '#FFFFFF', 
+          <div
+            className="service-card-design1"
+            style={{
+              backgroundColor: '#FFFFFF',
               borderColor: '#E2E8F0',
               borderWidth: '1px',
               borderStyle: 'solid',
@@ -234,9 +234,9 @@ export default function ServicesSection({ onOpenLogin, onShowToast, onNavigate }
 
               {/* Centered 3D Illustration */}
               <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '1rem 0 1.5rem' }}>
-                <img 
-                  src="/bbps_bills.png" 
-                  alt="BBPS Bill Payments 3D Illustration" 
+                <img
+                  src="/bbps_bills.png"
+                  alt="BBPS Bill Payments 3D Illustration"
                   style={{ width: '100%', maxWidth: '210px', height: 'auto', objectFit: 'contain' }}
                 />
               </div>
@@ -268,10 +268,10 @@ export default function ServicesSection({ onOpenLogin, onShowToast, onNavigate }
           </div>
 
           {/* Card 4: Payment Gateway & POS (Violet/Purple Theme) */}
-          <div 
-            className="service-card-design1" 
-            style={{ 
-              backgroundColor: '#FFFFFF', 
+          <div
+            className="service-card-design1"
+            style={{
+              backgroundColor: '#FFFFFF',
               borderColor: '#E2E8F0',
               borderWidth: '1px',
               borderStyle: 'solid',
@@ -307,9 +307,9 @@ export default function ServicesSection({ onOpenLogin, onShowToast, onNavigate }
 
               {/* Centered 3D Illustration */}
               <div style={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '1rem 0 1.5rem' }}>
-                <img 
-                  src="/pos_gateway.png" 
-                  alt="Payment Gateway & POS 3D Illustration" 
+                <img
+                  src="/pos_gateway.png"
+                  alt="Payment Gateway & POS 3D Illustration"
                   style={{ width: '100%', maxWidth: '210px', height: 'auto', objectFit: 'contain' }}
                 />
               </div>
@@ -361,12 +361,12 @@ export default function ServicesSection({ onOpenLogin, onShowToast, onNavigate }
                 <span>Desired Loan Credit:</span>
                 <span style={{ color: '#34D399', fontFeatureSettings: '"tnum"' }}>₹{loanAmount.toLocaleString('en-IN')}</span>
               </div>
-              <input 
-                type="range" 
-                min="50000" 
-                max="10000000" 
+              <input
+                type="range"
+                min="50000"
+                max="10000000"
                 step="50000"
-                value={loanAmount} 
+                value={loanAmount}
                 onChange={(e) => setLoanAmount(Number(e.target.value))}
                 style={{ width: '100%', accentColor: '#059669', cursor: 'pointer' }}
               />
@@ -383,12 +383,12 @@ export default function ServicesSection({ onOpenLogin, onShowToast, onNavigate }
                 <span>Daily BBPS / POS Transactions:</span>
                 <span style={{ color: '#60A5FA', fontFeatureSettings: '"tnum"' }}>{dailyTxns} Txns/Day</span>
               </div>
-              <input 
-                type="range" 
-                min="10" 
-                max="300" 
+              <input
+                type="range"
+                min="10"
+                max="300"
                 step="5"
-                value={dailyTxns} 
+                value={dailyTxns}
                 onChange={(e) => setDailyTxns(Number(e.target.value))}
                 style={{ width: '100%', accentColor: '#0F52BA', cursor: 'pointer' }}
               />
@@ -413,9 +413,9 @@ export default function ServicesSection({ onOpenLogin, onShowToast, onNavigate }
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <button 
-                onClick={() => onNavigate && onNavigate('service-loans')} 
-                className="btn btn-primary btn-sm" 
+              <button
+                onClick={() => onNavigate && onNavigate('service-loans')}
+                className="btn btn-primary btn-sm"
                 style={{ width: '100%', backgroundColor: '#0F52BA', cursor: 'pointer', border: 'none' }}
               >
                 Apply with this Estimate →

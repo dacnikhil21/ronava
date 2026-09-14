@@ -18,7 +18,8 @@ import {
   TrendingUp,
   Target,
   Compass,
-  CheckCircle2
+  CheckCircle2,
+  Crown
 } from 'lucide-react';
 
 // Reusable on-mount count-up counter component
@@ -184,6 +185,17 @@ export default function AboutPage({ onOpenLogin, onBack }) {
             {/* Flow Map */}
             <div className="ecosystem-flow-container">
               
+              {/* Node 0: Master Distributor */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                <div style={{ width: '42px', height: '42px', borderRadius: '50%', border: '1.5px solid #DDD6FE', background: '#FAF5FF', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7C3AED' }}>
+                  <Crown style={{ width: '18px', height: '18px' }} />
+                </div>
+                <strong style={{ fontSize: '0.6rem', fontWeight: 800, color: '#0F172A', marginTop: '0.375rem' }}>Master Dist</strong>
+              </div>
+
+              {/* Arrow */}
+              <ArrowRight className="ecosystem-arrow" style={{ width: '16px', height: '16px', color: '#93C5FD' }} />
+
               {/* Node 1 */}
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
                 <div style={{ width: '42px', height: '42px', borderRadius: '50%', border: '1.5px solid #BFDBFE', background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0F52BA' }}>

@@ -12,17 +12,25 @@ CREATE TABLE IF NOT EXISTS public.users (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   mobile TEXT NOT NULL UNIQUE,
-  role TEXT NOT NULL CHECK (role IN ('ADMIN', 'SUPER_DISTRIBUTOR', 'DISTRIBUTOR', 'MERCHANT')),
+  role TEXT NOT NULL CHECK (role IN ('ADMIN', 'MASTER', 'MASTER_DISTRIBUTOR', 'SUPER_DISTRIBUTOR', 'DISTRICT_DISTRIBUTOR', 'DIST_FRANCHISE', 'DISTRIBUTOR', 'MERCHANT', 'RETAILER')),
   creator_id TEXT,
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW())
 );
 
--- 3. MERCHANT POS MACHINES TABLE
+-- 3. MERCHANT POS MACHINES TABLE (Supports Merchants, Retailers & All Distributor Tiers)
 CREATE TABLE IF NOT EXISTS public.merchant_pos (
   merchant_id TEXT PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
   provider TEXT NOT NULL, -- 'Pine Labs' or 'Payswiff'
   terminal_id TEXT NOT NULL,
-  commission_rate NUMERIC NOT NULL DEFAULT 1.25,
+  commission_rate NUMERIC NOT NULL DEFAULT 1.50, -- T+1 Base MDR %
+  commission_rate_t1 NUMERIC NOT NULL DEFAULT 1.50,
+  commission_rate_instant NUMERIC NOT NULL DEFAULT 1.80,
+  admin_cut_rate NUMERIC NOT NULL DEFAULT 1.20,
+  upline_override_rate NUMERIC NOT NULL DEFAULT 0.20,
+  vendor_entity TEXT DEFAULT 'Rose Navaneetham Enterprises',
+  device_plan TEXT DEFAULT 'RENTAL',
+  monthly_rent NUMERIC DEFAULT 499.0,
+  settlement_type TEXT DEFAULT 'T1',
   assigned_by TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW())
 );
@@ -54,7 +62,7 @@ CREATE TABLE IF NOT EXISTS public.transactions (
   verified_at TIMESTAMPTZ
 );
 
--- 6. WITHDRAWALS TABLE
+-- 6. WITHDRAWALS TABLE (Supports Bank Disbursals, Submissions & Reversals)
 CREATE TABLE IF NOT EXISTS public.withdrawals (
   id TEXT PRIMARY KEY,
   merchant_id TEXT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
@@ -62,8 +70,9 @@ CREATE TABLE IF NOT EXISTS public.withdrawals (
   bank_name TEXT NOT NULL,
   account_number TEXT NOT NULL,
   ifsc TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')),
+  status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'SUBMITTED_TO_BANK', 'APPROVED', 'REJECTED')),
   admin_remark TEXT,
+  submitted_to_bank_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()),
   verified_at TIMESTAMPTZ
 );
@@ -157,7 +166,8 @@ END $$;
 -- Hierarchy Users
 INSERT INTO public.users (id, name, mobile, role, creator_id) VALUES
   ('ADM001', 'RONAV Super Admin', '9966203053', 'ADMIN', NULL),
-  ('SD1001', 'Telangana Super Distributor', '9848011223', 'SUPER_DISTRIBUTOR', 'ADM001'),
+  ('MST1001', 'RONAV Apex Master Command', '9966203000', 'MASTER', 'ADM001'),
+  ('SD1001', 'Telangana Super Distributor', '9848011223', 'SUPER_DISTRIBUTOR', 'MST1001'),
   ('DIST2001', 'Hyderabad Central Distributor', '9848099887', 'DISTRIBUTOR', 'SD1001'),
   ('MID3001', 'Ravi General Store (Koti)', '9876543210', 'MERCHANT', 'DIST2001'),
   ('MID3002', 'Lakshmi Supermarket (Ameerpet)', '9123456789', 'MERCHANT', 'DIST2001'),
@@ -209,3 +219,32 @@ INSERT INTO public.inquiries (id, type, name, phone, merchant_id, amount, catego
   ('FR-4501', 'FRANCHISE', 'Rajesh Goud', '9000123456', NULL, '₹5,00,000', 'ATM & CDM Franchise', 'Secunderabad, Hyd', 'New', '120 sq ft commercial space available.'),
   ('FR-4502', 'FRANCHISE', 'Kalyan Chakravarthy', '8887776655', NULL, '₹7,50,000', 'WLA CDM Franchise', 'Vijayawada, AP', 'Approved', 'Site passed inspection.')
 ON CONFLICT (id) DO NOTHING;
+
+-- =========================================================================
+-- LIVE DATABASE MIGRATION SCRIPT (Copy & Run in Supabase SQL Editor)
+-- Dashboard -> SQL Editor -> New Query -> Paste & Run
+-- =========================================================================
+DO $$
+BEGIN
+  -- 1. Upgrade users role check to include all distributor & franchise roles
+  ALTER TABLE public.users DROP CONSTRAINT IF EXISTS users_role_check;
+  ALTER TABLE public.users ADD CONSTRAINT users_role_check 
+    CHECK (role IN ('ADMIN', 'SUPER_DISTRIBUTOR', 'DISTRICT_DISTRIBUTOR', 'DIST_FRANCHISE', 'DISTRIBUTOR', 'MERCHANT', 'RETAILER'));
+
+  -- 2. Add dynamic commission columns to merchant_pos
+  ALTER TABLE public.merchant_pos ADD COLUMN IF NOT EXISTS commission_rate_t1 NUMERIC DEFAULT 1.50;
+  ALTER TABLE public.merchant_pos ADD COLUMN IF NOT EXISTS commission_rate_instant NUMERIC DEFAULT 1.80;
+  ALTER TABLE public.merchant_pos ADD COLUMN IF NOT EXISTS admin_cut_rate NUMERIC DEFAULT 1.20;
+  ALTER TABLE public.merchant_pos ADD COLUMN IF NOT EXISTS upline_override_rate NUMERIC DEFAULT 0.20;
+  ALTER TABLE public.merchant_pos ADD COLUMN IF NOT EXISTS vendor_entity TEXT DEFAULT 'Rose Navaneetham Enterprises';
+  ALTER TABLE public.merchant_pos ADD COLUMN IF NOT EXISTS device_plan TEXT DEFAULT 'RENTAL';
+  ALTER TABLE public.merchant_pos ADD COLUMN IF NOT EXISTS monthly_rent NUMERIC DEFAULT 499.0;
+  ALTER TABLE public.merchant_pos ADD COLUMN IF NOT EXISTS settlement_type TEXT DEFAULT 'T1';
+
+  -- 3. Upgrade withdrawals status check to support SUBMITTED_TO_BANK
+  ALTER TABLE public.withdrawals DROP CONSTRAINT IF EXISTS withdrawals_status_check;
+  ALTER TABLE public.withdrawals ADD CONSTRAINT withdrawals_status_check 
+    CHECK (status IN ('PENDING', 'SUBMITTED_TO_BANK', 'APPROVED', 'REJECTED'));
+  ALTER TABLE public.withdrawals ADD COLUMN IF NOT EXISTS submitted_to_bank_at TIMESTAMPTZ;
+END $$;
+

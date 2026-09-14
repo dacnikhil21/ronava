@@ -5,28 +5,35 @@ import {
   Copy, Search, X, TrendingUp, CheckCircle2, Clock, LogOut, 
   Shield, Activity, PlusCircle, RefreshCw, GitFork, Layers, 
   Store, Briefcase, ShieldCheck, ArrowRight, ArrowLeft,
-  Check, Phone, DollarSign, ArrowUpRight, Zap,
-  Download, Edit3, UserCheck, UserX, FileText, MapPin, BadgeCheck
+  Check, Phone, DollarSign, ArrowUpRight, Zap, Crown,
+  Download, Edit3, UserCheck, UserX, FileText, MapPin, BadgeCheck, Key
 } from 'lucide-react';
+import { downloadBankBatchFile, downloadGstAuditFile } from '../utils/bankExportUtils.js';
 import { 
   getAdminPending, 
   verifyTransaction, 
   getAllUsers, 
   createDownstreamUser, 
   verifyWithdrawal,
+  verifyWithdrawalsBatch,
+  markWithdrawalsSubmittedToBank,
+  revertWithdrawalsToPending,
   getInquiries,
   updateInquiryStatus,
   updateUserStatus,
   updateUserDetails,
   getHierarchyTree,
   getBeneficiaries,
-  getMerchantWithdrawals
+  getMerchantWithdrawals,
+  getPlatformQrConfig,
+  savePlatformQrConfig,
+  adminResetUserPassword
 } from '../services/api';
 import { subscribeToAdminFeed } from '../services/supabase';
 import RonavLogo from './RonavLogo';
 
 export default function AdminDashboardPage({ onLogout, onNavigate }) {
-  // Navigation View: 'overview' | 'super_distributors' | 'district_distributors' | 'distributors' | 'merchants' | 'payouts' | 'loans' | 'franchises'
+  // Navigation View: 'overview' | 'master_distributors' | 'super_distributors' | 'district_distributors' | 'distributors' | 'merchants' | 'payouts' | 'loans' | 'franchises'
   const [activeTab, setActiveTab] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [tabLoading, setTabLoading] = useState(false);
@@ -35,6 +42,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
   // Active Person Dossier Drilldown View (When clicking ANY card)
   const [viewingUserDossier, setViewingUserDossier] = useState(null);
+  const [showFullChain, setShowFullChain] = useState(false);
+  const [dossierTab, setDossierTab] = useState('transactions'); // 'transactions' | 'withdrawals' | 'banks'
   const [dossierHistory, setDossierHistory] = useState([]);
   const [dossierBeneficiaries, setDossierBeneficiaries] = useState([]);
   const [dossierWithdrawals, setDossierWithdrawals] = useState([]);
@@ -54,12 +63,59 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     mobile: ''
   });
 
+  // Admin Reset Password Modal State
+  const [resetPassModal, setResetPassModal] = useState({
+    isOpen: false,
+    user: null,
+    newPassword: '',
+    isSubmitting: false,
+    successResult: null
+  });
+
+  // Disbursal & Bank UTR Modal State
+  const [disbursingPayout, setDisbursingPayout] = useState(null); // { payout, utr: '', mode: 'IMPS' }
+
+  // Record Sale Portal Verification Modal State & Sub-filter
+  const [verifyingSwipe, setVerifyingSwipe] = useState(null); // { txn, action: 'APPROVE', remark: '', reason: '' }
+  const [swipeSubTab, setSwipeSubTab] = useState('PENDING'); // 'PENDING' | 'APPROVED' | 'REJECTED'
+
   // Dynamic Data Stores
   const [networkUsers, setNetworkUsers] = useState([]);
   const [hierarchyData, setHierarchyData] = useState(null);
   const [pendingTxns, setPendingTxns] = useState([]);
   const [pendingPayouts, setPendingPayouts] = useState([]);
+  const [allPayouts, setAllPayouts] = useState([]);
+  const [payoutCategoryFilter, setPayoutCategoryFilter] = useState('ALL'); // 'ALL' | 'SWIPES' | 'WITHDRAWALS'
+  const [payoutStatusFilter, setPayoutStatusFilter] = useState('PENDING'); // 'APPROVED' | 'PENDING' | 'INVALID'
+  const [payoutSearchQuery, setPayoutSearchQuery] = useState('');
+  const [payoutDateFilter, setPayoutDateFilter] = useState('ALL'); // 'ALL' | 'TODAY' | 'YESTERDAY' | 'WEEK' | 'MONTH' | 'CUSTOM'
+  const [payoutCustomDate, setPayoutCustomDate] = useState('');
+  const [payoutFromDate, setPayoutFromDate] = useState('');
+  const [payoutToDate, setPayoutToDate] = useState('');
+  const [payoutPage, setPayoutPage] = useState(1);
+  const [payoutSettlementFilter, setPayoutSettlementFilter] = useState('ALL'); // 'ALL' | 'T1' | 'INSTANT'
+  const [batchDisbursalModal, setBatchDisbursalModal] = useState(null);
+  const [selectedChannel, setSelectedChannel] = useState('payswiff'); // 'payswiff' | 'pinelabs' | 'qr'
+  const [selectedPayswiffVendor, setSelectedPayswiffVendor] = useState('ronav'); // 'ronav' | 'rp'
+  const [companyQrImage, setCompanyQrImage] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('ronav_company_qr_image') || null;
+    }
+    return null;
+  });
+  const [companyQrPayeeName, setCompanyQrPayeeName] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('ronav_company_qr_name') || 'RONAV TECHNOLOGIES';
+    }
+    return 'RONAV TECHNOLOGIES';
+  });
+  const [showAdminQrPreview, setShowAdminQrPreview] = useState(false);
+
+  const [expandedPayoutId, setExpandedPayoutId] = useState(null);
   const [transactionsLedger, setTransactionsLedger] = useState([]);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [selectedPendingIds, setSelectedPendingIds] = useState(new Set());
+  const [expandedBatchIds, setExpandedBatchIds] = useState({});
   const [metrics, setMetrics] = useState({
     totalVolume: 0,
     adminNetProfit: 0,
@@ -81,20 +137,24 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     }
   });
 
-  // Universal Onboard Partner Modal State
+  // Universal Onboard Partner Modal State with Full Merchant Rights & Dynamic Rates
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createdResultModal, setCreatedResultModal] = useState(null);
   const [onboardForm, setOnboardForm] = useState({
     name: '',
     mobile: '',
-    role: 'MERCHANT', // 'SUPER_DISTRIBUTOR' | 'DISTRIBUTOR' | 'MERCHANT' | 'MASTER'
+    role: 'MERCHANT', // 'SUPER_DISTRIBUTOR' | 'DISTRICT_DISTRIBUTOR' | 'DISTRIBUTOR' | 'MERCHANT'
     parent_id: '',
+    assign_pos: true, // Assign counter POS machine to this user
     pos_provider: 'Pine Labs', // 'Pine Labs' | 'Payswiff'
     pos_vendor: 'Rose Navaneetham Enterprises', // 'Rose Navaneetham Enterprises' | 'RONAV Technologies' | 'R.P. Technologies'
     device_plan: 'RENTAL', // 'RENTAL' | 'LIFETIME'
     monthly_rent: '499',
-    settlement_type: 'T1' // 'T1' | 'INSTANT'
+    settlement_type: 'T1', // 'T1' | 'INSTANT'
+    commission_rate_t1: '1.50', // T+1 Base MDR %
+    commission_rate_instant: '1.80', // Instant Settlement MDR %
+    pos_terminal_id: '' // Real physical POS machine serial number / TID
   });
 
   // Toast Helper
@@ -115,9 +175,51 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     });
   };
 
+  // QR Upload & Reset Handlers for Company Official QR (Direct Supabase Sync)
+  const handleAdminQrUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      triggerToast('Please select an image file (PNG, JPG, WebP)', 'error');
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      triggerToast('Image size should be under 4MB', 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64 = reader.result;
+      setCompanyQrImage(base64);
+      const res = await savePlatformQrConfig({ image: base64, name: companyQrPayeeName });
+      if (res.syncedToSupabase) {
+        triggerToast('✓ Company Official QR saved and synced to Supabase (visible on all devices)!', 'success');
+      } else {
+        triggerToast('✓ Company Official QR updated!', 'success');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleResetAdminQr = async () => {
+    if (window.confirm('Reset company QR code to standard default?')) {
+      setCompanyQrImage(null);
+      await savePlatformQrConfig({ image: null, name: companyQrPayeeName });
+      triggerToast('✓ Company QR reset to default across all devices', 'info');
+    }
+  };
+
   // Load Fresh Data from Backend
   const fetchAdminData = async () => {
     try {
+      // Sync platform QR from Supabase in background
+      getPlatformQrConfig().then(cfg => {
+        if (cfg) {
+          if (cfg.image) setCompanyQrImage(cfg.image);
+          if (cfg.name) setCompanyQrPayeeName(cfg.name);
+        }
+      }).catch(() => {});
+
       const [pendingRes, usersRes, treeRes, inqRes] = await Promise.all([
         getAdminPending().catch(() => ({ success: false })),
         getAllUsers().catch(() => ({ success: false })),
@@ -132,6 +234,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       if (pendingRes && pendingRes.success) {
         setPendingTxns(pendingRes.pendingTransactions || []);
         setPendingPayouts(pendingRes.pendingWithdrawals || []);
+        setAllPayouts(pendingRes.allWithdrawals || []);
         setTransactionsLedger(pendingRes.allTransactions || []);
         if (pendingRes.stats) {
           setMetrics(prev => ({
@@ -197,17 +300,20 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
   // Open Create Modal with Preselected Role
   const handleOpenCreateModal = (role = 'MERCHANT', parentId = '') => {
-    const isPine = true;
     setOnboardForm({
       name: '',
       mobile: '',
       role: role,
       parent_id: parentId,
+      assign_pos: true,
       pos_provider: 'Pine Labs',
       pos_vendor: 'Rose Navaneetham Enterprises',
       device_plan: 'RENTAL',
       monthly_rent: '499',
-      settlement_type: 'T1'
+      settlement_type: 'T1',
+      commission_rate_t1: role === 'MASTER' ? '1.35' : (role === 'SUPER_DISTRIBUTOR' ? '1.40' : (role === 'DISTRICT_DISTRIBUTOR' ? '1.45' : (role === 'DISTRIBUTOR' ? '1.48' : '1.50'))),
+      commission_rate_instant: role === 'MASTER' ? '1.65' : (role === 'SUPER_DISTRIBUTOR' ? '1.70' : (role === 'DISTRICT_DISTRIBUTOR' ? '1.75' : (role === 'DISTRIBUTOR' ? '1.78' : '1.80'))),
+      pos_terminal_id: ''
     });
     setIsCreateModalOpen(true);
   };
@@ -245,11 +351,14 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         name: onboardForm.name.trim(),
         mobile: onboardForm.mobile.trim(),
         role: onboardForm.role,
-        pos_provider: onboardForm.pos_provider,
+        pos_provider: onboardForm.pos_provider || 'Pine Labs',
         pos_vendor: onboardForm.pos_vendor,
+        pos_terminal_id: onboardForm.pos_terminal_id?.trim(),
         device_plan: onboardForm.device_plan,
         monthly_rent: onboardForm.monthly_rent,
-        settlement_type: onboardForm.settlement_type
+        settlement_type: onboardForm.settlement_type,
+        commission_rate_t1: onboardForm.commission_rate_t1,
+        commission_rate_instant: onboardForm.commission_rate_instant
       };
 
       const res = await createDownstreamUser(payload);
@@ -276,17 +385,45 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     }
   };
 
-  // Approve / Reject Payout Action
-  const handlePayoutAction = async (id, action, merchantName, amount) => {
+
+  // Disburse an entire batch of T+1 withdrawals at once
+  const handleBatchPayoutDisbursal = async (items, batchUtr, remark) => {
+    if (!items || items.length === 0) return;
     try {
-      const res = await verifyWithdrawal(id, action);
+      setBatchDisbursalModal(prev => ({ ...prev, isSubmitting: true }));
+      const ids = items.map(item => item.id);
+      const res = await verifyWithdrawalsBatch(ids, 'APPROVE', remark || 'Disbursed via Bank CMS Batch', batchUtr);
       if (res && res.success) {
-        triggerToast(
-          action === 'APPROVE' 
-            ? `✓ Approved payout of ₹${parseFloat(amount).toLocaleString('en-IN')} for ${merchantName}!` 
-            : `✕ Rejected withdrawal request.`,
-          action === 'APPROVE' ? 'success' : 'info'
-        );
+        triggerToast(`✓ Successfully settled batch of ${items.length} payouts! (Batch UTR: ${batchUtr})`, 'success');
+        setBatchDisbursalModal(null);
+        fetchAdminData();
+      } else {
+        triggerToast(res?.message || 'Failed to process batch', 'error');
+        setBatchDisbursalModal(prev => ({ ...prev, isSubmitting: false }));
+      }
+    } catch (err) {
+      console.error('handleBatchPayoutDisbursal error:', err);
+      triggerToast('Error settling batch', 'error');
+      setBatchDisbursalModal(prev => ({ ...prev, isSubmitting: false }));
+    }
+  };
+
+  // Approve / Reject / Dispatch Payout Action
+  const handlePayoutAction = async (id, action, merchantName, amount, utr = '', remark = '') => {
+    try {
+      const finalRemark = remark || (action === 'DISPATCH' ? 'T+1 Standard Bank Transfer' : 'Disbursed via IMPS');
+      const res = await verifyWithdrawal(id, action, finalRemark, utr);
+      if (res && res.success) {
+        let msg = '';
+        if (action === 'DISPATCH') {
+          msg = `✓ Payout of ₹${parseFloat(amount).toLocaleString('en-IN')} moved to "Pending to Disburse" (T+1) for ${merchantName}!`;
+        } else if (action === 'APPROVE') {
+          msg = `✓ Settled payout of ₹${parseFloat(amount).toLocaleString('en-IN')} ${utr ? `(UTR: ${utr})` : ''} for ${merchantName}!`;
+        } else {
+          msg = `✕ Rejected payout request.`;
+        }
+        triggerToast(msg, action === 'REJECT' ? 'info' : 'success');
+        setDisbursingPayout(null);
         fetchAdminData();
       } else {
         triggerToast(res.message || 'Failed to process payout', 'error');
@@ -298,16 +435,17 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   };
 
   // Approve / Reject Merchant Swipe Action
-  const handleTransactionAction = async (id, action, merchantName, amount) => {
+  const handleTransactionAction = async (id, action, merchantName, amount, remark = '') => {
     try {
-      const res = await verifyTransaction(id, action);
+      const res = await verifyTransaction(id, action, remark);
       if (res && res.success) {
         triggerToast(
           action === 'APPROVE' 
-            ? `✓ Approved transaction of ₹${parseFloat(amount).toLocaleString('en-IN')} for ${merchantName}!` 
-            : `✕ Rejected transaction.`,
+            ? `✓ Approved & Credited ₹${parseFloat(amount).toLocaleString('en-IN')} for ${merchantName}!` 
+            : `✕ Marked transaction as ${action === 'REJECT' ? 'Invalid' : 'Pending'}.`,
           action === 'APPROVE' ? 'success' : 'info'
         );
+        setVerifyingSwipe(null);
         fetchAdminData();
       } else {
         triggerToast(res.message || 'Failed to verify transaction', 'error');
@@ -318,13 +456,44 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     }
   };
 
+  // Stage 1: Withdrawal Requests (New requests from merchants / card swipe payouts)
+  const withdrawalRequests = useMemo(() => {
+    return allPayouts.filter(p => p.status === 'PENDING' && !(p.admin_remark || '').includes('[PENDING_TO_DISBURSE]'));
+  }, [allPayouts]);
+
+  // Stage 2: Pending to Disburse (Initiated / T+1 Bank Clearance in Progress)
+  const pendingToDisburse = useMemo(() => {
+    return allPayouts.filter(p => p.status === 'PENDING' && (p.admin_remark || '').includes('[PENDING_TO_DISBURSE]'));
+  }, [allPayouts]);
+
+  // Stage 3: Settled / Approved Payouts
+  const settledPayouts = useMemo(() => {
+    return allPayouts.filter(p => p.status === 'APPROVED');
+  }, [allPayouts]);
+
+  // Process Master Distributors List (Tier 0 / Apex Command Tier)
+  const masterDistributorsList = useMemo(() => {
+    return networkUsers.filter(u => 
+      u.role === 'MASTER' || 
+      u.role === 'MASTER_DISTRIBUTOR' || 
+      (u.id && u.id.startsWith('MST'))
+    ).map(u => ({
+      ...u,
+      super_distributor_count: networkUsers.filter(s => (s.creator_id === u.id || s.parent_id === u.id) && (s.role === 'SUPER_DISTRIBUTOR' || (s.id && s.id.startsWith('SD')))).length,
+      total_network_count: networkUsers.filter(s => s.creator_id === u.id || s.parent_id === u.id).length,
+      network_volume: u.total_sales || 0,
+      super_distributors: networkUsers.filter(s => (s.creator_id === u.id || s.parent_id === u.id) && (s.role === 'SUPER_DISTRIBUTOR' || (s.id && s.id.startsWith('SD'))))
+    }));
+  }, [networkUsers]);
+
   // Process Super Distributors List
   const superDistributorsList = useMemo(() => {
     if (hierarchyData?.tree?.superDistributors) {
-      return hierarchyData.tree.superDistributors;
+      return hierarchyData.tree.superDistributors.filter(u => !(u.id && u.id.startsWith('MST')));
     }
-    return networkUsers.filter(u => u.role === 'SUPER_DISTRIBUTOR').map(u => ({
+    return networkUsers.filter(u => u.role === 'SUPER_DISTRIBUTOR' && !(u.id && u.id.startsWith('MST'))).map(u => ({
       ...u,
+      parent_master_name: u.creator_name || 'Super Admin',
       distributor_count: 0,
       total_merchant_count: 0,
       network_volume: u.total_sales || 0,
@@ -408,12 +577,26 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     }
 
     // Robust Downline Entity Resolution
+    let childSDs = [];
     let childDDs = [];
     let childDists = [];
     let childMerchants = [];
     const allRelevantIds = new Set([user.id]);
 
-    if (type === 'SUPER_DISTRIBUTOR') {
+    if (type === 'MASTER') {
+      const directSDs = user.super_distributors || superDistributorsList.filter(sd => sd.creator_id === user.id || sd.parent_id === user.id);
+      childSDs = directSDs;
+      childDDs = directSDs.flatMap(sd => sd.district_distributors || districtDistributorsList.filter(dd => dd.creator_id === sd.id || dd.parent_id === sd.id));
+      const directDists = childDDs.flatMap(dd => dd.distributors || distributorsList.filter(d => d.creator_id === dd.id || d.parent_id === dd.id));
+      childDists = Array.from(new Map(directDists.map(d => [d.id, d])).values());
+      const distMerchants = childDists.flatMap(d => d.merchants || merchantsList.filter(m => m.creator_id === d.id || m.parent_id === d.id));
+      childMerchants = Array.from(new Map(distMerchants.map(m => [m.id, m])).values());
+
+      directSDs.forEach(sd => allRelevantIds.add(sd.id));
+      childDDs.forEach(dd => allRelevantIds.add(dd.id));
+      childDists.forEach(d => allRelevantIds.add(d.id));
+      childMerchants.forEach(m => allRelevantIds.add(m.id));
+    } else if (type === 'SUPER_DISTRIBUTOR') {
       childDDs = user.district_distributors || districtDistributorsList.filter(dd => dd.creator_id === user.id || dd.parent_id === user.id);
       const directDists = user.distributors || distributorsList.filter(d => d.creator_id === user.id || d.parent_id === user.id);
       const ddDists = childDDs.flatMap(dd => dd.distributors || distributorsList.filter(d => d.creator_id === dd.id || d.parent_id === dd.id));
@@ -455,7 +638,14 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     let profitEarned = 0;
     let downlineCount = 0;
 
-    if (type === 'SUPER_DISTRIBUTOR') {
+    if (type === 'MASTER') {
+      totalVol = parseFloat(user.network_volume || user.total_sales || 0);
+      if (totalVol === 0 && childMerchants.length > 0) {
+        totalVol = childMerchants.reduce((sum, m) => sum + parseFloat(m.total_sales || 0), 0);
+      }
+      profitEarned = totalVol * 0.0020;
+      downlineCount = childSDs.length + childDDs.length + childDists.length + childMerchants.length;
+    } else if (type === 'SUPER_DISTRIBUTOR') {
       totalVol = parseFloat(user.network_volume || user.total_sales || 0);
       if (totalVol === 0 && childMerchants.length > 0) {
         totalVol = childMerchants.reduce((sum, m) => sum + parseFloat(m.total_sales || 0), 0);
@@ -495,6 +685,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       profitEarned,
       downlineCount,
       uplineChain,
+      super_distributors: childSDs,
       district_distributors: childDDs,
       distributors: childDists,
       merchants: childMerchants,
@@ -504,6 +695,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   };
 
   // Filtered Lists Based on Active Search Query
+  const filteredMasters = useMemo(() => {
+    return masterDistributorsList.filter(m => 
+      !searchQuery ||
+      m.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      m.id?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      m.mobile?.includes(searchQuery)
+    );
+  }, [masterDistributorsList, searchQuery]);
+
   const filteredSDs = useMemo(() => {
     return superDistributorsList.filter(sd => 
       !searchQuery ||
@@ -733,6 +933,49 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     }
   };
 
+  const handleOpenResetPassword = (user, e) => {
+    if (e) e.stopPropagation();
+    const suggested = `Ronav@${(user?.id || '').slice(-4) || '2025'}`;
+    setResetPassModal({
+      isOpen: true,
+      user,
+      newPassword: suggested,
+      isSubmitting: false,
+      successResult: null
+    });
+  };
+
+  const handleConfirmResetPassword = async (e) => {
+    if (e) e.preventDefault();
+    if (!resetPassModal.user || !resetPassModal.newPassword.trim()) {
+      triggerToast('Please enter a valid password.', 'error');
+      return;
+    }
+    setResetPassModal(prev => ({ ...prev, isSubmitting: true }));
+    try {
+      const res = await adminResetUserPassword(resetPassModal.user.id, resetPassModal.newPassword.trim());
+      if (res && res.success) {
+        triggerToast(`✓ Password for ${resetPassModal.user.name} successfully reset!`, 'success');
+        setResetPassModal(prev => ({
+          ...prev,
+          isSubmitting: false,
+          successResult: {
+            id: resetPassModal.user.id,
+            name: resetPassModal.user.name,
+            mobile: resetPassModal.user.mobile,
+            password: resetPassModal.newPassword.trim()
+          }
+        }));
+      } else {
+        triggerToast(res?.message || 'Failed to reset password', 'error');
+        setResetPassModal(prev => ({ ...prev, isSubmitting: false }));
+      }
+    } catch (e) {
+      triggerToast('Error updating password', 'error');
+      setResetPassModal(prev => ({ ...prev, isSubmitting: false }));
+    }
+  };
+
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-800 relative" style={{ width: '100%', overflowX: 'hidden' }}>
@@ -762,50 +1005,274 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         </div>
       )}
 
-      {/* 2. Mobile-First Clean Header Bar */}
-      <header style={{ backgroundColor: '#FFFFFF', borderBottom: '1px solid #E2E8F0', padding: '0.75rem 1rem', position: 'sticky', top: 0, zIndex: 50 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-          
-          {/* Left: Brand Identity with Vector TR Monogram Emblem */}
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <RonavLogo size="small" />
+      {/* OFFICIAL EXECUTIVE HEADER (Active on all tabs EXCEPT 'payouts') */}
+      {activeTab !== 'payouts' && (
+        <header style={{
+          background: 'rgba(255, 255, 255, 0.98)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          borderBottom: '1px solid #E2E8F0',
+          padding: '0.625rem 1rem',
+          position: 'sticky',
+          top: 0,
+          zIndex: 50,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          boxShadow: '0 1px 3px rgba(15,23,42,0.04)'
+        }}>
+          {/* Brand Logo & Name (Same proportions as website) */}
+          <div 
+            onClick={() => setActiveTab('overview')}
+            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+          >
+            <RonavLogo size="medium" />
           </div>
 
-          {/* Right: Notification Alerts */}
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <button 
-              onClick={() => handleTabSwitch('payouts')}
-              style={{ position: 'relative', background: 'none', border: 'none', cursor: 'pointer', padding: '6px', color: '#334155', display: 'flex', alignItems: 'center' }}
-              title="Payout Requests Queue"
-            >
-              <Bell style={{ width: '22px', height: '22px' }} />
-              {pendingPayouts.length > 0 && (
-                <span style={{
-                  position: 'absolute',
-                  top: '2px',
-                  right: '2px',
-                  minWidth: '16px',
-                  height: '16px',
-                  borderRadius: '50%',
-                  backgroundColor: '#DC2626',
-                  color: '#FFF',
-                  fontSize: '0.6rem',
-                  fontWeight: 900,
+          {/* Right Side: Super Admin Indicator & Logout */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: '#EFF6FF',
+              border: '1px solid #BFDBFE',
+              padding: '4px 10px',
+              borderRadius: '9999px'
+            }}>
+              <ShieldCheck style={{ width: '14px', height: '14px', color: '#0F52BA' }} />
+              <span style={{ fontSize: '0.71875rem', fontWeight: 800, color: '#0F52BA' }}>
+                Super Admin
+              </span>
+            </div>
+
+            {onLogout && (
+              <button
+                type="button"
+                onClick={onLogout}
+                title="Logout Admin"
+                style={{
+                  background: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  padding: '5px 10px',
+                  borderRadius: '8px',
+                  fontSize: '0.71875rem',
+                  fontWeight: 700,
+                  color: '#64748B',
+                  cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  border: '1.5px solid #FFF',
-                  padding: '1px'
-                }}>
-                  {pendingPayouts.length}
-                </span>
-              )}
-            </button>
+                  gap: '4px'
+                }}
+              >
+                <LogOut style={{ width: '13px', height: '13px' }} />
+                <span className="desktop-only">Logout</span>
+              </button>
+            )}
+          </div>
+        </header>
+      )}
+
+      {/* TOP CHANNEL TABS: ONLY ON PAYOUTS TAB, ANCHORED DIRECTLY AT TOP: 0 (PUSHES TABLE ABOVE FOR MAX VISIBILITY) */}
+      {activeTab === 'payouts' && (
+        <div style={{
+          background: '#FFFFFF',
+          borderBottom: '1px solid #E2E8F0',
+          padding: '0.5rem 0.875rem',
+          position: 'sticky',
+          top: 0,
+          zIndex: 40,
+          boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+        }}>
+          {/* iOS Native Segmented Track */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            background: '#ECEEF0',
+            padding: '3px',
+            borderRadius: '11px',
+            gap: '3px'
+          }}>
+            {[
+              { id: 'payswiff', label: 'Payswiff' },
+              { id: 'pinelabs', label: 'Pine Labs' },
+              { id: 'qr', label: 'QR Collections' }
+            ].map(ch => {
+              const isActive = selectedChannel === ch.id;
+              return (
+                <button
+                  key={ch.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedChannel(ch.id);
+                    if (ch.id === 'payswiff' && (!selectedPayswiffVendor || selectedPayswiffVendor === 'ALL')) {
+                      setSelectedPayswiffVendor('ronav');
+                    }
+                  }}
+                  style={{
+                    background: isActive ? '#FFFFFF' : 'transparent',
+                    color: isActive ? '#0F172A' : '#64748B',
+                    border: 'none',
+                    borderRadius: '9px',
+                    padding: '0.45rem 0.5rem',
+                    fontSize: '0.78125rem',
+                    fontWeight: isActive ? 700 : 500,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)' : 'none',
+                    transition: 'all 0.15s cubic-bezier(0.16, 1, 0.3, 1)',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  <span>{ch.label}</span>
+                </button>
+              );
+            })}
           </div>
 
-        </div>
-      </header>
+          {/* SUB-VENDOR BAR: ONLY WHEN PAYSWIFF IS ACTIVE (JUST 2 OPTIONS: RONAV TECH & RP TECH) */}
+          {selectedChannel === 'payswiff' && (
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              background: '#ECEEF0',
+              padding: '3px',
+              borderRadius: '9px',
+              gap: '3px',
+              marginTop: '0.4rem'
+            }}>
+              {[
+                { id: 'ronav', label: 'Ronav Tech' },
+                { id: 'rp', label: 'RP Tech' }
+              ].map(v => {
+                const isSubActive = selectedPayswiffVendor === v.id;
+                return (
+                  <button
+                    key={v.id}
+                    type="button"
+                    onClick={() => setSelectedPayswiffVendor(v.id)}
+                    style={{
+                      background: isSubActive ? '#FFFFFF' : 'transparent',
+                      color: isSubActive ? '#0F172A' : '#64748B',
+                      border: 'none',
+                      borderRadius: '7px',
+                      padding: '0.35rem 0.5rem',
+                      fontSize: '0.75rem',
+                      fontWeight: isSubActive ? 700 : 500,
+                      cursor: 'pointer',
+                      boxShadow: isSubActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                      transition: 'all 0.15s ease',
+                      textAlign: 'center'
+                    }}
+                  >
+                    {v.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
+          {/* QR CODE MANAGEMENT BAR: CLEAN SINGLE ROW TOOLBAR */}
+          {selectedChannel === 'qr' && (
+            <div style={{
+              background: '#F8FAFC',
+              border: '1px solid #E2E8F0',
+              borderRadius: '10px',
+              padding: '0.35rem 0.65rem',
+              marginTop: '0.35rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              whiteSpace: 'nowrap',
+              overflowX: 'auto',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.02)'
+            }}>
+              {/* Badge */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                <span style={{ fontSize: '0.8125rem' }}>📱</span>
+                <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A' }}>Company QR:</span>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                <label style={{
+                  background: '#0F52BA',
+                  color: '#FFFFFF',
+                  padding: '3px 8px',
+                  borderRadius: '6px',
+                  fontSize: '0.6875rem',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '3px',
+                  boxShadow: '0 1px 2px rgba(15,82,186,0.2)'
+                }}>
+                  <span>⬆ Upload</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={handleAdminQrUpload}
+                  />
+                </label>
+
+                {companyQrImage && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminQrPreview(true)}
+                    style={{
+                      background: '#EFF6FF',
+                      border: '1px solid #BFDBFE',
+                      color: '#0F52BA',
+                      padding: '3px 8px',
+                      borderRadius: '6px',
+                      fontSize: '0.6875rem',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    👁 View
+                  </button>
+                )}
+              </div>
+
+              {/* Subtle Divider */}
+              <div style={{ width: '1px', height: '18px', background: '#CBD5E1', flexShrink: 0 }} />
+
+              {/* Inline Payee Field */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px', flex: 1, minWidth: '200px' }}>
+                <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 700, flexShrink: 0 }}>
+                  Payee:
+                </span>
+                <input
+                  type="text"
+                  placeholder="RONAV TECHNOLOGIES"
+                  value={companyQrPayeeName}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setCompanyQrPayeeName(val);
+                    savePlatformQrConfig({ image: companyQrImage, name: val });
+                  }}
+                  style={{
+                    width: '100%',
+                    background: '#FFFFFF',
+                    border: '1px solid #CBD5E1',
+                    borderRadius: '6px',
+                    padding: '3px 8px',
+                    fontSize: '0.75rem',
+                    fontWeight: 800,
+                    color: '#0F172A',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 4. Main Executive Workspace */}
       <main style={{ padding: '1rem', flexGrow: 1, paddingBottom: '80px' }}>
@@ -851,11 +1318,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       fontWeight: 800, 
                       padding: '2px 8px', 
                       borderRadius: '4px',
-                      background: viewingUserDossier.dossierType === 'SUPER_DISTRIBUTOR' ? '#F3E8FF' : viewingUserDossier.dossierType === 'DISTRIBUTOR' ? '#EFF6FF' : '#ECFDF5',
-                      color: viewingUserDossier.dossierType === 'SUPER_DISTRIBUTOR' ? '#7C3AED' : viewingUserDossier.dossierType === 'DISTRIBUTOR' ? '#0F52BA' : '#059669',
+                      background: viewingUserDossier.dossierType === 'MASTER' ? '#FAF5FF' : viewingUserDossier.dossierType === 'SUPER_DISTRIBUTOR' ? '#F3E8FF' : viewingUserDossier.dossierType === 'DISTRIBUTOR' ? '#EFF6FF' : '#ECFDF5',
+                      color: viewingUserDossier.dossierType === 'MASTER' ? '#7C3AED' : viewingUserDossier.dossierType === 'SUPER_DISTRIBUTOR' ? '#7C3AED' : viewingUserDossier.dossierType === 'DISTRIBUTOR' ? '#0F52BA' : '#059669',
                       border: '1px solid currentColor'
                     }}>
-                      {viewingUserDossier.dossierType.replace('_', ' ')}
+                      {viewingUserDossier.dossierType === 'MASTER' ? '👑 Master Distributor' : viewingUserDossier.dossierType.replace('_', ' ')}
                     </span>
                     <span style={{ 
                       fontSize: '0.625rem', 
@@ -870,62 +1337,130 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     </span>
                   </div>
 
-                  {/* Interactive Hierarchy Chain Breadcrumb */}
-                  <div style={{ marginTop: '0.625rem', display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 800 }}>Chain:</span>
-                    <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: '#0F172A', color: '#FFF' }}>
-                      👑 Super Admin
-                    </span>
-                    {viewingUserDossier.uplineChain && viewingUserDossier.uplineChain.map(ancestor => (
-                      <React.Fragment key={ancestor.id}>
-                        <span style={{ color: '#94A3B8', fontSize: '0.75rem' }}>➔</span>
-                        <button
-                          onClick={() => handleOpenDossier(ancestor, ancestor.role, true)}
-                          style={{
-                            fontSize: '0.625rem',
-                            fontWeight: 800,
-                            padding: '2px 8px',
-                            borderRadius: '4px',
-                            background: ancestor.role === 'SUPER_DISTRIBUTOR' ? '#F3E8FF' : ancestor.role === 'DISTRICT_DISTRIBUTOR' ? '#FEF3C7' : '#EFF6FF',
-                            color: ancestor.role === 'SUPER_DISTRIBUTOR' ? '#7C3AED' : ancestor.role === 'DISTRICT_DISTRIBUTOR' ? '#B45309' : '#0F52BA',
-                            border: '1px solid currentColor',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                          }}
-                          title={`View ${ancestor.name}`}
-                        >
-                          <span>{ancestor.role === 'SUPER_DISTRIBUTOR' ? '⚡' : ancestor.role === 'DISTRICT_DISTRIBUTOR' ? '🏛️' : '📦'}</span>
-                          <span>{ancestor.name} ({ancestor.id})</span>
-                        </button>
-                      </React.Fragment>
-                    ))}
-                    <span style={{ color: '#94A3B8', fontSize: '0.75rem' }}>➔</span>
-                    <span style={{
-                      fontSize: '0.625rem',
-                      fontWeight: 900,
-                      padding: '2px 8px',
-                      borderRadius: '4px',
-                      background: '#ECFDF5',
-                      color: '#059669',
-                      border: '1px solid #10B981'
-                    }}>
-                      {viewingUserDossier.name} ({viewingUserDossier.id}) [Current]
-                    </span>
-                  </div>
+                  {/* Hierarchy: Super Distributor to Distributor (Click to show full path) */}
+                  {(() => {
+                    const chain = viewingUserDossier.uplineChain || [];
+                    const topSD = chain.find(c => c.role === 'SUPER_DISTRIBUTOR' || c.id.startsWith('SD')) || chain[0];
+                    const directParent = chain.length > 0 ? chain[chain.length - 1] : null;
+
+                    return (
+                      <div style={{ marginTop: '0.625rem' }}>
+                        {!showFullChain ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 800 }}>Hierarchy:</span>
+                            {topSD && directParent && topSD.id !== directParent.id ? (
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.6875rem', fontWeight: 800 }}>
+                                <span style={{ padding: '2px 8px', borderRadius: '4px', background: '#F3E8FF', color: '#7C3AED', border: '1px solid #DDD6FE' }}>
+                                  ⚡ {topSD.name}
+                                </span>
+                                <span style={{ color: '#94A3B8' }}>➔</span>
+                                <span style={{ padding: '2px 8px', borderRadius: '4px', background: '#EFF6FF', color: '#0F52BA', border: '1px solid #BFDBFE' }}>
+                                  📦 {directParent.name}
+                                </span>
+                              </div>
+                            ) : directParent ? (
+                              <span style={{ fontSize: '0.6875rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: '#EFF6FF', color: '#0F52BA', border: '1px solid #BFDBFE' }}>
+                                📦 Parent: {directParent.name} ({directParent.id})
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '0.6875rem', fontWeight: 800, padding: '2px 8px', borderRadius: '4px', background: '#F1F5F9', color: '#334155', border: '1px solid #E2E8F0' }}>
+                                Direct to Super Admin
+                              </span>
+                            )}
+
+                            {chain.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => setShowFullChain(true)}
+                                style={{
+                                  background: '#EFF6FF',
+                                  color: '#0F52BA',
+                                  border: '1px solid #BFDBFE',
+                                  borderRadius: '4px',
+                                  padding: '2px 8px',
+                                  fontSize: '0.625rem',
+                                  fontWeight: 800,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '2px'
+                                }}
+                              >
+                                <span>▾ View Full Path</span>
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.5rem 0.75rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                              <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>Full Hierarchy Path</span>
+                              <button
+                                type="button"
+                                onClick={() => setShowFullChain(false)}
+                                style={{ background: 'none', border: 'none', color: '#0F52BA', fontSize: '0.625rem', fontWeight: 800, cursor: 'pointer', padding: 0 }}
+                              >
+                                ▴ Collapse Path
+                              </button>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: '#0F172A', color: '#FFF' }}>
+                                👑 Super Admin
+                              </span>
+                              {chain.map(ancestor => (
+                                <React.Fragment key={ancestor.id}>
+                                  <span style={{ color: '#94A3B8', fontSize: '0.75rem' }}>➔</span>
+                                  <button
+                                    onClick={() => handleOpenDossier(ancestor, ancestor.role, true)}
+                                    style={{
+                                      fontSize: '0.625rem',
+                                      fontWeight: 800,
+                                      padding: '2px 6px',
+                                      borderRadius: '4px',
+                                      background: ancestor.role === 'MASTER' ? '#FAF5FF' : ancestor.role === 'SUPER_DISTRIBUTOR' ? '#F3E8FF' : ancestor.role === 'DISTRICT_DISTRIBUTOR' ? '#FEF3C7' : '#EFF6FF',
+                                      color: ancestor.role === 'MASTER' ? '#7C3AED' : ancestor.role === 'SUPER_DISTRIBUTOR' ? '#7C3AED' : ancestor.role === 'DISTRICT_DISTRIBUTOR' ? '#B45309' : '#0F52BA',
+                                      border: '1px solid currentColor',
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '3px'
+                                    }}
+                                    title={`View ${ancestor.name}`}
+                                  >
+                                    <span>{ancestor.role === 'MASTER' ? '👑' : ancestor.role === 'SUPER_DISTRIBUTOR' ? '⚡' : ancestor.role === 'DISTRICT_DISTRIBUTOR' ? '🏛️' : '📦'}</span>
+                                    <span>{ancestor.name} ({ancestor.id})</span>
+                                  </button>
+                                </React.Fragment>
+                              ))}
+                              <span style={{ color: '#94A3B8', fontSize: '0.75rem' }}>➔</span>
+                              <span style={{
+                                fontSize: '0.625rem',
+                                fontWeight: 900,
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                background: '#ECFDF5',
+                                color: '#059669',
+                                border: '1px solid #10B981'
+                              }}>
+                                {viewingUserDossier.name} ({viewingUserDossier.id}) [Current]
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Hardware & Vendor Information Tags for Merchant */}
                   {viewingUserDossier.dossierType === 'MERCHANT' && (
                     <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#F1F5F9', color: '#334155', padding: '3px 8px', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
-                        Machine: {viewingUserDossier.pos_provider || 'Pine Labs'} ({viewingUserDossier.pos_terminal || 'PL-TS'})
+                        Machine: {viewingUserDossier.pos_provider || 'Pine Labs'} ({(viewingUserDossier.pos_terminal || 'PL-TS').split('|')[0]})
                       </span>
                       <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '3px 8px', borderRadius: '6px', border: '1px solid #BFDBFE' }}>
                         Settlement Entity: {viewingUserDossier.pos_vendor || 'Rose Navaneetham Enterprises'}
                       </span>
                       <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#FEF3C7', color: '#B45309', padding: '3px 8px', borderRadius: '6px', border: '1px solid #FDE68A' }}>
-                        Plan: {viewingUserDossier.pos_plan === 'LIFETIME' ? 'Lifetime Purchase' : 'Monthly Rental (₹499/mo)'}
+                        Plan: {viewingUserDossier.pos_plan === 'CUSTOM' ? `Custom Plan (₹${viewingUserDossier.pos_rent || 499}/mo)` : (viewingUserDossier.pos_plan === 'LIFETIME' ? 'One-Time Purchase' : `Monthly Rental (₹${viewingUserDossier.pos_rent || 499}/mo)`)}
                       </span>
                       <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#ECFDF5', color: '#059669', padding: '3px 8px', borderRadius: '6px', border: '1px solid #A7F3D0' }}>
                         Mode: {viewingUserDossier.pos_settlement === 'INSTANT' ? 'Instant Settlement' : 'T+1 Settlement (1.53% MDR)'}
@@ -970,6 +1505,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   >
                     <Copy style={{ width: '12px', height: '12px' }} />
                     <span>{copiedId[viewingUserDossier.id] ? 'Copied!' : 'Copy Info'}</span>
+                  </button>
+
+                  <button
+                    onClick={(e) => handleOpenResetPassword(viewingUserDossier, e)}
+                    style={{ background: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0', padding: '0.4rem 0.65rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    title="Reset User Password"
+                  >
+                    <Key style={{ width: '12px', height: '12px' }} />
+                    <span>Reset Password</span>
                   </button>
                 </div>
               </div>
@@ -1040,82 +1584,201 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               </div>
             </div>
 
-            {/* Verified Bank Accounts for Merchant Payouts */}
+            {/* Merchant Activity: Unified 3-Tab View (Transactions, Withdrawals, Linked Banks) */}
             {viewingUserDossier.dossierType === 'MERCHANT' && (
-              <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '1.25rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                  <h3 style={{ fontSize: '0.875rem', fontWeight: 900, color: '#0A192F', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>🏦</span> Linked Bank Accounts for Payouts ({dossierBeneficiaries.length})
-                  </h3>
-                  <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>Verified for IMPS Settlements</span>
+              <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                {/* 3 Modern Clean Tabs */}
+                <div style={{ display: 'flex', borderBottom: '1px solid #E2E8F0', background: '#F8FAFC', padding: '0.35rem 0.5rem', gap: '0.35rem' }}>
+                  {[
+                    { id: 'transactions', label: 'Transactions', count: viewingUserDossier.transactions?.length || 0, icon: '💳' },
+                    { id: 'withdrawals', label: 'Withdrawals', count: dossierWithdrawals.length, icon: '💸' },
+                    { id: 'banks', label: 'Linked Banks', count: dossierBeneficiaries.length, icon: '🏦' }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setDossierTab(tab.id)}
+                      style={{
+                        padding: '0.5rem 0.85rem',
+                        fontSize: '0.75rem',
+                        fontWeight: 800,
+                        borderRadius: '6px',
+                        border: dossierTab === tab.id ? '1px solid #CBD5E1' : '1px solid transparent',
+                        background: dossierTab === tab.id ? '#FFFFFF' : 'transparent',
+                        color: dossierTab === tab.id ? '#0F52BA' : '#64748B',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        boxShadow: dossierTab === tab.id ? '0 1px 2px rgba(0,0,0,0.05)' : 'none'
+                      }}
+                    >
+                      <span>{tab.icon} {tab.label}</span>
+                      <span style={{
+                        fontSize: '0.625rem',
+                        padding: '1px 6px',
+                        borderRadius: '10px',
+                        background: dossierTab === tab.id ? '#EFF6FF' : '#E2E8F0',
+                        color: dossierTab === tab.id ? '#0F52BA' : '#475569'
+                      }}>
+                        {tab.count}
+                      </span>
+                    </button>
+                  ))}
                 </div>
-                {dossierBeneficiaries.length === 0 ? (
-                  <div style={{ padding: '1rem', background: '#F8FAFC', borderRadius: '8px', border: '1px dashed #CBD5E1', fontSize: '0.75rem', color: '#64748B', textAlign: 'center' }}>
-                    No bank accounts linked yet.
-                  </div>
-                ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.625rem' }}>
-                    {dossierBeneficiaries.map(b => (
-                      <div key={b.id} style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.75rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{b.bank_name}</strong>
-                          {b.is_primary === 1 && (
-                            <span style={{ fontSize: '0.55rem', fontWeight: 800, background: '#D1FAE5', color: '#059669', padding: '1px 6px', borderRadius: '3px' }}>PRIMARY</span>
-                          )}
-                        </div>
-                        <span style={{ display: 'block', fontSize: '0.75rem', color: '#334155', marginTop: '4px', fontFamily: 'monospace', fontWeight: 700 }}>
-                          A/C: ••••{b.account_number.slice(-4)}
-                        </span>
-                        <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
-                          IFSC: {b.ifsc} • {b.holder_name}
-                        </span>
+
+                {/* Tab 1: Transactions */}
+                {dossierTab === 'transactions' && (
+                  <div style={{ padding: '1rem' }}>
+                    {(!viewingUserDossier.transactions || viewingUserDossier.transactions.length === 0) ? (
+                      <div style={{ padding: '2rem', textAlign: 'center', background: '#F8FAFC', borderRadius: '8px', border: '1px dashed #CBD5E1', color: '#64748B', fontSize: '0.75rem' }}>
+                        No transactions recorded for this merchant yet.
                       </div>
-                    ))}
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        {viewingUserDossier.transactions.map(t => (
+                          <div key={t.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0', flexWrap: 'wrap', gap: '0.5rem' }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0A192F' }}>
+                                  {t.type === 'POS_SWIPE' ? '💳 Card Swipe' : t.type === 'BBPS_BILL' ? '⚡ Utility Bill' : '📱 Payment'}
+                                </span>
+                                <span style={{
+                                  fontSize: '0.55rem',
+                                  fontWeight: 800,
+                                  padding: '1px 5px',
+                                  borderRadius: '3px',
+                                  background: t.status === 'APPROVED' || t.status === 'Success' ? '#D1FAE5' : '#FEE2E2',
+                                  color: t.status === 'APPROVED' || t.status === 'Success' ? '#059669' : '#DC2626'
+                                }}>
+                                  {t.status}
+                                </span>
+                              </div>
+                              <span style={{ display: 'block', fontSize: '0.625rem', color: '#64748B', marginTop: '2px' }}>
+                                TXN: {t.id} • {new Date(t.created_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                              <strong style={{ fontSize: '0.875rem', color: '#0A192F', display: 'block' }}>
+                                ₹{parseFloat(t.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </strong>
+                              {t.notes && t.notes.includes('company_fee') && (
+                                <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 700 }}>
+                                  Admin Cut: ₹{(() => {
+                                    try {
+                                      const n = JSON.parse(t.notes.replace('[CARD_SWIPE_ENTRY] ', ''));
+                                      return (n.company_fee || 0).toFixed(2);
+                                    } catch {
+                                      return (parseFloat(t.amount) * 0.0015).toFixed(2);
+                                    }
+                                  })()}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Tab 2: Withdrawals */}
+                {dossierTab === 'withdrawals' && (
+                  <div style={{ padding: '1rem' }}>
+                    {dossierWithdrawals.length === 0 ? (
+                      <div style={{ padding: '2rem', background: '#F8FAFC', borderRadius: '8px', border: '1px dashed #CBD5E1', fontSize: '0.75rem', color: '#64748B', textAlign: 'center' }}>
+                        No withdrawal requests submitted by this merchant yet.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        {dossierWithdrawals.map(w => (
+                          <div key={w.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                            <div>
+                              <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>
+                                ₹{parseFloat(w.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })} ➔ {w.bank_name}
+                              </strong>
+                              <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
+                                A/C: ••••{w.account_number.slice(-4)} • {new Date(w.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                              {w.admin_remark && (
+                                <span style={{ display: 'block', fontSize: '0.625rem', color: '#475569', fontStyle: 'italic', marginTop: '2px' }}>
+                                  Remark: "{w.admin_remark}"
+                                </span>
+                              )}
+                            </div>
+                            <span style={{
+                              fontSize: '0.625rem',
+                              fontWeight: 800,
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              background: w.status === 'APPROVED' ? '#D1FAE5' : w.status === 'PENDING' ? '#FEF3C7' : '#FEE2E2',
+                              color: w.status === 'APPROVED' ? '#059669' : w.status === 'PENDING' ? '#B45309' : '#DC2626'
+                            }}>
+                              {w.status}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Tab 3: Bank Accounts */}
+                {dossierTab === 'banks' && (
+                  <div style={{ padding: '1rem' }}>
+                    {dossierBeneficiaries.length === 0 ? (
+                      <div style={{ padding: '2rem', background: '#F8FAFC', borderRadius: '8px', border: '1px dashed #CBD5E1', fontSize: '0.75rem', color: '#64748B', textAlign: 'center' }}>
+                        No bank accounts linked yet.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.625rem' }}>
+                        {dossierBeneficiaries.map(b => (
+                          <div key={b.id} style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.75rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{b.bank_name}</strong>
+                              {b.is_primary === 1 && (
+                                <span style={{ fontSize: '0.55rem', fontWeight: 800, background: '#D1FAE5', color: '#059669', padding: '1px 6px', borderRadius: '3px' }}>PRIMARY</span>
+                              )}
+                            </div>
+                            <span style={{ display: 'block', fontSize: '0.75rem', color: '#334155', marginTop: '4px', fontFamily: 'monospace', fontWeight: 700 }}>
+                              A/C: ••••{b.account_number.slice(-4)}
+                            </span>
+                            <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
+                              IFSC: {b.ifsc} • {b.holder_name}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             )}
 
-            {/* Merchant Withdrawal Settlements Log */}
-            {viewingUserDossier.dossierType === 'MERCHANT' && (
-              <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '1.25rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                  <h3 style={{ fontSize: '0.875rem', fontWeight: 900, color: '#0A192F', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span>💸</span> Bank Withdrawal Settlements ({dossierWithdrawals.length})
-                  </h3>
-                  <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 700 }}>Direct IMPS Bank Settlements</span>
-                </div>
-                {dossierWithdrawals.length === 0 ? (
-                  <div style={{ padding: '1rem', background: '#F8FAFC', borderRadius: '8px', border: '1px dashed #CBD5E1', fontSize: '0.75rem', color: '#64748B', textAlign: 'center' }}>
-                    No withdrawal requests submitted by this merchant yet.
+            {/* Downline Roster for Master Dist: Super Distributors */}
+            {viewingUserDossier.dossierType === 'MASTER' && (
+              <div style={{ background: '#FFFFFF', border: '1.5px solid #DDD6FE', borderRadius: '12px', padding: '1rem' }}>
+                <h3 style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#0A192F', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>👑</span> Downline Super Distributors ({viewingUserDossier.super_distributors?.length || 0})
+                </h3>
+                {(!viewingUserDossier.super_distributors || viewingUserDossier.super_distributors.length === 0) ? (
+                  <div style={{ padding: '1rem', background: '#FAF5FF', borderRadius: '8px', border: '1px dashed #DDD6FE', fontSize: '0.75rem', color: '#64748B', textAlign: 'center' }}>
+                    No Super Distributors assigned under this Master Distributor yet.
                   </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {dossierWithdrawals.map(w => (
-                      <div key={w.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    {viewingUserDossier.super_distributors.map(sd => (
+                      <div key={sd.id} onClick={() => handleOpenDossier(sd, 'SUPER_DISTRIBUTOR', true)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#FAF5FF', borderRadius: '8px', border: '1px solid #E9D5FF', cursor: 'pointer' }}>
                         <div>
-                          <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>
-                            ₹{parseFloat(w.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })} ➔ {w.bank_name}
-                          </strong>
-                          <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
-                            A/C: ••••{w.account_number.slice(-4)} • {new Date(w.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                          {w.admin_remark && (
-                            <span style={{ display: 'block', fontSize: '0.625rem', color: '#475569', fontStyle: 'italic', marginTop: '2px' }}>
-                              Remark: "{w.admin_remark}"
-                            </span>
-                          )}
+                          <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>⚡ {sd.name}</strong>
+                          <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>ID: {sd.id} • {sd.mobile}</span>
                         </div>
-                        <span style={{
-                          fontSize: '0.625rem',
-                          fontWeight: 800,
-                          padding: '2px 8px',
-                          borderRadius: '4px',
-                          background: w.status === 'APPROVED' ? '#D1FAE5' : w.status === 'PENDING' ? '#FEF3C7' : '#FEE2E2',
-                          color: w.status === 'APPROVED' ? '#059669' : w.status === 'PENDING' ? '#B45309' : '#DC2626'
-                        }}>
-                          {w.status}
-                        </span>
+                        <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span style={{ fontSize: '0.8125rem', fontWeight: 900, color: '#7C3AED' }}>
+                            ₹{parseFloat(sd.network_volume || sd.total_sales || 0).toLocaleString('en-IN')}
+                          </span>
+                          <ChevronRight style={{ width: '14px', height: '14px', color: '#94A3B8' }} />
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1185,7 +1848,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           <div>
                             <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{m.name}</strong>
                             <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
-                              MID: {m.id} • {m.mobile} • {m.pos_provider || 'Pine Labs'} ({m.pos_terminal || 'PL-TS'})
+                              MID: {m.id} • {m.mobile} • {m.pos_provider || 'Pine Labs'} ({(m.pos_terminal || 'PL-TS').split('|')[0]})
                             </span>
                           </div>
                           <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1245,7 +1908,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           <div>
                             <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{m.name}</strong>
                             <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
-                              MID: {m.id} • {m.mobile} • {m.pos_provider || 'Pine Labs'} ({m.pos_terminal || 'PL-TS'})
+                              MID: {m.id} • {m.mobile} • {m.pos_provider || 'Pine Labs'} ({(m.pos_terminal || 'PL-TS').split('|')[0]})
                             </span>
                           </div>
                           <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1279,7 +1942,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       <div>
                         <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{m.name}</strong>
                         <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
-                          MID: {m.id} • {m.mobile} • {m.pos_provider || 'Pine Labs'} ({m.pos_terminal || 'PL-TS'})
+                          MID: {m.id} • {m.mobile} • {m.pos_provider || 'Pine Labs'} ({(m.pos_terminal || 'PL-TS').split('|')[0]})
                         </span>
                       </div>
                       <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1299,57 +1962,61 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               </div>
             )}
 
-            {/* Chronological Transaction History Log */}
-            <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '1.25rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                <h3 style={{ fontSize: '0.875rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
-                  Chronological Transaction History ({viewingUserDossier.transactions?.length || 0})
-                </h3>
-                <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>Live Supabase PostgreSQL Ledger</span>
-              </div>
-
-              {(!viewingUserDossier.transactions || viewingUserDossier.transactions.length === 0) ? (
-                <div style={{ padding: '2rem', textAlign: 'center', background: '#F8FAFC', borderRadius: '8px', border: '1px dashed #CBD5E1', color: '#64748B', fontSize: '0.75rem' }}>
-                  No recorded transactions found for this account yet.
+            {/* Direct Transaction History Log for Non-Merchant Accounts */}
+            {viewingUserDossier.dossierType !== 'MERCHANT' && (
+              <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '1.25rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                  <h3 style={{ fontSize: '0.875rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                    Direct Transactions ({viewingUserDossier.transactions?.length || 0})
+                  </h3>
+                  <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800, background: '#ECFDF5', padding: '2px 8px', borderRadius: '12px', border: '1px solid #A7F3D0' }}>
+                    Verified Ledger
+                  </span>
                 </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  {viewingUserDossier.transactions.map(t => (
-                    <div key={t.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0', flexWrap: 'wrap', gap: '0.5rem' }}>
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                          <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0A192F' }}>
-                            {t.type === 'POS_SWIPE' ? '💳 Card Swipe' : t.type === 'BBPS_BILL' ? '⚡ Utility Bill' : '📱 Payment'}
-                          </span>
-                          <span style={{
-                            fontSize: '0.55rem',
-                            fontWeight: 800,
-                            padding: '1px 5px',
-                            borderRadius: '3px',
-                            background: t.status === 'APPROVED' || t.status === 'Success' ? '#D1FAE5' : '#FEE2E2',
-                            color: t.status === 'APPROVED' || t.status === 'Success' ? '#059669' : '#DC2626'
-                          }}>
-                            {t.status}
+
+                {(!viewingUserDossier.transactions || viewingUserDossier.transactions.length === 0) ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', background: '#F8FAFC', borderRadius: '8px', border: '1px dashed #CBD5E1', color: '#64748B', fontSize: '0.75rem' }}>
+                    No recorded transactions found for this account yet.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {viewingUserDossier.transactions.map(t => (
+                      <div key={t.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0', flexWrap: 'wrap', gap: '0.5rem' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0A192F' }}>
+                              {t.type === 'POS_SWIPE' ? '💳 Card Swipe' : t.type === 'BBPS_BILL' ? '⚡ Utility Bill' : '📱 Payment'}
+                            </span>
+                            <span style={{
+                              fontSize: '0.55rem',
+                              fontWeight: 800,
+                              padding: '1px 5px',
+                              borderRadius: '3px',
+                              background: t.status === 'APPROVED' || t.status === 'Success' ? '#D1FAE5' : '#FEE2E2',
+                              color: t.status === 'APPROVED' || t.status === 'Success' ? '#059669' : '#DC2626'
+                            }}>
+                              {t.status}
+                            </span>
+                          </div>
+                          <span style={{ display: 'block', fontSize: '0.625rem', color: '#64748B', marginTop: '2px' }}>
+                            TXN: {t.id} • {new Date(t.created_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           </span>
                         </div>
-                        <span style={{ display: 'block', fontSize: '0.625rem', color: '#64748B', marginTop: '2px' }}>
-                          TXN: {t.id} • {new Date(t.created_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
 
-                      <div style={{ textAlign: 'right' }}>
-                        <strong style={{ fontSize: '0.875rem', fontWeight: 900, color: '#059669', display: 'block' }}>
-                          ₹{parseFloat(t.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </strong>
-                        <span style={{ fontSize: '0.5625rem', color: '#0F52BA', fontWeight: 700 }}>
-                          Admin Cut: +₹{(parseFloat(t.amount || 0) * 0.0015).toFixed(2)}
-                        </span>
+                        <div style={{ textAlign: 'right' }}>
+                          <strong style={{ fontSize: '0.875rem', fontWeight: 900, color: '#059669', display: 'block' }}>
+                            ₹{parseFloat(t.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </strong>
+                          <span style={{ fontSize: '0.5625rem', color: '#0F52BA', fontWeight: 700 }}>
+                            Admin Cut: +₹{(parseFloat(t.amount || 0) * 0.0015).toFixed(2)}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
           </div>
         ) : (
@@ -1487,15 +2154,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
                 </div>
 
-                {/* 1. NETWORK DIRECTORY (4 TIERS) + QUICK ONBOARD BUTTON */}
+                {/* 1. NETWORK DIRECTORY (5 TIERS) + QUICK ONBOARD BUTTON */}
                 <div style={{ background: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0', padding: '1.25rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.875rem', flexWrap: 'wrap', gap: '0.5rem' }}>
                     <div>
                       <h3 style={{ fontSize: '0.875rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
-                        Network Hierarchy Directory (4 Tiers)
+                        Network Hierarchy Directory (5 Tiers)
                       </h3>
                       <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: '#64748B' }}>
-                        {superDistributorsList.length + districtDistributorsList.length + distributorsList.length + merchantsList.length} Active Partners in System
+                        {masterDistributorsList.length + superDistributorsList.length + districtDistributorsList.length + distributorsList.length + merchantsList.length} Active Partners in System
                       </span>
                     </div>
 
@@ -1524,6 +2191,38 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.625rem' }}>
                     
+                    {/* Tier 0: Master Distributors (Apex Command on Top of All) */}
+                    <button 
+                      onClick={() => handleTabSwitch('master_distributors')}
+                      style={{ 
+                        gridColumn: '1 / -1',
+                        background: 'linear-gradient(135deg, #FAF5FF 0%, #F3E8FF 100%)', 
+                        border: '1.5px solid #DDD6FE', 
+                        padding: '0.875rem 1rem', 
+                        borderRadius: '10px', 
+                        textAlign: 'left', 
+                        cursor: 'pointer',
+                        boxShadow: '0 2px 6px rgba(124, 58, 237, 0.08)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '1.5rem' }}>👑</span>
+                          <div>
+                            <span style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 900, color: '#581C87' }}>
+                              Master Distributors (Apex Tier)
+                            </span>
+                            <span style={{ fontSize: '0.6875rem', color: '#7E22CE', fontWeight: 600 }}>
+                              State Command & Top-Tier Regional Leaders →
+                            </span>
+                          </div>
+                        </div>
+                        <strong style={{ fontSize: '1.375rem', fontWeight: 900, color: '#7C3AED' }}>
+                          {masterDistributorsList.length}
+                        </strong>
+                      </div>
+                    </button>
+
                     {/* Tier 1: Super Distributors */}
                     <button 
                       onClick={() => handleTabSwitch('super_distributors')}
@@ -1662,36 +2361,56 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       </span>
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
                       {pendingTxns.map(tx => (
-                        <div key={tx.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#FFFFFF', borderRadius: '8px', border: '1px solid #FDE68A', flexWrap: 'wrap', gap: '0.5rem' }}>
+                        <div key={tx.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.875rem', background: '#FFFFFF', borderRadius: '10px', border: '1.5px solid #FDE68A', flexWrap: 'wrap', gap: '0.625rem', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
                           <div>
-                            <strong style={{ fontSize: '0.8125rem', color: '#0A192F', display: 'block' }}>
-                              {tx.merchant_name || tx.merchant_id} ({tx.merchant_id})
-                            </strong>
-                            <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
-                              {tx.pos_provider || 'POS'} • Ref: {tx.ref_number || tx.id} • {new Date(tx.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                              <strong style={{ fontSize: '0.875rem', color: '#0A192F' }}>
+                                {tx.merchant_name || tx.merchant_id} ({tx.merchant_id})
+                              </strong>
+                              <span style={{ 
+                                fontSize: '0.625rem', 
+                                fontWeight: 800, 
+                                background: tx.settlement_type === 'INSTANT' ? '#FEF3C7' : '#EFF6FF', 
+                                color: tx.settlement_type === 'INSTANT' ? '#B45309' : '#1D4ED8', 
+                                padding: '2px 7px', 
+                                borderRadius: '4px',
+                                border: tx.settlement_type === 'INSTANT' ? '1px solid #FDE68A' : '1px solid #BFDBFE'
+                              }}>
+                                {tx.settlement_type === 'INSTANT' ? '⚡ Instant Disbursal' : '📅 T+1 Standard'}
+                              </span>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '4px', flexWrap: 'wrap', fontSize: '0.6875rem', color: '#475569' }}>
+                              <span><strong>Customer:</strong> <span style={{ color: '#0F172A', fontWeight: 700 }}>{tx.customer_name || 'Counter Customer'}</span> {tx.customer_mobile ? `(${tx.customer_mobile})` : ''}</span>
+                              <span>•</span>
+                              <span><strong>Slip UTR:</strong> <code style={{ color: '#0F52BA', fontWeight: 800, background: '#EFF6FF', padding: '1px 5px', borderRadius: '4px' }}>{tx.rrn_number || tx.ref_number || tx.id}</code></span>
+                              <span>•</span>
+                              <span><strong>Machine:</strong> {tx.pos_provider || 'Pine Labs'}</span>
+                            </div>
                           </div>
+
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                             <div style={{ textAlign: 'right' }}>
-                              <strong style={{ fontSize: '0.9375rem', fontWeight: 900, color: '#0A192F', display: 'block' }}>
+                              <strong style={{ fontSize: '1.0625rem', fontWeight: 900, color: '#0A192F', display: 'block' }}>
                                 ₹{parseFloat(tx.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                               </strong>
-                              <span style={{ fontSize: '0.625rem', color: '#D97706', fontWeight: 800 }}>
-                                PENDING
+                              <span style={{ fontSize: '0.5625rem', color: '#D97706', fontWeight: 800, background: '#FEF3C7', padding: '1px 5px', borderRadius: '4px' }}>
+                                Check POS Slip
                               </span>
                             </div>
                             <div style={{ display: 'flex', gap: '0.375rem' }}>
                               <button
                                 onClick={() => handleTransactionAction(tx.id, 'APPROVE', tx.merchant_name, tx.amount)}
-                                style={{ background: '#16A34A', color: '#FFFFFF', border: 'none', padding: '0.35rem 0.65rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer' }}
+                                style={{ background: '#16A34A', color: '#FFFFFF', border: 'none', padding: '0.45rem 0.75rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
+                                title="Verify with Pine Labs/Payswiff portal and approve"
                               >
-                                Approve ✓
+                                <span>Verify Slip ✓</span>
                               </button>
                               <button
                                 onClick={() => handleTransactionAction(tx.id, 'REJECT', tx.merchant_name, tx.amount)}
-                                style={{ background: '#FFFFFF', color: '#DC2626', border: '1px solid #FCA5A5', padding: '0.35rem 0.65rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer' }}
+                                style={{ background: '#FFFFFF', color: '#DC2626', border: '1px solid #FCA5A5', padding: '0.45rem 0.65rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer' }}
                               >
                                 Reject ✕
                               </button>
@@ -1828,6 +2547,154 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
                   </div>
                 </div>
+
+              </div>
+            )}
+
+            {/* TAB VIEW 1B: DEDICATED MASTER DISTRIBUTORS PAGE (APEX COMMAND TIER) */}
+            {activeTab === 'master_distributors' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                
+                {/* Top Action Header: Title + Create Master Button beside it */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ fontSize: '1.25rem' }}>👑</span>
+                    <h2 style={{ fontSize: '1.0625rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                      Master Distributors ({filteredMasters.length})
+                    </h2>
+                  </div>
+                  <button
+                    onClick={() => handleOpenCreateModal('MASTER', 'ADM001')}
+                    style={{
+                      background: '#7C3AED',
+                      color: '#FFFFFF',
+                      border: 'none',
+                      padding: '0.375rem 0.75rem',
+                      borderRadius: '8px',
+                      fontSize: '0.6875rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      boxShadow: '0 2px 5px rgba(124, 58, 237, 0.25)'
+                    }}
+                  >
+                    <PlusCircle style={{ width: '13px', height: '13px' }} />
+                    <span>+ Create Master Dist</span>
+                  </button>
+                </div>
+
+                {/* Search Bar */}
+                <div style={{ position: 'relative' }}>
+                  <Search style={{ width: '14px', height: '14px', position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
+                  <input
+                    type="text"
+                    placeholder="Search by Master Name, Mobile, or ID..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{ width: '100%', padding: '0.45rem 0.75rem 0.45rem 2rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.75rem', outline: 'none' }}
+                  />
+                </div>
+
+                {/* Cards List with Interactive Downline Tree Drilldown */}
+                {filteredMasters.length === 0 ? (
+                  <div style={{ padding: '2.5rem 1rem', textAlign: 'center', background: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0', color: '#64748B' }}>
+                    <p style={{ margin: 0, fontSize: '0.8125rem' }}>No Master Distributors found matching search.</p>
+                    <button onClick={() => handleOpenCreateModal('MASTER', 'ADM001')} style={{ marginTop: '0.75rem', background: '#7C3AED', color: '#FFF', border: 'none', padding: '0.4rem 0.75rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800 }}>
+                      + Create First Master Distributor
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {filteredMasters.map(m => {
+                      const mVol = parseFloat(m.network_volume || m.total_sales || 0);
+                      const mProfit = mVol * 0.0020;
+
+                      // Robust Downline Aggregation (SD -> DD -> Dist -> Shops)
+                      const childSDs = m.super_distributors || superDistributorsList.filter(sd => sd.creator_id === m.id || sd.parent_id === m.id);
+                      const childDDs = childSDs.flatMap(sd => sd.district_distributors || districtDistributorsList.filter(dd => dd.creator_id === sd.id || dd.parent_id === sd.id));
+                      const directDists = childDDs.flatMap(dd => dd.distributors || distributorsList.filter(d => d.creator_id === dd.id || d.parent_id === dd.id));
+                      const uniqueDists = Array.from(new Map(directDists.map(d => [d.id, d])).values());
+
+                      const allMerchants = uniqueDists.flatMap(d => d.merchants || merchantsList.filter(mer => mer.creator_id === d.id || mer.parent_id === d.id));
+                      const uniqueMerchants = Array.from(new Map(allMerchants.map(mer => [mer.id, mer])).values());
+                      const totalMachines = uniqueMerchants.length;
+
+                      return (
+                        <div
+                          key={m.id}
+                          onClick={() => handleOpenDossier(m, 'MASTER')}
+                          style={{
+                            background: '#FFFFFF',
+                            border: '1.5px solid #DDD6FE',
+                            borderRadius: '12px',
+                            padding: '1rem',
+                            boxShadow: '0 2px 4px rgba(124, 58, 237, 0.04)',
+                            cursor: 'pointer',
+                            transition: 'all 150ms ease'
+                          }}
+                        >
+                          {/* Master Distributor Top Row */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                                <span style={{ fontSize: '1.125rem' }}>👑</span>
+                                <strong style={{ fontSize: '0.9375rem', color: '#0A192F' }}>{m.name}</strong>
+                              </div>
+                              <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                                Apex ID: <strong style={{ color: '#7C3AED' }}>{m.id}</strong> • Mobile: {m.mobile}
+                              </span>
+                            </div>
+
+                            {/* Status Pill */}
+                            <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '3px 7px', borderRadius: '6px', background: '#FAF5FF', color: '#7C3AED', border: '1px solid #DDD6FE', whiteSpace: 'nowrap' }}>
+                              👑 APEX PARTNER
+                            </span>
+                          </div>
+
+                          {/* 4 Metric Pills */}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.375rem', marginTop: '0.625rem', background: '#FAF5FF', padding: '0.5rem 0.625rem', borderRadius: '8px', border: '1px solid #E9D5FF' }}>
+                            <div>
+                              <span style={{ fontSize: '0.55rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>State Turnover</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#0A192F', fontWeight: 900 }}>
+                                ₹{mVol.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                              </strong>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.55rem', color: '#7C3AED', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Master Cut (0.20%)</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#7C3AED', fontWeight: 900 }}>
+                                +₹{(mVol * 0.0020).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </strong>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.55rem', color: '#0F52BA', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Master Wallet</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#0F52BA', fontWeight: 900 }}>
+                                ₹{parseFloat(m.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </strong>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.55rem', color: '#059669', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Admin Net</span>
+                              <strong style={{ fontSize: '0.8125rem', color: '#059669', fontWeight: 900 }}>
+                                +₹{mProfit.toFixed(2)}
+                              </strong>
+                            </div>
+                          </div>
+
+                          {/* Action Footer Bar */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #F1F5F9', marginTop: '0.75rem', paddingTop: '0.75rem' }}>
+                            <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 700 }}>
+                              Downline: {childSDs.length} SD Hubs • {childDDs.length} DD • {uniqueDists.length} Dist • {totalMachines} Stores
+                            </span>
+                            <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#7C3AED', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                              View Dossier & Command Chain <ChevronRight style={{ width: '12px', height: '12px' }} />
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
               </div>
             )}
@@ -2356,13 +3223,13 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           {/* Machine & Legal Vendor Badges */}
                           <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
                             <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#334155', padding: '2px 6px', borderRadius: '4px' }}>
-                              📟 {m.pos_provider || 'Pine Labs'} ({m.pos_terminal || 'PL-TS'})
+                              📟 {m.pos_provider || 'Pine Labs'} ({(m.pos_terminal || 'PL-TS').split('|')[0]})
                             </span>
                             <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '2px 6px', borderRadius: '4px' }}>
                               🏢 {m.pos_vendor || 'Rose Navaneetham'}
                             </span>
                             <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#FEF3C7', color: '#B45309', padding: '2px 6px', borderRadius: '4px' }}>
-                              {m.pos_plan === 'LIFETIME' ? 'Lifetime Purchase' : 'Rental Plan (₹499/mo)'}
+                              {m.pos_plan === 'CUSTOM' ? `Custom Plan (₹${m.pos_rent || 499}/mo)` : (m.pos_plan === 'LIFETIME' ? 'One-Time Purchase' : `Rental Plan (₹${m.pos_rent || 499}/mo)`)}
                             </span>
                             <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#ECFDF5', color: '#059669', padding: '2px 6px', borderRadius: '4px' }}>
                               {m.pos_settlement === 'INSTANT' ? '⚡ Instant (1.83%)' : '📅 T+1 (1.53%)'}
@@ -2411,6 +3278,14 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 <span>Edit</span>
                               </button>
                               <button
+                                onClick={(e) => handleOpenResetPassword(m, e)}
+                                style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', padding: '2px 6px', borderRadius: '4px', fontSize: '0.625rem', fontWeight: 700, color: '#15803D', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '2px' }}
+                                title="Reset Merchant Password"
+                              >
+                                <Key style={{ width: '10px', height: '10px' }} />
+                                <span>Pass</span>
+                              </button>
+                              <button
                                 onClick={(e) => handleToggleUserStatus(m, e)}
                                 style={{
                                   background: m.status === 'SUSPENDED' ? '#FEF2F2' : '#F8FAFC',
@@ -2439,75 +3314,2276 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               </div>
             )}
 
-            {/* TAB VIEW 5: DEDICATED PAYOUT APPROVALS QUEUE */}
-            {activeTab === 'payouts' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  <div>
-                    <h2 style={{ fontSize: '1.125rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
-                      Bank Payout Approvals ({pendingPayouts.length})
-                    </h2>
-                    <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
-                      Merchants requesting wallet fund transfers to their verified bank accounts
-                    </span>
-                  </div>
-                </div>
+            {/* TAB VIEW 5: DEDICATED PAYOUT APPROVALS & FINANCIAL CLEARANCE QUEUE */}
+            {activeTab === 'payouts' && (() => {
+              // Robust Deduplication Helper ensuring zero doubled records
+              const dedupeById = (items) => {
+                if (!Array.isArray(items)) return [];
+                const seen = new Set();
+                return items.filter(item => {
+                  if (!item) return false;
+                  const key = item.id || `${item.created_at || ''}_${item.amount || ''}_${item.merchant_id || ''}`;
+                  if (seen.has(key)) return false;
+                  seen.add(key);
+                  return true;
+                });
+              };
 
-                {pendingPayouts.length === 0 ? (
-                  <div style={{ padding: '3rem 1rem', textAlign: 'center', background: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0', color: '#059669' }}>
-                    <CheckCircle2 style={{ width: '32px', height: '32px', margin: '0 auto 0.5rem', color: '#059669' }} />
-                    <strong style={{ fontSize: '1rem', display: 'block' }}>Zero Pending Payouts</strong>
-                    <p style={{ margin: '4px 0 0', fontSize: '0.75rem', color: '#64748B' }}>All withdrawal requests have been verified and disbursed.</p>
+              // Settlement Classifier Helper
+              const isItemInstant = (item) => {
+                const mode = (item.settlement_mode || item.settlement_type || '').toUpperCase();
+                const remark = (item.admin_remark || '').toUpperCase();
+                const notes = (item.notes || '').toUpperCase();
+                return mode.includes('INSTANT') || remark.includes('IMPS') || remark.includes('INSTANT') || notes.includes('INSTANT');
+              };
+
+              // Genuine live Supabase transactions only (NO dummy or seed data)
+              const combinedPendingTxns = dedupeById(pendingTxns);
+              const combinedLedger = dedupeById(transactionsLedger);
+              const combinedPayouts = dedupeById(allPayouts);
+
+              // Date filter helper
+              const filterByDate = (items, dateField = 'created_at') => {
+                if (!payoutDateFilter || payoutDateFilter === 'ALL') return items;
+                const now = new Date();
+                const todayStr = now.toISOString().slice(0, 10);
+                const yesterday = new Date(now);
+                yesterday.setDate(now.getDate() - 1);
+                const yesterdayStr = yesterday.toISOString().slice(0, 10);
+                const weekAgo = new Date(now);
+                weekAgo.setDate(now.getDate() - 7);
+
+                return items.filter(item => {
+                  const dVal = item[dateField] || item.created_at || item.verified_at;
+                  if (!dVal) return true;
+                  const itemDateStr = new Date(dVal).toISOString().slice(0, 10);
+                  const itemDateObj = new Date(dVal);
+
+                  if (payoutDateFilter === 'TODAY') return itemDateStr === todayStr;
+                  if (payoutDateFilter === 'YESTERDAY') return itemDateStr === yesterdayStr;
+                  if (payoutDateFilter === 'WEEK') return itemDateObj >= weekAgo;
+                  if (payoutDateFilter === 'MONTH') {
+                    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                    return itemDateObj >= startOfMonth;
+                  }
+                  if (payoutDateFilter === 'CUSTOM') {
+                    if (payoutFromDate && payoutToDate) {
+                      return itemDateStr >= payoutFromDate && itemDateStr <= payoutToDate;
+                    } else if (payoutFromDate) {
+                      return itemDateStr >= payoutFromDate;
+                    } else if (payoutCustomDate) {
+                      return itemDateStr === payoutCustomDate;
+                    }
+                  }
+                  return true;
+                });
+              };
+
+              // Tag records
+              const allSwipes = dedupeById([
+                ...combinedPendingTxns.map(item => ({ ...item, _entityType: 'SWIPE', _subStatus: 'PENDING' })),
+                ...combinedLedger.filter(t => t.status === 'APPROVED').map(item => ({ ...item, _entityType: 'SWIPE', _subStatus: 'APPROVED' })),
+                ...combinedLedger.filter(t => t.status === 'REJECTED' || t.status === 'INVALID').map(item => ({ ...item, _entityType: 'SWIPE', _subStatus: 'INVALID' }))
+              ]);
+
+              const allWithdrawals = dedupeById([
+                ...combinedPayouts.filter(p => p.status === 'PENDING').map(item => ({ 
+                  ...item, 
+                  _entityType: 'WITHDRAWAL', 
+                  _subStatus: (item.is_submitted_to_bank || (item.admin_remark && item.admin_remark.includes('[SUBMITTED_TO_BANK]'))) ? 'SUBMITTED_TO_BANK' : 'PENDING' 
+                })),
+                ...combinedPayouts.filter(p => p.status === 'APPROVED').map(item => ({ ...item, _entityType: 'WITHDRAWAL', _subStatus: 'APPROVED' })),
+                ...combinedPayouts.filter(p => p.status === 'REJECTED' || p.status === 'INVALID').map(item => ({ ...item, _entityType: 'WITHDRAWAL', _subStatus: 'INVALID' }))
+              ]);
+
+              // STEP 1: Strict Channel Filter (Genuine Database Items Only)
+              const filterByChannel = (items) => {
+                if (selectedChannel === 'pinelabs') {
+                  return items.filter(item => {
+                    const p = (item.pos_provider || item.provider || item.notes || '').toLowerCase();
+                    const id = (item.pos_terminal || item.id || '').toUpperCase();
+                    return p.includes('pine') || id.includes('PL') || (!p.includes('swiff') && !p.includes('qr') && !p.includes('upi'));
+                  });
+                } else if (selectedChannel === 'payswiff') {
+                  return items.filter(item => {
+                    const p = (item.pos_provider || item.provider || item.notes || '').toLowerCase();
+                    const v = (item.pos_vendor || '').toLowerCase();
+                    const id = (item.pos_terminal || item.id || '').toUpperCase();
+                    const isSwiff = p.includes('swiff') || id.includes('SW') || v.includes('rp') || v.includes('ronav');
+                    if (!isSwiff) return false;
+                    if (selectedPayswiffVendor === 'ronav') {
+                      return v.includes('ronav') || (!v.includes('rp') && !p.includes('rp'));
+                    } else if (selectedPayswiffVendor === 'rp') {
+                      return v.includes('rp') || p.includes('rp');
+                    }
+                    return true;
+                  });
+                } else if (selectedChannel === 'qr') {
+                  return items.filter(item => {
+                    const p = (item.pos_provider || item.provider || item.notes || item.type || '').toLowerCase();
+                    const id = (item.pos_terminal || item.id || item.ref_number || item.rrn_number || '').toUpperCase();
+                    return p.includes('qr') || p.includes('upi') || id.includes('UPI') || id.includes('QR');
+                  });
+                }
+                return items;
+              };
+
+              const channelSwipes = dedupeById(filterByDate(filterByChannel(allSwipes)));
+              const channelWithdrawals = dedupeById(filterByDate(filterByChannel(allWithdrawals)));
+              const channelAllItems = dedupeById([...channelSwipes, ...channelWithdrawals]);
+
+              // Contextual counts
+              const totalSwipesCount = channelSwipes.length;
+              const totalWithdrawalsCount = channelWithdrawals.length;
+              const totalAllActivityCount = channelAllItems.length;
+
+              // Filter by Category
+              let categoryList = channelAllItems;
+              if (payoutCategoryFilter === 'SWIPES') categoryList = channelSwipes;
+              else if (payoutCategoryFilter === 'WITHDRAWALS') categoryList = channelWithdrawals;
+
+              const statusCounts = {
+                all: categoryList.length,
+                completed: categoryList.filter(i => i._subStatus === 'APPROVED').length,
+                pending: categoryList.filter(i => i._subStatus === 'PENDING').length,
+                submitted: categoryList.filter(i => i._subStatus === 'SUBMITTED_TO_BANK').length,
+                invalid: categoryList.filter(i => i._subStatus === 'INVALID').length
+              };
+
+              // Filter by Status
+              let statusFilteredList = categoryList;
+              if (payoutStatusFilter === 'APPROVED') statusFilteredList = categoryList.filter(i => i._subStatus === 'APPROVED');
+              else if (payoutStatusFilter === 'PENDING') statusFilteredList = categoryList.filter(i => i._subStatus === 'PENDING');
+              else if (payoutStatusFilter === 'SUBMITTED_TO_BANK') statusFilteredList = categoryList.filter(i => i._subStatus === 'SUBMITTED_TO_BANK');
+              else if (payoutStatusFilter === 'INVALID') statusFilteredList = categoryList.filter(i => i._subStatus === 'INVALID');
+
+              const settlementCounts = {
+                all: statusFilteredList.length,
+                t1: statusFilteredList.filter(i => !isItemInstant(i)).length,
+                instant: statusFilteredList.filter(i => isItemInstant(i)).length
+              };
+
+              // Filter by Settlement Speed
+              let candidateList = statusFilteredList;
+              if (payoutSettlementFilter === 'T1') candidateList = statusFilteredList.filter(i => !isItemInstant(i));
+              else if (payoutSettlementFilter === 'INSTANT') candidateList = statusFilteredList.filter(i => isItemInstant(i));
+
+              // T+1 Batch Items
+              const t1BatchPendingItems = channelWithdrawals.filter(w => w._subStatus === 'PENDING' && !isItemInstant(w));
+              const totalBatchAmount = t1BatchPendingItems.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
+
+              // Apply Search Query
+              const q = (payoutSearchQuery || '').toLowerCase().trim();
+              const activeList = q ? candidateList.filter(item => {
+                const merchantName = (item.merchant_name || '').toLowerCase();
+                const custName = (item.customer_name || '').toLowerCase();
+                const custMobile = (item.customer_mobile || '').toLowerCase();
+                const merchantMobile = (item.merchant_mobile || '').toLowerCase();
+                const mid = (item.merchant_id || '').toLowerCase();
+                const acc = (item.account_number || '').toLowerCase();
+                const ifsc = (item.ifsc_code || '').toLowerCase();
+                const utr = (item.utr_number || item.bank_rrn || item.ref_number || item.rrn_number || '').toLowerCase();
+                const id = (item.id || '').toLowerCase();
+                const amount = String(item.amount || '');
+                const bank = (item.bank_name || '').toLowerCase();
+                const remark = (item.admin_remark || '').toLowerCase();
+                return merchantName.includes(q) || custName.includes(q) || custMobile.includes(q) || merchantMobile.includes(q) || mid.includes(q) || acc.includes(q) || ifsc.includes(q) || utr.includes(q) || id.includes(q) || amount.includes(q) || bank.includes(q) || remark.includes(q);
+              }) : candidateList;
+
+              const PAGE_SIZE = 12;
+              const totalPages = Math.max(1, Math.ceil(activeList.length / PAGE_SIZE));
+              const currentItems = activeList.slice((payoutPage - 1) * PAGE_SIZE, payoutPage * PAGE_SIZE);
+
+              const renderPayoutPagination = (pages, count) => {
+                if (count <= PAGE_SIZE) return null;
+                const startItem = (payoutPage - 1) * PAGE_SIZE + 1;
+                const endItem = Math.min(payoutPage * PAGE_SIZE, count);
+
+                return (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0.625rem 0.875rem',
+                    background: '#FFFFFF',
+                    borderRadius: '10px',
+                    border: '1px solid #E2E8F0',
+                    marginTop: '0.5rem',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                    flexWrap: 'wrap',
+                    gap: '0.5rem'
+                  }}>
+                    <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>
+                      Showing <strong style={{ color: '#0F172A' }}>{startItem}–{endItem}</strong> of <strong style={{ color: '#0F172A' }}>{count}</strong> records
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                      <button
+                        type="button"
+                        disabled={payoutPage <= 1}
+                        onClick={() => setPayoutPage(prev => Math.max(1, prev - 1))}
+                        style={{
+                          padding: '0.3rem 0.65rem',
+                          fontSize: '0.71875rem',
+                          fontWeight: 700,
+                          borderRadius: '6px',
+                          border: '1px solid #CBD5E1',
+                          background: payoutPage <= 1 ? '#F8FAFC' : '#FFFFFF',
+                          color: payoutPage <= 1 ? '#94A3B8' : '#0F172A',
+                          cursor: payoutPage <= 1 ? 'not-allowed' : 'pointer'
+                        }}
+                      >
+                        ← Previous
+                      </button>
+                      <span style={{
+                        fontSize: '0.71875rem',
+                        fontWeight: 800,
+                        color: '#0F52BA',
+                        padding: '0.3rem 0.5rem',
+                        background: '#EFF6FF',
+                        borderRadius: '6px',
+                        border: '1px solid #DBEAFE'
+                      }}>
+                        Page {payoutPage} of {pages}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={payoutPage >= pages}
+                        onClick={() => setPayoutPage(prev => Math.min(pages, prev + 1))}
+                        style={{
+                          padding: '0.3rem 0.65rem',
+                          fontSize: '0.71875rem',
+                          fontWeight: 700,
+                          borderRadius: '6px',
+                          border: '1px solid #CBD5E1',
+                          background: payoutPage >= pages ? '#F8FAFC' : '#FFFFFF',
+                          color: payoutPage >= pages ? '#94A3B8' : '#0F172A',
+                          cursor: payoutPage >= pages ? 'not-allowed' : 'pointer'
+                        }}
+                      >
+                        Next →
+                      </button>
+                    </div>
                   </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {pendingPayouts.map(p => (
-                      <div key={p.id} style={{ background: '#FFFFFF', border: '1.5px solid #FCA5A5', borderRadius: '12px', padding: '1rem', boxShadow: '0 2px 4px rgba(0,0,0,0.03)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
-                          <div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                              <strong style={{ fontSize: '0.9375rem', color: '#0A192F' }}>{p.merchant_name}</strong>
-                              <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#FEE2E2', color: '#DC2626', padding: '2px 6px', borderRadius: '4px' }}>
-                                Awaiting Approval
+                );
+              };
+
+              const parsePayoutDetails = (p) => {
+                let utr = p.bank_rrn || '';
+                let recipient = '';
+                const remark = p.admin_remark || '';
+                const utrMatch = remark.match(/(?:UTR:?\s*)+([A-Za-z0-9]+)/i) || (p.bank_rrn ? p.bank_rrn.match(/(?:UTR:?\s*)+([A-Za-z0-9]+)/i) : null);
+                if (utrMatch) utr = utrMatch[1];
+                else if (!utr && remark && !remark.includes('[')) utr = remark.replace('[PENDING_TO_DISBURSE]', '').trim();
+                const nameMatch = remark.match(/Name:\s*([^|•\r\n]+)/i);
+                if (nameMatch) recipient = nameMatch[1].trim();
+                
+                return {
+                  utr: utr || 'IMPS Cleared',
+                  recipient: recipient || p.merchant_name,
+                  bank: p.bank_name || 'Bank',
+                  acc: p.account_number || '',
+                  ifsc: p.ifsc_code || 'SBIN0001234'
+                };
+              };
+
+              const formatPayoutDateTime = (isoStr) => {
+                if (!isoStr) return '';
+                const d = new Date(isoStr);
+                if (isNaN(d.getTime())) return '';
+                return d.toLocaleString('en-IN', {
+                  day: 'numeric',
+                  month: 'short',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: true
+                });
+              };
+
+              const channelTotalVol = channelAllItems.reduce((acc, i) => acc + (parseFloat(i.amount) || 0), 0);
+
+              const handleDownloadBankExcel = async () => {
+                setIsExportMenuOpen(false);
+                const channelAllWithdrawals = dedupeById(filterByChannel(allWithdrawals));
+                const channelSlug = selectedChannel === 'pinelabs' 
+                  ? 'PineLabs' 
+                  : (selectedPayswiffVendor === 'rp' ? 'Payswiff_RP' : 'Payswiff_RONAV');
+                const channelName = selectedChannel === 'pinelabs' 
+                  ? 'Pine Labs' 
+                  : (selectedPayswiffVendor === 'rp' ? 'Payswiff (RP Tech)' : 'Payswiff (RONAV Tech)');
+                const now = new Date();
+                const today = now.toISOString().slice(0, 10);
+
+                // Normal Pending Payouts
+                const allPendingT1Withdrawals = channelAllWithdrawals.filter(item => 
+                  item._entityType === 'WITHDRAWAL' &&
+                  !isItemInstant(item) &&
+                  item._subStatus === 'PENDING'
+                );
+
+                if (allPendingT1Withdrawals.length === 0) {
+                  triggerToast(`No Pending T+1 withdrawals found for ${channelName}.`, 'info');
+                  return;
+                }
+
+                // If admin selected specific checkboxes, download only those selected items!
+                let itemsToBatch = allPendingT1Withdrawals;
+                if (selectedPendingIds && selectedPendingIds.size > 0) {
+                  const filtered = allPendingT1Withdrawals.filter(w => selectedPendingIds.has(w.id));
+                  if (filtered.length > 0) {
+                    itemsToBatch = filtered;
+                  }
+                }
+
+                // Calculate today's batch number
+                const submittedToday = channelAllWithdrawals.filter(item => 
+                  item._entityType === 'WITHDRAWAL' && 
+                  item._subStatus === 'SUBMITTED_TO_BANK'
+                );
+                const todayBatchIds = new Set();
+                submittedToday.forEach(item => {
+                  const m = (item.admin_remark || '').match(/\[BATCH:([^\]]+)\]/);
+                  if (m) todayBatchIds.add(m[1]);
+                });
+                const batchSeq = todayBatchIds.size + 1;
+                const batchId = `BATCH_${today.replace(/-/g, '')}_${batchSeq}`;
+                const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                const dayName = daysOfWeek[now.getDay()];
+                const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+                const dateStr = now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                const batchName = `Today's Batch #${batchSeq} (${dayName} · ${timeStr})`;
+
+                // Name file with channel, batch, and date
+                const fileName = `RONAV_${channelSlug}_T1_Batch_${batchSeq}_${today}.csv`;
+
+                // Download 6-column bank CSV/Excel
+                const res = downloadBankBatchFile(itemsToBatch, { fileName });
+                if (res && res.success) {
+                  const downloadedIds = itemsToBatch.map(w => w.id);
+                  await markWithdrawalsSubmittedToBank(downloadedIds, {
+                    batchId,
+                    batchName,
+                    submittedAt: now.toISOString()
+                  });
+                  setSelectedPendingIds(new Set());
+                  await fetchAdminData();
+                  setPayoutStatusFilter('SUBMITTED_TO_BANK');
+                  triggerToast(`📥 Created ${batchName} with ${itemsToBatch.length} payout(s)! Transferred to Submitted tab.`, 'success');
+                } else {
+                  triggerToast(res?.error || 'Failed to download bank sheet.', 'error');
+                }
+              };
+
+              const handleRedownloadSingleBatch = (batch) => {
+                const channelSlug = selectedChannel === 'pinelabs' 
+                  ? 'PineLabs' 
+                  : (selectedPayswiffVendor === 'rp' ? 'Payswiff_RP' : 'Payswiff_RONAV');
+                const today = new Date().toISOString().slice(0, 10);
+                const fileName = `RONAV_${channelSlug}_${batch.batchId || 'Batch'}_${today}.csv`;
+                const res = downloadBankBatchFile(batch.items, { fileName });
+                if (res && res.success) {
+                  triggerToast(`📥 Re-downloaded ${batch.batchName} (${batch.items.length} records).`, 'success');
+                } else {
+                  triggerToast('Failed to download batch file', 'error');
+                }
+              };
+
+              const handleCompleteEntireBatch = async (batch) => {
+                const confirmed = window.confirm(`Mark all ${batch.items.length} withdrawal(s) in "${batch.batchName}" as Completed & Disbursed?`);
+                if (!confirmed) return;
+                try {
+                  const ids = batch.items.map(item => item.id);
+                  const res = await verifyWithdrawalsBatch(ids, 'APPROVE', 'Bank Payout Disbursed', 'CMS-SETTLED');
+                  if (res && res.success) {
+                    triggerToast(`✓ Completed all ${batch.items.length} payouts in ${batch.batchName}! Moved to Completed tab.`, 'success');
+                    await fetchAdminData();
+                  } else {
+                    triggerToast(res?.message || 'Failed to complete batch', 'error');
+                  }
+                } catch (err) {
+                  console.error('handleCompleteEntireBatch error:', err);
+                  triggerToast('Error completing batch', 'error');
+                }
+              };
+
+              const handleDownloadGstAudit = () => {
+                setIsExportMenuOpen(false);
+
+                // Filter swipes and withdrawals by channel and date
+                const channelSwipes = filterByDate(filterByChannel(allSwipes));
+                const channelWithdrawals = filterByDate(filterByChannel(allWithdrawals));
+                const allChannelItems = [...channelSwipes, ...channelWithdrawals];
+
+                // For GST & Tax filing, only completed/approved transactions are exported
+                const completedItems = allChannelItems.filter(item => item._subStatus === 'APPROVED');
+
+                const channelName = selectedChannel === 'pinelabs' 
+                  ? 'Pine Labs' 
+                  : (selectedPayswiffVendor === 'rp' ? 'Payswiff (RP Tech)' : 'Payswiff (RONAV Tech)');
+                const dateLabel = payoutDateFilter === 'CUSTOM' 
+                  ? (payoutFromDate && payoutToDate ? `${payoutFromDate}_to_${payoutToDate}` : (payoutFromDate || payoutCustomDate || 'Custom_Range')) 
+                  : payoutDateFilter;
+
+                if (completedItems.length === 0) {
+                  triggerToast(`No completed sales found for ${channelName} (${dateLabel}) for GST filing.`, 'info');
+                  return;
+                }
+
+                const channelSlug = selectedChannel === 'pinelabs' 
+                  ? 'PineLabs' 
+                  : (selectedPayswiffVendor === 'rp' ? 'Payswiff_RP' : 'Payswiff_RONAV');
+                const dateSlug = dateLabel.replace(/[^a-zA-Z0-9_-]/g, '_');
+                const today = new Date().toISOString().slice(0, 10);
+                const fileName = `RONAV_Completed_Sales_GST_${channelSlug}_${dateSlug}_${today}.csv`;
+
+                const res = downloadGstAuditFile(completedItems, { fileName });
+                if (res && res.success) {
+                  triggerToast(`📊 Downloaded completed sales (${dateLabel}) with 18% GST for CA filing!`, 'success');
+                } else {
+                  triggerToast(res?.error || 'Failed to download GST audit file.', 'error');
+                }
+              };
+
+              const handleRevertSingleToPending = async (itemId) => {
+                await revertWithdrawalsToPending([itemId]);
+                await fetchAdminData();
+                triggerToast('↺ Moved withdrawal back to Pending in database.', 'info');
+              };
+
+              // Group submitted withdrawals into Batches with date, day, time, count, amount
+              const submittedBatches = (() => {
+                const submittedItems = channelWithdrawals.filter(item => 
+                  item._entityType === 'WITHDRAWAL' && 
+                  item._subStatus === 'SUBMITTED_TO_BANK'
+                );
+
+                const batchesMap = new Map();
+                submittedItems.forEach(item => {
+                  let batchId = 'DEFAULT';
+                  const m = (item.admin_remark || '').match(/\[BATCH:([^\]]+)\]/);
+                  if (m) {
+                    batchId = m[1];
+                  } else if (item.submitted_to_bank_at) {
+                    batchId = `BATCH_${item.submitted_to_bank_at.slice(0, 16)}`;
+                  }
+
+                  let batchName = null;
+                  const nm = (item.admin_remark || '').match(/\[BATCH_NAME:([^\]]+)\]/);
+                  if (nm) {
+                    batchName = nm[1];
+                  }
+
+                  const subDate = item.submitted_to_bank_at ? new Date(item.submitted_to_bank_at) : new Date(item.created_at || Date.now());
+
+                  if (!batchesMap.has(batchId)) {
+                    const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                    const dayName = daysOfWeek[subDate.getDay()];
+                    const timeStr = subDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+                    const dateStr = subDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+
+                    batchesMap.set(batchId, {
+                      batchId,
+                      batchName: batchName || `Batch · ${dayName}, ${dateStr} (${timeStr})`,
+                      dayName,
+                      timeStr,
+                      dateStr,
+                      submittedAt: subDate,
+                      items: []
+                    });
+                  }
+                  batchesMap.get(batchId).items.push(item);
+                });
+
+                const arr = Array.from(batchesMap.values()).map(b => {
+                  const totalAmount = b.items.reduce((sum, it) => sum + (parseFloat(it.amount) || 0), 0);
+                  return { ...b, totalAmount };
+                });
+
+                arr.sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
+                return arr;
+              })();
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                  
+                  {/* 1. SEARCH, DATE FILTER & ICON-ONLY DOWNLOAD BUTTON (COMPACT SINGLE ROW) */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.375rem',
+                    width: '100%'
+                  }}>
+                    {/* Search Input */}
+                    <div style={{
+                      flex: 1,
+                      minWidth: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.45rem',
+                      background: '#F1F5F9',
+                      borderRadius: '10px',
+                      padding: '0 0.65rem',
+                      height: '38px',
+                      boxSizing: 'border-box'
+                    }}>
+                      <Search style={{ width: '14px', height: '14px', color: '#94A3B8', flexShrink: 0 }} />
+                      <input 
+                        type="text"
+                        placeholder="Search merchant, UTR, amount..."
+                        value={payoutSearchQuery}
+                        onChange={(e) => { setPayoutSearchQuery(e.target.value); setPayoutPage(1); }}
+                        style={{ border: 'none', background: 'transparent', outline: 'none', width: '100%', fontSize: '0.8125rem', color: '#0F172A' }}
+                      />
+                      {payoutSearchQuery && (
+                        <button type="button" onClick={() => { setPayoutSearchQuery(''); setPayoutPage(1); }} style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: 0 }}>
+                          <X style={{ width: '13px', height: '13px' }} />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Compact Date Filter Dropdown (Sized exactly for 'All Dates' to give search bar room) */}
+                    <div style={{ flex: '0 0 auto', position: 'relative' }}>
+                      <div style={{
+                        position: 'relative',
+                        display: 'flex',
+                        alignItems: 'center',
+                        background: '#FFFFFF',
+                        borderRadius: '10px',
+                        border: '1px solid #CBD5E1',
+                        padding: '0 0.4rem',
+                        height: '38px',
+                        width: '104px',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                        boxSizing: 'border-box'
+                      }}>
+                        <Calendar style={{ width: '13px', height: '13px', color: '#0F52BA', flexShrink: 0, marginRight: '2px' }} />
+                        <select
+                          value={payoutDateFilter}
+                          onChange={(e) => {
+                            setPayoutDateFilter(e.target.value);
+                            setPayoutPage(1);
+                          }}
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            outline: 'none',
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            color: '#0F172A',
+                            cursor: 'pointer',
+                            width: '100%',
+                            paddingRight: '14px',
+                            appearance: 'none',
+                            WebkitAppearance: 'none',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden'
+                          }}
+                        >
+                          <option value="ALL">All Dates</option>
+                          <option value="TODAY">Today</option>
+                          <option value="YESTERDAY">Yesterday</option>
+                          <option value="WEEK">Week (7D)</option>
+                          <option value="MONTH">This Month</option>
+                          <option value="CUSTOM">Custom Range</option>
+                        </select>
+                        <ChevronDown style={{ width: '11px', height: '11px', color: '#64748B', position: 'absolute', right: '5px', pointerEvents: 'none' }} />
+                      </div>
+                    </div>
+
+                    {/* Compact Download Icon-Only Button for GST & Audit Reports (Hidden on Pending tab to avoid duplicate button confusion) */}
+                    {payoutStatusFilter !== 'PENDING' && (
+                      <div style={{ position: 'relative', flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          onClick={() => setIsExportMenuOpen(prev => !prev)}
+                          title="Download Completed Sales (For GST & Taxes)"
+                          aria-label="Export Financial Reports"
+                          style={{
+                            width: '38px',
+                            height: '38px',
+                            borderRadius: '10px',
+                            border: isExportMenuOpen ? '1.5px solid #0F52BA' : '1px solid #CBD5E1',
+                            background: isExportMenuOpen ? '#EFF6FF' : '#FFFFFF',
+                            color: '#0F52BA',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <Download style={{ width: '16px', height: '16px' }} />
+                        </button>
+
+                        {/* Dropdown Menu */}
+                        {isExportMenuOpen && (
+                          <>
+                            {/* Invisible Click-away Backdrop */}
+                            <div 
+                              onClick={() => setIsExportMenuOpen(false)}
+                              style={{ position: 'fixed', inset: 0, zIndex: 99, cursor: 'default' }}
+                            />
+
+                            {/* Menu Card */}
+                            <div style={{
+                              position: 'absolute',
+                              right: 0,
+                              top: '44px',
+                              zIndex: 100,
+                              width: '320px',
+                              maxWidth: '90vw',
+                              background: '#FFFFFF',
+                              borderRadius: '14px',
+                              border: '1px solid #CBD5E1',
+                              boxShadow: '0 12px 30px -4px rgba(15,23,42,0.18)',
+                              padding: '6px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '4px',
+                              animation: 'fadeIn 0.12s ease'
+                            }}>
+                              <div style={{
+                                padding: '6px 10px 4px',
+                                fontSize: '0.6875rem',
+                                fontWeight: 800,
+                                color: '#64748B',
+                                letterSpacing: '0.05em',
+                                textTransform: 'uppercase'
+                              }}>
+                                Reports & Tax Filing
+                              </div>
+
+                              {/* Option: Download Completed Sales (For GST & Taxes) */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsExportMenuOpen(false);
+                                  handleDownloadGstAudit();
+                                }}
+                                style={{
+                                  width: '100%',
+                                  textAlign: 'left',
+                                  background: '#F8FAFC',
+                                  border: '1px solid #E2E8F0',
+                                  borderRadius: '10px',
+                                  padding: '8px 10px',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'flex-start',
+                                  gap: '10px',
+                                  transition: 'all 0.15s ease'
+                                }}
+                                onMouseEnter={e => {
+                                  e.currentTarget.style.background = '#F0FDF4';
+                                  e.currentTarget.style.borderColor = '#BBF7D0';
+                                }}
+                                onMouseLeave={e => {
+                                  e.currentTarget.style.background = '#F8FAFC';
+                                  e.currentTarget.style.borderColor = '#E2E8F0';
+                                }}
+                              >
+                                <div style={{
+                                  width: '28px',
+                                  height: '28px',
+                                  borderRadius: '8px',
+                                  background: '#DCFCE7',
+                                  color: '#166534',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  flexShrink: 0,
+                                  marginTop: '2px'
+                                }}>
+                                  <FileText style={{ width: '15px', height: '15px' }} />
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px' }}>
+                                    <strong style={{ fontSize: '0.8125rem', color: '#0F172A' }}>
+                                      Download Completed Sales
+                                    </strong>
+                                    <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#EFF6FF', color: '#1E40AF', padding: '1px 5px', borderRadius: '4px', whiteSpace: 'nowrap' }}>
+                                      For GST
+                                    </span>
+                                  </div>
+                                  <div style={{ fontSize: '0.71875rem', color: '#64748B', marginTop: '2px', lineHeight: 1.3 }}>
+                                    For your CA / Tax filing. Settled sales for <strong>{payoutDateFilter === 'CUSTOM' ? (payoutCustomDate || 'Selected Date') : payoutDateFilter}</strong> with 18% GST & Bank UTRs.
+                                  </div>
+                                </div>
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Custom Date Range Picker (From - To) */}
+                  {payoutDateFilter === 'CUSTOM' && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      background: '#EFF6FF',
+                      border: '1px solid #BFDBFE',
+                      borderRadius: '10px',
+                      padding: '0.45rem 0.75rem',
+                      flexWrap: 'wrap'
+                    }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1E40AF' }}>From:</span>
+                      <input
+                        type="date"
+                        value={payoutFromDate}
+                        onChange={(e) => {
+                          setPayoutFromDate(e.target.value);
+                          setPayoutPage(1);
+                        }}
+                        style={{
+                          border: '1px solid #93C5FD',
+                          borderRadius: '6px',
+                          padding: '0.2rem 0.45rem',
+                          fontSize: '0.75rem',
+                          color: '#0F172A',
+                          background: '#FFFFFF',
+                          outline: 'none'
+                        }}
+                      />
+                      <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1E40AF' }}>To:</span>
+                      <input
+                        type="date"
+                        value={payoutToDate}
+                        onChange={(e) => {
+                          setPayoutToDate(e.target.value);
+                          setPayoutPage(1);
+                        }}
+                        style={{
+                          border: '1px solid #93C5FD',
+                          borderRadius: '6px',
+                          padding: '0.2rem 0.45rem',
+                          fontSize: '0.75rem',
+                          color: '#0F172A',
+                          background: '#FFFFFF',
+                          outline: 'none'
+                        }}
+                      />
+                      {(payoutFromDate || payoutToDate || payoutCustomDate) && (
+                        <button
+                          type="button"
+                          onClick={() => { 
+                            setPayoutFromDate(''); 
+                            setPayoutToDate(''); 
+                            setPayoutCustomDate(''); 
+                            setPayoutDateFilter('ALL'); 
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#DC2626',
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            marginLeft: 'auto'
+                          }}
+                        >
+                          Reset
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 2. CATEGORY SELECTOR (SWIPES / RECORD SALE vs WITHDRAW) */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    background: '#FFFFFF',
+                    borderRadius: '10px',
+                    border: '1px solid #CBD5E1',
+                    padding: '3px',
+                    gap: '4px',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+                  }}>
+                    {/* All Category */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPayoutCategoryFilter('ALL');
+                        setPayoutPage(1);
+                      }}
+                      style={{
+                        background: payoutCategoryFilter === 'ALL' ? '#0F52BA' : 'transparent',
+                        color: payoutCategoryFilter === 'ALL' ? '#FFFFFF' : '#334155',
+                        border: 'none',
+                        borderRadius: '7px',
+                        padding: '0.42rem 0.35rem',
+                        fontSize: '0.8125rem',
+                        fontWeight: payoutCategoryFilter === 'ALL' ? 700 : 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <span>All</span>
+                    </button>
+
+                    {/* Swipes (Record Sale) */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPayoutCategoryFilter(payoutCategoryFilter === 'SWIPES' ? 'ALL' : 'SWIPES');
+                        setPayoutPage(1);
+                      }}
+                      style={{
+                        background: payoutCategoryFilter === 'SWIPES' ? '#0F52BA' : 'transparent',
+                        color: payoutCategoryFilter === 'SWIPES' ? '#FFFFFF' : '#334155',
+                        border: 'none',
+                        borderRadius: '7px',
+                        padding: '0.42rem 0.5rem',
+                        fontSize: '0.8125rem',
+                        fontWeight: payoutCategoryFilter === 'SWIPES' ? 700 : 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <CreditCard style={{ width: '13px', height: '13px', flexShrink: 0 }} />
+                      <span>Swipes</span>
+                    </button>
+
+                    {/* Withdraw (Payouts) */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPayoutCategoryFilter(payoutCategoryFilter === 'WITHDRAWALS' ? 'ALL' : 'WITHDRAWALS');
+                        setPayoutPage(1);
+                      }}
+                      style={{
+                        background: payoutCategoryFilter === 'WITHDRAWALS' ? '#0F52BA' : 'transparent',
+                        color: payoutCategoryFilter === 'WITHDRAWALS' ? '#FFFFFF' : '#334155',
+                        border: 'none',
+                        borderRadius: '7px',
+                        padding: '0.42rem 0.5rem',
+                        fontSize: '0.8125rem',
+                        fontWeight: payoutCategoryFilter === 'WITHDRAWALS' ? 700 : 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <Landmark style={{ width: '13px', height: '13px', flexShrink: 0 }} />
+                      <span>Withdraw</span>
+                    </button>
+                  </div>
+
+                  {/* 3. SPEED PILLS ROW (CLEAN & FIXED) */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem'
+                  }}>
+                    {/* Instant Pill */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPayoutSettlementFilter(payoutSettlementFilter === 'INSTANT' ? 'ALL' : 'INSTANT');
+                        setPayoutPage(1);
+                      }}
+                      style={{
+                        flex: 1,
+                        height: '38px',
+                        padding: '0 0.85rem',
+                        borderRadius: '9999px',
+                        background: payoutSettlementFilter === 'INSTANT' ? '#2563EB' : '#FFFFFF',
+                        color: payoutSettlementFilter === 'INSTANT' ? '#FFFFFF' : '#1E293B',
+                        border: payoutSettlementFilter === 'INSTANT' ? '1.5px solid #2563EB' : '1px solid #CBD5E1',
+                        fontSize: '0.8125rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        boxShadow: payoutSettlementFilter === 'INSTANT' ? '0 2px 6px rgba(37,99,235,0.3)' : 'none',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <Zap style={{ width: '13px', height: '13px', fill: payoutSettlementFilter === 'INSTANT' ? '#FFFFFF' : 'none' }} />
+                      <span>Instant</span>
+                    </button>
+
+                    {/* T+1 Pill */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPayoutSettlementFilter(payoutSettlementFilter === 'T1' ? 'ALL' : 'T1');
+                        setPayoutPage(1);
+                      }}
+                      style={{
+                        flex: 1,
+                        height: '38px',
+                        padding: '0 0.85rem',
+                        borderRadius: '9999px',
+                        background: payoutSettlementFilter === 'T1' ? '#2563EB' : '#FFFFFF',
+                        color: payoutSettlementFilter === 'T1' ? '#FFFFFF' : '#1E293B',
+                        border: payoutSettlementFilter === 'T1' ? '1.5px solid #2563EB' : '1px solid #CBD5E1',
+                        fontSize: '0.8125rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        boxShadow: payoutSettlementFilter === 'T1' ? '0 2px 6px rgba(37,99,235,0.3)' : 'none',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <Calendar style={{ width: '13px', height: '13px' }} />
+                      <span>T+1</span>
+                    </button>
+
+                    {/* All Pill */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPayoutSettlementFilter('ALL');
+                        setPayoutPage(1);
+                      }}
+                      style={{
+                        flex: 1,
+                        height: '38px',
+                        padding: '0 0.85rem',
+                        borderRadius: '9999px',
+                        background: payoutSettlementFilter === 'ALL' ? '#FFFFFF' : '#FFFFFF',
+                        color: '#1E293B',
+                        border: payoutSettlementFilter === 'ALL' ? '1.5px solid #0F172A' : '1px solid #CBD5E1',
+                        fontSize: '0.8125rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        boxShadow: payoutSettlementFilter === 'ALL' ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <span>All</span>
+                    </button>
+                  </div>
+
+                  {/* 3. STATUS SEGMENTED TRACK (PENDING, SUBMITTED TO BANK, COMPLETED, INVALID) */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, 1fr)',
+                    background: '#ECEEF0',
+                    padding: '3px',
+                    borderRadius: '9999px',
+                    gap: '3px'
+                  }}>
+                    {[
+                      { 
+                        id: 'PENDING', 
+                        label: statusCounts.pending > 0 
+                          ? `Pending (${statusCounts.pending > 99 ? '99+' : statusCounts.pending})` 
+                          : 'Pending' 
+                      },
+                      {
+                        id: 'SUBMITTED_TO_BANK',
+                        label: statusCounts.submitted > 0
+                          ? `Submitted (${statusCounts.submitted > 99 ? '99+' : statusCounts.submitted})`
+                          : 'Submitted'
+                      },
+                      { id: 'APPROVED', label: 'Completed' },
+                      { id: 'INVALID', label: 'Invalid' }
+                    ].map(st => {
+                      const isActive = payoutStatusFilter === st.id;
+                      return (
+                        <button
+                          key={st.id}
+                          type="button"
+                          onClick={() => {
+                            setPayoutStatusFilter(payoutStatusFilter === st.id ? 'ALL' : st.id);
+                            setPayoutPage(1);
+                          }}
+                          style={{
+                            background: isActive ? '#FFFFFF' : 'transparent',
+                            color: '#0F172A',
+                            border: 'none',
+                            borderRadius: '9999px',
+                            padding: '0.45rem 0.25rem',
+                            fontSize: '0.72rem',
+                            fontWeight: isActive ? 700 : 600,
+                            cursor: 'pointer',
+                            textAlign: 'center',
+                            boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                            transition: 'all 0.15s ease',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {st.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* PENDING BATCH SELECTION & DOWNLOAD TOOLBAR */}
+                  {payoutStatusFilter === 'PENDING' && (
+                    (() => {
+                      const pendingWithdrawals = candidateList.filter(item => 
+                        item._entityType === 'WITHDRAWAL' && item._subStatus === 'PENDING'
+                      );
+                      if (pendingWithdrawals.length === 0) return null;
+
+                      const isAllSelected = selectedPendingIds.size > 0 && selectedPendingIds.size === pendingWithdrawals.length;
+                      const selectedList = pendingWithdrawals.filter(w => selectedPendingIds.has(w.id));
+                      const selectedTotal = selectedList.reduce((acc, w) => acc + (parseFloat(w.amount) || 0), 0);
+                      const allPendingTotal = pendingWithdrawals.reduce((acc, w) => acc + (parseFloat(w.amount) || 0), 0);
+
+                      const handleToggleSelectAll = () => {
+                        if (isAllSelected) {
+                          setSelectedPendingIds(new Set());
+                        } else {
+                          const allIds = new Set(pendingWithdrawals.map(w => w.id));
+                          setSelectedPendingIds(allIds);
+                        }
+                      };
+
+                      return (
+                        <div style={{
+                          background: '#F8FAFC',
+                          border: '1.5px solid #CBD5E1',
+                          borderRadius: '12px',
+                          padding: '0.65rem 0.85rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '0.5rem',
+                          flexWrap: 'wrap'
+                        }}>
+                          {/* Left: Select All Checkbox & Count */}
+                          <label style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            cursor: 'pointer',
+                            userSelect: 'none'
+                          }}>
+                            <input
+                              type="checkbox"
+                              checked={isAllSelected}
+                              onChange={handleToggleSelectAll}
+                              style={{
+                                width: '17px',
+                                height: '17px',
+                                accentColor: '#0F52BA',
+                                cursor: 'pointer'
+                              }}
+                            />
+                            <div>
+                              <strong style={{ fontSize: '0.8125rem', color: '#0F172A', display: 'block' }}>
+                                {selectedPendingIds.size > 0 
+                                  ? `${selectedPendingIds.size} of ${pendingWithdrawals.length} Selected (₹${selectedTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })})`
+                                  : `Select All (${pendingWithdrawals.length} Pending · ₹${allPendingTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })})`}
+                              </strong>
+                              <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
+                                {selectedPendingIds.size > 0 
+                                  ? 'Click Download Bank Sheet to batch only selected payouts.'
+                                  : 'Select all or choose individual payouts to download into bank batch.'}
                               </span>
                             </div>
-                            <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
-                              MID: {p.merchant_id} • Phone: {p.merchant_mobile || 'Registered Mobile'}
-                            </span>
-                            <span style={{ fontSize: '0.75rem', color: '#0A192F', fontWeight: 700, display: 'block', marginTop: '4px' }}>
-                              Bank: {p.bank_name} • A/C: ••••{p.account_number?.slice(-4) || '••••'} • IFSC: {p.ifsc || 'Verified'}
-                            </span>
-                          </div>
+                          </label>
 
-                          <div style={{ textAlign: 'right' }}>
-                            <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Withdrawal Amount</span>
-                            <strong style={{ fontSize: '1.25rem', fontWeight: 900, color: '#DC2626' }}>
-                              ₹{parseFloat(p.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </strong>
-                          </div>
+                          {/* Right: Download Bank Sheet Button */}
+                          <button
+                            type="button"
+                            onClick={handleDownloadBankExcel}
+                            style={{
+                              background: '#0F52BA',
+                              color: '#FFFFFF',
+                              border: 'none',
+                              padding: '7px 14px',
+                              borderRadius: '8px',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              boxShadow: '0 1px 3px rgba(15,82,186,0.25)',
+                              transition: 'all 0.15s ease'
+                            }}
+                          >
+                            <Download style={{ width: '13px', height: '13px' }} />
+                            <span>
+                              {selectedPendingIds.size > 0 
+                                ? `Download Selected Batch (${selectedPendingIds.size})`
+                                : `Download Bank Sheet (${pendingWithdrawals.length})`}
+                            </span>
+                          </button>
                         </div>
+                      );
+                    })()
+                  )}
 
-                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', borderTop: '1px solid #F1F5F9', marginTop: '0.875rem', paddingTop: '0.875rem' }}>
-                          <button
-                            onClick={() => handlePayoutAction(p.id, 'REJECT', p.merchant_name, p.amount)}
-                            style={{ background: '#F1F5F9', color: '#475569', border: '1px solid #CBD5E1', padding: '0.45rem 0.875rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}
-                          >
-                            ✕ Reject Request
-                          </button>
-                          <button
-                            onClick={() => handlePayoutAction(p.id, 'APPROVE', p.merchant_name, p.amount)}
-                            style={{ background: '#059669', color: '#FFF', border: 'none', padding: '0.45rem 1.25rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer', boxShadow: '0 2px 6px rgba(5,150,105,0.3)' }}
-                          >
-                            ✓ Approve & Disburse Payout
-                          </button>
+                  {/* 4. TRANSACTION LEDGER / BATCH CARDS */}
+                  {payoutStatusFilter === 'SUBMITTED_TO_BANK' ? (
+                    submittedBatches.length === 0 ? (
+                      <div style={{
+                        padding: '2.5rem 1.25rem',
+                        textAlign: 'center',
+                        background: '#FFFFFF',
+                        borderRadius: '16px',
+                        border: '1px solid #E2E8F0',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '0.625rem'
+                      }}>
+                        <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563EB' }}>
+                          <Clock style={{ width: '20px', height: '20px' }} />
                         </div>
+                        <div>
+                          <strong style={{ fontSize: '0.9375rem', color: '#0F172A', display: 'block' }}>
+                            No batches currently in Submitted tab
+                          </strong>
+                          <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                            All previous batches have been completed and moved to the Completed tab!
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setPayoutStatusFilter('PENDING')}
+                          style={{
+                            marginTop: '0.35rem',
+                            padding: '0.4rem 1rem',
+                            borderRadius: '9999px',
+                            background: '#0F52BA',
+                            color: '#FFFFFF',
+                            border: 'none',
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Go to Pending Tab
+                        </button>
                       </div>
-                    ))}
-                  </div>
-                )}
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                        {submittedBatches.map((batch, bIdx) => {
+                          const isBatchExpanded = expandedBatchIds[batch.batchId] !== false;
+                          const toggleBatch = () => {
+                            setExpandedBatchIds(prev => ({
+                              ...prev,
+                              [batch.batchId]: !isBatchExpanded
+                            }));
+                          };
 
-              </div>
-            )}
+                          return (
+                            <div 
+                              key={batch.batchId || bIdx}
+                              style={{
+                                background: '#FFFFFF',
+                                borderRadius: '16px',
+                                border: '1.5px solid #CBD5E1',
+                                boxShadow: '0 2px 6px rgba(15,23,42,0.04)',
+                                overflow: 'hidden'
+                              }}
+                            >
+                              {/* BATCH CARD HEADER */}
+                              <div 
+                                style={{
+                                  background: '#F8FAFC',
+                                  borderBottom: isBatchExpanded ? '1px solid #E2E8F0' : 'none',
+                                  padding: '0.85rem 1rem',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  gap: '0.75rem',
+                                  flexWrap: 'wrap'
+                                }}
+                              >
+                                {/* Left: Batch Title & Metadata */}
+                                <div 
+                                  onClick={toggleBatch}
+                                  style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}
+                                >
+                                  <div style={{
+                                    width: '36px',
+                                    height: '36px',
+                                    borderRadius: '10px',
+                                    background: '#EFF6FF',
+                                    border: '1px solid #BFDBFE',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: '#1D4ED8',
+                                    flexShrink: 0
+                                  }}>
+                                    <FileText style={{ width: '18px', height: '18px' }} />
+                                  </div>
+                                  <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                      <strong style={{ fontSize: '0.9375rem', color: '#0F172A' }}>
+                                        {batch.batchName}
+                                      </strong>
+                                      <span style={{
+                                        background: '#DBEAFE',
+                                        color: '#1E40AF',
+                                        fontSize: '0.6875rem',
+                                        fontWeight: 700,
+                                        padding: '2px 7px',
+                                        borderRadius: '9999px'
+                                      }}>
+                                        📤 In Bank Processing
+                                      </span>
+                                    </div>
+                                    <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <span>📅 {batch.dayName ? `${batch.dayName}, ` : ''}{formatPayoutDateTime(batch.submittedAt)}</span>
+                                      <span>•</span>
+                                      <strong>{batch.items.length} Withdrawals</strong>
+                                      <span>•</span>
+                                      <strong style={{ color: '#0F172A' }}>₹{batch.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Right: Actions (Re-download & Mark All Complete) */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  {/* Re-download Sheet Button */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleRedownloadSingleBatch(batch);
+                                    }}
+                                    title="Re-download this batch bank sheet CSV"
+                                    style={{
+                                      background: '#FFFFFF',
+                                      color: '#0F52BA',
+                                      border: '1px solid #BFDBFE',
+                                      padding: '6px 11px',
+                                      borderRadius: '8px',
+                                      fontSize: '0.72rem',
+                                      fontWeight: 700,
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '5px',
+                                      boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+                                    }}
+                                  >
+                                    <Download style={{ width: '13px', height: '13px' }} />
+                                    <span>Re-Download Sheet</span>
+                                  </button>
+
+                                  {/* Mark All Complete Button */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleCompleteEntireBatch(batch);
+                                    }}
+                                    title="Mark all payouts in this batch as Complete and Disbursed"
+                                    style={{
+                                      background: '#059669',
+                                      color: '#FFFFFF',
+                                      border: 'none',
+                                      padding: '6px 12px',
+                                      borderRadius: '8px',
+                                      fontSize: '0.72rem',
+                                      fontWeight: 700,
+                                      cursor: 'pointer',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '5px',
+                                      boxShadow: '0 1px 3px rgba(5,150,105,0.25)'
+                                    }}
+                                  >
+                                    <CheckCircle2 style={{ width: '13px', height: '13px' }} />
+                                    <span>✓ Mark All Complete</span>
+                                  </button>
+
+                                  {/* Chevron Toggle */}
+                                  <button
+                                    type="button"
+                                    onClick={toggleBatch}
+                                    style={{
+                                      background: 'none',
+                                      border: 'none',
+                                      padding: '4px',
+                                      cursor: 'pointer',
+                                      color: '#64748B'
+                                    }}
+                                  >
+                                    <ChevronDown style={{
+                                      width: '16px',
+                                      height: '16px',
+                                      transform: isBatchExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                                      transition: 'transform 0.15s ease'
+                                    }} />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* BATCH ITEMS LIST (ONE-BY-ONE VERIFICATION) */}
+                              {isBatchExpanded && (
+                                <div>
+                                  {batch.items.map((item, idx) => {
+                                    const isItemExpanded = expandedPayoutId === `batch_${batch.batchId}_item_${item.id}`;
+                                    const details = parsePayoutDetails(item);
+                                    const maskedAcc = item.account_number 
+                                      ? `••••${item.account_number.slice(-4)}`
+                                      : '••••';
+
+                                    return (
+                                      <div key={item.id} style={{ borderBottom: idx < batch.items.length - 1 ? '1px solid #F1F5F9' : 'none' }}>
+                                        {/* ITEM ROW */}
+                                        <div
+                                          onClick={() => setExpandedPayoutId(prev => prev === `batch_${batch.batchId}_item_${item.id}` ? null : `batch_${batch.batchId}_item_${item.id}`)}
+                                          style={{
+                                            padding: '0.85rem 1rem',
+                                            cursor: 'pointer',
+                                            background: isItemExpanded ? '#F8FAFC' : '#FFFFFF',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            gap: '0.75rem',
+                                            flexWrap: 'wrap'
+                                          }}
+                                        >
+                                          {/* Left: Merchant & Bank Details */}
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <div style={{
+                                              width: '30px',
+                                              height: '30px',
+                                              borderRadius: '8px',
+                                              background: '#F1F5F9',
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'center',
+                                              color: '#64748B',
+                                              fontSize: '0.75rem',
+                                              fontWeight: 700
+                                            }}>
+                                              {idx + 1}
+                                            </div>
+                                            <div>
+                                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                                <strong style={{ fontSize: '0.875rem', color: '#0F172A' }}>
+                                                  {item.merchant_name || details.recipient || 'Merchant'}
+                                                </strong>
+                                                <span style={{ fontSize: '0.6875rem', color: '#64748B', fontFamily: 'monospace' }}>
+                                                  ({item.merchant_id})
+                                                </span>
+                                                <span style={{
+                                                  display: 'inline-flex',
+                                                  alignItems: 'center',
+                                                  gap: '3px',
+                                                  fontSize: '0.65rem',
+                                                  fontWeight: 800,
+                                                  padding: '1px 6px',
+                                                  borderRadius: '4px',
+                                                  background: '#EFF6FF',
+                                                  color: '#1D4ED8',
+                                                  border: '1px solid #BFDBFE',
+                                                  letterSpacing: '0.02em',
+                                                  textTransform: 'uppercase'
+                                                }}>
+                                                  🏦 Withdrawal
+                                                </span>
+                                              </div>
+                                              <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '1px' }}>
+                                                <span>{item.bank_name || 'Bank'}</span>
+                                                <span style={{ margin: '0 4px' }}>•</span>
+                                                <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{maskedAcc}</span>
+                                                <span style={{ margin: '0 4px' }}>•</span>
+                                                <span style={{ fontFamily: 'monospace' }}>IFSC: {item.ifsc_code || 'N/A'}</span>
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          {/* Right: Amount & 3 Direct Buttons */}
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <strong style={{ fontSize: '1rem', color: '#0F172A', fontVariantNumeric: 'tabular-nums' }}>
+                                              ₹{parseFloat(item.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                            </strong>
+
+                                            {/* 3 ONE-BY-ONE ACTIONS */}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }} onClick={e => e.stopPropagation()}>
+                                              {/* 1. Mark Complete */}
+                                              <button
+                                                type="button"
+                                                onClick={() => handlePayoutAction(item.id, 'APPROVE', item.merchant_name, item.amount, 'CMS-IMPS', 'Bank Payout Disbursed')}
+                                                title="Mark as Complete & Settled (Zero UTR popup)"
+                                                style={{
+                                                  background: '#059669',
+                                                  color: '#FFFFFF',
+                                                  border: 'none',
+                                                  padding: '5px 9px',
+                                                  borderRadius: '6px',
+                                                  fontSize: '0.72rem',
+                                                  fontWeight: 700,
+                                                  cursor: 'pointer',
+                                                  display: 'flex',
+                                                  alignItems: 'center',
+                                                  gap: '3px'
+                                                }}
+                                              >
+                                                ✓ Complete
+                                              </button>
+
+                                              {/* 2. Keep in Pending / Move to Pending */}
+                                              <button
+                                                type="button"
+                                                onClick={() => handleRevertSingleToPending(item.id)}
+                                                title="Bank issue? Move this single withdrawal back to Pending tab"
+                                                style={{
+                                                  background: '#FFFBEB',
+                                                  color: '#B45309',
+                                                  border: '1px solid #FDE68A',
+                                                  padding: '5px 8px',
+                                                  borderRadius: '6px',
+                                                  fontSize: '0.72rem',
+                                                  fontWeight: 700,
+                                                  cursor: 'pointer'
+                                                }}
+                                              >
+                                                ⏳ Move to Pending
+                                              </button>
+
+                                              {/* 3. Reject */}
+                                              <button
+                                                type="button"
+                                                onClick={() => handlePayoutAction(item.id, 'REJECT', item.merchant_name, item.amount, '', 'Bank Transfer Failed')}
+                                                title="Reject payout and refund wallet balance"
+                                                style={{
+                                                  background: '#FEF2F2',
+                                                  color: '#DC2626',
+                                                  border: '1px solid #FECACA',
+                                                  padding: '5px 8px',
+                                                  borderRadius: '6px',
+                                                  fontSize: '0.72rem',
+                                                  fontWeight: 700,
+                                                  cursor: 'pointer'
+                                                }}
+                                              >
+                                                ✕ Reject
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )
+                  ) : activeList.length === 0 ? (
+                    <div style={{
+                      padding: '2.5rem 1.25rem',
+                      textAlign: 'center',
+                      background: '#FFFFFF',
+                      borderRadius: '16px',
+                      border: '1px solid #E2E8F0',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '0.625rem'
+                    }}>
+                      <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748B' }}>
+                        <Search style={{ width: '18px', height: '18px' }} />
+                      </div>
+                      <div>
+                        <strong style={{ fontSize: '0.9375rem', color: '#0F172A', display: 'block' }}>
+                          No transactions found
+                        </strong>
+                        <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                          No records match the current filter selection under {selectedChannel}.
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPayoutSearchQuery('');
+                          setPayoutCategoryFilter('ALL');
+                          setPayoutSettlementFilter('ALL');
+                          setPayoutStatusFilter('ALL');
+                          setPayoutDateFilter('ALL');
+                          setPayoutCustomDate('');
+                          setPayoutPage(1);
+                        }}
+                        style={{
+                          marginTop: '0.35rem',
+                          padding: '0.4rem 1rem',
+                          borderRadius: '9999px',
+                          background: '#0F172A',
+                          color: '#FFFFFF',
+                          border: 'none',
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Reset All Filters
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{
+                      background: '#FFFFFF',
+                      borderRadius: '16px',
+                      border: '1px solid #E2E8F0',
+                      boxShadow: '0 1px 3px rgba(15,23,42,0.03)',
+                      overflow: 'hidden'
+                    }}>
+                      {currentItems.map((item, idx) => {
+                        const isSwipe = item._entityType === 'SWIPE';
+                        const isPending = item._subStatus === 'PENDING';
+                        const isApproved = item._subStatus === 'APPROVED';
+                        const cardId = isSwipe ? `swipe_${item.id}` : `payout_${item.id}`;
+                        const isExpanded = expandedPayoutId === cardId;
+                        const displayDate = formatPayoutDateTime(item.created_at || item.verified_at);
+
+                        let merchantTitle = '';
+                        let amountStr = '';
+                        let rrnOrUtr = '';
+                        let channelTag = '';
+                        let details = {};
+
+                        if (isSwipe) {
+                          amountStr = `+₹${parseFloat(item.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+                          merchantTitle = item.merchant_name || 'Merchant';
+                          rrnOrUtr = item.rrn_number || item.ref_number || item.id || 'N/A';
+                          channelTag = item.pos_vendor 
+                            ? (item.pos_vendor.toLowerCase().includes('rp') ? 'Payswiff (RP Tech)' : 'Payswiff (Ronav Tech)')
+                            : (item.pos_provider || 'POS');
+                        } else {
+                          // Withdrawal
+                          details = parsePayoutDetails(item);
+                          amountStr = `-₹${parseFloat(item.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+                          merchantTitle = item.merchant_name || details.recipient || 'Balaji Super Bazaar';
+                          rrnOrUtr = details.utr && details.utr !== 'IMPS Cleared' ? details.utr : (item.bank_rrn || item.id);
+                          channelTag = item.bank_name 
+                            ? `${item.bank_name}${item.account_number ? ` ••${item.account_number.slice(-4)}` : ''}` 
+                            : 'Bank Transfer';
+                        }
+
+                        const speedLabel = isItemInstant(item) ? 'Instant' : 'T+1';
+
+                        return (
+                          <div key={cardId}>
+                            {/* COLLAPSED CARD FACE: CLEAN 3-ROW LAYOUT (ZERO OVERLAP RISK) */}
+                            <div
+                              onClick={() => setExpandedPayoutId(prev => prev === cardId ? null : cardId)}
+                              style={{
+                                padding: '0.9rem 1rem',
+                                cursor: 'pointer',
+                                background: isExpanded ? '#F8FAFC' : '#FFFFFF',
+                                transition: 'background 0.12s ease'
+                              }}
+                            >
+                              {/* ROW 1: Merchant Name & Type Badge (Left) | Tabular Amount (Right) */}
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '0.75rem'
+                              }}>
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  flexWrap: 'wrap',
+                                  gap: '6px 8px',
+                                  fontSize: '0.9375rem',
+                                  fontWeight: 700,
+                                  color: '#0F172A',
+                                  letterSpacing: '-0.01em',
+                                  lineHeight: 1.3
+                                }}>
+                                  {!isSwipe && isPending && (
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedPendingIds.has(item.id)}
+                                      onChange={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedPendingIds(prev => {
+                                          const next = new Set(prev);
+                                          if (next.has(item.id)) next.delete(item.id);
+                                          else next.add(item.id);
+                                          return next;
+                                        });
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
+                                      style={{
+                                        width: '17px',
+                                        height: '17px',
+                                        accentColor: '#0F52BA',
+                                        cursor: 'pointer'
+                                      }}
+                                    />
+                                  )}
+                                  <span>{merchantTitle}</span>
+                                  <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    fontSize: '0.6875rem',
+                                    fontWeight: 800,
+                                    padding: '2px 7px',
+                                    borderRadius: '5px',
+                                    background: isSwipe ? '#ECFDF5' : '#EFF6FF',
+                                    color: isSwipe ? '#047857' : '#1D4ED8',
+                                    border: isSwipe ? '1px solid #A7F3D0' : '1px solid #BFDBFE',
+                                    letterSpacing: '0.02em',
+                                    textTransform: 'uppercase',
+                                    whiteSpace: 'nowrap',
+                                    lineHeight: 1.2
+                                  }}>
+                                    {isSwipe ? '💳 Swipe' : '🏦 Withdrawal'}
+                                  </span>
+                                </div>
+
+                                <div style={{
+                                  fontSize: '1rem',
+                                  fontWeight: 800,
+                                  color: isSwipe ? '#059669' : '#0F172A',
+                                  fontVariantNumeric: 'tabular-nums',
+                                  letterSpacing: '-0.02em',
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  {amountStr}
+                                </div>
+                              </div>
+
+                              {/* ROW 2: Clear Date on Left | Status Pill & Chevron on Right (No colliding text) */}
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                gap: '0.5rem',
+                                marginTop: '0.35rem'
+                              }}>
+                                <div style={{
+                                  fontSize: '0.75rem',
+                                  color: '#64748B',
+                                  fontWeight: 500,
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  {displayDate}
+                                </div>
+
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  flexShrink: 0,
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  {isPending ? (
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#D97706' }}>
+                                      ● Pending · {speedLabel}
+                                    </span>
+                                  ) : item._subStatus === 'SUBMITTED_TO_BANK' ? (
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#2563EB', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                      📤 Submitted to Bank · {speedLabel}
+                                    </span>
+                                  ) : isApproved ? (
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#059669' }}>
+                                      ✓ Settled · {speedLabel}
+                                    </span>
+                                  ) : (
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#DC2626' }}>
+                                      ✕ Invalid
+                                    </span>
+                                  )}
+                                  <ChevronDown style={{
+                                    width: '12px',
+                                    height: '12px',
+                                    color: '#94A3B8',
+                                    transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                                    transition: 'transform 0.15s ease'
+                                  }} />
+                                </div>
+                              </div>
+
+                              {/* ROW 3: Dedicated UTR identity chip with 1-click copy (Uncramped, full width breathing room) */}
+                              <div style={{
+                                marginTop: '0.45rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem'
+                              }}>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    copyToClipboard(rrnOrUtr, `utr_${item.id}`);
+                                  }}
+                                  title="Click to copy UTR number"
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    fontFamily: 'monospace',
+                                    fontWeight: 700,
+                                    color: '#0F52BA',
+                                    background: '#EFF6FF',
+                                    padding: '3px 8px',
+                                    borderRadius: '5px',
+                                    border: '1px solid #BFDBFE',
+                                    fontSize: '0.75rem',
+                                    cursor: 'pointer',
+                                    letterSpacing: '0.02em',
+                                    whiteSpace: 'nowrap'
+                                  }}
+                                >
+                                  <span>UTR: {rrnOrUtr}</span>
+                                  {copiedId[`utr_${item.id}`] ? (
+                                    <span style={{ fontSize: '0.65625rem', color: '#059669', fontWeight: 800 }}>✓ Copied</span>
+                                  ) : (
+                                    <Copy style={{ width: '11px', height: '11px', color: '#3B82F6', flexShrink: 0 }} />
+                                  )}
+                                </button>
+
+                                {selectedChannel === 'qr' && (
+                                  <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    fontSize: '0.72rem',
+                                    fontWeight: 700,
+                                    color: '#7C3AED',
+                                    background: '#F5F3FF',
+                                    border: '1px solid #DDD6FE',
+                                    padding: '3px 8px',
+                                    borderRadius: '5px'
+                                  }}>
+                                    <span style={{ color: '#6D28D9' }}>Payee:</span>
+                                    <strong>{companyQrPayeeName || 'RONAV TECHNOLOGIES'}</strong>
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* EXPANDED DETAIL TRAY: APPLE HIG INSET-GROUPED LIST (ZERO CRAMMED BOXES) */}
+                            {isExpanded && (
+                              <div
+                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                  padding: '0.85rem 1rem',
+                                  background: '#F8FAFC',
+                                  borderTop: '1px solid #E2E8F0',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '0.625rem'
+                                }}
+                              >
+                                {isSwipe ? (
+                                  /* SWIPE (RECORD SALE) INSET DETAILS */
+                                  <div style={{
+                                    background: '#FFFFFF',
+                                    borderRadius: '12px',
+                                    border: '1px solid #E2E8F0',
+                                    overflow: 'hidden',
+                                    boxShadow: '0 1px 2px rgba(15,23,42,0.03)'
+                                  }}>
+                                    <div style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '0.65rem 0.85rem',
+                                      borderBottom: '1px solid #F1F5F9',
+                                      fontSize: '0.78125rem'
+                                    }}>
+                                      <span style={{ color: '#64748B', fontWeight: 600 }}>Merchant</span>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <strong style={{ color: '#0F172A', fontSize: '0.8125rem' }}>
+                                          {item.merchant_name}
+                                        </strong>
+                                        <span style={{ fontFamily: 'monospace', color: '#64748B', fontSize: '0.71875rem' }}>
+                                          ({item.merchant_id})
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    <div style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '0.65rem 0.85rem',
+                                      borderBottom: '1px solid #F1F5F9',
+                                      fontSize: '0.78125rem'
+                                    }}>
+                                      <span style={{ color: '#64748B', fontWeight: 600 }}>Customer</span>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <strong style={{ color: '#0F172A', fontSize: '0.8125rem' }}>
+                                          {item.customer_name || 'Walk-in Customer'}
+                                        </strong>
+                                        {item.customer_mobile && (
+                                          <>
+                                            <span style={{ color: '#CBD5E1' }}>•</span>
+                                            <a href={`tel:${item.customer_mobile}`} style={{ color: '#0F52BA', textDecoration: 'none', fontWeight: 700 }}>
+                                              {item.customer_mobile}
+                                            </a>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    <div style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '0.65rem 0.85rem',
+                                      borderBottom: '1px solid #F1F5F9',
+                                      fontSize: '0.78125rem'
+                                    }}>
+                                      <span style={{ color: '#64748B', fontWeight: 600 }}>Slip UTR</span>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0F172A', fontSize: '0.84375rem' }}>
+                                          {rrnOrUtr}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => copyToClipboard(rrnOrUtr, `slip_${item.id}`)}
+                                          style={{
+                                            background: '#EFF6FF',
+                                            border: '1px solid #BFDBFE',
+                                            padding: '2px 7px',
+                                            borderRadius: '4px',
+                                            fontSize: '0.6875rem',
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            color: '#0F52BA'
+                                          }}
+                                        >
+                                          {copiedId[`slip_${item.id}`] ? '✓' : 'Copy'}
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    <div style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '0.65rem 0.85rem',
+                                      borderBottom: '1px solid #F1F5F9',
+                                      fontSize: '0.78125rem'
+                                    }}>
+                                      <span style={{ color: '#64748B', fontWeight: 600 }}>POS Channel</span>
+                                      <span style={{ color: '#0F172A', fontWeight: 700 }}>{channelTag}</span>
+                                    </div>
+
+                                    <div style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '0.65rem 0.85rem',
+                                      borderBottom: '1px solid #F1F5F9',
+                                      fontSize: '0.78125rem'
+                                    }}>
+                                      <span style={{ color: '#64748B', fontWeight: 600 }}>Settlement Mode</span>
+                                      <span style={{ color: speedLabel === 'Instant' ? '#0F52BA' : '#475569', fontWeight: 700 }}>
+                                        {speedLabel === 'Instant' ? '⚡ Instant Clearance' : '📅 T+1 Standard Batch'}
+                                      </span>
+                                    </div>
+
+                                    <div style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '0.65rem 0.85rem',
+                                      fontSize: '0.78125rem'
+                                    }}>
+                                      <span style={{ color: '#64748B', fontWeight: 600 }}>Submitted At</span>
+                                      <span style={{ color: '#0F172A', fontWeight: 600 }}>{displayDate}</span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  /* WITHDRAWAL (BANK PAYOUT) INSET DETAILS */
+                                  <div style={{
+                                    background: '#FFFFFF',
+                                    borderRadius: '12px',
+                                    border: '1px solid #E2E8F0',
+                                    overflow: 'hidden',
+                                    boxShadow: '0 1px 2px rgba(15,23,42,0.03)'
+                                  }}>
+                                    <div style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '0.65rem 0.85rem',
+                                      borderBottom: '1px solid #F1F5F9',
+                                      fontSize: '0.78125rem'
+                                    }}>
+                                      <span style={{ color: '#64748B', fontWeight: 600 }}>Merchant</span>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <strong style={{ color: '#0F172A', fontSize: '0.8125rem' }}>
+                                          {item.merchant_name || details.recipient}
+                                        </strong>
+                                        <span style={{ fontFamily: 'monospace', color: '#64748B', fontSize: '0.71875rem' }}>
+                                          ({item.merchant_id})
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    <div style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '0.65rem 0.85rem',
+                                      borderBottom: '1px solid #F1F5F9',
+                                      fontSize: '0.78125rem'
+                                    }}>
+                                      <span style={{ color: '#64748B', fontWeight: 600 }}>Customer / Beneficiary</span>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <strong style={{ color: '#0F172A', fontSize: '0.8125rem' }}>
+                                          {item.customer_name || item.holder_name || details.recipient || item.merchant_name}
+                                        </strong>
+                                        {(item.customer_mobile || item.merchant_mobile) && (
+                                          <>
+                                            <span style={{ color: '#CBD5E1' }}>•</span>
+                                            <a href={`tel:${item.customer_mobile || item.merchant_mobile}`} style={{ color: '#0F52BA', textDecoration: 'none', fontWeight: 700 }}>
+                                              {item.customer_mobile || item.merchant_mobile}
+                                            </a>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    <div style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '0.65rem 0.85rem',
+                                      borderBottom: '1px solid #F1F5F9',
+                                      fontSize: '0.78125rem'
+                                    }}>
+                                      <span style={{ color: '#64748B', fontWeight: 600 }}>Beneficiary Bank</span>
+                                      <strong style={{ color: '#0F172A', fontSize: '0.8125rem' }}>
+                                        {item.bank_name || details.bank || 'Bank'}
+                                      </strong>
+                                    </div>
+
+                                    <div style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '0.65rem 0.85rem',
+                                      borderBottom: '1px solid #F1F5F9',
+                                      fontSize: '0.78125rem'
+                                    }}>
+                                      <span style={{ color: '#64748B', fontWeight: 600 }}>Account Number</span>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0F172A', fontSize: '0.84375rem' }}>
+                                          {item.account_number || details.acc || '—'}
+                                        </span>
+                                        {(item.account_number || details.acc) && (
+                                          <button
+                                            type="button"
+                                            onClick={() => copyToClipboard(item.account_number || details.acc, `acc_${item.id}`)}
+                                            style={{
+                                              background: '#EFF6FF',
+                                              border: '1px solid #BFDBFE',
+                                              padding: '2px 7px',
+                                              borderRadius: '4px',
+                                              fontSize: '0.6875rem',
+                                              fontWeight: 700,
+                                              cursor: 'pointer',
+                                              color: '#0F52BA'
+                                            }}
+                                          >
+                                            {copiedId[`acc_${item.id}`] ? '✓' : 'Copy'}
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    <div style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '0.65rem 0.85rem',
+                                      borderBottom: '1px solid #F1F5F9',
+                                      fontSize: '0.78125rem'
+                                    }}>
+                                      <span style={{ color: '#64748B', fontWeight: 600 }}>Bank IFSC Code</span>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <strong style={{ fontFamily: 'monospace', color: '#0F172A', fontSize: '0.84375rem' }}>
+                                          {item.ifsc_code || details.ifsc || 'SBIN0001234'}
+                                        </strong>
+                                        <button
+                                          type="button"
+                                          onClick={() => copyToClipboard(item.ifsc_code || details.ifsc || 'SBIN0001234', `ifsc_${item.id}`)}
+                                          style={{
+                                            background: '#EFF6FF',
+                                            border: '1px solid #BFDBFE',
+                                            padding: '2px 7px',
+                                            borderRadius: '4px',
+                                            fontSize: '0.6875rem',
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            color: '#0F52BA'
+                                          }}
+                                        >
+                                          {copiedId[`ifsc_${item.id}`] ? '✓' : 'Copy'}
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    <div style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '0.65rem 0.85rem',
+                                      borderBottom: '1px solid #F1F5F9',
+                                      fontSize: '0.78125rem'
+                                    }}>
+                                      <span style={{ color: '#64748B', fontWeight: 600 }}>Disbursal Mode</span>
+                                      <span style={{ color: speedLabel === 'Instant' ? '#0F52BA' : '#475569', fontWeight: 700 }}>
+                                        {speedLabel === 'Instant' ? '⚡ Instant IMPS' : '📅 T+1 NEFT Batch'}
+                                      </span>
+                                    </div>
+
+                                    <div style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '0.65rem 0.85rem',
+                                      fontSize: '0.78125rem'
+                                    }}>
+                                      <span style={{ color: '#64748B', fontWeight: 600 }}>Requested At</span>
+                                      <span style={{ color: '#0F172A', fontWeight: 600 }}>{displayDate}</span>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Financial Total Row */}
+                                <div style={{
+                                  background: '#FFFFFF',
+                                  borderRadius: '10px',
+                                  border: '1px solid #E2E8F0',
+                                  padding: '0.65rem 0.85rem',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  fontSize: '0.78125rem'
+                                }}>
+                                  <span style={{ color: '#64748B', fontWeight: 600 }}>
+                                    {isSwipe ? 'Total Swipe Amount' : 'Disbursal Amount'}:
+                                  </span>
+                                  <strong style={{ fontSize: '1rem', color: '#0F172A', fontVariantNumeric: 'tabular-nums' }}>
+                                    ₹{parseFloat(item.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                  </strong>
+                                </div>
+
+                                {/* ADMIN ACTIONS FOR PENDING / SUBMITTED ITEMS */}
+                                {isSwipe ? (
+                                  (isPending || item._subStatus === 'SUBMITTED_TO_BANK') && (
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.4rem' }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          handleTransactionAction(item.id, 'APPROVE', item.merchant_name, item.amount, 'Slip Verified & Credited');
+                                          setExpandedPayoutId(null);
+                                        }}
+                                        style={{
+                                          background: '#059669',
+                                          color: '#FFFFFF',
+                                          border: 'none',
+                                          padding: '0.55rem',
+                                          borderRadius: '8px',
+                                          fontSize: '0.75rem',
+                                          fontWeight: 700,
+                                          cursor: 'pointer',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          gap: '4px'
+                                        }}
+                                      >
+                                        ✓ Verify Slip
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          triggerToast('Kept in pending queue', 'info');
+                                          setExpandedPayoutId(null);
+                                        }}
+                                        style={{
+                                          background: '#FFFBEB',
+                                          color: '#D97706',
+                                          border: '1px solid #FCD34D',
+                                          padding: '0.55rem',
+                                          borderRadius: '8px',
+                                          fontSize: '0.75rem',
+                                          fontWeight: 700,
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        ⏳ Keep Pending
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          handleTransactionAction(item.id, 'REJECT', item.merchant_name, item.amount, 'Verification Failed');
+                                          setExpandedPayoutId(null);
+                                        }}
+                                        style={{
+                                          background: '#FEF2F2',
+                                          color: '#DC2626',
+                                          border: '1px solid #FECACA',
+                                          padding: '0.55rem',
+                                          borderRadius: '8px',
+                                          fontSize: '0.75rem',
+                                          fontWeight: 700,
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        ✕ Reject
+                                      </button>
+                                    </div>
+                                  )
+                                ) : (
+                                  /* WITHDRAWAL (BANK PAYOUT) ACTIONS */
+                                  isPending ? (
+                                    /* IN PENDING: STRICTLY NO APPROVE BUTTON! ONLY QUEUE INFO & REJECT */
+                                    <div style={{
+                                      background: '#EFF6FF',
+                                      border: '1px solid #BFDBFE',
+                                      borderRadius: '8px',
+                                      padding: '0.6rem 0.85rem',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      gap: '0.5rem',
+                                      flexWrap: 'wrap'
+                                    }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <Clock style={{ width: '15px', height: '15px', color: '#1D4ED8', flexShrink: 0 }} />
+                                        <span style={{ fontSize: '0.75rem', color: '#1E40AF', fontWeight: 600 }}>
+                                          Queued for Bank Batch · Select checkbox &amp; download sheet above to process
+                                        </span>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          handlePayoutAction(item.id, 'REJECT', item.merchant_name, item.amount, '', 'Payout Request Declined by Admin');
+                                          setExpandedPayoutId(null);
+                                        }}
+                                        style={{
+                                          background: '#FEF2F2',
+                                          color: '#DC2626',
+                                          border: '1px solid #FECACA',
+                                          padding: '0.45rem 0.85rem',
+                                          borderRadius: '6px',
+                                          fontSize: '0.72rem',
+                                          fontWeight: 700,
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        ✕ Reject Request
+                                      </button>
+                                    </div>
+                                  ) : item._subStatus === 'SUBMITTED_TO_BANK' ? (
+                                    /* IN SUBMITTED: ONE-BY-ONE CHECK WITH ZERO UTR POPUPS */
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.4rem' }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          handlePayoutAction(item.id, 'APPROVE', item.merchant_name, item.amount, 'CMS-IMPS', 'Bank Payout Disbursed');
+                                          setExpandedPayoutId(null);
+                                        }}
+                                        style={{
+                                          background: '#059669',
+                                          color: '#FFFFFF',
+                                          border: 'none',
+                                          padding: '0.55rem',
+                                          borderRadius: '8px',
+                                          fontSize: '0.75rem',
+                                          fontWeight: 700,
+                                          cursor: 'pointer',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          gap: '4px'
+                                        }}
+                                      >
+                                        ✓ Mark Complete
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          handleRevertSingleToPending(item.id);
+                                          setExpandedPayoutId(null);
+                                        }}
+                                        title="Bank issue? Move this single withdrawal back to Pending"
+                                        style={{
+                                          background: '#FFFBEB',
+                                          color: '#B45309',
+                                          border: '1px solid #FDE68A',
+                                          padding: '0.55rem',
+                                          borderRadius: '8px',
+                                          fontSize: '0.75rem',
+                                          fontWeight: 700,
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        ⏳ Move to Pending
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          handlePayoutAction(item.id, 'REJECT', item.merchant_name, item.amount, '', 'Bank Transfer Failed');
+                                          setExpandedPayoutId(null);
+                                        }}
+                                        style={{
+                                          background: '#FEF2F2',
+                                          color: '#DC2626',
+                                          border: '1px solid #FECACA',
+                                          padding: '0.55rem',
+                                          borderRadius: '8px',
+                                          fontSize: '0.75rem',
+                                          fontWeight: 700,
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        ✕ Reject
+                                      </button>
+                                    </div>
+                                  ) : null
+                                )}
+                              </div>
+                            )}
+
+                            {/* Hairline Divider */}
+                            {idx < currentItems.length - 1 && (
+                              <div style={{ height: '1px', background: '#F1F5F9', margin: '0 1rem' }} />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {renderPayoutPagination(totalPages, activeList.length)}
+                </div>
+              );
+            })()}
 
             {/* TAB VIEW 6: LOAN APPLICATIONS QUEUE */}
             {activeTab === 'loans' && (
@@ -2865,7 +5941,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
       </main>
 
-      {/* 5. Mobile Sticky Bottom Navigation Bar (4-Tier Network Hierarchy + Overview + Payouts) */}
+      {/* 5. Mobile Sticky Bottom Navigation Bar (5-Tier Network Hierarchy + Overview + Payouts) */}
       <nav style={{
         position: 'fixed',
         bottom: 0,
@@ -2874,7 +5950,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         backgroundColor: '#0A192F',
         borderTop: '1px solid #1E293B',
         display: 'grid',
-        gridTemplateColumns: 'repeat(6, 1fr)',
+        gridTemplateColumns: 'repeat(7, 1fr)',
         padding: '0.4rem 0',
         zIndex: 90
       }}>
@@ -2884,7 +5960,16 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           style={{ background: 'none', border: 'none', color: activeTab === 'overview' ? '#38BDF8' : '#94A3B8', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
         >
           <Activity style={{ width: '16px', height: '16px' }} />
-          <span style={{ fontSize: '0.48rem', fontWeight: 800 }}>Overview</span>
+          <span style={{ fontSize: '0.45rem', fontWeight: 800 }}>Overview</span>
+        </button>
+
+        {/* 1B. Tier 0: Master Dist */}
+        <button 
+          onClick={() => handleTabSwitch('master_distributors')} 
+          style={{ background: 'none', border: 'none', color: activeTab === 'master_distributors' ? '#C084FC' : '#94A3B8', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
+        >
+          <Crown style={{ width: '16px', height: '16px' }} />
+          <span style={{ fontSize: '0.45rem', fontWeight: 800 }}>Master</span>
         </button>
 
         {/* 2. Tier 1: Super Dist */}
@@ -2893,7 +5978,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           style={{ background: 'none', border: 'none', color: activeTab === 'super_distributors' ? '#38BDF8' : '#94A3B8', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', cursor: 'pointer' }}
         >
           <Zap style={{ width: '16px', height: '16px' }} />
-          <span style={{ fontSize: '0.48rem', fontWeight: 800 }}>Super Dist</span>
+          <span style={{ fontSize: '0.45rem', fontWeight: 800 }}>Super Dist</span>
         </button>
 
         {/* 3. Tier 2: District Dist */}
@@ -2997,12 +6082,13 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '4px' }}>
                   Select Hierarchy Role
                 </label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.375rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.375rem' }}>
                   {[
-                    { role: 'SUPER_DISTRIBUTOR', label: '⚡ Super Dist', color: '#7C3AED', bg: '#F3E8FF' },
+                    { role: 'MASTER', label: '👑 Master Dist', color: '#7C3AED', bg: '#FAF5FF' },
+                    { role: 'SUPER_DISTRIBUTOR', label: '⚡ Super Dist', color: '#2563EB', bg: '#EFF6FF' },
                     { role: 'DISTRICT_DISTRIBUTOR', label: '🏛️ District Dist', color: '#D97706', bg: '#FEF3C7' },
-                    { role: 'DISTRIBUTOR', label: '📦 Distributor', color: '#0F52BA', bg: '#EFF6FF' },
-                    { role: 'MERCHANT', label: '🏪 Retailer / Shop', color: '#059669', bg: '#ECFDF5' }
+                    { role: 'DISTRIBUTOR', label: '📦 Distributor', color: '#059669', bg: '#ECFDF5' },
+                    { role: 'MERCHANT', label: '🏪 Retailer / Shop', color: '#0F172A', bg: '#F1F5F9' }
                   ].map(item => (
                     <button
                       key={item.role}
@@ -3056,195 +6142,179 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 </div>
               </div>
 
-              {/* Parent Selector for District Distributor */}
-              {onboardForm.role === 'DISTRICT_DISTRIBUTOR' && (
+              {/* Counter POS Terminal & Commission Rates (Automatically Assigned to All Partners) */}
+              <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px', padding: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                
+                {/* Hardware Provider */}
                 <div>
-                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '4px' }}>
-                    Assign Parent Super Distributor
+                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '4px' }}>
+                    POS Hardware Provider
                   </label>
-                  <select
-                    value={onboardForm.parent_id}
-                    onChange={(e) => setOnboardForm(prev => ({ ...prev, parent_id: e.target.value }))}
-                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem' }}
-                  >
-                    <option value="">-- Direct to Super Admin --</option>
-                    {superDistributorsList.map(sd => (
-                      <option key={sd.id} value={sd.id}>{sd.name} ({sd.id})</option>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                    {['Pine Labs', 'Payswiff'].map(p => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => handleProviderChange(p)}
+                        style={{
+                          padding: '0.45rem',
+                          fontSize: '0.6875rem',
+                          fontWeight: 800,
+                          borderRadius: '6px',
+                          border: onboardForm.pos_provider === p ? '2px solid #0F52BA' : '1px solid #CBD5E1',
+                          background: onboardForm.pos_provider === p ? '#EFF6FF' : '#FFFFFF',
+                          color: onboardForm.pos_provider === p ? '#0F52BA' : '#475569',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {p === 'Pine Labs' ? '🌲 Pine Labs' : '⚡ Payswiff'}
+                      </button>
                     ))}
-                  </select>
+                  </div>
                 </div>
-              )}
 
-              {/* Parent Selector for Distributor */}
-              {onboardForm.role === 'DISTRIBUTOR' && (
+                {/* Vendor Settlement Entity */}
                 <div>
-                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '4px' }}>
-                    Assign Parent District Distributor / Super Distributor
+                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '4px' }}>
+                    Settlement Account & Legal Vendor
                   </label>
-                  <select
-                    value={onboardForm.parent_id}
-                    onChange={(e) => setOnboardForm(prev => ({ ...prev, parent_id: e.target.value }))}
-                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem' }}
-                  >
-                    <option value="">-- Direct to Super Admin --</option>
-                    {districtDistributorsList.length > 0 && (
-                      <optgroup label="District Distributors (DIST Franchise)">
-                        {districtDistributorsList.map(dd => (
-                          <option key={dd.id} value={dd.id}>{dd.name} ({dd.id})</option>
-                        ))}
-                      </optgroup>
-                    )}
-                    <optgroup label="Super Distributors">
-                      {superDistributorsList.map(sd => (
-                        <option key={sd.id} value={sd.id}>{sd.name} ({sd.id})</option>
-                      ))}
-                    </optgroup>
-                  </select>
-                </div>
-              )}
-
-              {/* Parent Selector for Merchant */}
-              {onboardForm.role === 'MERCHANT' && (
-                <div>
-                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '4px' }}>
-                    Assign Parent / Sponsor
-                  </label>
-                  <select
-                    value={onboardForm.parent_id}
-                    onChange={(e) => setOnboardForm(prev => ({ ...prev, parent_id: e.target.value }))}
-                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem' }}
-                  >
-                    <option value="">-- Direct to Super Admin --</option>
-                    {distributorsList.length > 0 && (
-                      <optgroup label="Area Distributors">
-                        {distributorsList.map(d => (
-                          <option key={d.id} value={d.id}>{d.name} ({d.id}) - Under {d.parent_sd_name || 'Admin'}</option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {districtDistributorsList.length > 0 && (
-                      <optgroup label="District Distributors">
-                        {districtDistributorsList.map(dd => (
-                          <option key={dd.id} value={dd.id}>{dd.name} ({dd.id})</option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {superDistributorsList.length > 0 && (
-                      <optgroup label="Super Distributors (Direct)">
-                        {superDistributorsList.map(sd => (
-                          <option key={sd.id} value={sd.id}>{sd.name} ({sd.id})</option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </select>
-                </div>
-              )}
-
-              {/* Merchant Hardware & Legal Vendor Configuration (Client Specification) */}
-              {onboardForm.role === 'MERCHANT' && (
-                <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  
-                  {/* Hardware Provider */}
-                  <div>
-                    <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '4px' }}>
-                      POS Hardware Provider
-                    </label>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
-                      {['Pine Labs', 'Payswiff'].map(p => (
+                  {onboardForm.pos_provider === 'Pine Labs' ? (
+                    <div style={{ padding: '0.45rem', background: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 700, color: '#0F52BA' }}>
+                      Rose Navaneetham Enterprises (Pine Labs)
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.375rem' }}>
+                      {['RONAV Technologies', 'R.P. Technologies'].map(v => (
                         <button
-                          key={p}
+                          key={v}
                           type="button"
-                          onClick={() => handleProviderChange(p)}
+                          onClick={() => setOnboardForm(prev => ({ ...prev, pos_vendor: v }))}
                           style={{
-                            padding: '0.45rem',
-                            fontSize: '0.6875rem',
+                            padding: '0.4rem',
+                            fontSize: '0.625rem',
                             fontWeight: 800,
                             borderRadius: '6px',
-                            border: onboardForm.pos_provider === p ? '2px solid #0F52BA' : '1px solid #CBD5E1',
-                            background: onboardForm.pos_provider === p ? '#EFF6FF' : '#FFFFFF',
-                            color: onboardForm.pos_provider === p ? '#0F52BA' : '#475569',
+                            border: onboardForm.pos_vendor === v ? '2px solid #D97706' : '1px solid #CBD5E1',
+                            background: onboardForm.pos_vendor === v ? '#FEF3C7' : '#FFFFFF',
+                            color: onboardForm.pos_vendor === v ? '#B45309' : '#475569',
                             cursor: 'pointer'
                           }}
                         >
-                          {p === 'Pine Labs' ? '🌲 Pine Labs' : '⚡ Payswiff'}
+                          {v === 'RONAV Technologies' ? 'RONAV Technologies' : 'R.P. Technologies'}
                         </button>
                       ))}
                     </div>
-                  </div>
-
-                  {/* Vendor Settlement Entity */}
-                  <div>
-                    <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '4px' }}>
-                      Settlement Account & Legal Vendor
-                    </label>
-                    {onboardForm.pos_provider === 'Pine Labs' ? (
-                      <div style={{ padding: '0.45rem', background: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 700, color: '#0F52BA' }}>
-                        Rose Navaneetham Enterprises (Locked for Pine Labs)
-                      </div>
-                    ) : (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.375rem' }}>
-                        {['RONAV Technologies', 'R.P. Technologies'].map(v => (
-                          <button
-                            key={v}
-                            type="button"
-                            onClick={() => setOnboardForm(prev => ({ ...prev, pos_vendor: v }))}
-                            style={{
-                              padding: '0.4rem',
-                              fontSize: '0.625rem',
-                              fontWeight: 800,
-                              borderRadius: '6px',
-                              border: onboardForm.pos_vendor === v ? '2px solid #D97706' : '1px solid #CBD5E1',
-                              background: onboardForm.pos_vendor === v ? '#FEF3C7' : '#FFFFFF',
-                              color: onboardForm.pos_vendor === v ? '#B45309' : '#475569',
-                              cursor: 'pointer'
-                            }}
-                          >
-                            {v === 'RONAV Technologies' ? 'RONAV Tech (V01)' : 'R.P. Tech (V02)'}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Device Plan & Settlement Mode */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
-                    <div>
-                      <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '4px' }}>
-                        Device Plan
-                      </label>
-                      <select
-                        value={onboardForm.device_plan}
-                        onChange={(e) => setOnboardForm(prev => ({ ...prev, device_plan: e.target.value }))}
-                        style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.6875rem' }}
-                      >
-                        <option value="RENTAL">Monthly Rental (₹499/mo)</option>
-                        <option value="LIFETIME">Lifetime Purchase</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '4px' }}>
-                        Settlement Speed
-                      </label>
-                      <select
-                        value={onboardForm.settlement_type}
-                        onChange={(e) => setOnboardForm(prev => ({ ...prev, settlement_type: e.target.value }))}
-                        style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.6875rem' }}
-                      >
-                        <option value="T1">T+1 Standard (1.53% MDR)</option>
-                        <option value="INSTANT">Instant (+0.30p / 1.83%)</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Client Math Verification Badge */}
-                  <div style={{ padding: '0.375rem 0.5rem', background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: '6px', fontSize: '0.625rem', color: '#065F46', fontWeight: 700 }}>
-                    💡 Configured MDR: {onboardForm.settlement_type === 'INSTANT' && onboardForm.pos_provider === 'Pine Labs' ? '1.83%' : '1.53%'}
-                    {onboardForm.pos_provider === 'Payswiff' && onboardForm.settlement_type === 'INSTANT' ? ' + ₹0.30 flat vendor surcharge' : ''}
-                  </div>
-
+                  )}
                 </div>
-              )}
+
+                {/* Physical POS Machine / Terminal Serial Number */}
+                <div>
+                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '4px' }}>
+                    POS Machine Serial / Terminal Number *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder={onboardForm.pos_provider === 'Pine Labs' ? 'e.g. PL-884920' : 'e.g. SWIFF-58201'}
+                    value={onboardForm.pos_terminal_id}
+                    onChange={(e) => setOnboardForm(prev => ({ ...prev, pos_terminal_id: e.target.value }))}
+                    style={{ width: '100%', padding: '0.45rem 0.6rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', fontWeight: 700, boxSizing: 'border-box' }}
+                  />
+                  <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                    Unique TID / Serial number printed on physical device sticker
+                  </span>
+                </div>
+
+                {/* Device Plan */}
+                <div>
+                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '4px' }}>
+                    Device Plan
+                  </label>
+                  <select
+                    value={onboardForm.device_plan}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setOnboardForm(prev => ({
+                        ...prev,
+                        device_plan: val,
+                        monthly_rent: val === 'RENTAL' ? '499' : (prev.monthly_rent || '499')
+                      }));
+                    }}
+                    style={{ width: '100%', padding: '0.45rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.71875rem', background: '#FFFFFF' }}
+                  >
+                    <option value="RENTAL">Monthly Rental (₹499/mo)</option>
+                    <option value="CUSTOM">Custom Amount</option>
+                  </select>
+
+                  {onboardForm.device_plan === 'CUSTOM' && (
+                    <div style={{ marginTop: '6px' }}>
+                      <span style={{ fontSize: '0.65625rem', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                        Custom Amount (₹) *
+                      </span>
+                      <div style={{ position: 'relative' }}>
+                        <span style={{ position: 'absolute', left: '9px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', fontWeight: 800, color: '#64748B' }}>₹</span>
+                        <input
+                          type="number"
+                          step="1"
+                          min="0"
+                          placeholder="e.g. 799"
+                          value={onboardForm.monthly_rent}
+                          onChange={(e) => setOnboardForm(prev => ({ ...prev, monthly_rent: e.target.value }))}
+                          style={{ width: '100%', padding: '0.45rem 0.6rem 0.45rem 1.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', fontWeight: 700, boxSizing: 'border-box' }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* COMMISSION RATES (MDR %) */}
+                <div style={{ background: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '0.65rem' }}>
+                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0F172A', display: 'block', marginBottom: '6px' }}>
+                    Commission Rates (MDR %)
+                  </label>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
+                    {/* T+1 Base Rate */}
+                    <div>
+                      <span style={{ fontSize: '0.65625rem', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                        T+1 Rate (%) *
+                      </span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.5"
+                        max="3.0"
+                        value={onboardForm.commission_rate_t1}
+                        onChange={(e) => setOnboardForm(prev => ({ ...prev, commission_rate_t1: e.target.value }))}
+                        style={{ width: '100%', padding: '0.45rem 0.6rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', fontWeight: 700, boxSizing: 'border-box' }}
+                      />
+                      <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                        Standard settlement
+                      </span>
+                    </div>
+
+                    {/* Instant Settlement Rate */}
+                    <div>
+                      <span style={{ fontSize: '0.65625rem', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '3px' }}>
+                        Instant / QR Rate (%) *
+                      </span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.5"
+                        max="4.0"
+                        value={onboardForm.commission_rate_instant}
+                        onChange={(e) => setOnboardForm(prev => ({ ...prev, commission_rate_instant: e.target.value }))}
+                        style={{ width: '100%', padding: '0.45rem 0.6rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', fontWeight: 700, boxSizing: 'border-box' }}
+                      />
+                      <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                        Instant IMPS / QR
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
 
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
                 <button
@@ -3312,19 +6382,31 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               <div><strong>Sponsor:</strong> {createdResultModal.parent_name}</div>
             </div>
 
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <a
+                href={`https://api.whatsapp.com/send?phone=${createdResultModal.mobile}&text=${encodeURIComponent(`*RONAV Partner Welcome*\nHello ${createdResultModal.name},\nYour account has been registered successfully.\n\nRole: ${createdResultModal.role}\nUser ID: ${createdResultModal.id}\nMobile: ${createdResultModal.mobile}\nPassword: ${createdResultModal.password}\n\nLogin Portal: ${typeof window !== 'undefined' ? window.location.origin : ''}`)}`}
+                target="_blank"
+                rel="noreferrer"
+                style={{ flex: 1, padding: '0.5rem', background: '#25D366', color: '#FFF', textDecoration: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+              >
+                <span>💬 Send via WhatsApp</span>
+              </a>
+
               <button
+                type="button"
                 onClick={() => {
-                  const shareText = `*RONAV Partner Welcome*\nName: ${createdResultModal.name}\nRole: ${createdResultModal.role}\nUser ID: ${createdResultModal.id}\nMobile: ${createdResultModal.mobile}\nPassword: ${createdResultModal.password}\nLogin Portal: http://localhost:3000/`;
+                  const portalUrl = typeof window !== 'undefined' ? window.location.origin : '';
+                  const shareText = `*RONAV Partner Welcome*\nName: ${createdResultModal.name}\nRole: ${createdResultModal.role}\nUser ID: ${createdResultModal.id}\nMobile: ${createdResultModal.mobile}\nPassword: ${createdResultModal.password}\nLogin Portal: ${portalUrl}`;
                   copyToClipboard(shareText, 'share-creds');
                 }}
                 style={{ flex: 1, padding: '0.5rem', background: '#059669', color: '#FFF', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
               >
                 <Copy style={{ width: '14px', height: '14px' }} />
-                <span>Copy WhatsApp Text</span>
+                <span>{copiedId['share-creds'] ? 'Copied!' : 'Copy Text'}</span>
               </button>
 
               <button
+                type="button"
                 onClick={() => setCreatedResultModal(null)}
                 style={{ padding: '0.5rem 1rem', background: '#F1F5F9', color: '#475569', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}
               >
@@ -3418,6 +6500,1234 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Reset Password Modal */}
+      {resetPassModal.isOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(10, 25, 47, 0.75)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '1rem'
+        }}>
+          <div style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: '16px',
+            maxWidth: '400px',
+            width: '100%',
+            padding: '1.5rem',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            border: '1px solid #CBD5E1'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#FEF3C7', color: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Key style={{ width: '16px', height: '16px' }} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                    Reset Password
+                  </h3>
+                  <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
+                    {resetPassModal.user?.name} ({resetPassModal.user?.id})
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setResetPassModal({ isOpen: false, user: null, newPassword: '', isSubmitting: false, successResult: null })}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}
+              >
+                <X style={{ width: '18px', height: '18px' }} />
+              </button>
+            </div>
+
+            {resetPassModal.successResult ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div style={{ padding: '1rem', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '12px', textAlign: 'center' }}>
+                  <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#DCFCE7', color: '#15803D', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: '6px' }}>
+                    <Check style={{ width: '20px', height: '20px' }} />
+                  </div>
+                  <strong style={{ display: 'block', fontSize: '0.875rem', color: '#15803D' }}>Password Successfully Updated!</strong>
+                  <span style={{ fontSize: '0.75rem', color: '#475569', marginTop: '2px', display: 'block' }}>
+                    New active password for {resetPassModal.successResult.id}:
+                  </span>
+                  <div style={{ margin: '0.75rem 0', padding: '0.5rem', background: '#FFFFFF', border: '1px dashed #16A34A', borderRadius: '8px' }}>
+                    <code style={{ fontSize: '1.125rem', fontWeight: 900, color: '#0F172A', letterSpacing: '0.05em' }}>
+                      {resetPassModal.successResult.password}
+                    </code>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <a
+                    href={`https://api.whatsapp.com/send?phone=${resetPassModal.successResult.mobile}&text=${encodeURIComponent(`*RONAV Security Alert*\nHello ${resetPassModal.successResult.name},\nYour account password for User ID ${resetPassModal.successResult.id} has been reset by Admin.\n\nNew Password: ${resetPassModal.successResult.password}\nLogin Portal: ${typeof window !== 'undefined' ? window.location.origin : ''}\n\nPlease keep your credentials safe.`)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ flex: 1, padding: '0.625rem', background: '#25D366', color: '#FFF', textDecoration: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                  >
+                    <span>💬 Send on WhatsApp</span>
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const portalUrl = typeof window !== 'undefined' ? window.location.origin : '';
+                      const shareText = `*RONAV Security Alert*\nHello ${resetPassModal.successResult.name},\nYour account password for User ID ${resetPassModal.successResult.id} has been reset.\nNew Password: ${resetPassModal.successResult.password}\nLogin: ${portalUrl}`;
+                      copyToClipboard(shareText, 'reset-pass-copy');
+                    }}
+                    style={{ flex: 1, padding: '0.625rem', background: '#0F52BA', color: '#FFF', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                  >
+                    <Copy style={{ width: '13px', height: '13px' }} />
+                    <span>{copiedId['reset-pass-copy'] ? 'Copied!' : 'Copy Info'}</span>
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setResetPassModal({ isOpen: false, user: null, newPassword: '', isSubmitting: false, successResult: null })}
+                  style={{ padding: '0.5rem', background: '#F1F5F9', color: '#475569', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}
+                >
+                  Done
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleConfirmResetPassword} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155' }}>
+                      Enter New Password *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setResetPassModal(prev => ({ ...prev, newPassword: `Ronav@${Math.floor(1000 + Math.random() * 9000)}` }))}
+                      style={{ background: 'none', border: 'none', color: '#0F52BA', fontSize: '0.6875rem', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      🎲 Generate Random
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={resetPassModal.newPassword}
+                    onChange={(e) => setResetPassModal(prev => ({ ...prev, newPassword: e.target.value }))}
+                    required
+                    placeholder="e.g. Ronav@2025"
+                    style={{ width: '100%', padding: '0.6rem 0.75rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.875rem', fontFamily: 'monospace', fontWeight: 700 }}
+                  />
+                  <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', marginTop: '4px' }}>
+                    The user will immediately be able to log in with this new password.
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setResetPassModal({ isOpen: false, user: null, newPassword: '', isSubmitting: false, successResult: null })}
+                    style={{ flex: 1, padding: '0.625rem', background: '#F1F5F9', color: '#475569', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={resetPassModal.isSubmitting}
+                    style={{ flex: 1, padding: '0.625rem', background: '#0F52BA', color: '#FFFFFF', border: 'none', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}
+                  >
+                    {resetPassModal.isSubmitting ? 'Updating...' : 'Save & Update'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* T+1 BANK BATCH DISBURSAL MODAL */}
+      {batchDisbursalModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(10, 25, 47, 0.75)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '1rem',
+          overflowY: 'auto'
+        }}>
+          <div style={{
+            background: '#FFFFFF',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '520px',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.25)',
+            border: '1.5px solid #CBD5E1',
+            overflow: 'hidden'
+          }}>
+            {/* Header */}
+            <div style={{
+              background: '#0A192F',
+              color: '#FFFFFF',
+              padding: '1rem 1.25rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Landmark style={{ width: '18px', height: '18px', color: '#60A5FA' }} />
+                <h3 style={{ fontSize: '0.9375rem', fontWeight: 800, margin: 0, color: '#FFFFFF' }}>
+                  Mark T+1 Bank Batch as Disbursed
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBatchDisbursalModal(null)}
+                style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: 0 }}
+              >
+                <X style={{ width: '18px', height: '18px' }} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{
+                background: '#F0FDF4',
+                border: '1px solid #86EFAC',
+                borderRadius: '10px',
+                padding: '0.75rem 1rem',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <div>
+                  <span style={{ fontSize: '0.6875rem', color: '#166534', fontWeight: 700, textTransform: 'uppercase' }}>
+                    Batch Disbursal Summary
+                  </span>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 900, color: '#15803D' }}>
+                    ₹{batchDisbursalModal.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <span style={{ fontSize: '0.6875rem', color: '#166534', fontWeight: 700 }}>Total Records</span>
+                  <div style={{ fontSize: '1.125rem', fontWeight: 800, color: '#0F172A' }}>
+                    {batchDisbursalModal.items.length} Payouts
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', display: 'block', marginBottom: '0.35rem' }}>
+                  Bank CMS / Batch Reference UTR Number *
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. CMS-HDFC-991248 or SBI-BULK-20260912"
+                  value={batchDisbursalModal.batchUtr}
+                  onChange={(e) => setBatchDisbursalModal({ ...batchDisbursalModal, batchUtr: e.target.value.toUpperCase() })}
+                  style={{
+                    width: '100%',
+                    background: '#FFFFFF',
+                    border: '1.5px solid #CBD5E1',
+                    borderRadius: '8px',
+                    padding: '0.55rem 0.75rem',
+                    fontSize: '0.875rem',
+                    fontFamily: 'monospace',
+                    fontWeight: 700,
+                    color: '#0F172A',
+                    boxSizing: 'border-box',
+                    outline: 'none'
+                  }}
+                />
+                <span style={{ fontSize: '0.65rem', color: '#64748B', display: 'block', marginTop: '3px' }}>
+                  Enter the batch acknowledgement UTR or reference number generated by your corporate net banking upload.
+                </span>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', display: 'block', marginBottom: '0.35rem' }}>
+                  Batch Settlement Narration
+                </label>
+                <input
+                  type="text"
+                  value={batchDisbursalModal.remark}
+                  onChange={(e) => setBatchDisbursalModal({ ...batchDisbursalModal, remark: e.target.value })}
+                  style={{
+                    width: '100%',
+                    background: '#FFFFFF',
+                    border: '1px solid #CBD5E1',
+                    borderRadius: '8px',
+                    padding: '0.5rem 0.75rem',
+                    fontSize: '0.75rem',
+                    color: '#0F172A',
+                    boxSizing: 'border-box',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+
+              <div style={{
+                fontSize: '0.6875rem',
+                color: '#475569',
+                background: '#F8FAFC',
+                padding: '0.625rem 0.75rem',
+                borderRadius: '8px',
+                border: '1px solid #E2E8F0'
+              }}>
+                ℹ️ Clicking <strong>"Confirm &amp; Settle Batch"</strong> will automatically mark all {batchDisbursalModal.items.length} records as <strong>Settled &amp; Disbursed</strong> with the batch UTR and notify merchants.
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  disabled={batchDisbursalModal.isSubmitting}
+                  onClick={() => setBatchDisbursalModal(null)}
+                  style={{
+                    background: '#F1F5F9',
+                    color: '#475569',
+                    border: '1px solid #CBD5E1',
+                    padding: '0.55rem 1rem',
+                    borderRadius: '8px',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={batchDisbursalModal.isSubmitting || !batchDisbursalModal.batchUtr}
+                  onClick={() => handleBatchPayoutDisbursal(
+                    batchDisbursalModal.items,
+                    batchDisbursalModal.batchUtr,
+                    batchDisbursalModal.remark
+                  )}
+                  style={{
+                    background: '#059669',
+                    color: '#FFFFFF',
+                    border: 'none',
+                    padding: '0.55rem 1.25rem',
+                    borderRadius: '8px',
+                    fontSize: '0.75rem',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 2px 6px rgba(5,150,105,0.3)'
+                  }}
+                >
+                  <CheckCircle2 style={{ width: '15px', height: '15px' }} />
+                  <span>{batchDisbursalModal.isSubmitting ? 'Settling Batch...' : 'Confirm & Settle Batch'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DISBURSAL CONFIRMATION MODAL */}
+      {disbursingPayout && disbursingPayout.payout && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(10, 25, 47, 0.75)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '1rem',
+          overflowY: 'auto'
+        }}>
+          <div style={{
+            background: '#FFFFFF',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '480px',
+            maxHeight: '92vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.25)',
+            border: '1.5px solid #CBD5E1',
+            overflow: 'hidden',
+            animation: 'slideIn 0.2s ease-out'
+          }}>
+            {/* Modal Header (Fixed at Top) */}
+            <div style={{
+              background: '#0A192F',
+              color: '#FFFFFF',
+              padding: '1rem 1.25rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexShrink: 0
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '10px',
+                  background: 'rgba(255,255,255,0.1)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '1.1rem'
+                }}>
+                  🏦
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '0.9375rem', fontWeight: 900, margin: 0, letterSpacing: '-0.01em' }}>
+                    Process Bank Disbursal
+                  </h3>
+                  <span style={{ fontSize: '0.6875rem', color: '#94A3B8' }}>
+                    Copy beneficiary details to corporate portal & set status
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDisbursingPayout(null)}
+                style={{
+                  background: 'rgba(255,255,255,0.1)',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '28px',
+                  height: '28px',
+                  color: '#FFFFFF',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            {(() => {
+              const p = disbursingPayout.payout;
+              const targetAccount = p.account_number || p.account || p.bank_account || 'N/A';
+              const targetIfsc = p.ifsc || 'N/A';
+              const targetBank = p.bank_name || p.bank || 'Bank Account';
+              const targetBeneficiary = p.customer_name || p.merchant_name || 'Beneficiary';
+              const targetAmount = parseFloat(p.amount || 0);
+              const statusChoice = disbursingPayout.actionType || 'DISPATCH'; // Default: 'DISPATCH' (Pending/In-Transit)
+
+              // Formatted single line for fast pasting into banking portals
+              const allTransferDetails = `Name: ${targetBeneficiary} | Bank: ${targetBank} | A/C: ${targetAccount} | IFSC: ${targetIfsc} | Amount: ₹${targetAmount}`;
+
+              return (
+                <div style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  padding: '1.25rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '1rem'
+                }}>
+                  {/* 1. Net Disbursal Amount Banner (NO "Copy 2000" BUTTON) */}
+                  <div style={{
+                    background: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '14px',
+                    padding: '0.875rem 1rem',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}>
+                    <div>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block' }}>
+                        Net Disbursal Amount
+                      </span>
+                      <div style={{ fontSize: '1.65rem', fontWeight: 900, color: '#0F172A', marginTop: '1px', lineHeight: 1.1 }}>
+                        ₹{targetAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <span style={{
+                      fontSize: '0.6875rem',
+                      fontWeight: 800,
+                      color: '#0F52BA',
+                      background: '#EFF6FF',
+                      border: '1px solid #BFDBFE',
+                      padding: '3px 8px',
+                      borderRadius: '6px'
+                    }}>
+                      {p.settlement_mode === 'INSTANT' ? '⚡ Instant IMPS' : '📅 Standard Payout'}
+                    </span>
+                  </div>
+
+                  {/* 2. Modern Beneficiary Bank Details Card */}
+                  <div style={{
+                    background: '#FFFFFF',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '14px',
+                    padding: '1rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.75rem',
+                    boxShadow: '0 1px 3px rgba(15,23,42,0.03)'
+                  }}>
+                    {/* Header with Minimalist "Copy All Details" Button */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.5rem' }}>
+                      <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Beneficiary Details
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(allTransferDetails, 'modal_all_details')}
+                        style={{
+                          background: copiedId['modal_all_details'] ? '#ECFDF5' : '#F8FAFC',
+                          color: copiedId['modal_all_details'] ? '#059669' : '#0F52BA',
+                          border: copiedId['modal_all_details'] ? '1px solid #A7F3D0' : '1px solid #CBD5E1',
+                          padding: '0.3rem 0.65rem',
+                          borderRadius: '6px',
+                          fontSize: '0.6875rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <Copy style={{ width: '12px', height: '12px' }} />
+                        <span>{copiedId['modal_all_details'] ? '✓ Copied All' : 'Copy All Details'}</span>
+                      </button>
+                    </div>
+
+                    {/* Beneficiary Name & Bank */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block' }}>Beneficiary / Holder Name</span>
+                        <strong style={{ fontSize: '0.875rem', color: '#0F172A' }}>{targetBeneficiary}</strong>
+                        {p.customer_mobile && (
+                          <span style={{ fontSize: '0.6875rem', color: '#64748B', marginLeft: '6px' }}>({p.customer_mobile})</span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(targetBeneficiary, 'modal_ben_name')}
+                        style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', color: '#475569', padding: '3px 7px', borderRadius: '5px', fontSize: '0.625rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
+                      >
+                        <Copy style={{ width: '10px', height: '10px' }} />
+                        <span>{copiedId['modal_ben_name'] ? '✓' : 'Copy'}</span>
+                      </button>
+                    </div>
+
+                    {/* Bank Name */}
+                    <div style={{ borderTop: '1px solid #F8FAFC', paddingTop: '0.25rem' }}>
+                      <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block' }}>Destination Bank</span>
+                      <strong style={{ fontSize: '0.8125rem', color: '#0F172A' }}>{targetBank}</strong>
+                    </div>
+
+                    {/* Account Number with Clean Copy */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.5rem 0.75rem' }}>
+                      <div>
+                        <span style={{ fontSize: '0.625rem', fontWeight: 600, color: '#64748B', display: 'block' }}>
+                          Account Number
+                        </span>
+                        <div style={{ fontSize: '1rem', fontWeight: 800, color: '#0F172A', fontFamily: 'monospace', letterSpacing: '0.04em' }}>
+                          {targetAccount}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(targetAccount, 'modal_acc')}
+                        style={{
+                          background: '#FFFFFF',
+                          border: '1px solid #CBD5E1',
+                          color: '#0F172A',
+                          padding: '0.3rem 0.6rem',
+                          borderRadius: '6px',
+                          fontSize: '0.6875rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        <Copy style={{ width: '11px', height: '11px' }} />
+                        <span>{copiedId['modal_acc'] ? '✓' : 'Copy'}</span>
+                      </button>
+                    </div>
+
+                    {/* IFSC Code with Clean Copy */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.5rem 0.75rem' }}>
+                      <div>
+                        <span style={{ fontSize: '0.625rem', fontWeight: 600, color: '#64748B', display: 'block' }}>
+                          IFSC Code
+                        </span>
+                        <div style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0F172A', fontFamily: 'monospace' }}>
+                          {targetIfsc}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(targetIfsc, 'modal_ifsc')}
+                        style={{
+                          background: '#FFFFFF',
+                          border: '1px solid #CBD5E1',
+                          color: '#0F172A',
+                          padding: '0.3rem 0.6rem',
+                          borderRadius: '6px',
+                          fontSize: '0.6875rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        <Copy style={{ width: '11px', height: '11px' }} />
+                        <span>{copiedId['modal_ifsc'] ? '✓' : 'Copy'}</span>
+                      </button>
+                    </div>
+
+                    <div style={{ fontSize: '0.6875rem', color: '#64748B', display: 'flex', justifyContent: 'space-between', paddingTop: '0.25rem' }}>
+                      <span>Originating Merchant:</span>
+                      <strong style={{ color: '#334155' }}>{p.merchant_name} ({p.merchant_id})</strong>
+                    </div>
+                  </div>
+
+                  {/* 3. Status Action Choice: Pending vs Settled (No UTR requirement) */}
+                  <div>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', display: 'block', marginBottom: '0.5rem' }}>
+                      Select Disbursal Status to Apply:
+                    </label>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {/* Option 1: Mark as In-Transit / Pending (DEFAULT) */}
+                      <div 
+                        onClick={() => setDisbursingPayout(prev => ({ ...prev, actionType: 'DISPATCH' }))}
+                        style={{
+                          border: statusChoice === 'DISPATCH' ? '2px solid #D97706' : '1px solid #CBD5E1',
+                          background: statusChoice === 'DISPATCH' ? '#FFFBEB' : '#FFFFFF',
+                          borderRadius: '10px',
+                          padding: '0.75rem',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: '0.625rem',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <input 
+                          type="radio" 
+                          name="disbursalStatusChoice" 
+                          checked={statusChoice === 'DISPATCH'} 
+                          onChange={() => {}} 
+                          style={{ marginTop: '3px', cursor: 'pointer', accentColor: '#D97706' }} 
+                        />
+                        <div>
+                          <strong style={{ fontSize: '0.8125rem', color: '#92400E', display: 'block' }}>
+                            ⏳ Transfer Initiated • Move to In-Transit (Pending)
+                          </strong>
+                          <p style={{ margin: '2px 0 0', fontSize: '0.6875rem', color: '#B45309', lineHeight: 1.35 }}>
+                            Recommended. You have initiated the transfer from your netbanking/corporate portal; bank clearing takes up to 1 hr. Merchant wallet reflects "⏳ Pending Bank Clearance (Up to 1 hr)".
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Option 2: Mark as Fully Settled (Success) */}
+                      <div 
+                        onClick={() => setDisbursingPayout(prev => ({ ...prev, actionType: 'APPROVE' }))}
+                        style={{
+                          border: statusChoice === 'APPROVE' ? '2px solid #059669' : '1px solid #CBD5E1',
+                          background: statusChoice === 'APPROVE' ? '#ECFDF5' : '#FFFFFF',
+                          borderRadius: '10px',
+                          padding: '0.75rem',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: '0.625rem',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <input 
+                          type="radio" 
+                          name="disbursalStatusChoice" 
+                          checked={statusChoice === 'APPROVE'} 
+                          onChange={() => {}} 
+                          style={{ marginTop: '3px', cursor: 'pointer', accentColor: '#059669' }} 
+                        />
+                        <div>
+                          <strong style={{ fontSize: '0.8125rem', color: '#065F46', display: 'block' }}>
+                            ✓ Payout Cleared • Mark as Fully Settled (Success)
+                          </strong>
+                          <p style={{ margin: '2px 0 0', fontSize: '0.6875rem', color: '#047857', lineHeight: 1.35 }}>
+                            Amount has already cleared in beneficiary account and statement is verified. Settles payout immediately.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Modal Footer */}
+            <div style={{
+              flexShrink: 0,
+              background: '#F8FAFC',
+              borderTop: '1px solid #E2E8F0',
+              padding: '0.875rem 1.25rem',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '0.75rem'
+            }}>
+              <button
+                type="button"
+                onClick={() => setDisbursingPayout(null)}
+                style={{
+                  background: '#FFFFFF',
+                  border: '1px solid #CBD5E1',
+                  padding: '0.625rem 1rem',
+                  borderRadius: '8px',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  color: '#475569',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const p = disbursingPayout.payout;
+                  const statusChoice = disbursingPayout.actionType || 'DISPATCH';
+                  if (statusChoice === 'APPROVE') {
+                    handlePayoutAction(
+                      p.id,
+                      'APPROVE',
+                      p.merchant_name,
+                      p.amount,
+                      `REF${Date.now().toString().slice(-8)}`,
+                      'Disbursed and verified in bank'
+                    );
+                  } else {
+                    handlePayoutAction(
+                      p.id,
+                      'DISPATCH',
+                      p.merchant_name,
+                      p.amount,
+                      '',
+                      'Transfer initiated via Netbanking • Bank clearance in progress (up to 1 hr)'
+                    );
+                  }
+                }}
+                style={{
+                  background: (disbursingPayout.actionType || 'DISPATCH') === 'APPROVE' ? '#059669' : '#D97706',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  padding: '0.625rem 1.25rem',
+                  borderRadius: '8px',
+                  fontSize: '0.75rem',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  boxShadow: (disbursingPayout.actionType || 'DISPATCH') === 'APPROVE' ? '0 2px 6px rgba(5,150,105,0.3)' : '0 2px 6px rgba(217,119,6,0.3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                {(disbursingPayout.actionType || 'DISPATCH') === 'APPROVE' ? (
+                  <span>✓ Confirm & Mark Settled</span>
+                ) : (
+                  <span>⏳ Move to In-Transit (Pending)</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PORTAL VERIFICATION MODAL FOR RECORD SALES (ZERO NESTED BOXES) */}
+      {verifyingSwipe && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(10, 25, 47, 0.75)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '1rem',
+          overflowY: 'auto'
+        }}>
+          <div style={{
+            background: '#FFFFFF',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '500px',
+            maxHeight: '92vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 20px 40px rgba(0,0,0,0.25)',
+            border: '1.5px solid #CBD5E1',
+            overflow: 'hidden',
+            animation: 'slideIn 0.2s ease-out'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              background: 'linear-gradient(135deg, #0A192F 0%, #0F52BA 100%)',
+              color: '#FFFFFF',
+              padding: '1rem 1.25rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexShrink: 0
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '10px',
+                  background: 'rgba(255,255,255,0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 900,
+                  fontSize: '1rem'
+                }}>
+                  🔍
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '0.9375rem', fontWeight: 900, margin: 0 }}>
+                    Verify POS Slip with Portal
+                  </h3>
+                  <span style={{ fontSize: '0.6875rem', opacity: 0.85 }}>
+                    Check slip UTR in Pine Labs / Payswiff portal
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVerifyingSwipe(null)}
+                style={{
+                  background: 'rgba(255,255,255,0.15)',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '28px',
+                  height: '28px',
+                  color: '#FFFFFF',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '1.25rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem'
+            }}>
+              {/* Summary Strip (Clean & Direct) */}
+              <div style={{
+                background: '#F8FAFC',
+                borderRadius: '12px',
+                border: '1px solid #E2E8F0',
+                padding: '1rem',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                gap: '0.75rem'
+              }}>
+                <div>
+                  <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase', display: 'block' }}>
+                    Retailer Store
+                  </span>
+                  <strong style={{ fontSize: '0.9375rem', color: '#0F172A', display: 'block', marginTop: '2px' }}>
+                    {verifyingSwipe.txn.merchant_name}
+                  </strong>
+                  <span style={{ fontSize: '0.6875rem', color: '#64748B', fontFamily: 'monospace' }}>
+                    MID: {verifyingSwipe.txn.merchant_id}
+                  </span>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase', display: 'block' }}>
+                    Customer
+                  </span>
+                  <strong style={{ fontSize: '0.9375rem', color: '#0F172A', display: 'block', marginTop: '2px' }}>
+                    {verifyingSwipe.txn.customer_name || 'Counter Customer'}
+                  </strong>
+                  {verifyingSwipe.txn.customer_mobile && (
+                    <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
+                      {verifyingSwipe.txn.customer_mobile}
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase', display: 'block' }}>
+                    Terminal Slip UTR
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                    <strong style={{ fontSize: '1rem', color: '#0F52BA', fontFamily: 'monospace', fontWeight: 900 }}>
+                      {verifyingSwipe.txn.rrn_number}
+                    </strong>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(verifyingSwipe.txn.rrn_number, 'modal_rrn')}
+                      style={{
+                        background: '#EFF6FF',
+                        border: '1px solid #BFDBFE',
+                        color: '#0F52BA',
+                        padding: '2px 8px',
+                        borderRadius: '5px',
+                        fontSize: '0.6875rem',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {copiedId['modal_rrn'] ? '✓ Copied' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase', display: 'block' }}>
+                    Terminal & Settlement
+                  </span>
+                  <strong style={{ fontSize: '0.875rem', color: '#0F172A', display: 'block', marginTop: '2px' }}>
+                    {verifyingSwipe.txn.pos_provider || 'Pine Labs'} • {verifyingSwipe.txn.settlement_type || 'Instant'}
+                  </strong>
+                  <span style={{ fontSize: '0.6875rem', color: '#059669', fontWeight: 700 }}>
+                    Swipe: ₹{parseFloat(verifyingSwipe.txn.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+
+              {/* Invalidation Reason (shown when reject is selected) */}
+              {verifyingSwipe.decision === 'REJECT' && (
+                <div style={{
+                  background: '#FEF2F2',
+                  border: '1px solid #FECACA',
+                  borderRadius: '10px',
+                  padding: '0.75rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.5rem'
+                }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#DC2626', display: 'block' }}>
+                    Reason for Invalidation:
+                  </label>
+                  <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                    {[
+                      'Slip UTR not found',
+                      'Amount mismatch',
+                      'Duplicate slip UTR',
+                      'Declined on machine'
+                    ].map(chip => (
+                      <button
+                        key={chip}
+                        type="button"
+                        onClick={() => setVerifyingSwipe(prev => ({ ...prev, rejectReason: chip }))}
+                        style={{
+                          background: verifyingSwipe.rejectReason === chip ? '#DC2626' : '#FFFFFF',
+                          border: `1px solid ${verifyingSwipe.rejectReason === chip ? '#DC2626' : '#FECACA'}`,
+                          color: verifyingSwipe.rejectReason === chip ? '#FFFFFF' : '#DC2626',
+                          padding: '3px 8px',
+                          borderRadius: '6px',
+                          fontSize: '0.6875rem',
+                          fontWeight: 700,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {chip}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    value={verifyingSwipe.rejectReason || ''}
+                    onChange={(e) => setVerifyingSwipe(prev => ({ ...prev, rejectReason: e.target.value }))}
+                    placeholder="Or type custom reason..."
+                    style={{
+                      width: '100%',
+                      padding: '0.45rem 0.65rem',
+                      borderRadius: '6px',
+                      border: '1px solid #FECACA',
+                      fontSize: '0.75rem',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer: 3 DIRECT INSTANT BUTTONS */}
+            <div style={{
+              flexShrink: 0,
+              background: '#F8FAFC',
+              borderTop: '1px solid #E2E8F0',
+              padding: '0.875rem 1.25rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '0.5rem',
+              flexWrap: 'wrap'
+            }}>
+              <button
+                type="button"
+                onClick={() => setVerifyingSwipe(null)}
+                style={{
+                  background: '#FFFFFF',
+                  border: '1px solid #CBD5E1',
+                  padding: '0.5rem 0.85rem',
+                  borderRadius: '8px',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  color: '#475569',
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                {/* 1. Invalid Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (verifyingSwipe.decision !== 'REJECT') {
+                      setVerifyingSwipe(prev => ({ ...prev, decision: 'REJECT' }));
+                    } else {
+                      const t = verifyingSwipe.txn;
+                      handleTransactionAction(
+                        t.id,
+                        'REJECT',
+                        t.merchant_name,
+                        t.amount,
+                        verifyingSwipe.rejectReason || 'Invalid Slip UTR'
+                      );
+                    }
+                  }}
+                  style={{
+                    background: '#FEF2F2',
+                    color: '#DC2626',
+                    border: '1px solid #FECACA',
+                    padding: '0.5rem 0.85rem',
+                    borderRadius: '8px',
+                    fontSize: '0.75rem',
+                    fontWeight: 800,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {verifyingSwipe.decision === 'REJECT' ? '✕ Confirm Reject' : '✕ Invalid'}
+                </button>
+
+                {/* 2. Keep Pending Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerToast('Transaction kept in Pending status', 'info');
+                    setVerifyingSwipe(null);
+                  }}
+                  style={{
+                    background: '#FFFBEB',
+                    color: '#D97706',
+                    border: '1px solid #FCD34D',
+                    padding: '0.5rem 0.85rem',
+                    borderRadius: '8px',
+                    fontSize: '0.75rem',
+                    fontWeight: 800,
+                    cursor: 'pointer'
+                  }}
+                >
+                  ⏳ Keep Pending
+                </button>
+
+                {/* 3. Approve Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const t = verifyingSwipe.txn;
+                    handleTransactionAction(
+                      t.id,
+                      'APPROVE',
+                      t.merchant_name,
+                      t.amount,
+                      'Slip Verified & Credited'
+                    );
+                  }}
+                  style={{
+                    background: '#059669',
+                    color: '#FFFFFF',
+                    border: 'none',
+                    padding: '0.5rem 1.1rem',
+                    borderRadius: '8px',
+                    fontSize: '0.75rem',
+                    fontWeight: 900,
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 6px rgba(5,150,105,0.25)'
+                  }}
+                >
+                  ✓ Approve & Credit
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin QR Code Preview Modal */}
+      {showAdminQrPreview && (
+        <div 
+          className="modal-backdrop" 
+          onClick={() => setShowAdminQrPreview(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.85)',
+            backdropFilter: 'blur(8px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+            animation: 'fadeIn 0.2s ease'
+          }}
+        >
+          <div 
+            className="modal-dialog" 
+            onClick={(e) => e.stopPropagation()} 
+            style={{ 
+              maxWidth: '380px', 
+              width: '100%', 
+              background: '#FFFFFF',
+              borderRadius: '24px',
+              padding: '1.25rem',
+              boxSizing: 'border-box',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
+              position: 'relative'
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setShowAdminQrPreview(false)}
+              style={{
+                position: 'absolute',
+                top: '12px',
+                right: '12px',
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                background: '#F1F5F9',
+                border: 'none',
+                color: '#64748B',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                fontSize: '1rem',
+                fontWeight: 800,
+                zIndex: 10
+              }}
+            >
+              ✕
+            </button>
+
+            {companyQrImage && (
+              <img
+                src={companyQrImage}
+                alt="Official Company QR"
+                style={{
+                  width: '100%',
+                  maxHeight: '420px',
+                  objectFit: 'contain',
+                  borderRadius: '16px',
+                  display: 'block'
+                }}
+              />
+            )}
+
+            {/* Payee Name on Scan Confirmation Badge */}
+            <div style={{
+              marginTop: '0.75rem',
+              width: '100%',
+              background: '#F8FAFC',
+              border: '1px solid #E2E8F0',
+              borderRadius: '12px',
+              padding: '0.5rem 0.75rem',
+              textAlign: 'center',
+              boxSizing: 'border-box'
+            }}>
+              <span style={{
+                fontSize: '0.625rem',
+                color: '#64748B',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+                display: 'block',
+                marginBottom: '2px'
+              }}>
+                Payee Name on Scan (PhonePe / GPay)
+              </span>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '5px'
+              }}>
+                <span style={{
+                  color: '#059669',
+                  background: '#ECFDF5',
+                  border: '1px solid #A7F3D0',
+                  borderRadius: '50%',
+                  width: '14px',
+                  height: '14px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '9px',
+                  fontWeight: 900
+                }}>
+                  ✓
+                </span>
+                <strong style={{
+                  fontSize: '0.875rem',
+                  color: '#0F172A',
+                  fontWeight: 900,
+                  letterSpacing: '0.02em'
+                }}>
+                  {companyQrPayeeName || 'RONAV TECHNOLOGIES'}
+                </strong>
+              </div>
+            </div>
           </div>
         </div>
       )}

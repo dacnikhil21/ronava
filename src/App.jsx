@@ -46,23 +46,68 @@ const isMerchantPath = () => {
 };
 
 const getInitialView = () => {
-  if (isAdminPath()) {
-    const hasAdminAuth = typeof window !== 'undefined' && sessionStorage.getItem('ronav_admin_session') === 'true';
-    return hasAdminAuth ? 'admin-dashboard' : 'admin-login';
-  }
-  if (isMerchantPath()) {
-    return 'merchant-login';
+  if (typeof window !== 'undefined') {
+    const hash = (window.location.hash || '').replace('#', '').toLowerCase();
+    const savedView = sessionStorage.getItem('ronav_current_view');
+    const savedUser = sessionStorage.getItem('ronav_merchant_user');
+
+    if (isAdminPath()) {
+      const hasAdminAuth = sessionStorage.getItem('ronav_admin_session') === 'true';
+      return hasAdminAuth ? 'admin-dashboard' : 'admin-login';
+    }
+    if (hash === 'admin-dashboard' && sessionStorage.getItem('ronav_admin_session') === 'true') {
+      return 'admin-dashboard';
+    }
+    if (hash === 'admin-login') {
+      return 'admin-login';
+    }
+
+    if (savedUser && (savedView === 'merchant-dashboard' || hash === 'merchant-dashboard')) {
+      return 'merchant-dashboard';
+    }
+
+    if (isMerchantPath() || hash === 'merchant-login' || savedView === 'merchant-login') {
+      return 'merchant-login';
+    }
+
+    if (hash && ['about', 'services', 'contact', 'service-loans', 'service-atm', 'service-bbps', 'service-pos'].includes(hash)) {
+      return hash;
+    }
+    if (savedView && savedView !== 'home') {
+      return savedView;
+    }
   }
   return 'home';
 };
 
+const shouldShowSplashInitially = () => {
+  if (typeof window === 'undefined') return false;
+  if (isAdminPath() || isMerchantPath()) return false;
+  const hash = (window.location.hash || '').toLowerCase();
+  if (hash.includes('merchant') || hash.includes('admin')) return false;
+  const savedView = sessionStorage.getItem('ronav_current_view');
+  if (savedView && savedView !== 'home') return false;
+  const savedMerchant = sessionStorage.getItem('ronav_merchant_user');
+  if (savedMerchant) return false;
+  if (sessionStorage.getItem('ronav_splash_seen') === 'true') return false;
+  return true;
+};
+
 export default function App() {
-  const [showSplash, setShowSplash] = useState(() => !isAdminPath() && !isMerchantPath());
+  const [showSplash, setShowSplash] = useState(shouldShowSplashInitially);
   const [currentView, setCurrentView] = useState(getInitialView); // 'home' | 'about' | 'services' | 'contact' | 'service-loans' | 'service-atm' | 'service-bbps' | 'service-pos' | 'merchant-login' | 'merchant-dashboard' | 'admin-login' | 'admin-dashboard'
   const [officeModalOpen, setOfficeModalOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
-  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUser, setCurrentUser] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = sessionStorage.getItem('ronav_merchant_user');
+        if (saved) return JSON.parse(saved);
+      } catch (_) {}
+    }
+    return null;
+  });
 
   // Global Motion Observer: Auto-triggers scroll reveal animations across sections
   useEffect(() => {
@@ -101,24 +146,47 @@ export default function App() {
     if (document.body) document.body.scrollTop = 0;
   }, [currentView]);
 
-  // Listen to URL changes for secure /admin access
+  // Listen to URL and hash changes for deep routes
   useEffect(() => {
-    const checkAdminRoute = () => {
+    const handleRouteChange = () => {
       const path = window.location.pathname.toLowerCase();
-      const hash = window.location.hash.toLowerCase();
+      const hash = (window.location.hash || '').replace('#', '').toLowerCase();
+
       if (path.startsWith('/admin') || hash.includes('admin')) {
         setShowSplash(false);
         const hasAdminAuth = typeof window !== 'undefined' && sessionStorage.getItem('ronav_admin_session') === 'true';
-        setCurrentView((prev) => (prev === 'admin-dashboard' || hasAdminAuth ? 'admin-dashboard' : 'admin-login'));
+        setCurrentView(hasAdminAuth ? 'admin-dashboard' : 'admin-login');
+        return;
+      }
+
+      if (hash === 'merchant-dashboard') {
+        const savedUser = sessionStorage.getItem('ronav_merchant_user');
+        if (savedUser) {
+          setShowSplash(false);
+          setCurrentView('merchant-dashboard');
+          return;
+        }
+      }
+
+      if (hash === 'merchant-login') {
+        setShowSplash(false);
+        setCurrentView('merchant-login');
+        return;
+      }
+
+      if (hash && ['about', 'services', 'contact', 'service-loans', 'service-atm', 'service-bbps', 'service-pos'].includes(hash)) {
+        setShowSplash(false);
+        setCurrentView(hash);
+        return;
       }
     };
 
-    checkAdminRoute();
-    window.addEventListener('popstate', checkAdminRoute);
-    window.addEventListener('hashchange', checkAdminRoute);
+    handleRouteChange();
+    window.addEventListener('popstate', handleRouteChange);
+    window.addEventListener('hashchange', handleRouteChange);
     return () => {
-      window.removeEventListener('popstate', checkAdminRoute);
-      window.removeEventListener('hashchange', checkAdminRoute);
+      window.removeEventListener('popstate', handleRouteChange);
+      window.removeEventListener('hashchange', handleRouteChange);
     };
   }, []);
 
@@ -131,6 +199,14 @@ export default function App() {
 
   const handleNavigate = (view) => {
     setCurrentView(view);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('ronav_current_view', view);
+      if (view === 'home') {
+        if (window.location.hash) window.history.replaceState(null, '', window.location.pathname);
+      } else {
+        window.location.hash = `#${view}`;
+      }
+    }
     window.scrollTo(0, 0);
     if (document.documentElement) document.documentElement.scrollTop = 0;
     if (document.body) document.body.scrollTop = 0;
@@ -139,21 +215,33 @@ export default function App() {
   const handleOpenLogin = (type = 'merchant') => {
     if (type === 'admin') {
       window.history.pushState({}, '', '/admin');
+      if (typeof window !== 'undefined') sessionStorage.setItem('ronav_current_view', 'admin-login');
       setCurrentView('admin-login');
     } else {
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('ronav_current_view', 'merchant-login');
+        window.location.hash = '#merchant-login';
+      }
       setCurrentView('merchant-login');
     }
   };
 
   const handleMerchantLoginSuccess = (userData) => {
-    setCurrentUser(userData || { name: 'Ravi Enterprise', mid: 'RONAV12345', role: 'Retailer' });
+    const user = userData || { name: 'Ravi Enterprise', mid: 'RONAV12345', role: 'Retailer' };
+    setCurrentUser(user);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('ronav_merchant_user', JSON.stringify(user));
+      sessionStorage.setItem('ronav_current_view', 'merchant-dashboard');
+      window.location.hash = '#merchant-dashboard';
+    }
     setCurrentView('merchant-dashboard');
-    handleShowToast(`✓ Welcome back! Logged in as ${userData?.role || 'Retailer'}.`);
+    handleShowToast(`✓ Welcome back! Logged in as ${user?.role || 'Retailer'}.`);
   };
 
   const handleAdminLoginSuccess = () => {
     if (typeof window !== 'undefined') {
       sessionStorage.setItem('ronav_admin_session', 'true');
+      sessionStorage.setItem('ronav_current_view', 'admin-dashboard');
     }
     window.history.pushState({}, '', '/admin');
     setCurrentView('admin-dashboard');
@@ -163,9 +251,14 @@ export default function App() {
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
       sessionStorage.removeItem('ronav_admin_session');
+      sessionStorage.removeItem('ronav_merchant_user');
+      sessionStorage.removeItem('ronav_current_view');
+      sessionStorage.removeItem('ronav_merchant_active_tab');
     }
     if (window.location.pathname.toLowerCase().startsWith('/admin')) {
       window.history.pushState({}, '', '/');
+    } else if (window.location.hash) {
+      window.history.replaceState(null, '', window.location.pathname);
     }
     setCurrentUser(null);
     setCurrentView('home');
@@ -173,6 +266,10 @@ export default function App() {
   };
 
   const handleBackToHome = () => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('ronav_current_view', 'home');
+      if (window.location.hash) window.history.replaceState(null, '', window.location.pathname);
+    }
     if (window.location.pathname.toLowerCase().startsWith('/admin')) {
       window.history.pushState({}, '', '/');
     }
@@ -181,7 +278,16 @@ export default function App() {
 
   // If splash video screen is active
   if (showSplash) {
-    return <SplashScreen onFinish={() => setShowSplash(false)} />;
+    return (
+      <SplashScreen 
+        onFinish={() => {
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem('ronav_splash_seen', 'true');
+          }
+          setShowSplash(false);
+        }} 
+      />
+    );
   }
 
   // Standalone Fullscreen Portals (Merchant Login, Merchant Dashboard, Admin Login, Admin Dashboard)

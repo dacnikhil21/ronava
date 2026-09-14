@@ -167,9 +167,10 @@ export default function ContactSection({ onOpenOfficeModal }) {
                         onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                         className="form-input"
                       >
-                        <option value="Merchant">Merchant / Retailer</option>
-                        <option value="Distributor">Distributor</option>
+                        <option value="MasterDistributor">👑 Master Distributor (State Apex Partner)</option>
                         <option value="SuperDistributor">Super Distributor</option>
+                        <option value="Distributor">Distributor</option>
+                        <option value="Merchant">Merchant / Retailer</option>
                         <option value="Customer">Loan Customer</option>
                       </select>
                     </div>

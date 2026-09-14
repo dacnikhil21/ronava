@@ -98,6 +98,17 @@
   padding: 0;
 }
 
+/* Zero Scrollbar Visibility for Clean Native Mobile Feel */
+.no-scrollbar {
+  -ms-overflow-style: none !important;  /* IE and Edge */
+  scrollbar-width: none !important;  /* Firefox */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
 html {
   font-family: var(--font-sans);
   color: var(--text-main);
