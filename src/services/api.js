@@ -1792,6 +1792,29 @@ export async function verifyTransaction(txnId, action, remark = '') {
         })
         .eq('id', txnId);
 
+      // Dynamic Company Fee calculation based on specific machine & onboarding rate
+      let compFee = 0;
+      if (txn.notes && typeof txn.notes === 'string') {
+        try {
+          const jsonPart = txn.notes.slice(txn.notes.indexOf('{'));
+          const meta = JSON.parse(jsonPart);
+          if (meta.company_fee) compFee = parseFloat(meta.company_fee) || 0;
+        } catch (_) {}
+      }
+      if (compFee <= 0) {
+        const { data: posRec } = await supabase
+          .from('merchant_pos')
+          .select('*')
+          .eq('merchant_id', merchantId)
+          .maybeSingle();
+        const posRates = parsePosTerminalRates(posRec?.terminal_id, posRec?.commission_rate);
+        const rate = (txn.settlement_type === 'INSTANT' ? posRates.rateInstant : posRates.rateT1) || 1.70;
+        compFee = (amount * rate) / 100;
+      }
+
+      // Net settlement amount credited to merchant available balance (gross amount minus company cut)
+      const netCreditAmount = Math.max(0, amount - compFee);
+
       const currAvail = parseFloat(wallet?.available_balance || 0);
       const currRec = parseFloat(wallet?.received_sales || 0);
       const currPend = parseFloat(wallet?.pending_balance || 0);
@@ -1799,8 +1822,8 @@ export async function verifyTransaction(txnId, action, remark = '') {
       const { data: wRes } = await supabase
         .from('wallets')
         .update({
-          available_balance: currAvail + amount,
-          received_sales: currRec + amount,
+          available_balance: parseFloat((currAvail + netCreditAmount).toFixed(2)),
+          received_sales: parseFloat((currRec + amount).toFixed(2)),
           pending_balance: Math.max(0.0, currPend - amount),
           updated_at: new Date().toISOString()
         })
