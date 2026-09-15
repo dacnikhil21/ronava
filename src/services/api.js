@@ -1183,7 +1183,8 @@ export async function recordMerchantSale(saleData) {
 
     // 4. Admin Wallet Update with Company Net Margin
     const compFee = parseFloat(company_fee) || 0;
-    const adminNetMargin = parseFloat(Math.max(0, compFee - totalUplinePool).toFixed(2));
+    // Only subtract uplines that actually exist and were paid; if direct merchant (no uplines), Admin gets full company fee
+    const adminNetMargin = parseFloat(Math.max(0, compFee - distributedUplineTotal).toFixed(2));
     if (adminNetMargin > 0) {
       const { data: aWallet } = await supabase
         .from('wallets')

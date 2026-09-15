@@ -891,13 +891,29 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     let allVol = 0;
     let allProfit = 0;
 
+    const getTxnCompanyFee = (t) => {
+      let compFee = parseFloat(t.company_fee);
+      if (isNaN(compFee) || compFee <= 0) {
+        if (t.notes && typeof t.notes === 'string' && t.notes.includes('company_fee')) {
+          try {
+            const jsonPart = t.notes.slice(t.notes.indexOf('{'));
+            const parsed = JSON.parse(jsonPart);
+            if (parsed.company_fee) compFee = parseFloat(parsed.company_fee);
+          } catch (_) {}
+        }
+      }
+      if (isNaN(compFee) || compFee <= 0) {
+        const amt = parseFloat(t.amount) || 0;
+        compFee = amt * 0.017;
+      }
+      return compFee;
+    };
+
     txns.forEach(t => {
       const amt = parseFloat(t.amount) || 0;
       if (t.status === 'APPROVED' || t.status === 'Success') {
         allVol += amt;
-        const prov = t.provider || t.pos_provider || 'Pine Labs';
-        const rate = prov === 'Pine Labs' ? 0.0015 : 0.0005;
-        allProfit += amt * rate;
+        allProfit += getTxnCompanyFee(t);
       }
     });
 
@@ -921,9 +937,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       const amt = parseFloat(t.amount) || 0;
       if (t.status === 'APPROVED' || t.status === 'Success') {
         volume += amt;
-        const prov = t.provider || t.pos_provider || 'Pine Labs';
-        const rate = prov === 'Pine Labs' ? 0.0015 : 0.0005;
-        adminProfit += amt * rate;
+        adminProfit += getTxnCompanyFee(t);
       }
     });
 
