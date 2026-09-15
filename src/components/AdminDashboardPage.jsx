@@ -1005,94 +1005,118 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         </div>
       )}
 
-      {/* OFFICIAL EXECUTIVE HEADER (Active on all tabs EXCEPT 'payouts') */}
-      {activeTab !== 'payouts' && (
-        <header style={{
-          background: 'rgba(255, 255, 255, 0.98)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          borderBottom: '1px solid #E2E8F0',
-          padding: '0.625rem 1rem',
-          position: 'sticky',
-          top: 0,
-          zIndex: 50,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          boxShadow: '0 1px 3px rgba(15,23,42,0.04)'
-        }}>
-          {/* Brand Logo & Name (Same proportions as website) */}
-          <div 
-            onClick={() => setActiveTab('overview')}
-            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-          >
-            <RonavLogo size="medium" />
-          </div>
-
-          {/* Right Side: Super Admin Indicator & Logout */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              background: '#EFF6FF',
-              border: '1px solid #BFDBFE',
-              padding: '4px 10px',
-              borderRadius: '9999px'
-            }}>
-              <ShieldCheck style={{ width: '14px', height: '14px', color: '#0F52BA' }} />
-              <span style={{ fontSize: '0.71875rem', fontWeight: 800, color: '#0F52BA' }}>
-                Super Admin
-              </span>
+      {/* OFFICIAL EXECUTIVE HEADER (Active on all tabs) */}
+      <header className="admin-header">
+          <div className="admin-header-inner">
+            {/* Brand Logo & Name (Same proportions as website) */}
+            <div 
+              onClick={() => handleTabSwitch('overview')}
+              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+            >
+              <RonavLogo size="medium" />
             </div>
 
-            {onLogout && (
+            {/* Dedicated Desktop Header Navigation Bar (Visible only on Desktop >= 1024px) */}
+            <nav className="admin-desktop-header-nav" aria-label="Admin Desktop Navigation">
+              {[
+                { id: 'overview', label: 'Overview', icon: Activity },
+                { id: 'master_distributors', label: 'Master', icon: Crown },
+                { id: 'super_distributors', label: 'Super Dist', icon: Zap },
+                { id: 'district_distributors', label: 'District Dist', icon: Shield },
+                { id: 'distributors', label: 'Distributor', icon: GitFork },
+                { id: 'merchants', label: 'Merchants', icon: Store },
+                { id: 'payouts', label: 'Payouts', icon: Landmark, badge: pendingPayouts.length > 0 ? pendingPayouts.length : null },
+                { id: 'loans', label: 'Loans', icon: FileText },
+                { id: 'franchises', label: 'Franchise', icon: Building2 }
+              ].map(tabItem => {
+                const isTabActive = activeTab === tabItem.id;
+                const IconComponent = tabItem.icon;
+                return (
+                  <button
+                    key={tabItem.id}
+                    type="button"
+                    onClick={() => handleTabSwitch(tabItem.id)}
+                    className={`admin-desktop-tab-btn ${isTabActive ? 'is-active' : ''}`}
+                  >
+                    <IconComponent style={{ width: '13px', height: '13px', flexShrink: 0 }} />
+                    <span>{tabItem.label}</span>
+                    {tabItem.badge && (
+                      <span className="admin-desktop-tab-badge">
+                        {tabItem.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* Right Side: Quick Onboard CTA (Desktop) + Super Admin Indicator & Logout */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flexShrink: 0 }}>
               <button
                 type="button"
-                onClick={onLogout}
-                title="Logout Admin"
-                style={{
-                  background: '#F8FAFC',
-                  border: '1px solid #E2E8F0',
-                  padding: '5px 10px',
-                  borderRadius: '8px',
-                  fontSize: '0.71875rem',
-                  fontWeight: 700,
-                  color: '#64748B',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}
+                onClick={() => handleOpenCreateModal('MERCHANT', 'ADM001')}
+                className="admin-desktop-onboard-btn"
+                title="Onboard New Partner / Shop"
               >
-                <LogOut style={{ width: '13px', height: '13px' }} />
-                <span className="desktop-only">Logout</span>
+                <PlusCircle style={{ width: '13px', height: '13px' }} />
+                <span>+ Onboard Partner</span>
               </button>
-            )}
+
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: '#EFF6FF',
+                border: '1px solid #BFDBFE',
+                padding: '4px 10px',
+                borderRadius: '9999px'
+              }}>
+                <ShieldCheck style={{ width: '14px', height: '14px', color: '#0F52BA' }} />
+                <span style={{ fontSize: '0.71875rem', fontWeight: 800, color: '#0F52BA' }}>
+                  Super Admin
+                </span>
+              </div>
+
+              {onLogout && (
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  title="Logout Admin"
+                  style={{
+                    background: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    padding: '5px 10px',
+                    borderRadius: '8px',
+                    fontSize: '0.71875rem',
+                    fontWeight: 700,
+                    color: '#64748B',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  <LogOut style={{ width: '13px', height: '13px' }} />
+                  <span className="desktop-only">Logout</span>
+                </button>
+              )}
+            </div>
           </div>
         </header>
-      )}
 
-      {/* TOP CHANNEL TABS: ONLY ON PAYOUTS TAB, ANCHORED DIRECTLY AT TOP: 0 (PUSHES TABLE ABOVE FOR MAX VISIBILITY) */}
+      {/* TOP CHANNEL TABS: ONLY ON PAYOUTS TAB */}
       {activeTab === 'payouts' && (
-        <div style={{
-          background: '#FFFFFF',
-          borderBottom: '1px solid #E2E8F0',
-          padding: '0.5rem 0.875rem',
-          position: 'sticky',
-          top: 0,
-          zIndex: 40,
-          boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
-        }}>
-          {/* iOS Native Segmented Track */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            background: '#ECEEF0',
-            padding: '3px',
-            borderRadius: '11px',
-            gap: '3px'
-          }}>
+        <div className="admin-channel-bar-wrapper">
+          <div className="admin-channel-bar-inner">
+            {/* iOS Native Segmented Track */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              background: '#ECEEF0',
+              padding: '3px',
+              borderRadius: '11px',
+              gap: '3px'
+            }}>
             {[
               { id: 'payswiff', label: 'Payswiff' },
               { id: 'pinelabs', label: 'Pine Labs' },
@@ -1271,11 +1295,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               </div>
             </div>
           )}
+          </div>
         </div>
       )}
 
       {/* 4. Main Executive Workspace */}
-      <main style={{ padding: '1rem', flexGrow: 1, paddingBottom: '80px' }}>
+      <main className="admin-main-container">
         
         {/* If Admin is viewing a specific Person Dossier */}
         {viewingUserDossier ? (
@@ -2028,7 +2053,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                 
                 {/* 4 Core Financial & Ecosystem KPI Cards */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
+                <div className="admin-kpi-grid">
                   
                   {/* Card 1: Total Sales */}
                   <div style={{ background: '#FFFFFF', padding: '1rem', borderRadius: '12px', border: '1px solid #E2E8F0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
@@ -2189,7 +2214,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     </button>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.625rem' }}>
+                  <div className="admin-network-directory-grid">
                     
                     {/* Tier 0: Master Distributors (Apex Command on Top of All) */}
                     <button 
@@ -2606,7 +2631,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     </button>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div className="admin-roster-grid">
                     {filteredMasters.map(m => {
                       const mVol = parseFloat(m.network_volume || m.total_sales || 0);
                       const mProfit = mVol * 0.0020;
@@ -2751,7 +2776,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     </button>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div className="admin-roster-grid">
                     {filteredSDs.map(sd => {
                       const sdVol = parseFloat(sd.network_volume || sd.total_sales || 0);
                       const sdProfit = sdVol * 0.0015;
@@ -2902,7 +2927,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     </button>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div className="admin-roster-grid">
                     {filteredDDs.map(dd => {
                       const ddVol = parseFloat(dd.downline_volume || dd.total_sales || 0);
                       const ddProfit = ddVol * 0.0008;
@@ -3033,7 +3058,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     </button>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div className="admin-roster-grid">
                     {filteredDists.map(d => {
                       const distVol = parseFloat(d.downline_volume || d.total_sales || 0);
                       const distProfit = distVol * 0.0006;
@@ -3163,7 +3188,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     </button>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div className="admin-roster-grid">
                     {filteredMerchants.map(m => {
                       const sales = parseFloat(m.total_sales || 0);
                       const isPine = (m.pos_provider || '').includes('Pine');
@@ -3397,35 +3422,54 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               ]);
 
               // STEP 1: Strict Channel Filter (Genuine Database Items Only)
+              const userPosLookup = {};
+              (networkUsers || []).forEach(u => {
+                if (u && u.id) {
+                  userPosLookup[u.id] = {
+                    provider: u.pos_provider,
+                    vendor: u.pos_vendor,
+                    terminal: u.pos_terminal
+                  };
+                }
+              });
+
               const filterByChannel = (items) => {
-                if (selectedChannel === 'pinelabs') {
-                  return items.filter(item => {
-                    const p = (item.pos_provider || item.provider || item.notes || '').toLowerCase();
-                    const id = (item.pos_terminal || item.id || '').toUpperCase();
-                    return p.includes('pine') || id.includes('PL') || (!p.includes('swiff') && !p.includes('qr') && !p.includes('upi'));
-                  });
-                } else if (selectedChannel === 'payswiff') {
-                  return items.filter(item => {
-                    const p = (item.pos_provider || item.provider || item.notes || '').toLowerCase();
-                    const v = (item.pos_vendor || '').toLowerCase();
-                    const id = (item.pos_terminal || item.id || '').toUpperCase();
-                    const isSwiff = p.includes('swiff') || id.includes('SW') || v.includes('rp') || v.includes('ronav');
+                return items.filter(item => {
+                  if (!item) return false;
+                  const uPos = userPosLookup[item.merchant_id] || {};
+                  const p = (item.pos_provider || item.provider || uPos.provider || '').toLowerCase();
+                  const v = (item.pos_vendor || uPos.vendor || '').toLowerCase();
+                  const t = (item.pos_terminal || uPos.terminal || '').toLowerCase();
+                  const notes = (item.notes || item.admin_remark || '').toLowerCase();
+                  const id = (item.id || '').toUpperCase();
+
+                  const isQR = p.includes('qr') || p.includes('upi') || notes.includes('qr') || notes.includes('upi') || id.includes('QR') || id.includes('UPI');
+                  const isSwiff = p.includes('swiff') || t.includes('sw') || t.startsWith('rp') || t.includes('rp') || v.includes('rp') || v.includes('ronav') || notes.includes('payswiff');
+
+                  if (selectedChannel === 'qr') {
+                    return isQR;
+                  }
+
+                  if (selectedChannel === 'payswiff') {
+                    if (isQR) return false;
                     if (!isSwiff) return false;
-                    if (selectedPayswiffVendor === 'ronav') {
-                      return v.includes('ronav') || (!v.includes('rp') && !p.includes('rp'));
-                    } else if (selectedPayswiffVendor === 'rp') {
-                      return v.includes('rp') || p.includes('rp');
+
+                    const isRp = v.includes('rp') || t.startsWith('rp') || t.includes('rp') || notes.includes('r.p.') || notes.includes('rp tech') || notes.includes('rp_');
+                    if (selectedPayswiffVendor === 'rp') {
+                      return isRp;
+                    } else if (selectedPayswiffVendor === 'ronav') {
+                      return !isRp;
                     }
                     return true;
-                  });
-                } else if (selectedChannel === 'qr') {
-                  return items.filter(item => {
-                    const p = (item.pos_provider || item.provider || item.notes || item.type || '').toLowerCase();
-                    const id = (item.pos_terminal || item.id || item.ref_number || item.rrn_number || '').toUpperCase();
-                    return p.includes('qr') || p.includes('upi') || id.includes('UPI') || id.includes('QR');
-                  });
-                }
-                return items;
+                  }
+
+                  if (selectedChannel === 'pinelabs') {
+                    if (isQR || isSwiff) return false;
+                    return p.includes('pine') || t.includes('pl') || id.includes('PL') || notes.includes('pine') || (!isSwiff && !isQR);
+                  }
+
+                  return true;
+                });
               };
 
               const channelSwipes = dedupeById(filterByDate(filterByChannel(allSwipes)));
@@ -5670,7 +5714,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     <p style={{ margin: 0, fontSize: '0.875rem' }}>No loan applications found matching criteria.</p>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div className="admin-roster-grid">
                     {displayedLoans.map(loan => {
                       const isNew = loan.status === 'New';
                       const isReview = loan.status === 'Under Review';
@@ -5846,7 +5890,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     <p style={{ margin: 0, fontSize: '0.875rem' }}>No franchise requests found matching criteria.</p>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div className="admin-roster-grid">
                     {displayedFranchises.map(franchise => {
                       const isNew = franchise.status === 'New';
                       const isReview = franchise.status === 'Under Review';
@@ -5942,18 +5986,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       </main>
 
       {/* 5. Mobile Sticky Bottom Navigation Bar (5-Tier Network Hierarchy + Overview + Payouts) */}
-      <nav style={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        backgroundColor: '#0A192F',
-        borderTop: '1px solid #1E293B',
-        display: 'grid',
-        gridTemplateColumns: 'repeat(7, 1fr)',
-        padding: '0.4rem 0',
-        zIndex: 90
-      }}>
+      <nav className="admin-mobile-bottom-nav">
         {/* 1. Overview */}
         <button 
           onClick={() => handleTabSwitch('overview')} 
@@ -7732,11 +7765,235 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         </div>
       )}
 
-      {/* Embedded Animations */}
+      {/* Embedded Animations & Responsive Layout Styles */}
       <style>{`
         @keyframes slideIn {
           from { transform: translateY(-12px); opacity: 0; }
           to { transform: translateY(0); opacity: 1; }
+        }
+
+        /* Mobile-First Defaults */
+        .admin-header {
+          background: rgba(255, 255, 255, 0.98);
+          backdrop-filter: blur(20px);
+          -webkit-backdrop-filter: blur(20px);
+          border-bottom: 1px solid #E2E8F0;
+          padding: 0.625rem 1rem;
+          position: sticky;
+          top: 0;
+          z-index: 50;
+          box-shadow: 0 1px 3px rgba(15,23,42,0.04);
+        }
+
+        .admin-header-inner {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          width: 100%;
+        }
+
+        .admin-desktop-header-nav {
+          display: none !important;
+        }
+
+        .admin-desktop-onboard-btn {
+          display: none !important;
+        }
+
+        .admin-channel-bar-wrapper {
+          background: #FFFFFF;
+          border-bottom: 1px solid #E2E8F0;
+          padding: 0.5rem 0.875rem;
+          position: sticky;
+          top: 0;
+          z-index: 40;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+        }
+
+        .admin-channel-bar-inner {
+          width: 100%;
+        }
+
+        .admin-main-container {
+          padding: 1rem;
+          flex-grow: 1;
+          padding-bottom: 80px;
+          width: 100%;
+          box-sizing: border-box;
+        }
+
+        .admin-kpi-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 0.75rem;
+        }
+
+        .admin-network-directory-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 0.625rem;
+        }
+
+        .admin-roster-grid {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+        }
+
+        .admin-mobile-bottom-nav {
+          position: fixed;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          background-color: #0A192F;
+          border-top: 1px solid #1E293B;
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          padding: 0.4rem 0;
+          z-index: 90;
+        }
+
+        /* Dedicated Desktop UI (>= 1024px) */
+        @media (min-width: 1024px) {
+          .admin-header {
+            padding: 0.65rem 1.75rem;
+          }
+
+          .admin-header-inner {
+            max-width: 1440px;
+            margin: 0 auto;
+          }
+
+          .admin-desktop-header-nav {
+            display: flex !important;
+            align-items: center;
+            gap: 4px;
+            background: #F1F5F9;
+            padding: 3px 4px;
+            border-radius: 10px;
+            border: 1px solid #E2E8F0;
+          }
+
+          .admin-desktop-tab-btn {
+            position: relative;
+            background: transparent;
+            color: #475569;
+            border: none;
+            border-radius: 7px;
+            padding: 0.4rem 0.65rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: all 0.15s ease;
+            white-space: nowrap;
+          }
+
+          .admin-desktop-tab-btn:hover {
+            color: #0F172A;
+            background: rgba(255, 255, 255, 0.6);
+          }
+
+          .admin-desktop-tab-btn.is-active {
+            background: #0F52BA !important;
+            color: #FFFFFF !important;
+            font-weight: 800;
+            box-shadow: 0 2px 6px rgba(15, 82, 186, 0.25);
+          }
+
+          .admin-desktop-tab-badge {
+            background: #DC2626;
+            color: #FFFFFF;
+            font-size: 0.625rem;
+            font-weight: 900;
+            padding: 1px 5px;
+            border-radius: 9999px;
+            line-height: 1.2;
+          }
+
+          .admin-desktop-tab-btn.is-active .admin-desktop-tab-badge {
+            background: #FFFFFF;
+            color: #DC2626;
+          }
+
+          .admin-desktop-onboard-btn {
+            display: inline-flex !important;
+            align-items: center;
+            gap: 5px;
+            background: #0F52BA;
+            color: #FFFFFF;
+            border: none;
+            padding: 0.45rem 0.85rem;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 800;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(15, 82, 186, 0.2);
+            transition: all 0.15s ease;
+          }
+
+          .admin-desktop-onboard-btn:hover {
+            background: #0D47A1;
+            transform: translateY(-1px);
+          }
+
+          .admin-channel-bar-wrapper {
+            top: 57px !important;
+            padding: 0.65rem 1.75rem;
+          }
+
+          .admin-channel-bar-inner {
+            max-width: 1440px;
+            margin: 0 auto;
+          }
+
+          .admin-main-container {
+            max-width: 1440px !important;
+            margin: 0 auto !important;
+            padding: 1.5rem 1.75rem 3rem !important;
+          }
+
+          .admin-kpi-grid {
+            grid-template-columns: repeat(3, 1fr) !important;
+            gap: 1rem !important;
+          }
+
+          .admin-network-directory-grid {
+            grid-template-columns: repeat(4, 1fr) !important;
+            gap: 1rem !important;
+          }
+
+          .admin-roster-grid {
+            display: grid !important;
+            grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)) !important;
+            gap: 1rem !important;
+          }
+
+          .admin-mobile-bottom-nav {
+            display: none !important;
+          }
+        }
+
+        /* Spacious Ultra-Wide Layout (>= 1280px) */
+        @media (min-width: 1280px) {
+          .admin-header-inner,
+          .admin-channel-bar-inner,
+          .admin-main-container {
+            max-width: 1520px !important;
+          }
+
+          .admin-desktop-tab-btn {
+            padding: 0.45rem 0.75rem;
+            font-size: 0.78125rem;
+            gap: 6px;
+          }
+
+          .admin-kpi-grid {
+            grid-template-columns: repeat(6, 1fr) !important;
+            gap: 0.875rem !important;
+          }
         }
       `}</style>
 

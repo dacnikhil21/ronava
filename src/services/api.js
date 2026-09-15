@@ -885,7 +885,15 @@ export async function createDownstreamUser(userData) {
           provider,
           terminal_id: fullTerminalStr,
           commission_rate: rateT1,
-          assigned_by: assignedCreatorId
+          assigned_by: assignedCreatorId,
+          vendor_entity: vendorEntity,
+          device_plan: plan,
+          monthly_rent: rentFee,
+          settlement_type: settlement,
+          commission_rate_t1: rateT1,
+          commission_rate_instant: rateInstant,
+          admin_cut_rate: adminCut,
+          upline_override_rate: uplineCut
         })
         .select()
         .maybeSingle();
@@ -1570,6 +1578,8 @@ export async function getAdminPending() {
           merchant_commission: meta.merchant_commission || 0,
           company_fee: meta.company_fee || 0,
           pos_provider: t.provider || p.provider || 'Pine Labs',
+          pos_vendor: p.vendor_entity || '',
+          pos_terminal: p.terminal_id || '',
           pos_rate: p.commission_rate || 1.53
         };
       });
@@ -1579,6 +1589,7 @@ export async function getAdminPending() {
       .filter(w => w.status === 'PENDING')
       .map(w => {
         const u = userMap[w.merchant_id] || {};
+        const p = posMap[w.merchant_id] || {};
         const isCustomer = (w.admin_remark || '').includes('[CUSTOMER_PAYOUT]');
         const isSubmittedToBank = (w.admin_remark || '').includes('[SUBMITTED_TO_BANK]');
         let custName = '';
@@ -1600,7 +1611,10 @@ export async function getAdminPending() {
           is_submitted_to_bank: isSubmittedToBank,
           customer_name: custName,
           customer_mobile: custMob,
-          settlement_mode: settMode
+          settlement_mode: settMode,
+          pos_provider: p.provider || 'Pine Labs',
+          pos_vendor: p.vendor_entity || '',
+          pos_terminal: p.terminal_id || ''
         };
       });
 
@@ -1618,7 +1632,10 @@ export async function getAdminPending() {
         settlement_type: meta.settlement_type || 'T1',
         merchant_commission: meta.merchant_commission || 0,
         company_fee: meta.company_fee || 0,
-        pos_provider: t.provider || p.provider || 'Pine Labs'
+        pos_provider: t.provider || p.provider || 'Pine Labs',
+        pos_vendor: p.vendor_entity || '',
+        pos_terminal: p.terminal_id || '',
+        pos_rate: p.commission_rate || 1.53
       };
     });
 
@@ -1687,6 +1704,7 @@ export async function getAdminPending() {
     // All Withdrawals mapped for audit history
     const allWithdrawals = allWths.map(w => {
       const u = userMap[w.merchant_id] || {};
+      const p = posMap[w.merchant_id] || {};
       const isCustomer = (w.admin_remark || '').includes('[CUSTOMER_PAYOUT]');
       const isSubmittedToBank = (w.admin_remark || '').includes('[SUBMITTED_TO_BANK]');
       let custName = '';
@@ -1714,7 +1732,10 @@ export async function getAdminPending() {
         customer_name: custName,
         customer_mobile: custMob,
         settlement_mode: settMode,
-        utr_number: utrNumber
+        utr_number: utrNumber,
+        pos_provider: p.provider || 'Pine Labs',
+        pos_vendor: p.vendor_entity || '',
+        pos_terminal: p.terminal_id || ''
       };
     });
 
@@ -1933,10 +1954,18 @@ export async function requestWithdrawal(withdrawalData) {
       })
       .eq('user_id', merchant_id);
 
+    const { data: posRec } = await supabase
+      .from('merchant_pos')
+      .select('provider, vendor_entity, terminal_id')
+      .eq('merchant_id', merchant_id)
+      .maybeSingle();
+
+    const posTag = posRec ? ` | POS: ${posRec.provider || 'Pine Labs'} | Vendor: ${posRec.vendor_entity || 'Single Vendor'}` : '';
+
     // Formulate descriptive remark header for clarity in DB
     const initialRemark = payout_type === 'CUSTOMER_DISBURSAL'
-      ? `[CUSTOMER_PAYOUT] Name: ${customer_name ? customer_name.trim() : 'Customer'} | Mob: ${customer_mobile ? customer_mobile.trim() : 'N/A'} | Mode: ${settlement_mode}`
-      : `[MERCHANT_WITHDRAWAL] Mode: ${settlement_mode}`;
+      ? `[CUSTOMER_PAYOUT] Name: ${customer_name ? customer_name.trim() : 'Customer'} | Mob: ${customer_mobile ? customer_mobile.trim() : 'N/A'} | Mode: ${settlement_mode}${posTag}`
+      : `[MERCHANT_WITHDRAWAL] Mode: ${settlement_mode}${posTag}`;
 
     const { data: createdWth, error: wErr } = await supabase
       .from('withdrawals')
