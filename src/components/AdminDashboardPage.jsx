@@ -88,7 +88,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   const [payoutCategoryFilter, setPayoutCategoryFilter] = useState('ALL'); // 'ALL' | 'SWIPES' | 'WITHDRAWALS'
   const [payoutStatusFilter, setPayoutStatusFilter] = useState('PENDING'); // 'APPROVED' | 'PENDING' | 'INVALID'
   const [payoutSearchQuery, setPayoutSearchQuery] = useState('');
-  const [payoutDateFilter, setPayoutDateFilter] = useState('ALL'); // 'ALL' | 'TODAY' | 'YESTERDAY' | 'WEEK' | 'MONTH' | 'CUSTOM'
+  const [payoutDateFilter, setPayoutDateFilter] = useState('TODAY'); // 'TODAY' | 'ALL' | 'YESTERDAY' | 'WEEK' | 'MONTH' | 'CUSTOM'
   const [payoutCustomDate, setPayoutCustomDate] = useState('');
   const [payoutFromDate, setPayoutFromDate] = useState('');
   const [payoutToDate, setPayoutToDate] = useState('');
@@ -470,6 +470,76 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   const settledPayouts = useMemo(() => {
     return allPayouts.filter(p => p.status === 'APPROVED');
   }, [allPayouts]);
+
+  // Channel & Vendor Pending Payouts Counter (strictly PENDING, resets daily with date scope)
+  const channelPendingCounts = useMemo(() => {
+    const userPosLookup = {};
+    (networkUsers || []).forEach(u => {
+      if (u && u.id) {
+        userPosLookup[u.id] = {
+          provider: u.pos_provider,
+          vendor: u.pos_vendor,
+          terminal: u.pos_terminal
+        };
+      }
+    });
+
+    const now = new Date();
+    const toLocalDateStr = (d) => {
+      if (!d) return '';
+      const dt = new Date(d);
+      return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    };
+    const todayStr = toLocalDateStr(now);
+
+    const pendingItems = (allPayouts || []).filter(w => {
+      if (w.status !== 'PENDING') return false;
+      if (payoutDateFilter === 'TODAY') {
+        const itemDateStr = toLocalDateStr(w.created_at || w.verified_at);
+        return itemDateStr === todayStr;
+      }
+      return true;
+    });
+
+    let pine = 0;
+    let swiffRonav = 0;
+    let swiffRp = 0;
+    let qr = 0;
+
+    pendingItems.forEach(item => {
+      const uPos = userPosLookup[item.merchant_id] || {};
+      const p = (item.pos_provider || item.provider || uPos.provider || '').toLowerCase();
+      const v = (item.pos_vendor || uPos.vendor || '').toLowerCase();
+      const t = (item.pos_terminal || uPos.terminal || '').toLowerCase();
+      const notes = (item.notes || item.admin_remark || '').toLowerCase();
+      const id = (item.id || '').toUpperCase();
+
+      const isQR = p.includes('qr') || p.includes('upi') || notes.includes('qr') || notes.includes('upi') || id.includes('QR') || id.includes('UPI');
+      const isSwiff = p.includes('swiff') || t.includes('sw') || t.startsWith('rp') || t.includes('rp') || v.includes('rp') || v.includes('ronav') || notes.includes('payswiff');
+
+      if (isQR) {
+        qr++;
+      } else if (isSwiff) {
+        const isRp = v.includes('rp') || t.startsWith('rp') || t.includes('rp') || notes.includes('r.p.') || notes.includes('rp tech') || notes.includes('rp_');
+        if (isRp) {
+          swiffRp++;
+        } else {
+          swiffRonav++;
+        }
+      } else {
+        pine++;
+      }
+    });
+
+    return {
+      pine,
+      swiffRonav,
+      swiffRp,
+      swiffTotal: swiffRonav + swiffRp,
+      qr,
+      total: pine + swiffRonav + swiffRp + qr
+    };
+  }, [allPayouts, networkUsers, payoutDateFilter]);
 
   // Process Master Distributors List (Tier 0 / Apex Command Tier)
   const masterDistributorsList = useMemo(() => {
@@ -1025,7 +1095,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 { id: 'district_distributors', label: 'District Dist', icon: Shield },
                 { id: 'distributors', label: 'Distributor', icon: GitFork },
                 { id: 'merchants', label: 'Merchants', icon: Store },
-                { id: 'payouts', label: 'Payouts', icon: Landmark, badge: pendingPayouts.length > 0 ? pendingPayouts.length : null },
+                { id: 'payouts', label: 'Payouts', icon: Landmark, badge: channelPendingCounts.total > 0 ? channelPendingCounts.total : null },
                 { id: 'loans', label: 'Loans', icon: FileText },
                 { id: 'franchises', label: 'Franchise', icon: Building2 }
               ].map(tabItem => {
@@ -1118,9 +1188,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               gap: '3px'
             }}>
             {[
-              { id: 'payswiff', label: 'Payswiff' },
-              { id: 'pinelabs', label: 'Pine Labs' },
-              { id: 'qr', label: 'QR Collections' }
+              { id: 'payswiff', label: 'Payswiff', icon: '⚡', count: channelPendingCounts.swiffTotal },
+              { id: 'pinelabs', label: 'Pine Labs', icon: '🌲', count: channelPendingCounts.pine },
+              { id: 'qr', label: 'QR Collections', icon: '📱', count: channelPendingCounts.qr }
             ].map(ch => {
               const isActive = selectedChannel === ch.id;
               return (
@@ -1129,8 +1199,14 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   type="button"
                   onClick={() => {
                     setSelectedChannel(ch.id);
-                    if (ch.id === 'payswiff' && (!selectedPayswiffVendor || selectedPayswiffVendor === 'ALL')) {
-                      setSelectedPayswiffVendor('ronav');
+                    if (ch.id === 'payswiff') {
+                      if (channelPendingCounts.swiffRp > 0 && channelPendingCounts.swiffRonav === 0) {
+                        setSelectedPayswiffVendor('rp');
+                      } else if (channelPendingCounts.swiffRonav > 0 && channelPendingCounts.swiffRp === 0) {
+                        setSelectedPayswiffVendor('ronav');
+                      } else if (!selectedPayswiffVendor || selectedPayswiffVendor === 'ALL') {
+                        setSelectedPayswiffVendor('ronav');
+                      }
                     }
                   }}
                   style={{
@@ -1144,13 +1220,32 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
+                    gap: '6px',
                     cursor: 'pointer',
                     boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)' : 'none',
                     transition: 'all 0.15s cubic-bezier(0.16, 1, 0.3, 1)',
                     whiteSpace: 'nowrap'
                   }}
                 >
-                  <span>{ch.label}</span>
+                  <span>{ch.icon} {ch.label}</span>
+                  <span style={{
+                    fontSize: '0.6875rem',
+                    fontWeight: 800,
+                    padding: '1px 6px',
+                    borderRadius: '999px',
+                    background: ch.count > 0 
+                      ? (isActive ? '#DC2626' : '#FEE2E2') 
+                      : (isActive ? '#F1F5F9' : '#E2E8F0'),
+                    color: ch.count > 0 
+                      ? (isActive ? '#FFFFFF' : '#DC2626') 
+                      : '#64748B',
+                    lineHeight: '1.2',
+                    minWidth: '18px',
+                    textAlign: 'center',
+                    boxShadow: ch.count > 0 && isActive ? '0 1px 2px rgba(220,38,38,0.25)' : 'none'
+                  }}>
+                    {ch.count}
+                  </span>
                 </button>
               );
             })}
@@ -1168,8 +1263,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               marginTop: '0.4rem'
             }}>
               {[
-                { id: 'ronav', label: 'Ronav Tech' },
-                { id: 'rp', label: 'RP Tech' }
+                { id: 'ronav', label: 'Ronav Tech', count: channelPendingCounts.swiffRonav },
+                { id: 'rp', label: 'RP Tech', count: channelPendingCounts.swiffRp }
               ].map(v => {
                 const isSubActive = selectedPayswiffVendor === v.id;
                 return (
@@ -1188,10 +1283,31 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       cursor: 'pointer',
                       boxShadow: isSubActive ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
                       transition: 'all 0.15s ease',
-                      textAlign: 'center'
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px'
                     }}
                   >
-                    {v.label}
+                    <span>{v.label}</span>
+                    <span style={{
+                      fontSize: '0.65625rem',
+                      fontWeight: 800,
+                      padding: '1px 6px',
+                      borderRadius: '999px',
+                      background: v.count > 0 
+                        ? (isSubActive ? '#D97706' : '#FEF3C7') 
+                        : (isSubActive ? '#F1F5F9' : '#E2E8F0'),
+                      color: v.count > 0 
+                        ? (isSubActive ? '#FFFFFF' : '#B45309') 
+                        : '#64748B',
+                      lineHeight: '1.2',
+                      minWidth: '16px',
+                      textAlign: 'center',
+                      boxShadow: v.count > 0 && isSubActive ? '0 1px 2px rgba(217,119,6,0.25)' : 'none'
+                    }}>
+                      {v.count}
+                    </span>
                   </button>
                 );
               })}
@@ -2090,7 +2206,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   {/* Card 3: Pending Payout Requests */}
                   <div 
                     onClick={() => handleTabSwitch('payouts')}
-                    style={{ background: '#FFFFFF', padding: '1rem', borderRadius: '12px', border: pendingPayouts.length > 0 ? '1.5px solid #F87171' : '1px solid #E2E8F0', cursor: 'pointer' }}
+                    style={{ background: '#FFFFFF', padding: '1rem', borderRadius: '12px', border: channelPendingCounts.total > 0 ? '1.5px solid #F87171' : '1px solid #E2E8F0', cursor: 'pointer' }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>Pending Payouts</span>
@@ -2098,11 +2214,13 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         <Landmark style={{ width: '15px', height: '15px' }} />
                       </div>
                     </div>
-                    <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: pendingPayouts.length > 0 ? '#DC2626' : '#0A192F', margin: '6px 0 2px' }}>
-                      {pendingPayouts.length}
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: channelPendingCounts.total > 0 ? '#DC2626' : '#0A192F', margin: '6px 0 2px' }}>
+                      {channelPendingCounts.total}
                     </h3>
-                    <span style={{ fontSize: '0.625rem', color: '#DC2626', fontWeight: 700 }}>
-                      {pendingPayouts.length > 0 ? 'Action Needed →' : 'All Cleared'}
+                    <span style={{ fontSize: '0.625rem', color: channelPendingCounts.total > 0 ? '#DC2626' : '#059669', fontWeight: 700, display: 'block' }}>
+                      {channelPendingCounts.total > 0 
+                        ? `⚡ Swiff: ${channelPendingCounts.swiffTotal} • 🌲 Pine: ${channelPendingCounts.pine}` 
+                        : 'All Cleared'}
                     </span>
                   </div>
 
@@ -2307,60 +2425,120 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 <div 
                   onClick={() => handleTabSwitch('payouts')}
                   style={{
-                    background: pendingPayouts.length > 0 ? '#FEF2F2' : '#F0FDF4',
-                    border: pendingPayouts.length > 0 ? '1.5px solid #FCA5A5' : '1px solid #BBF7D0',
+                    background: channelPendingCounts.total > 0 ? '#FEF2F2' : '#F0FDF4',
+                    border: channelPendingCounts.total > 0 ? '1.5px solid #FCA5A5' : '1px solid #BBF7D0',
                     borderRadius: '10px',
                     padding: '0.75rem 1rem',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     cursor: 'pointer',
-                    boxShadow: pendingPayouts.length > 0 ? '0 2px 8px rgba(220, 38, 38, 0.08)' : 'none'
+                    boxShadow: channelPendingCounts.total > 0 ? '0 2px 8px rgba(220, 38, 38, 0.08)' : 'none',
+                    flexWrap: 'wrap',
+                    gap: '0.75rem'
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                     <div style={{
-                      width: '26px',
-                      height: '26px',
-                      borderRadius: '6px',
-                      background: pendingPayouts.length > 0 ? '#DC2626' : '#22C55E',
+                      width: '28px',
+                      height: '28px',
+                      borderRadius: '7px',
+                      background: channelPendingCounts.total > 0 ? '#DC2626' : '#22C55E',
                       color: '#FFFFFF',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: '0.75rem',
-                      fontWeight: 900
+                      fontSize: '0.8125rem',
+                      fontWeight: 900,
+                      flexShrink: 0
                     }}>
-                      {pendingPayouts.length > 0 ? '!' : '✓'}
+                      {channelPendingCounts.total > 0 ? '!' : '✓'}
                     </div>
                     <div>
-                      <strong style={{ fontSize: '0.8125rem', color: pendingPayouts.length > 0 ? '#991B1B' : '#166534' }}>
-                        {pendingPayouts.length > 0 
-                          ? `⚠️ Alert: ${pendingPayouts.length} Merchant Payout(s) Waiting For Approval`
+                      <strong style={{ fontSize: '0.8125rem', color: channelPendingCounts.total > 0 ? '#991B1B' : '#166534', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                        {channelPendingCounts.total > 0 
+                          ? `⚠️ Alert: ${channelPendingCounts.total} Merchant Payout(s) Waiting For Approval`
                           : 'Merchant Bank Payouts: All Cleared'}
                       </strong>
-                      <span style={{ display: 'block', fontSize: '0.625rem', color: pendingPayouts.length > 0 ? '#B91C1C' : '#15803D' }}>
-                        {pendingPayouts.length > 0 
-                          ? 'Tap to review withdrawal requests and approve bank transfers'
-                          : 'Zero pending withdrawals • All merchant payouts are up to date'}
-                      </span>
+                      {channelPendingCounts.total > 0 ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                          {/* Pine Labs Pill */}
+                          <span style={{ 
+                            fontSize: '0.65625rem', 
+                            fontWeight: 700, 
+                            background: channelPendingCounts.pine > 0 ? '#FEE2E2' : '#FFFFFF', 
+                            color: channelPendingCounts.pine > 0 ? '#991B1B' : '#64748B', 
+                            padding: '2px 7px', 
+                            borderRadius: '5px',
+                            border: channelPendingCounts.pine > 0 ? '1px solid #FECACA' : '1px solid #E2E8F0',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}>
+                            <span>🌲 Pine Labs:</span>
+                            <strong style={{ color: channelPendingCounts.pine > 0 ? '#DC2626' : '#0F172A' }}>{channelPendingCounts.pine}</strong>
+                          </span>
+
+                          {/* Payswiff Pill */}
+                          <span style={{ 
+                            fontSize: '0.65625rem', 
+                            fontWeight: 700, 
+                            background: channelPendingCounts.swiffTotal > 0 ? '#FEF3C7' : '#FFFFFF', 
+                            color: channelPendingCounts.swiffTotal > 0 ? '#92400E' : '#64748B', 
+                            padding: '2px 7px', 
+                            borderRadius: '5px',
+                            border: channelPendingCounts.swiffTotal > 0 ? '1px solid #FDE68A' : '1px solid #E2E8F0',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}>
+                            <span>⚡ Payswiff:</span>
+                            <strong style={{ color: channelPendingCounts.swiffTotal > 0 ? '#B45309' : '#0F172A' }}>{channelPendingCounts.swiffTotal}</strong>
+                            <span style={{ fontSize: '0.59375rem', opacity: 0.85 }}>
+                              (RP Tech: {channelPendingCounts.swiffRp} • Ronav: {channelPendingCounts.swiffRonav})
+                            </span>
+                          </span>
+
+                          {/* QR Pill */}
+                          <span style={{ 
+                            fontSize: '0.65625rem', 
+                            fontWeight: 700, 
+                            background: channelPendingCounts.qr > 0 ? '#F3E8FF' : '#FFFFFF', 
+                            color: channelPendingCounts.qr > 0 ? '#6B21A8' : '#64748B', 
+                            padding: '2px 7px', 
+                            borderRadius: '5px',
+                            border: channelPendingCounts.qr > 0 ? '1px solid #E9D5FF' : '1px solid #E2E8F0',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}>
+                            <span>📱 QR:</span>
+                            <strong style={{ color: channelPendingCounts.qr > 0 ? '#7C3AED' : '#0F172A' }}>{channelPendingCounts.qr}</strong>
+                          </span>
+                        </div>
+                      ) : (
+                        <span style={{ display: 'block', fontSize: '0.625rem', color: '#15803D' }}>
+                          Zero pending withdrawals • All merchant payouts are up to date
+                        </span>
+                      )}
                     </div>
                   </div>
 
                   <button
                     style={{
-                      background: pendingPayouts.length > 0 ? '#DC2626' : '#FFFFFF',
-                      color: pendingPayouts.length > 0 ? '#FFFFFF' : '#15803D',
-                      border: pendingPayouts.length > 0 ? 'none' : '1px solid #86EFAC',
-                      padding: '0.35rem 0.65rem',
+                      background: channelPendingCounts.total > 0 ? '#DC2626' : '#FFFFFF',
+                      color: channelPendingCounts.total > 0 ? '#FFFFFF' : '#15803D',
+                      border: channelPendingCounts.total > 0 ? 'none' : '1px solid #86EFAC',
+                      padding: '0.4rem 0.75rem',
                       borderRadius: '6px',
                       fontSize: '0.6875rem',
                       fontWeight: 800,
                       cursor: 'pointer',
-                      whiteSpace: 'nowrap'
+                      whiteSpace: 'nowrap',
+                      boxShadow: channelPendingCounts.total > 0 ? '0 1px 3px rgba(220,38,38,0.25)' : 'none'
                     }}
                   >
-                    {pendingPayouts.length > 0 ? `Review (${pendingPayouts.length}) →` : 'History →'}
+                    {channelPendingCounts.total > 0 ? `Review (${channelPendingCounts.total}) →` : 'History →'}
                   </button>
                 </div>
 
@@ -3367,21 +3545,27 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               const combinedLedger = dedupeById(transactionsLedger);
               const combinedPayouts = dedupeById(allPayouts);
 
-              // Date filter helper
+              // Date filter helper (accurate local calendar day)
+              const toLocalDateStr = (d) => {
+                if (!d) return '';
+                const dt = new Date(d);
+                return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+              };
+
               const filterByDate = (items, dateField = 'created_at') => {
                 if (!payoutDateFilter || payoutDateFilter === 'ALL') return items;
                 const now = new Date();
-                const todayStr = now.toISOString().slice(0, 10);
+                const todayStr = toLocalDateStr(now);
                 const yesterday = new Date(now);
                 yesterday.setDate(now.getDate() - 1);
-                const yesterdayStr = yesterday.toISOString().slice(0, 10);
+                const yesterdayStr = toLocalDateStr(yesterday);
                 const weekAgo = new Date(now);
                 weekAgo.setDate(now.getDate() - 7);
 
                 return items.filter(item => {
                   const dVal = item[dateField] || item.created_at || item.verified_at;
                   if (!dVal) return true;
-                  const itemDateStr = new Date(dVal).toISOString().slice(0, 10);
+                  const itemDateStr = toLocalDateStr(dVal);
                   const itemDateObj = new Date(dVal);
 
                   if (payoutDateFilter === 'TODAY') return itemDateStr === todayStr;
@@ -6048,7 +6232,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         >
           <Landmark style={{ width: '16px', height: '16px' }} />
           <span style={{ fontSize: '0.48rem', fontWeight: 800 }}>Payouts</span>
-          {pendingPayouts.length > 0 && (
+          {channelPendingCounts.total > 0 && (
             <span style={{
               position: 'absolute',
               top: '-2px',
@@ -6064,7 +6248,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               alignItems: 'center',
               justifyContent: 'center'
             }}>
-              {pendingPayouts.length}
+              {channelPendingCounts.total}
             </span>
           )}
         </button>
