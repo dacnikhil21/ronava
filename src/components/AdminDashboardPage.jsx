@@ -157,9 +157,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     pos_terminal_id: '' // Real physical POS machine serial number / TID
   });
 
-  // Dedicated Today's Profit & Commission Distribution State
-  const [profitDateFilter, setProfitDateFilter] = useState('TODAY'); // 'TODAY' | 'YESTERDAY' | 'ALL'
-  const [profitDrilldownModal, setProfitDrilldownModal] = useState(null); // { tier: 'DISTRICT', title: 'District Distributors', icon: '🏛️', color: '#D97706', tabId: 'district_distributors' }
+  // Dedicated Ecosystem Profit & Commission Distribution State
+  const [profitDateFilter, setProfitDateFilter] = useState('TODAY'); // 'TODAY' | 'YESTERDAY' | 'WEEK' | 'MONTH' | 'ALL' | 'CUSTOM'
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+  const [selectedProfitTier, setSelectedProfitTier] = useState('COMPANY'); // 'COMPANY' | 'MASTER' | 'SUPER' | 'DISTRICT' | 'DISTRIBUTOR' | 'MERCHANT'
 
   // Toast Helper
   const triggerToast = (msg, type = 'success') => {
@@ -948,6 +950,17 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         const time = new Date(t.created_at || Date.now()).getTime();
         return time >= startOfYesterday && time < startOfToday;
       });
+    } else if (profitDateFilter === 'WEEK') {
+      txns = txns.filter(t => new Date(t.created_at || Date.now()).getTime() >= (now.getTime() - 7 * 86400000));
+    } else if (profitDateFilter === 'MONTH') {
+      txns = txns.filter(t => new Date(t.created_at || Date.now()).getTime() >= new Date(now.getFullYear(), now.getMonth(), 1).getTime());
+    } else if (profitDateFilter === 'CUSTOM' && customStartDate) {
+      const start = new Date(customStartDate + 'T00:00:00').getTime();
+      const end = customEndDate ? new Date(customEndDate + 'T23:59:59').getTime() : Date.now();
+      txns = txns.filter(t => {
+        const time = new Date(t.created_at || Date.now()).getTime();
+        return time >= start && time <= end;
+      });
     }
 
     let companyNet = 0;
@@ -1129,10 +1142,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         master: new Set(breakdowns.MASTER.map(b => b.partner_id)).size,
         super: new Set(breakdowns.SUPER.map(b => b.partner_id)).size,
         district: new Set(breakdowns.DISTRICT.map(b => b.partner_id)).size,
+        distributor: new Set(breakdowns.DISTRIBUTOR.map(b => b.partner_id)).size,
         merchant: new Set(breakdowns.MERCHANT.map(b => b.partner_id)).size
       }
     };
-  }, [networkUsers, transactionsLedger, profitDateFilter]);
+  }, [networkUsers, transactionsLedger, profitDateFilter, customStartDate, customEndDate]);
 
 
   // Inquiry Status Handler
@@ -1300,6 +1314,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
             <nav className="admin-desktop-header-nav" aria-label="Admin Desktop Navigation">
               {[
                 { id: 'overview', label: 'Overview', icon: Activity },
+                { id: 'profits', label: 'Profits', icon: TrendingUp },
                 { id: 'master_distributors', label: 'Master', icon: Crown },
                 { id: 'super_distributors', label: 'Super Dist', icon: Zap },
                 { id: 'district_distributors', label: 'District Dist', icon: Shield },
@@ -2399,8 +2414,21 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     </span>
                   </div>
 
-                  {/* Card 2: Admin Profit */}
-                  <div style={{ background: '#ECFDF5', padding: '1rem', borderRadius: '12px', border: '1px solid #A7F3D0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                  {/* Card 2: Admin Profit -> Opens Dedicated Profits Page */}
+                  <div 
+                    onClick={() => handleTabSwitch('profits')}
+                    style={{ 
+                      background: '#ECFDF5', 
+                      padding: '1rem', 
+                      borderRadius: '12px', 
+                      border: '1.5px solid #A7F3D0', 
+                      boxShadow: '0 2px 6px rgba(5, 150, 105, 0.08)',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease'
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#059669'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#A7F3D0'; e.currentTarget.style.transform = 'translateY(0)'; }}
+                  >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#059669', textTransform: 'uppercase' }}>Admin Net Profit</span>
                       <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#D1FAE5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -2410,7 +2438,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#059669', margin: '6px 0 2px' }}>
                       ₹{adminProfitDisplay}
                     </h3>
-                    <span style={{ fontSize: '0.625rem', color: '#047857', fontWeight: 700 }}>Company Earnings</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.625rem', color: '#047857', fontWeight: 700 }}>Company Earnings</span>
+                      <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>Inspect 6 Tiers →</span>
+                    </div>
                   </div>
 
                   {/* Card 3: Pending Payout Requests */}
@@ -2505,300 +2536,6 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     </span>
                   </div>
 
-                </div>
-
-                {/* REAL-TIME TODAY'S PROFIT & COMMISSION DISTRIBUTION HUB */}
-                <div style={{
-                  background: '#FFFFFF',
-                  borderRadius: '12px',
-                  border: '1px solid #E2E8F0',
-                  padding: '1.25rem',
-                  boxShadow: '0 2px 8px rgba(15, 23, 42, 0.03)'
-                }}>
-                  {/* Hub Header */}
-                  <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginBottom: '1rem',
-                    flexWrap: 'wrap',
-                    gap: '0.75rem'
-                  }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{
-                          width: '28px',
-                          height: '28px',
-                          borderRadius: '8px',
-                          background: '#ECFDF5',
-                          color: '#059669',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}>
-                          <TrendingUp style={{ width: '16px', height: '16px' }} />
-                        </div>
-                        <h3 style={{ fontSize: '0.9375rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
-                          Today's Profit & Commission Distribution Hub
-                        </h3>
-                      </div>
-                      <p style={{ fontSize: '0.6875rem', color: '#64748B', margin: '3px 0 0 36px', fontWeight: 600 }}>
-                        Real-time Gross Margin & Upline Override Earnings across all network tiers
-                      </p>
-                    </div>
-
-                    {/* Compact Date Filter Selector */}
-                    <div style={{
-                      display: 'inline-flex',
-                      background: '#F1F5F9',
-                      padding: '3px',
-                      borderRadius: '8px',
-                      gap: '3px'
-                    }}>
-                      {[
-                        { id: 'TODAY', label: "Today" },
-                        { id: 'YESTERDAY', label: "Yesterday" },
-                        { id: 'ALL', label: "All Time" }
-                      ].map(f => (
-                        <button
-                          key={f.id}
-                          onClick={() => setProfitDateFilter(f.id)}
-                          style={{
-                            background: profitDateFilter === f.id ? '#0F52BA' : 'transparent',
-                            color: profitDateFilter === f.id ? '#FFFFFF' : '#475569',
-                            border: 'none',
-                            padding: '4px 10px',
-                            borderRadius: '6px',
-                            fontSize: '0.6875rem',
-                            fontWeight: profitDateFilter === f.id ? 800 : 600,
-                            cursor: 'pointer',
-                            transition: 'all 0.15s ease'
-                          }}
-                        >
-                          {f.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* 5 Clean Stat Cards Grid */}
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))',
-                    gap: '0.875rem'
-                  }}>
-
-                    {/* 1. Company Net Profit */}
-                    <div
-                      onClick={() => setProfitDrilldownModal({
-                        tier: 'COMPANY',
-                        title: 'Company Net Margin',
-                        icon: '🏢',
-                        accentColor: '#059669',
-                        badgeBg: '#ECFDF5',
-                        tabId: null,
-                        total: profitDistributionData.companyNet,
-                        items: profitDistributionData.breakdowns.COMPANY
-                      })}
-                      style={{
-                        background: 'linear-gradient(135deg, #F0FDF4 0%, #FFFFFF 100%)',
-                        border: '1.5px solid #BBF7D0',
-                        borderRadius: '10px',
-                        padding: '1rem',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                        boxShadow: '0 2px 4px rgba(5, 150, 105, 0.04)'
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = '#059669'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = '#BBF7D0'; }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '1.25rem' }}>🏢</span>
-                        <span style={{ fontSize: '0.625rem', fontWeight: 700, color: '#059669', background: '#ECFDF5', padding: '2px 6px', borderRadius: '4px' }}>
-                          {profitDistributionData.counts.company} Swipes
-                        </span>
-                      </div>
-                      <h4 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#059669', margin: '8px 0 2px' }}>
-                        ₹{profitDistributionData.companyNet.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </h4>
-                      <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#0A192F' }}>
-                        Company Net Margin
-                      </span>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
-                        <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Direct Ronav Margin</span>
-                        <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>Inspect →</span>
-                      </div>
-                    </div>
-
-                    {/* 2. Master Distributors */}
-                    <div
-                      onClick={() => setProfitDrilldownModal({
-                        tier: 'MASTER',
-                        title: 'Master Distributors',
-                        icon: '👑',
-                        accentColor: '#7C3AED',
-                        badgeBg: '#FAF5FF',
-                        tabId: 'master_distributors',
-                        total: profitDistributionData.masterTotal,
-                        items: profitDistributionData.breakdowns.MASTER
-                      })}
-                      style={{
-                        background: 'linear-gradient(135deg, #FAF5FF 0%, #FFFFFF 100%)',
-                        border: '1.5px solid #E9D5FF',
-                        borderRadius: '10px',
-                        padding: '1rem',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                        boxShadow: '0 2px 4px rgba(124, 58, 237, 0.04)'
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = '#7C3AED'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = '#E9D5FF'; }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '1.25rem' }}>👑</span>
-                        <span style={{ fontSize: '0.625rem', fontWeight: 700, color: '#7C3AED', background: '#FAF5FF', padding: '2px 6px', borderRadius: '4px' }}>
-                          {profitDistributionData.counts.master} Active
-                        </span>
-                      </div>
-                      <h4 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#7C3AED', margin: '8px 0 2px' }}>
-                        ₹{profitDistributionData.masterTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </h4>
-                      <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#0A192F' }}>
-                        Master Distributors
-                      </span>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
-                        <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Apex State Overrides</span>
-                        <span style={{ fontSize: '0.625rem', color: '#7C3AED', fontWeight: 800 }}>Inspect →</span>
-                      </div>
-                    </div>
-
-                    {/* 3. Super Distributors */}
-                    <div
-                      onClick={() => setProfitDrilldownModal({
-                        tier: 'SUPER',
-                        title: 'Super Distributors',
-                        icon: '⚡',
-                        accentColor: '#4F46E5',
-                        badgeBg: '#EEF2FF',
-                        tabId: 'super_distributors',
-                        total: profitDistributionData.superTotal,
-                        items: profitDistributionData.breakdowns.SUPER
-                      })}
-                      style={{
-                        background: 'linear-gradient(135deg, #EEF2FF 0%, #FFFFFF 100%)',
-                        border: '1.5px solid #C7D2FE',
-                        borderRadius: '10px',
-                        padding: '1rem',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                        boxShadow: '0 2px 4px rgba(79, 70, 229, 0.04)'
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = '#4F46E5'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = '#C7D2FE'; }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '1.25rem' }}>⚡</span>
-                        <span style={{ fontSize: '0.625rem', fontWeight: 700, color: '#4F46E5', background: '#EEF2FF', padding: '2px 6px', borderRadius: '4px' }}>
-                          {profitDistributionData.counts.super} Active
-                        </span>
-                      </div>
-                      <h4 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#4F46E5', margin: '8px 0 2px' }}>
-                        ₹{profitDistributionData.superTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </h4>
-                      <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#0A192F' }}>
-                        Super Distributors
-                      </span>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
-                        <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Regional Hub Overrides</span>
-                        <span style={{ fontSize: '0.625rem', color: '#4F46E5', fontWeight: 800 }}>Inspect →</span>
-                      </div>
-                    </div>
-
-                    {/* 4. District Distributors */}
-                    <div
-                      onClick={() => setProfitDrilldownModal({
-                        tier: 'DISTRICT',
-                        title: 'District Distributors',
-                        icon: '🏛️',
-                        accentColor: '#D97706',
-                        badgeBg: '#FFFBEB',
-                        tabId: 'district_distributors',
-                        total: profitDistributionData.districtTotal,
-                        items: profitDistributionData.breakdowns.DISTRICT
-                      })}
-                      style={{
-                        background: 'linear-gradient(135deg, #FFFBEB 0%, #FFFFFF 100%)',
-                        border: '1.5px solid #FDE68A',
-                        borderRadius: '10px',
-                        padding: '1rem',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                        boxShadow: '0 2px 4px rgba(217, 119, 6, 0.04)'
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = '#D97706'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = '#FDE68A'; }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '1.25rem' }}>🏛️</span>
-                        <span style={{ fontSize: '0.625rem', fontWeight: 700, color: '#D97706', background: '#FFFBEB', padding: '2px 6px', borderRadius: '4px' }}>
-                          {profitDistributionData.counts.district} Active
-                        </span>
-                      </div>
-                      <h4 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#D97706', margin: '8px 0 2px' }}>
-                        ₹{profitDistributionData.districtTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </h4>
-                      <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#0A192F' }}>
-                        District Distributors
-                      </span>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
-                        <span style={{ fontSize: '0.625rem', color: '#64748B' }}>District Franchise Cuts</span>
-                        <span style={{ fontSize: '0.625rem', color: '#D97706', fontWeight: 800 }}>Inspect →</span>
-                      </div>
-                    </div>
-
-                    {/* 5. Retail Merchants */}
-                    <div
-                      onClick={() => setProfitDrilldownModal({
-                        tier: 'MERCHANT',
-                        title: 'Merchant Commissions',
-                        icon: '🏪',
-                        accentColor: '#0284C7',
-                        badgeBg: '#F0F9FF',
-                        tabId: 'merchants',
-                        total: profitDistributionData.merchantTotal,
-                        items: profitDistributionData.breakdowns.MERCHANT
-                      })}
-                      style={{
-                        background: 'linear-gradient(135deg, #F0F9FF 0%, #FFFFFF 100%)',
-                        border: '1.5px solid #BAE6FD',
-                        borderRadius: '10px',
-                        padding: '1rem',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                        boxShadow: '0 2px 4px rgba(2, 132, 199, 0.04)'
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = '#0284C7'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = '#BAE6FD'; }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '1.25rem' }}>🏪</span>
-                        <span style={{ fontSize: '0.625rem', fontWeight: 700, color: '#0284C7', background: '#F0F9FF', padding: '2px 6px', borderRadius: '4px' }}>
-                          {profitDistributionData.counts.merchant} Active
-                        </span>
-                      </div>
-                      <h4 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#0284C7', margin: '8px 0 2px' }}>
-                        ₹{profitDistributionData.merchantTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </h4>
-                      <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#0A192F' }}>
-                        Merchant Commission
-                      </span>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' }}>
-                        <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Counter Swipe Earnings</span>
-                        <span style={{ fontSize: '0.625rem', color: '#0284C7', fontWeight: 800 }}>Inspect →</span>
-                      </div>
-                    </div>
-
-                  </div>
                 </div>
 
                 {/* 1. NETWORK DIRECTORY (5 TIERS) + QUICK ONBOARD BUTTON */}
@@ -3257,6 +2994,593 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
               </div>
             )}
+
+            {/* TAB VIEW: DEDICATED ECOSYSTEM PROFITS & COMMISSION LEDGER */}
+            {activeTab === 'profits' && (() => {
+              const currentTierKey = selectedProfitTier || 'COMPANY';
+              const currentItems = profitDistributionData.breakdowns[currentTierKey] || [];
+              const tierMetaMap = {
+                COMPANY: {
+                  title: 'Company Net Margin',
+                  icon: '🏢',
+                  badge: 'Direct Ronav Margin',
+                  accentColor: '#059669',
+                  bgTint: '#ECFDF5',
+                  tabId: null,
+                  total: profitDistributionData.companyNet
+                },
+                MASTER: {
+                  title: 'Master Distributors',
+                  icon: '👑',
+                  badge: `${profitDistributionData.counts.master} Apex Leaders`,
+                  accentColor: '#7C3AED',
+                  bgTint: '#FAF5FF',
+                  tabId: 'master_distributors',
+                  total: profitDistributionData.masterTotal
+                },
+                SUPER: {
+                  title: 'Super Distributors',
+                  icon: '⚡',
+                  badge: `${profitDistributionData.counts.super} Regional Hubs`,
+                  accentColor: '#4F46E5',
+                  bgTint: '#EEF2FF',
+                  tabId: 'super_distributors',
+                  total: profitDistributionData.superTotal
+                },
+                DISTRICT: {
+                  title: 'District Distributors',
+                  icon: '🏛️',
+                  badge: `${profitDistributionData.counts.district} District Hubs`,
+                  accentColor: '#D97706',
+                  bgTint: '#FFFBEB',
+                  tabId: 'district_distributors',
+                  total: profitDistributionData.districtTotal
+                },
+                DISTRIBUTOR: {
+                  title: 'Distributors',
+                  icon: '📦',
+                  badge: `${profitDistributionData.counts.distributor} Area Managers`,
+                  accentColor: '#0F52BA',
+                  bgTint: '#EFF6FF',
+                  tabId: 'distributors',
+                  total: profitDistributionData.distributorTotal
+                },
+                MERCHANT: {
+                  title: 'Retail Merchants',
+                  icon: '🏪',
+                  badge: `${profitDistributionData.counts.merchant} Active Stores`,
+                  accentColor: '#0284C7',
+                  bgTint: '#F0F9FF',
+                  tabId: 'merchants',
+                  total: profitDistributionData.merchantTotal
+                }
+              };
+              const activeMeta = tierMetaMap[currentTierKey] || tierMetaMap.COMPANY;
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  
+                  {/* Top Navigation & Action Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <button
+                        onClick={() => handleTabSwitch('overview')}
+                        style={{
+                          background: '#FFFFFF',
+                          border: '1px solid #CBD5E1',
+                          color: '#334155',
+                          padding: '0.45rem 0.875rem',
+                          borderRadius: '8px',
+                          fontSize: '0.75rem',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+                        }}
+                      >
+                        <ArrowLeft style={{ width: '14px', height: '14px' }} />
+                        <span>Back to Overview</span>
+                      </button>
+                      <div>
+                        <h2 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                          Ecosystem Profits & Commission Ledger
+                        </h2>
+                        <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 600 }}>
+                          Real-time Gross Margin & Upline Override Earnings across all 6 tiers
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Quick Onboard Partner Button */}
+                    <button
+                      onClick={() => setIsCreateModalOpen(true)}
+                      style={{
+                        background: '#0F52BA',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        padding: '0.5rem 1rem',
+                        borderRadius: '8px',
+                        fontSize: '0.75rem',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        boxShadow: '0 2px 6px rgba(15, 82, 186, 0.25)'
+                      }}
+                    >
+                      <PlusCircle style={{ width: '15px', height: '15px' }} />
+                      <span>+ Onboard Partner</span>
+                    </button>
+                  </div>
+
+                  {/* Filter Toolbar: Presets + Custom Date Range */}
+                  <div style={{
+                    background: '#FFFFFF',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '12px',
+                    padding: '1rem',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                      {/* Presets */}
+                      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.35rem' }}>
+                        {[
+                          { id: 'TODAY', label: "Today" },
+                          { id: 'YESTERDAY', label: "Yesterday" },
+                          { id: 'WEEK', label: "7 Days" },
+                          { id: 'MONTH', label: "This Month" },
+                          { id: 'ALL', label: "All Time" },
+                          { id: 'CUSTOM', label: "Custom Range" }
+                        ].map(p => (
+                          <button
+                            key={p.id}
+                            onClick={() => setProfitDateFilter(p.id)}
+                            style={{
+                              background: profitDateFilter === p.id ? '#0F52BA' : '#F1F5F9',
+                              color: profitDateFilter === p.id ? '#FFFFFF' : '#475569',
+                              border: 'none',
+                              padding: '0.4rem 0.85rem',
+                              borderRadius: '6px',
+                              fontSize: '0.6875rem',
+                              fontWeight: profitDateFilter === p.id ? 800 : 600,
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease'
+                            }}
+                          >
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 700 }}>
+                        {profitDistributionData.txnsCount} Total Swipes in Selected Window
+                      </span>
+                    </div>
+
+                    {/* Custom Date Inputs (when Custom Range selected or used) */}
+                    {profitDateFilter === 'CUSTOM' && (
+                      <div style={{
+                        marginTop: '0.875rem',
+                        paddingTop: '0.875rem',
+                        borderTop: '1px solid #F1F5F9',
+                        display: 'flex',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '0.875rem'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#475569' }}>Start Date:</span>
+                          <input
+                            type="date"
+                            value={customStartDate}
+                            onChange={(e) => setCustomStartDate(e.target.value)}
+                            style={{
+                              padding: '0.4rem 0.6rem',
+                              borderRadius: '6px',
+                              border: '1px solid #CBD5E1',
+                              fontSize: '0.75rem',
+                              color: '#0A192F',
+                              fontWeight: 600
+                            }}
+                          />
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#475569' }}>End Date:</span>
+                          <input
+                            type="date"
+                            value={customEndDate}
+                            onChange={(e) => setCustomEndDate(e.target.value)}
+                            style={{
+                              padding: '0.4rem 0.6rem',
+                              borderRadius: '6px',
+                              border: '1px solid #CBD5E1',
+                              fontSize: '0.75rem',
+                              color: '#0A192F',
+                              fontWeight: 600
+                            }}
+                          />
+                        </div>
+
+                        {(customStartDate || customEndDate) && (
+                          <button
+                            onClick={() => { setCustomStartDate(''); setCustomEndDate(''); }}
+                            style={{
+                              background: '#F1F5F9',
+                              border: 'none',
+                              color: '#64748B',
+                              padding: '0.4rem 0.65rem',
+                              borderRadius: '6px',
+                              fontSize: '0.6875rem',
+                              fontWeight: 700,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Reset Dates
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 2-COLUMN GRID: ALL 6 TIERS (MATCHING HOMEPAGE 2-COL GRID LAYOUT) */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, 1fr)',
+                    gap: '0.875rem'
+                  }}>
+
+                    {/* Tier 1: Company Net Margin */}
+                    <div
+                      onClick={() => setSelectedProfitTier('COMPANY')}
+                      style={{
+                        background: selectedProfitTier === 'COMPANY' ? '#ECFDF5' : '#FFFFFF',
+                        border: selectedProfitTier === 'COMPANY' ? '2px solid #059669' : '1px solid #E2E8F0',
+                        borderRadius: '12px',
+                        padding: '1rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        boxShadow: selectedProfitTier === 'COMPANY' ? '0 4px 12px rgba(5, 150, 105, 0.12)' : '0 2px 4px rgba(0,0,0,0.02)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#059669', textTransform: 'uppercase' }}>
+                          🏢 Company Net Margin
+                        </span>
+                        {selectedProfitTier === 'COMPANY' ? (
+                          <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#059669', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
+                            ✓ Active
+                          </span>
+                        ) : (
+                          <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#D1FAE5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <DollarSign style={{ width: '15px', height: '15px' }} />
+                          </div>
+                        )}
+                      </div>
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#059669', margin: '6px 0 2px' }}>
+                        ₹{profitDistributionData.companyNet.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </h3>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.625rem', color: '#047857', fontWeight: 700 }}>Direct Ronav Margin</span>
+                        <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>{profitDistributionData.counts.company} Swipes</span>
+                      </div>
+                    </div>
+
+                    {/* Tier 2: Master Distributors */}
+                    <div
+                      onClick={() => setSelectedProfitTier('MASTER')}
+                      style={{
+                        background: selectedProfitTier === 'MASTER' ? '#FAF5FF' : '#FFFFFF',
+                        border: selectedProfitTier === 'MASTER' ? '2px solid #7C3AED' : '1px solid #E2E8F0',
+                        borderRadius: '12px',
+                        padding: '1rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        boxShadow: selectedProfitTier === 'MASTER' ? '0 4px 12px rgba(124, 58, 237, 0.12)' : '0 2px 4px rgba(0,0,0,0.02)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#7C3AED', textTransform: 'uppercase' }}>
+                          👑 Master Distributors
+                        </span>
+                        {selectedProfitTier === 'MASTER' ? (
+                          <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#7C3AED', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
+                            ✓ Active
+                          </span>
+                        ) : (
+                          <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#F3E8FF', color: '#7C3AED', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Crown style={{ width: '15px', height: '15px' }} />
+                          </div>
+                        )}
+                      </div>
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#7C3AED', margin: '6px 0 2px' }}>
+                        ₹{profitDistributionData.masterTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </h3>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.625rem', color: '#6B21A8', fontWeight: 700 }}>Apex State Overrides</span>
+                        <span style={{ fontSize: '0.625rem', color: '#7C3AED', fontWeight: 800 }}>{profitDistributionData.counts.master} Active</span>
+                      </div>
+                    </div>
+
+                    {/* Tier 3: Super Distributors */}
+                    <div
+                      onClick={() => setSelectedProfitTier('SUPER')}
+                      style={{
+                        background: selectedProfitTier === 'SUPER' ? '#EEF2FF' : '#FFFFFF',
+                        border: selectedProfitTier === 'SUPER' ? '2px solid #4F46E5' : '1px solid #E2E8F0',
+                        borderRadius: '12px',
+                        padding: '1rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        boxShadow: selectedProfitTier === 'SUPER' ? '0 4px 12px rgba(79, 70, 229, 0.12)' : '0 2px 4px rgba(0,0,0,0.02)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#4F46E5', textTransform: 'uppercase' }}>
+                          ⚡ Super Distributors
+                        </span>
+                        {selectedProfitTier === 'SUPER' ? (
+                          <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#4F46E5', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
+                            ✓ Active
+                          </span>
+                        ) : (
+                          <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#E0E7FF', color: '#4F46E5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Zap style={{ width: '15px', height: '15px' }} />
+                          </div>
+                        )}
+                      </div>
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#4F46E5', margin: '6px 0 2px' }}>
+                        ₹{profitDistributionData.superTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </h3>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.625rem', color: '#3730A3', fontWeight: 700 }}>Regional Hub Overrides</span>
+                        <span style={{ fontSize: '0.625rem', color: '#4F46E5', fontWeight: 800 }}>{profitDistributionData.counts.super} Active</span>
+                      </div>
+                    </div>
+
+                    {/* Tier 4: District Distributors */}
+                    <div
+                      onClick={() => setSelectedProfitTier('DISTRICT')}
+                      style={{
+                        background: selectedProfitTier === 'DISTRICT' ? '#FFFBEB' : '#FFFFFF',
+                        border: selectedProfitTier === 'DISTRICT' ? '2px solid #D97706' : '1px solid #E2E8F0',
+                        borderRadius: '12px',
+                        padding: '1rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        boxShadow: selectedProfitTier === 'DISTRICT' ? '0 4px 12px rgba(217, 119, 6, 0.12)' : '0 2px 4px rgba(0,0,0,0.02)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#D97706', textTransform: 'uppercase' }}>
+                          🏛️ District Distributors
+                        </span>
+                        {selectedProfitTier === 'DISTRICT' ? (
+                          <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#D97706', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
+                            ✓ Active
+                          </span>
+                        ) : (
+                          <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#FEF3C7', color: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Building2 style={{ width: '15px', height: '15px' }} />
+                          </div>
+                        )}
+                      </div>
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#D97706', margin: '6px 0 2px' }}>
+                        ₹{profitDistributionData.districtTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </h3>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.625rem', color: '#92400E', fontWeight: 700 }}>District Franchise Cuts</span>
+                        <span style={{ fontSize: '0.625rem', color: '#D97706', fontWeight: 800 }}>{profitDistributionData.counts.district} Active</span>
+                      </div>
+                    </div>
+
+                    {/* Tier 5: Distributors */}
+                    <div
+                      onClick={() => setSelectedProfitTier('DISTRIBUTOR')}
+                      style={{
+                        background: selectedProfitTier === 'DISTRIBUTOR' ? '#EFF6FF' : '#FFFFFF',
+                        border: selectedProfitTier === 'DISTRIBUTOR' ? '2px solid #0F52BA' : '1px solid #E2E8F0',
+                        borderRadius: '12px',
+                        padding: '1rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        boxShadow: selectedProfitTier === 'DISTRIBUTOR' ? '0 4px 12px rgba(15, 82, 186, 0.12)' : '0 2px 4px rgba(0,0,0,0.02)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#0F52BA', textTransform: 'uppercase' }}>
+                          📦 Distributors
+                        </span>
+                        {selectedProfitTier === 'DISTRIBUTOR' ? (
+                          <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#0F52BA', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
+                            ✓ Active
+                          </span>
+                        ) : (
+                          <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#DBEAFE', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <GitFork style={{ width: '15px', height: '15px' }} />
+                          </div>
+                        )}
+                      </div>
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0F52BA', margin: '6px 0 2px' }}>
+                        ₹{profitDistributionData.distributorTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </h3>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.625rem', color: '#1E40AF', fontWeight: 700 }}>Area Manager Overrides</span>
+                        <span style={{ fontSize: '0.625rem', color: '#0F52BA', fontWeight: 800 }}>{profitDistributionData.counts.distributor} Active</span>
+                      </div>
+                    </div>
+
+                    {/* Tier 6: Retail Merchants */}
+                    <div
+                      onClick={() => setSelectedProfitTier('MERCHANT')}
+                      style={{
+                        background: selectedProfitTier === 'MERCHANT' ? '#F0F9FF' : '#FFFFFF',
+                        border: selectedProfitTier === 'MERCHANT' ? '2px solid #0284C7' : '1px solid #E2E8F0',
+                        borderRadius: '12px',
+                        padding: '1rem',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        boxShadow: selectedProfitTier === 'MERCHANT' ? '0 4px 12px rgba(2, 132, 199, 0.12)' : '0 2px 4px rgba(0,0,0,0.02)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#0284C7', textTransform: 'uppercase' }}>
+                          🏪 Retail Merchants
+                        </span>
+                        {selectedProfitTier === 'MERCHANT' ? (
+                          <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#0284C7', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
+                            ✓ Active
+                          </span>
+                        ) : (
+                          <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#E0F2FE', color: '#0284C7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Store style={{ width: '15px', height: '15px' }} />
+                          </div>
+                        )}
+                      </div>
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0284C7', margin: '6px 0 2px' }}>
+                        ₹{profitDistributionData.merchantTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </h3>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.625rem', color: '#0369A1', fontWeight: 700 }}>Counter Swipe Profits</span>
+                        <span style={{ fontSize: '0.625rem', color: '#0284C7', fontWeight: 800 }}>{profitDistributionData.counts.merchant} Active</span>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* INLINE DETAILED BREAKDOWN BELOW ALL BUTTONS (NO MODAL / NO POPUP) */}
+                  <div style={{
+                    background: '#FFFFFF',
+                    borderRadius: '12px',
+                    border: '1px solid #E2E8F0',
+                    padding: '1.25rem',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
+                  }}>
+                    {/* Section Header */}
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: '1rem',
+                      paddingBottom: '0.875rem',
+                      borderBottom: '1px solid #F1F5F9',
+                      flexWrap: 'wrap',
+                      gap: '0.75rem'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '1.5rem' }}>{activeMeta.icon}</span>
+                        <div>
+                          <h3 style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                            {activeMeta.title} — Itemized Profit & Override Ledger
+                          </h3>
+                          <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 600 }}>
+                            Total: <strong style={{ color: activeMeta.accentColor }}>₹{(activeMeta.total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong> across {currentItems.length} transactions
+                          </span>
+                        </div>
+                      </div>
+
+                      {activeMeta.tabId && (
+                        <button
+                          onClick={() => handleTabSwitch(activeMeta.tabId)}
+                          style={{
+                            background: '#0F52BA',
+                            color: '#FFFFFF',
+                            border: 'none',
+                            padding: '0.45rem 0.875rem',
+                            borderRadius: '8px',
+                            fontSize: '0.75rem',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            boxShadow: '0 2px 6px rgba(15, 82, 186, 0.2)'
+                          }}
+                        >
+                          <span>Open {activeMeta.title} Directory</span>
+                          <ArrowRight style={{ width: '14px', height: '14px' }} />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Itemized Transactions List */}
+                    {currentItems.length === 0 ? (
+                      <div style={{
+                        padding: '2.5rem 1rem',
+                        textAlign: 'center',
+                        background: '#F8FAFC',
+                        borderRadius: '10px',
+                        border: '1px dashed #CBD5E1'
+                      }}>
+                        <span style={{ fontSize: '2rem', display: 'block', marginBottom: '8px' }}>🔍</span>
+                        <strong style={{ display: 'block', fontSize: '0.875rem', color: '#0A192F', marginBottom: '4px' }}>
+                          No Earnings Recorded for {activeMeta.title}
+                        </strong>
+                        <p style={{ fontSize: '0.75rem', color: '#64748B', maxWidth: '450px', margin: '0 auto', lineHeight: 1.4 }}>
+                          {currentTierKey === 'COMPANY'
+                            ? "Company margins will appear automatically as card swipes are verified and processed."
+                            : `When downstream merchants swipe customer cards, override commissions will calculate and credit to ${activeMeta.title} in real-time.`}
+                        </p>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        {currentItems.map((item, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              background: '#F8FAFC',
+                              border: '1px solid #E2E8F0',
+                              borderRadius: '10px',
+                              padding: '0.875rem 1rem',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              flexWrap: 'wrap',
+                              gap: '0.875rem'
+                            }}
+                          >
+                            <div style={{ flex: 1, minWidth: '220px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                                <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>
+                                  {item.partner_name}
+                                </strong>
+                                <span style={{ fontSize: '0.625rem', background: '#E2E8F0', color: '#475569', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
+                                  {item.partner_id}
+                                </span>
+                              </div>
+
+                              <div style={{ fontSize: '0.6875rem', color: '#64748B', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                <span>Merchant: <strong style={{ color: '#1E293B' }}>{item.merchant_name}</strong></span>
+                                <span>•</span>
+                                <span>Swipe: <strong style={{ color: '#0A192F' }}>₹{(item.amount || 0).toLocaleString('en-IN')}</strong></span>
+                                <span>•</span>
+                                <span>Provider: <strong style={{ color: '#0F52BA' }}>{item.provider}</strong></span>
+                              </div>
+
+                              <div style={{ fontSize: '0.625rem', color: '#94A3B8', marginTop: '4px' }}>
+                                {item.txn_id} • Rate: {item.commission_rate}
+                              </div>
+                            </div>
+
+                            <div style={{ textAlign: 'right' }}>
+                              <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block' }}>Earned Cut</span>
+                              <strong style={{ fontSize: '1.125rem', fontWeight: 900, color: '#059669' }}>
+                                +₹{(item.commission_amount || 0).toFixed(2)}
+                              </strong>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                  </div>
+
+                </div>
+              );
+            })()}
 
             {/* TAB VIEW 1B: DEDICATED MASTER DISTRIBUTORS PAGE (APEX COMMAND TIER) */}
             {activeTab === 'master_distributors' && (
@@ -6757,224 +7081,6 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           )}
         </button>
       </nav>
-
-      {/* TODAY'S PROFIT & COMMISSION DRILLDOWN MODAL */}
-      {profitDrilldownModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(10, 25, 47, 0.75)',
-          backdropFilter: 'blur(4px)',
-          zIndex: 1000,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '1rem'
-        }}>
-          <div style={{
-            background: '#FFFFFF',
-            borderRadius: '16px',
-            width: '100%',
-            maxWidth: '680px',
-            maxHeight: '88vh',
-            display: 'flex',
-            flexDirection: 'column',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-            border: '1px solid #E2E8F0',
-            overflow: 'hidden'
-          }}>
-            {/* Modal Header */}
-            <div style={{
-              padding: '1.25rem 1.5rem',
-              borderBottom: '1px solid #E2E8F0',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              background: profitDrilldownModal.badgeBg || '#F8FAFC'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontSize: '1.5rem' }}>{profitDrilldownModal.icon}</span>
-                <div>
-                  <h3 style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
-                    {profitDrilldownModal.title} — Profit Breakdown
-                  </h3>
-                  <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 600 }}>
-                    Showing {profitDateFilter === 'TODAY' ? "Today's" : (profitDateFilter === 'YESTERDAY' ? "Yesterday's" : "All-Time")} real-time earnings ledger
-                  </span>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setProfitDrilldownModal(null)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#64748B',
-                  cursor: 'pointer',
-                  padding: '4px',
-                  borderRadius: '6px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}
-              >
-                <X style={{ width: '20px', height: '20px' }} />
-              </button>
-            </div>
-
-            {/* Total Highlight Strip + Direct Tab Switch CTA */}
-            <div style={{
-              padding: '0.875rem 1.5rem',
-              background: '#FFFFFF',
-              borderBottom: '1px solid #F1F5F9',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: '0.75rem'
-            }}>
-              <div>
-                <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#64748B', textTransform: 'uppercase' }}>
-                  Total {profitDrilldownModal.title} Earnings
-                </span>
-                <div style={{ fontSize: '1.5rem', fontWeight: 900, color: profitDrilldownModal.accentColor || '#0F52BA' }}>
-                  ₹{(profitDrilldownModal.total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </div>
-              </div>
-
-              {profitDrilldownModal.tabId && (
-                <button
-                  onClick={() => {
-                    const tab = profitDrilldownModal.tabId;
-                    setProfitDrilldownModal(null);
-                    handleTabSwitch(tab);
-                  }}
-                  style={{
-                    background: '#0F52BA',
-                    color: '#FFFFFF',
-                    border: 'none',
-                    padding: '0.5rem 0.875rem',
-                    borderRadius: '8px',
-                    fontSize: '0.75rem',
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    boxShadow: '0 2px 6px rgba(15, 82, 186, 0.2)'
-                  }}
-                >
-                  <span>Open {profitDrilldownModal.title} Page</span>
-                  <ArrowRight style={{ width: '14px', height: '14px' }} />
-                </button>
-              )}
-            </div>
-
-            {/* Transactions List */}
-            <div style={{ padding: '1.25rem 1.5rem', overflowY: 'auto', flex: 1 }}>
-              {(!profitDrilldownModal.items || profitDrilldownModal.items.length === 0) ? (
-                <div style={{
-                  padding: '2.5rem 1rem',
-                  textAlign: 'center',
-                  background: '#F8FAFC',
-                  borderRadius: '12px',
-                  border: '1px dashed #CBD5E1'
-                }}>
-                  <span style={{ fontSize: '2rem', display: 'block', marginBottom: '8px' }}>🔍</span>
-                  <strong style={{ display: 'block', fontSize: '0.875rem', color: '#0A192F', marginBottom: '4px' }}>
-                    No Earnings Recorded Yet ({profitDateFilter === 'TODAY' ? "Today" : (profitDateFilter === 'YESTERDAY' ? "Yesterday" : "All Time")})
-                  </strong>
-                  <p style={{ fontSize: '0.75rem', color: '#64748B', maxWidth: '420px', margin: '0 auto', lineHeight: 1.4 }}>
-                    {profitDrilldownModal.tier === 'COMPANY'
-                      ? "Company margins will appear automatically as card swipes are verified and processed."
-                      : `When downstream merchants swipe customer cards, override commissions will calculate and credit to ${profitDrilldownModal.title} in real-time.`}
-                  </p>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>
-                    Itemized Swipe Earnings ({profitDrilldownModal.items.length} Swipes)
-                  </span>
-
-                  {profitDrilldownModal.items.map((item, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        background: '#F8FAFC',
-                        border: '1px solid #E2E8F0',
-                        borderRadius: '10px',
-                        padding: '0.875rem 1rem',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        gap: '1rem'
-                      }}
-                    >
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
-                          <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>
-                            {item.partner_name}
-                          </strong>
-                          <span style={{ fontSize: '0.625rem', background: '#E2E8F0', color: '#475569', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
-                            {item.partner_id}
-                          </span>
-                        </div>
-
-                        <div style={{ fontSize: '0.6875rem', color: '#64748B', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                          <span>Swiped at: <strong style={{ color: '#1E293B' }}>{item.merchant_name}</strong></span>
-                          <span>•</span>
-                          <span>Amount: <strong style={{ color: '#0A192F' }}>₹{(item.amount || 0).toLocaleString('en-IN')}</strong></span>
-                          <span>•</span>
-                          <span>Machine: <strong style={{ color: '#0F52BA' }}>{item.provider}</strong></span>
-                        </div>
-
-                        <div style={{ fontSize: '0.625rem', color: '#94A3B8', marginTop: '4px' }}>
-                          {item.txn_id} • Rate: {item.commission_rate}
-                        </div>
-                      </div>
-
-                      <div style={{ textAlign: 'right' }}>
-                        <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block' }}>Earned Cut</span>
-                        <strong style={{ fontSize: '1.0625rem', fontWeight: 900, color: '#059669' }}>
-                          +₹{(item.commission_amount || 0).toFixed(2)}
-                        </strong>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Modal Footer */}
-            <div style={{
-              padding: '0.875rem 1.5rem',
-              borderTop: '1px solid #E2E8F0',
-              background: '#F8FAFC',
-              display: 'flex',
-              justifyContent: 'flex-end'
-            }}>
-              <button
-                onClick={() => setProfitDrilldownModal(null)}
-                style={{
-                  background: '#FFFFFF',
-                  border: '1px solid #CBD5E1',
-                  color: '#475569',
-                  padding: '0.5rem 1.25rem',
-                  borderRadius: '8px',
-                  fontSize: '0.75rem',
-                  fontWeight: 800,
-                  cursor: 'pointer'
-                }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* 6. Universal Onboard Partner / Merchant Modal */}
       {isCreateModalOpen && (
