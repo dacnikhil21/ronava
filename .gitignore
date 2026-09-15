@@ -127,4 +127,6 @@ avighna_preview.png
 hero_bg.jpg
 *.pdf
 vite.config.js.timestamp*
-
+# Security Keys
+*.pem
+*.key
