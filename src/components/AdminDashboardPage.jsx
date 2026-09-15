@@ -1302,12 +1302,37 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       {/* OFFICIAL EXECUTIVE HEADER (Active on all tabs) */}
       <header className="admin-header">
           <div className="admin-header-inner">
-            {/* Brand Logo & Name (Same proportions as website) */}
-            <div 
-              onClick={() => handleTabSwitch('overview')}
-              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0 }}
-            >
-              <RonavLogo size="medium" />
+            {/* Left: Brand Logo & Back to Overview button */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+              {activeTab !== 'overview' && (
+                <button
+                  type="button"
+                  onClick={() => handleTabSwitch('overview')}
+                  style={{
+                    background: '#F1F5F9',
+                    border: '1px solid #CBD5E1',
+                    color: '#0F172A',
+                    padding: '4px 8px',
+                    borderRadius: '8px',
+                    fontSize: '0.75rem',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                  title="Back to Overview"
+                >
+                  <ArrowLeft style={{ width: '13px', height: '13px' }} />
+                  <span>Back</span>
+                </button>
+              )}
+              <div 
+                onClick={() => handleTabSwitch('overview')}
+                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+              >
+                <RonavLogo size="medium" />
+              </div>
             </div>
 
             {/* Dedicated Desktop Header Navigation Bar (Visible only on Desktop >= 1024px) */}
@@ -3003,54 +3028,42 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 COMPANY: {
                   title: 'Company Net Margin',
                   icon: '🏢',
-                  badge: 'Direct Ronav Margin',
                   accentColor: '#059669',
-                  bgTint: '#ECFDF5',
                   tabId: null,
                   total: profitDistributionData.companyNet
                 },
                 MASTER: {
                   title: 'Master Distributors',
                   icon: '👑',
-                  badge: `${profitDistributionData.counts.master} Apex Leaders`,
                   accentColor: '#7C3AED',
-                  bgTint: '#FAF5FF',
                   tabId: 'master_distributors',
                   total: profitDistributionData.masterTotal
                 },
                 SUPER: {
                   title: 'Super Distributors',
                   icon: '⚡',
-                  badge: `${profitDistributionData.counts.super} Regional Hubs`,
                   accentColor: '#4F46E5',
-                  bgTint: '#EEF2FF',
                   tabId: 'super_distributors',
                   total: profitDistributionData.superTotal
                 },
                 DISTRICT: {
                   title: 'District Distributors',
                   icon: '🏛️',
-                  badge: `${profitDistributionData.counts.district} District Hubs`,
                   accentColor: '#D97706',
-                  bgTint: '#FFFBEB',
                   tabId: 'district_distributors',
                   total: profitDistributionData.districtTotal
                 },
                 DISTRIBUTOR: {
                   title: 'Distributors',
                   icon: '📦',
-                  badge: `${profitDistributionData.counts.distributor} Area Managers`,
                   accentColor: '#0F52BA',
-                  bgTint: '#EFF6FF',
                   tabId: 'distributors',
                   total: profitDistributionData.distributorTotal
                 },
                 MERCHANT: {
                   title: 'Retail Merchants',
                   icon: '🏪',
-                  badge: `${profitDistributionData.counts.merchant} Active Stores`,
                   accentColor: '#0284C7',
-                  bgTint: '#F0F9FF',
                   tabId: 'merchants',
                   total: profitDistributionData.merchantTotal
                 }
@@ -3058,175 +3071,101 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               const activeMeta = tierMetaMap[currentTierKey] || tierMetaMap.COMPANY;
 
               return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                  
-                  {/* Top Navigation & Action Header */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {/* Horizontal Scrolling Date Filter Buttons directly below header */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    overflowX: 'auto',
+                    paddingBottom: '2px',
+                    WebkitOverflowScrolling: 'touch'
+                  }}>
+                    {[
+                      { id: 'TODAY', label: "Today" },
+                      { id: 'YESTERDAY', label: "Yesterday" },
+                      { id: 'WEEK', label: "7 Days" },
+                      { id: 'MONTH', label: "This Month" },
+                      { id: 'ALL', label: "All Time" },
+                      { id: 'CUSTOM', label: "Custom Range" }
+                    ].map(p => (
                       <button
-                        onClick={() => handleTabSwitch('overview')}
+                        key={p.id}
+                        onClick={() => setProfitDateFilter(p.id)}
                         style={{
-                          background: '#FFFFFF',
-                          border: '1px solid #CBD5E1',
-                          color: '#334155',
-                          padding: '0.45rem 0.875rem',
-                          borderRadius: '8px',
-                          fontSize: '0.75rem',
-                          fontWeight: 800,
+                          background: profitDateFilter === p.id ? '#0F52BA' : '#FFFFFF',
+                          color: profitDateFilter === p.id ? '#FFFFFF' : '#475569',
+                          border: profitDateFilter === p.id ? '1px solid #0F52BA' : '1px solid #CBD5E1',
+                          padding: '0.35rem 0.75rem',
+                          borderRadius: '6px',
+                          fontSize: '0.6875rem',
+                          fontWeight: profitDateFilter === p.id ? 800 : 600,
                           cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+                          whiteSpace: 'nowrap',
+                          flexShrink: 0
                         }}
                       >
-                        <ArrowLeft style={{ width: '14px', height: '14px' }} />
-                        <span>Back to Overview</span>
+                        {p.label}
                       </button>
-                      <div>
-                        <h2 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
-                          Ecosystem Profits & Commission Ledger
-                        </h2>
-                        <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 600 }}>
-                          Real-time Gross Margin & Upline Override Earnings across all 6 tiers
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Quick Onboard Partner Button */}
-                    <button
-                      onClick={() => setIsCreateModalOpen(true)}
-                      style={{
-                        background: '#0F52BA',
-                        color: '#FFFFFF',
-                        border: 'none',
-                        padding: '0.5rem 1rem',
-                        borderRadius: '8px',
-                        fontSize: '0.75rem',
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        boxShadow: '0 2px 6px rgba(15, 82, 186, 0.25)'
-                      }}
-                    >
-                      <PlusCircle style={{ width: '15px', height: '15px' }} />
-                      <span>+ Onboard Partner</span>
-                    </button>
+                    ))}
                   </div>
 
-                  {/* Filter Toolbar: Presets + Custom Date Range */}
-                  <div style={{
-                    background: '#FFFFFF',
-                    border: '1px solid #E2E8F0',
-                    borderRadius: '12px',
-                    padding: '1rem',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
-                      {/* Presets */}
-                      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.35rem' }}>
-                        {[
-                          { id: 'TODAY', label: "Today" },
-                          { id: 'YESTERDAY', label: "Yesterday" },
-                          { id: 'WEEK', label: "7 Days" },
-                          { id: 'MONTH', label: "This Month" },
-                          { id: 'ALL', label: "All Time" },
-                          { id: 'CUSTOM', label: "Custom Range" }
-                        ].map(p => (
-                          <button
-                            key={p.id}
-                            onClick={() => setProfitDateFilter(p.id)}
-                            style={{
-                              background: profitDateFilter === p.id ? '#0F52BA' : '#F1F5F9',
-                              color: profitDateFilter === p.id ? '#FFFFFF' : '#475569',
-                              border: 'none',
-                              padding: '0.4rem 0.85rem',
-                              borderRadius: '6px',
-                              fontSize: '0.6875rem',
-                              fontWeight: profitDateFilter === p.id ? 800 : 600,
-                              cursor: 'pointer',
-                              transition: 'all 0.15s ease'
-                            }}
-                          >
-                            {p.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 700 }}>
-                        {profitDistributionData.txnsCount} Total Swipes in Selected Window
-                      </span>
+                  {/* Custom Date Inputs (Only when Custom Range is active) */}
+                  {profitDateFilter === 'CUSTOM' && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: '0.5rem'
+                    }}>
+                      <input
+                        type="date"
+                        value={customStartDate}
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        style={{
+                          padding: '0.35rem 0.5rem',
+                          borderRadius: '6px',
+                          border: '1px solid #CBD5E1',
+                          fontSize: '0.75rem',
+                          color: '#0A192F',
+                          fontWeight: 600
+                        }}
+                      />
+                      <span style={{ fontSize: '0.75rem', color: '#64748B' }}>to</span>
+                      <input
+                        type="date"
+                        value={customEndDate}
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                        style={{
+                          padding: '0.35rem 0.5rem',
+                          borderRadius: '6px',
+                          border: '1px solid #CBD5E1',
+                          fontSize: '0.75rem',
+                          color: '#0A192F',
+                          fontWeight: 600
+                        }}
+                      />
+                      {(customStartDate || customEndDate) && (
+                        <button
+                          onClick={() => { setCustomStartDate(''); setCustomEndDate(''); }}
+                          style={{
+                            background: '#F1F5F9',
+                            border: 'none',
+                            color: '#64748B',
+                            padding: '0.35rem 0.6rem',
+                            borderRadius: '6px',
+                            fontSize: '0.6875rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Clear
+                        </button>
+                      )}
                     </div>
+                  )}
 
-                    {/* Custom Date Inputs (when Custom Range selected or used) */}
-                    {profitDateFilter === 'CUSTOM' && (
-                      <div style={{
-                        marginTop: '0.875rem',
-                        paddingTop: '0.875rem',
-                        borderTop: '1px solid #F1F5F9',
-                        display: 'flex',
-                        alignItems: 'center',
-                        flexWrap: 'wrap',
-                        gap: '0.875rem'
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#475569' }}>Start Date:</span>
-                          <input
-                            type="date"
-                            value={customStartDate}
-                            onChange={(e) => setCustomStartDate(e.target.value)}
-                            style={{
-                              padding: '0.4rem 0.6rem',
-                              borderRadius: '6px',
-                              border: '1px solid #CBD5E1',
-                              fontSize: '0.75rem',
-                              color: '#0A192F',
-                              fontWeight: 600
-                            }}
-                          />
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#475569' }}>End Date:</span>
-                          <input
-                            type="date"
-                            value={customEndDate}
-                            onChange={(e) => setCustomEndDate(e.target.value)}
-                            style={{
-                              padding: '0.4rem 0.6rem',
-                              borderRadius: '6px',
-                              border: '1px solid #CBD5E1',
-                              fontSize: '0.75rem',
-                              color: '#0A192F',
-                              fontWeight: 600
-                            }}
-                          />
-                        </div>
-
-                        {(customStartDate || customEndDate) && (
-                          <button
-                            onClick={() => { setCustomStartDate(''); setCustomEndDate(''); }}
-                            style={{
-                              background: '#F1F5F9',
-                              border: 'none',
-                              color: '#64748B',
-                              padding: '0.4rem 0.65rem',
-                              borderRadius: '6px',
-                              fontSize: '0.6875rem',
-                              fontWeight: 700,
-                              cursor: 'pointer'
-                            }}
-                          >
-                            Reset Dates
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 2-COLUMN GRID: ALL 6 TIERS (MATCHING HOMEPAGE 2-COL GRID LAYOUT) */}
+                  {/* 2-COLUMN GRID: 6 CLEAN TIERS (NO SUBTITLES, NO OVERRIDES TEXT) */}
                   <div style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(2, 1fr)',
@@ -3242,13 +3181,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         borderRadius: '12px',
                         padding: '1rem',
                         cursor: 'pointer',
-                        transition: 'all 0.15s ease',
                         boxShadow: selectedProfitTier === 'COMPANY' ? '0 4px 12px rgba(5, 150, 105, 0.12)' : '0 2px 4px rgba(0,0,0,0.02)'
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#059669', textTransform: 'uppercase' }}>
-                          🏢 Company Net Margin
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#059669', textTransform: 'uppercase' }}>
+                          🏢 Company Margin
                         </span>
                         {selectedProfitTier === 'COMPANY' ? (
                           <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#059669', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
@@ -3260,13 +3198,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           </div>
                         )}
                       </div>
-                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#059669', margin: '6px 0 2px' }}>
+                      <h3 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#059669', margin: '8px 0 0' }}>
                         ₹{profitDistributionData.companyNet.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h3>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.625rem', color: '#047857', fontWeight: 700 }}>Direct Ronav Margin</span>
-                        <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>{profitDistributionData.counts.company} Swipes</span>
-                      </div>
                     </div>
 
                     {/* Tier 2: Master Distributors */}
@@ -3278,13 +3212,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         borderRadius: '12px',
                         padding: '1rem',
                         cursor: 'pointer',
-                        transition: 'all 0.15s ease',
                         boxShadow: selectedProfitTier === 'MASTER' ? '0 4px 12px rgba(124, 58, 237, 0.12)' : '0 2px 4px rgba(0,0,0,0.02)'
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#7C3AED', textTransform: 'uppercase' }}>
-                          👑 Master Distributors
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#7C3AED', textTransform: 'uppercase' }}>
+                          👑 Master Dist
                         </span>
                         {selectedProfitTier === 'MASTER' ? (
                           <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#7C3AED', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
@@ -3296,13 +3229,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           </div>
                         )}
                       </div>
-                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#7C3AED', margin: '6px 0 2px' }}>
+                      <h3 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#7C3AED', margin: '8px 0 0' }}>
                         ₹{profitDistributionData.masterTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h3>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.625rem', color: '#6B21A8', fontWeight: 700 }}>Apex State Overrides</span>
-                        <span style={{ fontSize: '0.625rem', color: '#7C3AED', fontWeight: 800 }}>{profitDistributionData.counts.master} Active</span>
-                      </div>
                     </div>
 
                     {/* Tier 3: Super Distributors */}
@@ -3314,13 +3243,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         borderRadius: '12px',
                         padding: '1rem',
                         cursor: 'pointer',
-                        transition: 'all 0.15s ease',
                         boxShadow: selectedProfitTier === 'SUPER' ? '0 4px 12px rgba(79, 70, 229, 0.12)' : '0 2px 4px rgba(0,0,0,0.02)'
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#4F46E5', textTransform: 'uppercase' }}>
-                          ⚡ Super Distributors
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#4F46E5', textTransform: 'uppercase' }}>
+                          ⚡ Super Dist
                         </span>
                         {selectedProfitTier === 'SUPER' ? (
                           <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#4F46E5', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
@@ -3332,13 +3260,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           </div>
                         )}
                       </div>
-                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#4F46E5', margin: '6px 0 2px' }}>
+                      <h3 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#4F46E5', margin: '8px 0 0' }}>
                         ₹{profitDistributionData.superTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h3>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.625rem', color: '#3730A3', fontWeight: 700 }}>Regional Hub Overrides</span>
-                        <span style={{ fontSize: '0.625rem', color: '#4F46E5', fontWeight: 800 }}>{profitDistributionData.counts.super} Active</span>
-                      </div>
                     </div>
 
                     {/* Tier 4: District Distributors */}
@@ -3350,13 +3274,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         borderRadius: '12px',
                         padding: '1rem',
                         cursor: 'pointer',
-                        transition: 'all 0.15s ease',
                         boxShadow: selectedProfitTier === 'DISTRICT' ? '0 4px 12px rgba(217, 119, 6, 0.12)' : '0 2px 4px rgba(0,0,0,0.02)'
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#D97706', textTransform: 'uppercase' }}>
-                          🏛️ District Distributors
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#D97706', textTransform: 'uppercase' }}>
+                          🏛️ District Dist
                         </span>
                         {selectedProfitTier === 'DISTRICT' ? (
                           <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#D97706', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
@@ -3368,13 +3291,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           </div>
                         )}
                       </div>
-                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#D97706', margin: '6px 0 2px' }}>
+                      <h3 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#D97706', margin: '8px 0 0' }}>
                         ₹{profitDistributionData.districtTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h3>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.625rem', color: '#92400E', fontWeight: 700 }}>District Franchise Cuts</span>
-                        <span style={{ fontSize: '0.625rem', color: '#D97706', fontWeight: 800 }}>{profitDistributionData.counts.district} Active</span>
-                      </div>
                     </div>
 
                     {/* Tier 5: Distributors */}
@@ -3386,13 +3305,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         borderRadius: '12px',
                         padding: '1rem',
                         cursor: 'pointer',
-                        transition: 'all 0.15s ease',
                         boxShadow: selectedProfitTier === 'DISTRIBUTOR' ? '0 4px 12px rgba(15, 82, 186, 0.12)' : '0 2px 4px rgba(0,0,0,0.02)'
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#0F52BA', textTransform: 'uppercase' }}>
-                          📦 Distributors
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0F52BA', textTransform: 'uppercase' }}>
+                          📦 Distributor
                         </span>
                         {selectedProfitTier === 'DISTRIBUTOR' ? (
                           <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#0F52BA', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
@@ -3404,13 +3322,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           </div>
                         )}
                       </div>
-                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0F52BA', margin: '6px 0 2px' }}>
+                      <h3 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#0F52BA', margin: '8px 0 0' }}>
                         ₹{profitDistributionData.distributorTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h3>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.625rem', color: '#1E40AF', fontWeight: 700 }}>Area Manager Overrides</span>
-                        <span style={{ fontSize: '0.625rem', color: '#0F52BA', fontWeight: 800 }}>{profitDistributionData.counts.distributor} Active</span>
-                      </div>
                     </div>
 
                     {/* Tier 6: Retail Merchants */}
@@ -3422,13 +3336,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         borderRadius: '12px',
                         padding: '1rem',
                         cursor: 'pointer',
-                        transition: 'all 0.15s ease',
                         boxShadow: selectedProfitTier === 'MERCHANT' ? '0 4px 12px rgba(2, 132, 199, 0.12)' : '0 2px 4px rgba(0,0,0,0.02)'
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#0284C7', textTransform: 'uppercase' }}>
-                          🏪 Retail Merchants
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0284C7', textTransform: 'uppercase' }}>
+                          🏪 Merchants
                         </span>
                         {selectedProfitTier === 'MERCHANT' ? (
                           <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#0284C7', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
@@ -3440,46 +3353,37 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           </div>
                         )}
                       </div>
-                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0284C7', margin: '6px 0 2px' }}>
+                      <h3 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#0284C7', margin: '8px 0 0' }}>
                         ₹{profitDistributionData.merchantTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h3>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.625rem', color: '#0369A1', fontWeight: 700 }}>Counter Swipe Profits</span>
-                        <span style={{ fontSize: '0.625rem', color: '#0284C7', fontWeight: 800 }}>{profitDistributionData.counts.merchant} Active</span>
-                      </div>
                     </div>
 
                   </div>
 
-                  {/* INLINE DETAILED BREAKDOWN BELOW ALL BUTTONS (NO MODAL / NO POPUP) */}
+                  {/* INLINE DETAILED BREAKDOWN BELOW ALL BUTTONS */}
                   <div style={{
                     background: '#FFFFFF',
                     borderRadius: '12px',
                     border: '1px solid #E2E8F0',
-                    padding: '1.25rem',
-                    boxShadow: '0 2px 6px rgba(0,0,0,0.02)'
+                    padding: '1rem',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
                   }}>
-                    {/* Section Header */}
+                    {/* Clean Header */}
                     <div style={{
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
-                      marginBottom: '1rem',
-                      paddingBottom: '0.875rem',
+                      marginBottom: '0.75rem',
+                      paddingBottom: '0.625rem',
                       borderBottom: '1px solid #F1F5F9',
                       flexWrap: 'wrap',
-                      gap: '0.75rem'
+                      gap: '0.5rem'
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontSize: '1.5rem' }}>{activeMeta.icon}</span>
-                        <div>
-                          <h3 style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
-                            {activeMeta.title} — Itemized Profit & Override Ledger
-                          </h3>
-                          <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 600 }}>
-                            Total: <strong style={{ color: activeMeta.accentColor }}>₹{(activeMeta.total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong> across {currentItems.length} transactions
-                          </span>
-                        </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '1.25rem' }}>{activeMeta.icon}</span>
+                        <h3 style={{ fontSize: '0.9375rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                          {activeMeta.title} ({currentItems.length})
+                        </h3>
                       </div>
 
                       {activeMeta.tabId && (
@@ -3489,19 +3393,18 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             background: '#0F52BA',
                             color: '#FFFFFF',
                             border: 'none',
-                            padding: '0.45rem 0.875rem',
-                            borderRadius: '8px',
-                            fontSize: '0.75rem',
+                            padding: '0.35rem 0.75rem',
+                            borderRadius: '6px',
+                            fontSize: '0.6875rem',
                             fontWeight: 800,
                             cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '6px',
-                            boxShadow: '0 2px 6px rgba(15, 82, 186, 0.2)'
+                            gap: '4px'
                           }}
                         >
-                          <span>Open {activeMeta.title} Directory</span>
-                          <ArrowRight style={{ width: '14px', height: '14px' }} />
+                          <span>Open Directory</span>
+                          <ArrowRight style={{ width: '12px', height: '12px' }} />
                         </button>
                       )}
                     </div>
@@ -3509,65 +3412,46 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     {/* Itemized Transactions List */}
                     {currentItems.length === 0 ? (
                       <div style={{
-                        padding: '2.5rem 1rem',
+                        padding: '1.75rem 1rem',
                         textAlign: 'center',
-                        background: '#F8FAFC',
-                        borderRadius: '10px',
-                        border: '1px dashed #CBD5E1'
+                        color: '#64748B',
+                        fontSize: '0.8125rem'
                       }}>
-                        <span style={{ fontSize: '2rem', display: 'block', marginBottom: '8px' }}>🔍</span>
-                        <strong style={{ display: 'block', fontSize: '0.875rem', color: '#0A192F', marginBottom: '4px' }}>
-                          No Earnings Recorded for {activeMeta.title}
-                        </strong>
-                        <p style={{ fontSize: '0.75rem', color: '#64748B', maxWidth: '450px', margin: '0 auto', lineHeight: 1.4 }}>
-                          {currentTierKey === 'COMPANY'
-                            ? "Company margins will appear automatically as card swipes are verified and processed."
-                            : `When downstream merchants swipe customer cards, override commissions will calculate and credit to ${activeMeta.title} in real-time.`}
-                        </p>
+                        No transactions recorded for {activeMeta.title} in selected period.
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
                         {currentItems.map((item, idx) => (
                           <div
                             key={idx}
                             style={{
                               background: '#F8FAFC',
                               border: '1px solid #E2E8F0',
-                              borderRadius: '10px',
-                              padding: '0.875rem 1rem',
+                              borderRadius: '8px',
+                              padding: '0.75rem',
                               display: 'flex',
                               justifyContent: 'space-between',
                               alignItems: 'center',
-                              flexWrap: 'wrap',
-                              gap: '0.875rem'
+                              gap: '0.75rem'
                             }}
                           >
-                            <div style={{ flex: 1, minWidth: '220px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>
                                   {item.partner_name}
                                 </strong>
-                                <span style={{ fontSize: '0.625rem', background: '#E2E8F0', color: '#475569', padding: '1px 6px', borderRadius: '4px', fontWeight: 700 }}>
-                                  {item.partner_id}
+                                <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
+                                  ({item.partner_id})
                                 </span>
                               </div>
 
-                              <div style={{ fontSize: '0.6875rem', color: '#64748B', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                <span>Merchant: <strong style={{ color: '#1E293B' }}>{item.merchant_name}</strong></span>
-                                <span>•</span>
-                                <span>Swipe: <strong style={{ color: '#0A192F' }}>₹{(item.amount || 0).toLocaleString('en-IN')}</strong></span>
-                                <span>•</span>
-                                <span>Provider: <strong style={{ color: '#0F52BA' }}>{item.provider}</strong></span>
-                              </div>
-
-                              <div style={{ fontSize: '0.625rem', color: '#94A3B8', marginTop: '4px' }}>
-                                {item.txn_id} • Rate: {item.commission_rate}
+                              <div style={{ fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
+                                Swipe at {item.merchant_name} • ₹{(item.amount || 0).toLocaleString('en-IN')} on {item.provider}
                               </div>
                             </div>
 
                             <div style={{ textAlign: 'right' }}>
-                              <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block' }}>Earned Cut</span>
-                              <strong style={{ fontSize: '1.125rem', fontWeight: 900, color: '#059669' }}>
+                              <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#059669' }}>
                                 +₹{(item.commission_amount || 0).toFixed(2)}
                               </strong>
                             </div>
