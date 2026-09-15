@@ -1580,7 +1580,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
             {[
               { id: 'payswiff', label: 'Payswiff', icon: '⚡', count: channelPendingCounts.swiffTotal },
               { id: 'pinelabs', label: 'Pine Labs', icon: '🌲', count: channelPendingCounts.pine },
-              { id: 'qr', label: 'QR Collections', icon: '📱', count: channelPendingCounts.qr }
+              { id: 'qr', label: 'QR', icon: '📱', count: channelPendingCounts.qr }
             ].map(ch => {
               const isActive = selectedChannel === ch.id;
               return (
@@ -1604,24 +1604,27 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     color: isActive ? '#0F172A' : '#64748B',
                     border: 'none',
                     borderRadius: '9px',
-                    padding: '0.45rem 0.5rem',
+                    padding: '0.45rem 0.35rem',
                     fontSize: '0.78125rem',
                     fontWeight: isActive ? 700 : 500,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '6px',
+                    gap: '5px',
                     cursor: 'pointer',
                     boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)' : 'none',
                     transition: 'all 0.15s cubic-bezier(0.16, 1, 0.3, 1)',
                     whiteSpace: 'nowrap'
                   }}
                 >
-                  <span>{ch.icon} {ch.label}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                    <span>{ch.icon}</span>
+                    <span>{ch.label}</span>
+                  </span>
                   <span style={{
                     fontSize: '0.6875rem',
                     fontWeight: 800,
-                    padding: '1px 6px',
+                    padding: '1px 5px',
                     borderRadius: '999px',
                     background: ch.count > 0 
                       ? (isActive ? '#DC2626' : '#FEE2E2') 
@@ -1632,6 +1635,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     lineHeight: '1.2',
                     minWidth: '18px',
                     textAlign: 'center',
+                    flexShrink: 0,
                     boxShadow: ch.count > 0 && isActive ? '0 1px 2px rgba(220,38,38,0.25)' : 'none'
                   }}>
                     {ch.count}
