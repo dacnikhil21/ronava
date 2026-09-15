@@ -78,6 +78,17 @@
   --text-caption: clamp(0.6875rem, 2vw, 0.8125rem);
 }
 
+/* Universal scrollbar-hiding utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+.no-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
 @media (min-width: 768px) {
   :root {
     --section-pad-top: 3.75rem;

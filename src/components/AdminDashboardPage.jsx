@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Menu, Bell, ChevronDown, Calendar, ChevronRight, Landmark, 
   Building2, Receipt, CreditCard, Smartphone, Users, AlertCircle, 
   Copy, Search, X, TrendingUp, CheckCircle2, Clock, LogOut, 
   Shield, Activity, PlusCircle, RefreshCw, GitFork, Layers, 
   Store, Briefcase, ShieldCheck, ArrowRight, ArrowLeft,
-  Check, Phone, DollarSign, ArrowUpRight, Zap, Crown,
+  Check, Phone, DollarSign, ArrowUpRight, Zap, Crown, User,
   Download, Edit3, UserCheck, UserX, FileText, MapPin, BadgeCheck, Key
 } from 'lucide-react';
 import { downloadBankBatchFile, downloadGstAuditFile } from '../utils/bankExportUtils.js';
@@ -39,6 +39,24 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   const [tabLoading, setTabLoading] = useState(false);
   const [toast, setToast] = useState(null);
   const [copiedId, setCopiedId] = useState({});
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const accountMenuRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(e.target)) {
+        setShowAccountMenu(false);
+      }
+    };
+    if (showAccountMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [showAccountMenu]);
 
   // Active Person Dossier Drilldown View (When clicking ANY card)
   const [viewingUserDossier, setViewingUserDossier] = useState(null);
@@ -1331,7 +1349,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 onClick={() => handleTabSwitch('overview')}
                 style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}
               >
-                <RonavLogo size="medium" />
+                <RonavLogo height={activeTab !== 'overview' ? '36px' : '40px'} />
               </div>
             </div>
 
@@ -1370,8 +1388,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               })}
             </nav>
 
-            {/* Right Side: Quick Onboard CTA (Desktop) + Super Admin Indicator & Logout */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flexShrink: 0 }}>
+            {/* Right Side: Quick Onboard CTA (Desktop) + Single Account Icon Menu */}
+            <div ref={accountMenuRef} style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flexShrink: 0, position: 'relative' }}>
               <button
                 type="button"
                 onClick={() => handleOpenCreateModal('MERCHANT', 'ADM001')}
@@ -1382,43 +1400,138 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 <span>+ Onboard Partner</span>
               </button>
 
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                background: '#EFF6FF',
-                border: '1px solid #BFDBFE',
-                padding: '4px 10px',
-                borderRadius: '9999px'
-              }}>
-                <ShieldCheck style={{ width: '14px', height: '14px', color: '#0F52BA' }} />
-                <span style={{ fontSize: '0.71875rem', fontWeight: 800, color: '#0F52BA' }}>
-                  Super Admin
-                </span>
-              </div>
+              {/* Single Account Icon Button for Super Admin */}
+              <button
+                type="button"
+                onClick={() => setShowAccountMenu(prev => !prev)}
+                aria-label="Super Admin Account Menu"
+                title="Super Admin Profile & Logout"
+                style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '50%',
+                  background: showAccountMenu ? '#0F52BA' : '#EFF6FF',
+                  border: showAccountMenu ? '2px solid #0F52BA' : '1.5px solid #BFDBFE',
+                  color: showAccountMenu ? '#FFFFFF' : '#0F52BA',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  position: 'relative',
+                  padding: 0,
+                  transition: 'all 0.15s ease',
+                  boxShadow: '0 1px 3px rgba(15,82,186,0.12)'
+                }}
+              >
+                <User style={{ width: '19px', height: '19px' }} />
+                <span style={{
+                  position: 'absolute',
+                  top: '2px',
+                  right: '2px',
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  background: '#10B981',
+                  border: '1.5px solid #FFFFFF'
+                }} />
+              </button>
 
-              {onLogout && (
-                <button
-                  type="button"
-                  onClick={onLogout}
-                  title="Logout Admin"
-                  style={{
+              {/* Account Dropdown Popover */}
+              {showAccountMenu && (
+                <div style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 8px)',
+                  right: 0,
+                  width: '240px',
+                  background: '#FFFFFF',
+                  borderRadius: '12px',
+                  border: '1px solid #CBD5E1',
+                  boxShadow: '0 12px 30px -5px rgba(15,23,42,0.18), 0 4px 10px -2px rgba(15,23,42,0.08)',
+                  zIndex: 100,
+                  overflow: 'hidden',
+                  animation: 'slideIn 0.15s ease-out'
+                }}>
+                  {/* Account Header */}
+                  <div style={{
+                    padding: '0.875rem 1rem',
                     background: '#F8FAFC',
-                    border: '1px solid #E2E8F0',
-                    padding: '5px 10px',
-                    borderRadius: '8px',
-                    fontSize: '0.71875rem',
-                    fontWeight: 700,
-                    color: '#64748B',
-                    cursor: 'pointer',
+                    borderBottom: '1px solid #E2E8F0',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '4px'
-                  }}
-                >
-                  <LogOut style={{ width: '13px', height: '13px' }} />
-                  <span className="desktop-only">Logout</span>
-                </button>
+                    gap: '10px'
+                  }}>
+                    <div style={{
+                      width: '38px',
+                      height: '38px',
+                      borderRadius: '50%',
+                      background: '#EFF6FF',
+                      border: '1.5px solid #BFDBFE',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#0F52BA',
+                      flexShrink: 0
+                    }}>
+                      <ShieldCheck style={{ width: '20px', height: '20px' }} />
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <strong style={{ fontSize: '0.875rem', color: '#0A192F', fontWeight: 900 }}>Super Admin</strong>
+                        <span style={{ fontSize: '0.5625rem', background: '#DCFCE7', color: '#15803D', padding: '1px 5px', borderRadius: '4px', fontWeight: 800 }}>ACTIVE</span>
+                      </div>
+                      <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', marginTop: '1px' }}>
+                        ADM001 • Apex Root
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Account Body & Logout */}
+                  <div style={{ padding: '0.625rem' }}>
+                    <div style={{
+                      padding: '0.45rem 0.65rem',
+                      fontSize: '0.6875rem',
+                      color: '#64748B',
+                      background: '#F1F5F9',
+                      borderRadius: '6px',
+                      marginBottom: '0.5rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <span>Access Role</span>
+                      <strong style={{ color: '#0F52BA' }}>System Master</strong>
+                    </div>
+
+                    {onLogout && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAccountMenu(false);
+                          onLogout();
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '0.6rem 0.75rem',
+                          borderRadius: '8px',
+                          background: '#FEF2F2',
+                          border: '1px solid #FECACA',
+                          color: '#DC2626',
+                          fontSize: '0.78125rem',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          transition: 'background 0.15s ease'
+                        }}
+                      >
+                        <LogOut style={{ width: '14px', height: '14px' }} />
+                        <span>Logout Super Admin</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -3073,14 +3186,19 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {/* Horizontal Scrolling Date Filter Buttons directly below header */}
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.4rem',
-                    overflowX: 'auto',
-                    paddingBottom: '2px',
-                    WebkitOverflowScrolling: 'touch'
-                  }}>
+                  <div 
+                    className="admin-date-filter-scroll no-scrollbar"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.4rem',
+                      overflowX: 'auto',
+                      paddingBottom: '2px',
+                      WebkitOverflowScrolling: 'touch',
+                      scrollbarWidth: 'none',
+                      msOverflowStyle: 'none'
+                    }}
+                  >
                     {[
                       { id: 'TODAY', label: "Today" },
                       { id: 'YESTERDAY', label: "Yesterday" },
@@ -8666,6 +8784,19 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         @keyframes slideIn {
           from { transform: translateY(-12px); opacity: 0; }
           to { transform: translateY(0); opacity: 1; }
+        }
+
+        /* Completely hide scrollbars on date buttons and horizontal bars */
+        .admin-date-filter-scroll::-webkit-scrollbar,
+        .no-scrollbar::-webkit-scrollbar {
+          display: none !important;
+          width: 0 !important;
+          height: 0 !important;
+        }
+        .admin-date-filter-scroll,
+        .no-scrollbar {
+          -ms-overflow-style: none !important;
+          scrollbar-width: none !important;
         }
 
         /* Mobile-First Defaults */
