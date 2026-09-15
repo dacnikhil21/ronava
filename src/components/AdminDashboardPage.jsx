@@ -1317,9 +1317,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         </div>
       )}
 
-      {/* OFFICIAL EXECUTIVE HEADER (Hidden on Payouts page: Payswiff starts at the beginning) */}
-      {activeTab !== 'payouts' && (
-        <header className="admin-header">
+      {/* OFFICIAL EXECUTIVE HEADER */}
+      <header className="admin-header">
           <div className="admin-header-inner">
             {/* Left: Brand Logo ONLY on Overview; Clean Back Button on remaining sub-pages */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
@@ -1539,35 +1538,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
             </div>
           </div>
         </header>
-      )}
 
-      {/* TOP CHANNEL TABS: ONLY ON PAYOUTS TAB (Starts right at the beginning) */}
+      {/* TOP CHANNEL TABS: ONLY ON PAYOUTS TAB */}
       {activeTab === 'payouts' && (
         <div className="admin-channel-bar-wrapper">
           <div className="admin-channel-bar-inner">
-            {/* Desktop Back button for non-mobile viewports */}
-            <div className="desktop-only" style={{ display: 'none', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-              <button
-                type="button"
-                onClick={() => handleTabSwitch('overview')}
-                style={{
-                  background: '#F1F5F9',
-                  border: '1px solid #CBD5E1',
-                  color: '#0F172A',
-                  padding: '4px 10px',
-                  borderRadius: '6px',
-                  fontSize: '0.75rem',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}
-              >
-                <ArrowLeft style={{ width: '13px', height: '13px' }} />
-                <span>Back to Overview</span>
-              </button>
-            </div>
             {/* iOS Native Segmented Track */}
             <div style={{
               display: 'grid',
