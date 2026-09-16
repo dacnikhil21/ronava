@@ -5830,33 +5830,6 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                     <span>Re-Download Sheet</span>
                                   </button>
 
-                                  {/* Mark All Complete Button */}
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleCompleteEntireBatch(batch);
-                                    }}
-                                    title="Mark all payouts in this batch as Complete and Disbursed"
-                                    style={{
-                                      background: '#059669',
-                                      color: '#FFFFFF',
-                                      border: 'none',
-                                      padding: '6px 12px',
-                                      borderRadius: '8px',
-                                      fontSize: '0.72rem',
-                                      fontWeight: 700,
-                                      cursor: 'pointer',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '5px',
-                                      boxShadow: '0 1px 3px rgba(5,150,105,0.25)'
-                                    }}
-                                  >
-                                    <CheckCircle2 style={{ width: '13px', height: '13px' }} />
-                                    <span>✓ Mark All Complete</span>
-                                  </button>
-
                                   {/* Chevron Toggle */}
                                   <button
                                     type="button"
@@ -5964,11 +5937,19 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
                                             {/* 3 ONE-BY-ONE ACTIONS */}
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }} onClick={e => e.stopPropagation()}>
-                                              {/* 1. Mark Complete */}
+                                              {/* 1. Mark Complete -> Opens Modal with Details & UTR input */}
                                               <button
                                                 type="button"
-                                                onClick={() => handlePayoutAction(item.id, 'APPROVE', item.merchant_name, item.amount, 'CMS-IMPS', 'Bank Payout Disbursed')}
-                                                title="Mark as Complete & Settled (Zero UTR popup)"
+                                                onClick={() => {
+                                                  setDisbursingPayout({
+                                                    payout: item,
+                                                    utr: '',
+                                                    remark: '',
+                                                    actionType: 'APPROVE',
+                                                    isSubmitting: false
+                                                  });
+                                                }}
+                                                title="Enter Bank UTR and complete this payout"
                                                 style={{
                                                   background: '#059669',
                                                   color: '#FFFFFF',
@@ -6723,33 +6704,71 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                           Queued for Bank Batch · Select checkbox &amp; download sheet above to process
                                         </span>
                                       </div>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          handlePayoutAction(item.id, 'REJECT', item.merchant_name, item.amount, '', 'Payout Request Declined by Admin');
-                                          setExpandedPayoutId(null);
-                                        }}
-                                        style={{
-                                          background: '#FEF2F2',
-                                          color: '#DC2626',
-                                          border: '1px solid #FECACA',
-                                          padding: '0.45rem 0.85rem',
-                                          borderRadius: '6px',
-                                          fontSize: '0.72rem',
-                                          fontWeight: 700,
-                                          cursor: 'pointer'
-                                        }}
-                                      >
-                                        ✕ Reject Request
-                                      </button>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setDisbursingPayout({
+                                              payout: item,
+                                              utr: '',
+                                              remark: '',
+                                              actionType: 'APPROVE',
+                                              isSubmitting: false
+                                            });
+                                            setExpandedPayoutId(null);
+                                          }}
+                                          style={{
+                                            background: '#059669',
+                                            color: '#FFFFFF',
+                                            border: 'none',
+                                            padding: '0.45rem 0.85rem',
+                                            borderRadius: '6px',
+                                            fontSize: '0.72rem',
+                                            fontWeight: 700,
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '3px'
+                                          }}
+                                        >
+                                          ✓ Complete
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const confirmed = window.confirm(`Reject payout request of ₹${item.amount} for ${item.merchant_name}? Funds will be refunded to wallet.`);
+                                            if (!confirmed) return;
+                                            handlePayoutAction(item.id, 'REJECT', item.merchant_name, item.amount, '', 'Payout Request Declined by Admin');
+                                            setExpandedPayoutId(null);
+                                          }}
+                                          style={{
+                                            background: '#FEF2F2',
+                                            color: '#DC2626',
+                                            border: '1px solid #FECACA',
+                                            padding: '0.45rem 0.85rem',
+                                            borderRadius: '6px',
+                                            fontSize: '0.72rem',
+                                            fontWeight: 700,
+                                            cursor: 'pointer'
+                                          }}
+                                        >
+                                          ✕ Reject
+                                        </button>
+                                      </div>
                                     </div>
                                   ) : item._subStatus === 'SUBMITTED_TO_BANK' ? (
-                                    /* IN SUBMITTED: ONE-BY-ONE CHECK WITH ZERO UTR POPUPS */
+                                    /* IN SUBMITTED: ONE-BY-ONE CHECK WITH UTR MODAL */
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.4rem' }}>
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          handlePayoutAction(item.id, 'APPROVE', item.merchant_name, item.amount, 'CMS-IMPS', 'Bank Payout Disbursed');
+                                          setDisbursingPayout({
+                                            payout: item,
+                                            utr: '',
+                                            remark: '',
+                                            actionType: 'APPROVE',
+                                            isSubmitting: false
+                                          });
                                           setExpandedPayoutId(null);
                                         }}
                                         style={{
@@ -8806,10 +8825,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 </div>
                 <div>
                   <h3 style={{ fontSize: '0.9375rem', fontWeight: 900, margin: 0, letterSpacing: '-0.01em' }}>
-                    Process Bank Disbursal
+                    Settle Withdrawal Payout
                   </h3>
                   <span style={{ fontSize: '0.6875rem', color: '#94A3B8' }}>
-                    Copy beneficiary details to corporate portal & set status
+                    Beneficiary details & manual Bank UTR verification
                   </span>
                 </div>
               </div>
@@ -8837,9 +8856,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
             {(() => {
               const p = disbursingPayout.payout;
               const targetAccount = p.account_number || p.account || p.bank_account || 'N/A';
-              const targetIfsc = p.ifsc || 'N/A';
+              const targetIfsc = p.ifsc_code || p.ifsc || 'N/A';
               const targetBank = p.bank_name || p.bank || 'Bank Account';
-              const targetBeneficiary = p.customer_name || p.merchant_name || 'Beneficiary';
+              const targetBeneficiary = p.customer_name || p.holder_name || p.merchant_name || 'Beneficiary';
               const targetAmount = parseFloat(p.amount || 0);
               const statusChoice = disbursingPayout.actionType || 'DISPATCH'; // Default: 'DISPATCH' (Pending/In-Transit)
 
@@ -9020,155 +9039,191 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     </div>
                   </div>
 
-                  {/* 3. Status Action Choice: Pending vs Settled (No UTR requirement) */}
-                  <div>
-                    <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', display: 'block', marginBottom: '0.5rem' }}>
-                      Select Disbursal Status to Apply:
-                    </label>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      {/* Option 1: Mark as In-Transit / Pending (DEFAULT) */}
-                      <div 
-                        onClick={() => setDisbursingPayout(prev => ({ ...prev, actionType: 'DISPATCH' }))}
+                  {/* 3. UTR and Remarks Input Fields (Manual Netbanking Verification) */}
+                  <div style={{
+                    background: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '12px',
+                    padding: '1rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.85rem'
+                  }}>
+                    {/* Bank UTR Input */}
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span>Bank UTR / Transaction Reference Number</span>
+                          <span style={{ color: '#DC2626' }}>*</span>
+                        </span>
+                        <span style={{ fontSize: '0.65rem', color: '#059669', fontWeight: 700 }}>Required for Complete</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Enter Bank UTR (e.g. 426182947192, CMS-IMPS-9021)"
+                        value={disbursingPayout.utr || ''}
+                        onChange={(e) => setDisbursingPayout(prev => ({ ...prev, utr: e.target.value.toUpperCase() }))}
                         style={{
-                          border: statusChoice === 'DISPATCH' ? '2px solid #D97706' : '1px solid #CBD5E1',
-                          background: statusChoice === 'DISPATCH' ? '#FFFBEB' : '#FFFFFF',
-                          borderRadius: '10px',
-                          padding: '0.75rem',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'flex-start',
-                          gap: '0.625rem',
-                          transition: 'all 0.15s ease'
+                          width: '100%',
+                          padding: '0.65rem 0.85rem',
+                          borderRadius: '8px',
+                          border: '1.5px solid #CBD5E1',
+                          fontSize: '0.875rem',
+                          fontFamily: 'monospace',
+                          fontWeight: 700,
+                          color: '#0F172A',
+                          outline: 'none',
+                          boxSizing: 'border-box'
                         }}
-                      >
-                        <input 
-                          type="radio" 
-                          name="disbursalStatusChoice" 
-                          checked={statusChoice === 'DISPATCH'} 
-                          onChange={() => {}} 
-                          style={{ marginTop: '3px', cursor: 'pointer', accentColor: '#D97706' }} 
-                        />
-                        <div>
-                          <strong style={{ fontSize: '0.8125rem', color: '#92400E', display: 'block' }}>
-                            ⏳ Transfer Initiated • Move to In-Transit (Pending)
-                          </strong>
-                          <p style={{ margin: '2px 0 0', fontSize: '0.6875rem', color: '#B45309', lineHeight: 1.35 }}>
-                            Recommended. You have initiated the transfer from your netbanking/corporate portal; bank clearing takes up to 1 hr. Merchant wallet reflects "⏳ Pending Bank Clearance (Up to 1 hr)".
-                          </p>
-                        </div>
-                      </div>
+                        onFocus={(e) => e.target.style.borderColor = '#0F52BA'}
+                        onBlur={(e) => e.target.style.borderColor = '#CBD5E1'}
+                      />
+                      <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', marginTop: '4px' }}>
+                        Enter the official UTR or reference number generated by your bank netbanking portal after transferring funds.
+                      </span>
+                    </div>
 
-                      {/* Option 2: Mark as Fully Settled (Success) */}
-                      <div 
-                        onClick={() => setDisbursingPayout(prev => ({ ...prev, actionType: 'APPROVE' }))}
+                    {/* Admin Remarks Input */}
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', display: 'block', marginBottom: '0.35rem' }}>
+                        Admin Remarks / Notes (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Cleared via Corporate Netbanking / IMPS"
+                        value={disbursingPayout.remark || ''}
+                        onChange={(e) => setDisbursingPayout(prev => ({ ...prev, remark: e.target.value }))}
                         style={{
-                          border: statusChoice === 'APPROVE' ? '2px solid #059669' : '1px solid #CBD5E1',
-                          background: statusChoice === 'APPROVE' ? '#ECFDF5' : '#FFFFFF',
-                          borderRadius: '10px',
-                          padding: '0.75rem',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'flex-start',
-                          gap: '0.625rem',
-                          transition: 'all 0.15s ease'
+                          width: '100%',
+                          padding: '0.6rem 0.85rem',
+                          borderRadius: '8px',
+                          border: '1px solid #CBD5E1',
+                          fontSize: '0.8125rem',
+                          color: '#0F172A',
+                          outline: 'none',
+                          boxSizing: 'border-box'
                         }}
-                      >
-                        <input 
-                          type="radio" 
-                          name="disbursalStatusChoice" 
-                          checked={statusChoice === 'APPROVE'} 
-                          onChange={() => {}} 
-                          style={{ marginTop: '3px', cursor: 'pointer', accentColor: '#059669' }} 
-                        />
-                        <div>
-                          <strong style={{ fontSize: '0.8125rem', color: '#065F46', display: 'block' }}>
-                            ✓ Payout Cleared • Mark as Fully Settled (Success)
-                          </strong>
-                          <p style={{ margin: '2px 0 0', fontSize: '0.6875rem', color: '#047857', lineHeight: 1.35 }}>
-                            Amount has already cleared in beneficiary account and statement is verified. Settles payout immediately.
-                          </p>
-                        </div>
-                      </div>
+                      />
                     </div>
                   </div>
                 </div>
               );
             })()}
 
-            {/* Modal Footer */}
+            {/* Modal Footer: 3 Distinct Actions (Keep Pending, Reject, Complete & Disburse) */}
             <div style={{
               flexShrink: 0,
               background: '#F8FAFC',
               borderTop: '1px solid #E2E8F0',
               padding: '0.875rem 1.25rem',
               display: 'flex',
-              justifyContent: 'flex-end',
-              gap: '0.75rem'
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '0.5rem',
+              flexWrap: 'wrap'
             }}>
+              {/* Left Action: Keep Pending */}
               <button
                 type="button"
-                onClick={() => setDisbursingPayout(null)}
+                disabled={disbursingPayout.isSubmitting}
+                onClick={() => {
+                  triggerToast(`Withdrawal payout for ${disbursingPayout.payout?.merchant_name || 'Merchant'} kept in pending queue.`, 'info');
+                  setDisbursingPayout(null);
+                }}
+                title="Leave this transaction in Pending status"
                 style={{
-                  background: '#FFFFFF',
-                  border: '1px solid #CBD5E1',
-                  padding: '0.625rem 1rem',
+                  background: '#FFFBEB',
+                  color: '#B45309',
+                  border: '1px solid #FDE68A',
+                  padding: '0.6rem 0.9rem',
                   borderRadius: '8px',
                   fontSize: '0.75rem',
                   fontWeight: 700,
-                  color: '#475569',
-                  cursor: 'pointer'
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
                 }}
               >
-                Cancel
+                ⏳ Keep Pending
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  const p = disbursingPayout.payout;
-                  const statusChoice = disbursingPayout.actionType || 'DISPATCH';
-                  if (statusChoice === 'APPROVE') {
-                    handlePayoutAction(
+              {/* Right Actions: Reject and Complete */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  disabled={disbursingPayout.isSubmitting}
+                  onClick={async () => {
+                    const p = disbursingPayout.payout;
+                    const confirmed = window.confirm(`Reject withdrawal payout of ₹${parseFloat(p.amount).toLocaleString('en-IN')} for ${p.merchant_name}? Funds will be refunded to merchant wallet.`);
+                    if (!confirmed) return;
+                    setDisbursingPayout(prev => ({ ...prev, isSubmitting: true }));
+                    await handlePayoutAction(
+                      p.id,
+                      'REJECT',
+                      p.merchant_name,
+                      p.amount,
+                      '',
+                      disbursingPayout.remark || 'Payout Request Declined by Admin'
+                    );
+                  }}
+                  title="Reject payout and refund wallet balance"
+                  style={{
+                    background: '#FEF2F2',
+                    color: '#DC2626',
+                    border: '1px solid #FECACA',
+                    padding: '0.6rem 0.9rem',
+                    borderRadius: '8px',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  ✕ Reject
+                </button>
+
+                <button
+                  type="button"
+                  disabled={disbursingPayout.isSubmitting}
+                  onClick={async () => {
+                    const p = disbursingPayout.payout;
+                    const cleanUtr = (disbursingPayout.utr || '').trim();
+                    if (!cleanUtr) {
+                      triggerToast('⚠️ Please enter the Bank UTR / Reference Number before completing.', 'error');
+                      return;
+                    }
+                    setDisbursingPayout(prev => ({ ...prev, isSubmitting: true }));
+                    await handlePayoutAction(
                       p.id,
                       'APPROVE',
                       p.merchant_name,
                       p.amount,
-                      `REF${Date.now().toString().slice(-8)}`,
-                      'Disbursed and verified in bank'
+                      cleanUtr,
+                      disbursingPayout.remark || 'Disbursed via Bank CMS / Netbanking'
                     );
-                  } else {
-                    handlePayoutAction(
-                      p.id,
-                      'DISPATCH',
-                      p.merchant_name,
-                      p.amount,
-                      '',
-                      'Transfer initiated via Netbanking • Bank clearance in progress (up to 1 hr)'
-                    );
-                  }
-                }}
-                style={{
-                  background: (disbursingPayout.actionType || 'DISPATCH') === 'APPROVE' ? '#059669' : '#D97706',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  padding: '0.625rem 1.25rem',
-                  borderRadius: '8px',
-                  fontSize: '0.75rem',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  boxShadow: (disbursingPayout.actionType || 'DISPATCH') === 'APPROVE' ? '0 2px 6px rgba(5,150,105,0.3)' : '0 2px 6px rgba(217,119,6,0.3)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-              >
-                {(disbursingPayout.actionType || 'DISPATCH') === 'APPROVE' ? (
-                  <span>✓ Confirm & Mark Settled</span>
-                ) : (
-                  <span>⏳ Move to In-Transit (Pending)</span>
-                )}
-              </button>
+                  }}
+                  title="Submit UTR and mark this payout as Complete & Settled"
+                  style={{
+                    background: '#059669',
+                    color: '#FFFFFF',
+                    border: 'none',
+                    padding: '0.6rem 1.25rem',
+                    borderRadius: '8px',
+                    fontSize: '0.75rem',
+                    fontWeight: 800,
+                    cursor: disbursingPayout.isSubmitting ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    boxShadow: '0 2px 6px rgba(5,150,105,0.25)'
+                  }}
+                >
+                  {disbursingPayout.isSubmitting ? 'Processing...' : '✓ Complete & Disburse'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

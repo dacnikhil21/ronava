@@ -351,27 +351,19 @@ export async function adminResetUserPassword(userId, newPassword) {
 
     pMap[cleanUid] = cleanPass;
 
-    if (existingRow) {
-      const { error: updErr } = await supabase
-        .from('inquiries')
-        .update({
-          remarks: JSON.stringify(pMap),
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', 'SYS-USER-PASSWORDS');
-      if (updErr) throw updErr;
-    } else {
-      const { error: insErr } = await supabase
-        .from('inquiries')
-        .insert({
-          id: 'SYS-USER-PASSWORDS',
-          name: 'SYSTEM_USER_PASSWORDS',
-          mobile: '9966203053',
-          type: 'SYSTEM',
-          remarks: JSON.stringify(pMap)
-        });
-      if (insErr) throw insErr;
-    }
+    const { error: upsertErr } = await supabase
+      .from('inquiries')
+      .upsert({
+        id: 'SYS-USER-PASSWORDS',
+        type: 'FRANCHISE',
+        name: 'SYSTEM_USER_PASSWORDS',
+        phone: '9966203053',
+        category: 'PLATFORM_SETTINGS',
+        location: 'SYSTEM',
+        remarks: JSON.stringify(pMap),
+        status: 'ACTIVE'
+      });
+    if (upsertErr) throw upsertErr;
 
     return {
       success: true,
