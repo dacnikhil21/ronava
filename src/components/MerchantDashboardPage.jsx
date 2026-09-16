@@ -1102,7 +1102,6 @@ export default function MerchantDashboardPage({ user, onLogout }) {
       const companyRate = selectedMachineKey === 'qr'
         ? (activeMachine.rateInstant || activeMachine.rateT1 || 1.80)
         : (isInstant ? (activeMachine.rateInstant || 1.80) : (activeMachine.rateT1 || 1.50));
-      const customerRate = parseFloat(saleForm.customer_charge_pct) || 2.0;
 
       if (companyRate === undefined || companyRate === null || isNaN(companyRate) || companyRate <= 0) {
         showToast('⚠️ No active commission rate configured for this terminal. Please contact Admin.');
@@ -1111,8 +1110,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
       }
 
       const companyFee = (amountVal * companyRate) / 100;
-      const customerCharge = (amountVal * customerRate) / 100;
-      const merchantCommission = Math.max(0, customerCharge - companyFee);
+      const netSettlement = Math.max(0, amountVal - companyFee);
 
       const res = await recordMerchantSale({
         merchant_id: merchantId,
@@ -1123,23 +1121,23 @@ export default function MerchantDashboardPage({ user, onLogout }) {
         provider: activeMachine.provider,
         ref_number: saleForm.transaction_id.trim().toUpperCase(),
         settlement_type: selectedMachineKey === 'qr' ? 'INSTANT' : saleForm.settlement_type,
-        customer_charge: customerCharge,
+        customer_charge: 0,
         company_fee: companyFee,
-        merchant_commission: merchantCommission,
+        merchant_commission: 0,
         notes: selectedMachineKey === 'qr' 
           ? `Company QR UPI Collection (${companyQrPayeeName || 'RONAV TECHNOLOGIES'})` 
           : `${activeMachine.title} Swipe`
       });
 
       if (res.success) {
-        showToast(`✓ ₹${amountVal.toLocaleString('en-IN')} ${selectedMachineKey === 'qr' ? 'UPI QR Payment' : 'Swipe'} Logged on ${activeMachine.title}! Net Profit: ₹${merchantCommission.toFixed(2)}`);
+        showToast(`✓ ₹${amountVal.toLocaleString('en-IN')} Swipe Logged! Net Credit: ₹${netSettlement.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (Company MDR: -₹${companyFee.toFixed(2)})`);
         setSaleForm({
           amount: '',
           customer_name: '',
           customer_mobile: '',
           transaction_id: '',
           settlement_type: 'T1',
-          customer_charge_pct: '2.0',
+          customer_charge_pct: '0',
           notes: ''
         });
         fetchLiveData();
@@ -2376,11 +2374,8 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                     const cardSwipeAmount = parseFloat(saleForm.amount) || 0;
                     const isInstant = saleForm.settlement_type === 'INSTANT';
                     const companyRate = isInstant ? (activeMachine.rateInstant || 1.80) : (activeMachine.rateT1 || 1.50);
-                    const customerRate = 2.0; // standard 2% rate charged to customer
                     const companyFee = (cardSwipeAmount * companyRate) / 100;
-                    const customerCharge = (cardSwipeAmount * customerRate) / 100;
-                    const netProfit = Math.max(0, customerCharge - companyFee);
-                    const customerDisbursal = Math.max(0, cardSwipeAmount - customerCharge);
+                    const netSettlement = Math.max(0, cardSwipeAmount - companyFee);
 
                     return (
                       <form onSubmit={handleRecordSaleSubmit} style={{
@@ -2835,7 +2830,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                             </div>
                           </div>
 
-                          {/* 5. Clean Profit Strip (Zero Clutter) */}
+                          {/* 5. Clean Net Settlement Strip (Transparent & Direct) */}
                           {cardSwipeAmount > 0 && (
                             <div style={{
                               background: '#F0FDF4',
@@ -2847,17 +2842,17 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                               justifyContent: 'space-between'
                             }}>
                               <div>
-                                <span style={{ fontSize: '0.625rem', color: '#166534', fontWeight: 700, display: 'block', textTransform: 'uppercase' }}>
-                                  Your Net Commission
+                                <span style={{ fontSize: '0.625rem', color: '#166534', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                                  Net Credit to Wallet
                                 </span>
-                                <strong style={{ fontSize: '1rem', color: '#15803D', fontWeight: 900 }}>
-                                  +₹{netProfit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                <strong style={{ fontSize: '1.0625rem', color: '#15803D', fontWeight: 900 }}>
+                                  ₹{netSettlement.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                 </strong>
                               </div>
 
-                              <div style={{ textAlign: 'right', fontSize: '0.625rem', color: '#64748B', lineHeight: 1.3 }}>
-                                <div>Disbursed to Customer: <strong style={{ color: '#0F172A' }}>₹{customerDisbursal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></div>
-                                <div>Company Fee ({companyRate}%): <span style={{ color: '#64748B' }}>-₹{companyFee.toFixed(2)}</span></div>
+                              <div style={{ textAlign: 'right', fontSize: '0.65625rem', color: '#64748B', lineHeight: 1.35 }}>
+                                <div>Gross Swipe: <strong style={{ color: '#0F172A' }}>₹{cardSwipeAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></div>
+                                <div>Company Fee ({companyRate.toFixed(2)}%): <strong style={{ color: '#DC2626' }}>-₹{companyFee.toFixed(2)}</strong></div>
                               </div>
                             </div>
                           )}
