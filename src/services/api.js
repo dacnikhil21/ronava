@@ -469,6 +469,8 @@ export async function getAllUsers() {
       return {
         ...u,
         status: userStatus,
+        pos_raw: p || null,
+        channels: parseMerchantChannels(p),
         pos_provider: p.provider || null,
         pos_terminal: p.terminal_id ? p.terminal_id.split('|')[0] : null,
         pos_rate: p.commission_rate || null,
@@ -848,52 +850,54 @@ export async function createDownstreamUser(userData) {
       withdrawn_amount: 0.0
     });
 
-    // 3. Configure Counter Swipe POS Terminal for any role (Merchant, Retailer, Super Dist, District Dist, Area Dist)
+    // 3. Configure Multi-Channel Portfolio or POS Terminal for any role
     let createdPOS = null;
-    const shouldAssignPOS = pos_provider && pos_provider !== 'NONE';
+    const hasChannels = userData.channels && (userData.channels.pine_labs?.enabled || userData.channels.payswiff?.enabled || userData.channels.qr?.enabled);
 
-    if (shouldAssignPOS) {
-      const provider = pos_provider === 'Payswiff' ? 'Payswiff' : 'Pine Labs';
-      const settlement = settlement_type === 'INSTANT' ? 'INSTANT' : 'T1';
-      const plan = (device_plan === 'CUSTOM' || device_plan === 'LIFETIME') ? device_plan : 'RENTAL';
-      const rentFee = (plan === 'RENTAL' || plan === 'CUSTOM') ? (parseFloat(monthly_rent) || 499.0) : 0.0;
+    if (hasChannels) {
+      const fullTerminalStr = serializeMerchantChannels(userData.channels);
+      const pine = userData.channels.pine_labs;
+      const swiff = userData.channels.payswiff;
+      const qr = userData.channels.qr;
 
-      let vendorEntity = 'Rose Navaneetham Enterprises';
-      if (provider === 'Payswiff') {
-        vendorEntity = pos_vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
+      let primaryProvider = 'Pine Labs';
+      let primaryVendor = 'Rose Navaneetham Enterprises';
+      let primaryRateT1 = 1.50;
+      let primaryRateInstant = 1.80;
+
+      if (pine && pine.enabled) {
+        primaryProvider = 'Pine Labs';
+        primaryVendor = 'Rose Navaneetham Enterprises';
+        primaryRateT1 = parseFloat(pine.rate_t1) || 1.50;
+        primaryRateInstant = parseFloat(pine.rate_instant) || 1.80;
+      } else if (swiff && swiff.enabled) {
+        primaryProvider = 'Payswiff';
+        primaryVendor = swiff.vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
+        primaryRateT1 = parseFloat(swiff.rate_t1) || 1.50;
+        primaryRateInstant = parseFloat(swiff.rate_instant) || 1.80;
+      } else if (qr && qr.enabled) {
+        primaryProvider = 'QR';
+        primaryVendor = 'RONAV Technologies';
+        primaryRateT1 = parseFloat(qr.rate_instant) || 1.50;
+        primaryRateInstant = parseFloat(qr.rate_instant) || 1.50;
       }
-
-      // Dynamic Commission Rates configured by Admin (No hardcoded values)
-      const rateT1 = parseFloat(userData.commission_rate_t1 || userData.commission_rate) || 1.50;
-      const rateInstant = parseFloat(userData.commission_rate_instant) || (rateT1 + 0.30);
-      const adminCut = parseFloat(userData.admin_cut_rate) || 1.20;
-      const uplineCut = parseFloat(userData.upline_override_rate) || 0.20;
-
-      // Real Machine Serial Number entered by Admin / Distributor
-      const terminalPrefix = provider === 'Payswiff' ? 'SWIFF' : 'PL';
-      const cleanTerminalId = (userData.pos_terminal_id && userData.pos_terminal_id.trim())
-        ? userData.pos_terminal_id.trim()
-        : `${terminalPrefix}-${newUserId.replace(/\D/g, '') || '01'}`;
-
-      // Encode dynamic rates and plan in terminal identifier so they persist in database and are universally accessible
-      const fullTerminalStr = `${cleanTerminalId}|T1:${rateT1}|INS:${rateInstant}|ADM:${adminCut}|UPL:${uplineCut}|PLAN:${plan}|RENT:${rentFee}`;
 
       const { data: posData, error: posErr } = await supabase
         .from('merchant_pos')
         .insert({
           merchant_id: newUserId,
-          provider,
+          provider: primaryProvider,
           terminal_id: fullTerminalStr,
-          commission_rate: rateT1,
+          commission_rate: primaryRateT1,
           assigned_by: assignedCreatorId,
-          vendor_entity: vendorEntity,
-          device_plan: plan,
-          monthly_rent: rentFee,
-          settlement_type: settlement,
-          commission_rate_t1: rateT1,
-          commission_rate_instant: rateInstant,
-          admin_cut_rate: adminCut,
-          upline_override_rate: uplineCut
+          vendor_entity: primaryVendor,
+          device_plan: pine?.plan || swiff?.plan || 'RENTAL',
+          monthly_rent: pine?.rent || swiff?.rent || 499.0,
+          settlement_type: 'INSTANT',
+          commission_rate_t1: primaryRateT1,
+          commission_rate_instant: primaryRateInstant,
+          admin_cut_rate: 1.20,
+          upline_override_rate: 0.20
         })
         .select()
         .maybeSingle();
@@ -902,6 +906,61 @@ export async function createDownstreamUser(userData) {
         console.warn('POS creation notice (non-fatal):', posErr.message);
       } else {
         createdPOS = posData;
+      }
+    } else {
+      const shouldAssignPOS = pos_provider && pos_provider !== 'NONE';
+
+      if (shouldAssignPOS) {
+        const provider = pos_provider === 'Payswiff' ? 'Payswiff' : 'Pine Labs';
+        const settlement = settlement_type === 'INSTANT' ? 'INSTANT' : 'T1';
+        const plan = (device_plan === 'CUSTOM' || device_plan === 'LIFETIME') ? device_plan : 'RENTAL';
+        const rentFee = (plan === 'RENTAL' || plan === 'CUSTOM') ? (parseFloat(monthly_rent) || 499.0) : 0.0;
+
+        let vendorEntity = 'Rose Navaneetham Enterprises';
+        if (provider === 'Payswiff') {
+          vendorEntity = pos_vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
+        }
+
+        // Dynamic Commission Rates configured by Admin (No hardcoded values)
+        const rateT1 = parseFloat(userData.commission_rate_t1 || userData.commission_rate) || 1.50;
+        const rateInstant = parseFloat(userData.commission_rate_instant) || (rateT1 + 0.30);
+        const adminCut = parseFloat(userData.admin_cut_rate) || 1.20;
+        const uplineCut = parseFloat(userData.upline_override_rate) || 0.20;
+
+        // Real Machine Serial Number entered by Admin / Distributor
+        const terminalPrefix = provider === 'Payswiff' ? 'SWIFF' : 'PL';
+        const cleanTerminalId = (userData.pos_terminal_id && userData.pos_terminal_id.trim())
+          ? userData.pos_terminal_id.trim()
+          : `${terminalPrefix}-${newUserId.replace(/\D/g, '') || '01'}`;
+
+        // Encode dynamic rates and plan in terminal identifier so they persist in database and are universally accessible
+        const fullTerminalStr = `${cleanTerminalId}|T1:${rateT1}|INS:${rateInstant}|ADM:${adminCut}|UPL:${uplineCut}|PLAN:${plan}|RENT:${rentFee}`;
+
+        const { data: posData, error: posErr } = await supabase
+          .from('merchant_pos')
+          .insert({
+            merchant_id: newUserId,
+            provider,
+            terminal_id: fullTerminalStr,
+            commission_rate: rateT1,
+            assigned_by: assignedCreatorId,
+            vendor_entity: vendorEntity,
+            device_plan: plan,
+            monthly_rent: rentFee,
+            settlement_type: settlement,
+            commission_rate_t1: rateT1,
+            commission_rate_instant: rateInstant,
+            admin_cut_rate: adminCut,
+            upline_override_rate: uplineCut
+          })
+          .select()
+          .maybeSingle();
+
+        if (posErr) {
+          console.warn('POS creation notice (non-fatal):', posErr.message);
+        } else {
+          createdPOS = posData;
+        }
       }
     }
 
@@ -941,15 +1000,20 @@ export async function getWallet(userId) {
       .eq('merchant_id', userId)
       .maybeSingle();
 
+    const enrichedPos = pos ? {
+      ...pos,
+      channels: parseMerchantChannels(pos)
+    } : null;
+
     if (wErr || !wallet) {
       return { 
         success: true, 
         wallet: { available_balance: 0, total_sales: 0, received_sales: 0, pending_balance: 0, withdrawn_amount: 0 }, 
-        pos: pos || null 
+        pos: enrichedPos 
       };
     }
 
-    return { success: true, wallet, pos };
+    return { success: true, wallet, pos: enrichedPos };
   } catch (err) {
     console.error('getWallet error:', err);
     return { success: false, message: err.message };
@@ -957,8 +1021,165 @@ export async function getWallet(userId) {
 }
 
 // ----------------------------------------------------
-// 4. POS TERMINAL DYNAMIC RATES PARSER
+// 4. POS TERMINAL DYNAMIC RATES & PORTFOLIO PARSER
 // ----------------------------------------------------
+export function parseMerchantChannels(posRecord) {
+  const defaultObj = {
+    pine_labs: { enabled: false, terminal_id: '', rate_t1: 1.50, rate_instant: 1.80, vendor: 'Rose Navaneetham Enterprises', plan: 'RENTAL', rent: 499 },
+    payswiff: { enabled: false, terminal_id: '', rate_t1: 1.50, rate_instant: 1.80, vendor: 'RONAV Technologies', plan: 'RENTAL', rent: 499 },
+    qr: { enabled: false, rate_instant: 1.50, vendor: 'RONAV Technologies' },
+    enabledList: []
+  };
+
+  if (!posRecord) return defaultObj;
+
+  const tid = posRecord.terminal_id || '';
+  if (tid.startsWith('[PORTFOLIO]')) {
+    try {
+      const jsonStr = tid.replace('[PORTFOLIO]', '').trim();
+      const parsed = JSON.parse(jsonStr);
+      const enabledList = [];
+      if (parsed.pine_labs?.enabled) enabledList.push('pine_labs');
+      if (parsed.payswiff?.enabled) enabledList.push('payswiff');
+      if (parsed.qr?.enabled) enabledList.push('qr');
+      return {
+        pine_labs: { ...defaultObj.pine_labs, ...(parsed.pine_labs || {}) },
+        payswiff: { ...defaultObj.payswiff, ...(parsed.payswiff || {}) },
+        qr: { ...defaultObj.qr, ...(parsed.qr || {}) },
+        enabledList
+      };
+    } catch (_) {}
+  }
+
+  // Legacy single machine parsing
+  const rates = parsePosTerminalRates(tid, posRecord.commission_rate || 1.50);
+  const prov = (posRecord.provider || '').toLowerCase();
+  const isSwiff = prov.includes('swiff');
+  const isPine = prov.includes('pine') || (!isSwiff && prov !== 'qr');
+  const isQR = prov.includes('qr');
+
+  const enabledList = [];
+  if (isPine) enabledList.push('pine_labs');
+  if (isSwiff) enabledList.push('payswiff');
+  if (isQR) enabledList.push('qr');
+
+  return {
+    pine_labs: {
+      enabled: isPine,
+      terminal_id: isPine ? (rates.terminal_id || 'PL-01') : '',
+      rate_t1: posRecord.commission_rate_t1 || rates.rateT1 || 1.50,
+      rate_instant: posRecord.commission_rate_instant || rates.rateInstant || 1.80,
+      vendor: 'Rose Navaneetham Enterprises',
+      plan: posRecord.device_plan || 'RENTAL',
+      rent: posRecord.monthly_rent || 499
+    },
+    payswiff: {
+      enabled: isSwiff,
+      terminal_id: isSwiff ? (rates.terminal_id || 'SWIFF-01') : '',
+      rate_t1: posRecord.commission_rate_t1 || rates.rateT1 || 1.50,
+      rate_instant: posRecord.commission_rate_instant || rates.rateInstant || 1.80,
+      vendor: posRecord.vendor_entity || 'RONAV Technologies',
+      plan: posRecord.device_plan || 'RENTAL',
+      rent: posRecord.monthly_rent || 499
+    },
+    qr: {
+      enabled: isQR,
+      rate_instant: posRecord.commission_rate_instant || rates.rateInstant || 1.50,
+      vendor: 'RONAV Technologies'
+    },
+    enabledList
+  };
+}
+
+export function serializeMerchantChannels(channels) {
+  const payload = {
+    pine_labs: channels?.pine_labs ? {
+      enabled: Boolean(channels.pine_labs.enabled),
+      terminal_id: (channels.pine_labs.terminal_id || '').trim(),
+      vendor: 'Rose Navaneetham Enterprises',
+      rate_t1: parseFloat(channels.pine_labs.rate_t1) || 1.50,
+      rate_instant: parseFloat(channels.pine_labs.rate_instant) || 1.80,
+      plan: channels.pine_labs.plan || 'RENTAL',
+      rent: parseFloat(channels.pine_labs.rent) || 499.0
+    } : { enabled: false },
+    payswiff: channels?.payswiff ? {
+      enabled: Boolean(channels.payswiff.enabled),
+      terminal_id: (channels.payswiff.terminal_id || '').trim(),
+      vendor: channels.payswiff.vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies',
+      rate_t1: parseFloat(channels.payswiff.rate_t1) || 1.50,
+      rate_instant: parseFloat(channels.payswiff.rate_instant) || 1.80,
+      plan: channels.payswiff.plan || 'RENTAL',
+      rent: parseFloat(channels.payswiff.rent) || 499.0
+    } : { enabled: false },
+    qr: channels?.qr ? {
+      enabled: Boolean(channels.qr.enabled),
+      vendor: 'RONAV Technologies',
+      rate_instant: parseFloat(channels.qr.rate_instant) || 1.50
+    } : { enabled: false }
+  };
+  return `[PORTFOLIO] ${JSON.stringify(payload)}`;
+}
+
+export async function updateMerchantChannels(merchantId, channels) {
+  try {
+    const fullTerminalStr = serializeMerchantChannels(channels);
+    const pine = channels.pine_labs;
+    const swiff = channels.payswiff;
+    const qr = channels.qr;
+
+    let primaryProvider = 'Pine Labs';
+    let primaryVendor = 'Rose Navaneetham Enterprises';
+    let primaryRateT1 = 1.50;
+    let primaryRateInstant = 1.80;
+
+    if (pine && pine.enabled) {
+      primaryProvider = 'Pine Labs';
+      primaryVendor = 'Rose Navaneetham Enterprises';
+      primaryRateT1 = parseFloat(pine.rate_t1) || 1.50;
+      primaryRateInstant = parseFloat(pine.rate_instant) || 1.80;
+    } else if (swiff && swiff.enabled) {
+      primaryProvider = 'Payswiff';
+      primaryVendor = swiff.vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
+      primaryRateT1 = parseFloat(swiff.rate_t1) || 1.50;
+      primaryRateInstant = parseFloat(swiff.rate_instant) || 1.80;
+    } else if (qr && qr.enabled) {
+      primaryProvider = 'QR';
+      primaryVendor = 'RONAV Technologies';
+      primaryRateT1 = parseFloat(qr.rate_instant) || 1.50;
+      primaryRateInstant = parseFloat(qr.rate_instant) || 1.50;
+    }
+
+    const { data: existing } = await supabase.from('merchant_pos').select('*').eq('merchant_id', merchantId).maybeSingle();
+
+    if (existing) {
+      await supabase.from('merchant_pos').update({
+        provider: primaryProvider,
+        terminal_id: fullTerminalStr,
+        vendor_entity: primaryVendor,
+        commission_rate_t1: primaryRateT1,
+        commission_rate_instant: primaryRateInstant,
+        commission_rate: primaryRateT1
+      }).eq('merchant_id', merchantId);
+    } else {
+      await supabase.from('merchant_pos').insert({
+        merchant_id: merchantId,
+        provider: primaryProvider,
+        terminal_id: fullTerminalStr,
+        assigned_by: 'ADM001',
+        vendor_entity: primaryVendor,
+        commission_rate_t1: primaryRateT1,
+        commission_rate_instant: primaryRateInstant,
+        commission_rate: primaryRateT1
+      });
+    }
+
+    return { success: true, message: 'Channels updated successfully!' };
+  } catch (err) {
+    console.error('updateMerchantChannels error:', err);
+    return { success: false, message: err.message };
+  }
+}
+
 export function parsePosTerminalRates(terminalStr, baseRate = 1.50) {
   const str = terminalStr || '';
   let cleanId = str;
@@ -966,6 +1187,41 @@ export function parsePosTerminalRates(terminalStr, baseRate = 1.50) {
   let rateInstant = rateT1 + 0.30;
   let adminCut = 1.20;
   let uplineCut = 0.20;
+
+  if (str.startsWith('[PORTFOLIO]')) {
+    try {
+      const jsonStr = str.replace('[PORTFOLIO]', '').trim();
+      const p = JSON.parse(jsonStr);
+      if (p.pine_labs?.enabled) {
+        return {
+          terminal_id: p.pine_labs.terminal_id || 'PL-01',
+          raw_terminal: str,
+          rateT1: p.pine_labs.rate_t1 || 1.50,
+          rateInstant: p.pine_labs.rate_instant || 1.80,
+          adminCut: 1.20,
+          uplineCut: 0.20
+        };
+      } else if (p.payswiff?.enabled) {
+        return {
+          terminal_id: p.payswiff.terminal_id || 'SWIFF-01',
+          raw_terminal: str,
+          rateT1: p.payswiff.rate_t1 || 1.50,
+          rateInstant: p.payswiff.rate_instant || 1.80,
+          adminCut: 1.20,
+          uplineCut: 0.20
+        };
+      } else if (p.qr?.enabled) {
+        return {
+          terminal_id: 'QR-CHANNEL',
+          raw_terminal: str,
+          rateT1: p.qr.rate_instant || 1.50,
+          rateInstant: p.qr.rate_instant || 1.50,
+          adminCut: 1.20,
+          uplineCut: 0.20
+        };
+      }
+    } catch (_) {}
+  }
 
   if (str.includes('|')) {
     const parts = str.split('|');
@@ -1048,6 +1304,8 @@ export async function recordMerchantSale(saleData) {
     } else {
       finalVendor = pos?.vendor_entity || 'RONAV Technologies';
     }
+
+    const finalRrn = (rrn_number || ref_number || '').trim().toUpperCase() || `RRN${Date.now().toString().slice(-8)}`;
 
     // Package extended metadata safely in notes
     const swipeMeta = {
@@ -1268,6 +1526,8 @@ export async function getDownstreamNetwork(creatorId) {
         available_balance: w.available_balance || 0,
         total_sales: totalVolume || w.total_sales || 0,
         received_sales: w.received_sales || 0,
+        pos_raw: pos || null,
+        channels: parseMerchantChannels(pos),
         pos_provider: pos.provider || null,
         pos_terminal: pos.terminal_id ? pos.terminal_id.split('|')[0] : null,
         pos_plan: pos.device_plan || 'RENTAL',

@@ -27,7 +27,10 @@ import {
   getMerchantWithdrawals,
   getPlatformQrConfig,
   savePlatformQrConfig,
-  adminResetUserPassword
+  adminResetUserPassword,
+  updateMerchantChannels,
+  parseMerchantChannels,
+  serializeMerchantChannels
 } from '../services/api';
 import { subscribeToAdminFeed } from '../services/supabase';
 import RonavLogo from './RonavLogo';
@@ -174,6 +177,30 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     commission_rate_instant: '1.80', // Instant Settlement MDR %
     pos_terminal_id: '' // Real physical POS machine serial number / TID
   });
+
+  // Multi-Channel Onboarding State (Option 1: Add Channel inventory model)
+  const [onboardChannels, setOnboardChannels] = useState({
+    pine_labs: {
+      enabled: true,
+      terminal_id: '',
+      vendor: 'Rose Navaneetham Enterprises',
+      plan: 'RENTAL',
+      rent: '499',
+      rate_t1: '1.50',
+      rate_instant: '1.80'
+    },
+    payswiff: null,
+    qr: null
+  });
+
+  // Manage Terminals & Channels Modal State for Existing Merchants
+  const [managingChannelsMerchant, setManagingChannelsMerchant] = useState(null);
+  const [managingChannelsData, setManagingChannelsData] = useState({
+    pine_labs: { enabled: false, terminal_id: '', rate_t1: 1.50, rate_instant: 1.80, vendor: 'Rose Navaneetham Enterprises', plan: 'RENTAL', rent: 499 },
+    payswiff: { enabled: false, terminal_id: '', rate_t1: 1.50, rate_instant: 1.80, vendor: 'RONAV Technologies', plan: 'RENTAL', rent: 499 },
+    qr: { enabled: false, rate_instant: 1.50, vendor: 'RONAV Technologies' }
+  });
+  const [isSavingChannels, setIsSavingChannels] = useState(false);
 
   // Dedicated Ecosystem Profit & Commission Distribution State
   const [profitDateFilter, setProfitDateFilter] = useState('TODAY'); // 'TODAY' | 'YESTERDAY' | 'WEEK' | 'MONTH' | 'ALL' | 'CUSTOM'
@@ -324,6 +351,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
   // Open Create Modal with Preselected Role
   const handleOpenCreateModal = (role = 'MERCHANT', parentId = '') => {
+    const rateT1 = role === 'MASTER' ? '1.35' : (role === 'SUPER_DISTRIBUTOR' ? '1.40' : (role === 'DISTRICT_DISTRIBUTOR' ? '1.45' : (role === 'DISTRIBUTOR' ? '1.48' : '1.50')));
+    const rateInstant = role === 'MASTER' ? '1.65' : (role === 'SUPER_DISTRIBUTOR' ? '1.70' : (role === 'DISTRICT_DISTRIBUTOR' ? '1.75' : (role === 'DISTRIBUTOR' ? '1.78' : '1.80')));
+
     setOnboardForm({
       name: '',
       mobile: '',
@@ -335,36 +365,90 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       device_plan: 'RENTAL',
       monthly_rent: '499',
       settlement_type: 'T1',
-      commission_rate_t1: role === 'MASTER' ? '1.35' : (role === 'SUPER_DISTRIBUTOR' ? '1.40' : (role === 'DISTRICT_DISTRIBUTOR' ? '1.45' : (role === 'DISTRIBUTOR' ? '1.48' : '1.50'))),
-      commission_rate_instant: role === 'MASTER' ? '1.65' : (role === 'SUPER_DISTRIBUTOR' ? '1.70' : (role === 'DISTRICT_DISTRIBUTOR' ? '1.75' : (role === 'DISTRIBUTOR' ? '1.78' : '1.80'))),
+      commission_rate_t1: rateT1,
+      commission_rate_instant: rateInstant,
       pos_terminal_id: ''
     });
+
+    // Default: Add Pine Labs POS card. Payswiff & QR are optional and can be added via [+ Add Channel] buttons.
+    setOnboardChannels({
+      pine_labs: {
+        enabled: true,
+        terminal_id: '',
+        vendor: 'Rose Navaneetham Enterprises',
+        plan: 'RENTAL',
+        rent: '499',
+        rate_t1: rateT1,
+        rate_instant: rateInstant
+      },
+      payswiff: null,
+      qr: null
+    });
+
     setIsCreateModalOpen(true);
   };
 
-  // Handle Provider Change in Onboard Modal
-  const handleProviderChange = (provider) => {
-    if (provider === 'Pine Labs') {
-      setOnboardForm(prev => ({
-        ...prev,
-        pos_provider: 'Pine Labs',
-        pos_vendor: 'Rose Navaneetham Enterprises'
-      }));
-    } else {
-      setOnboardForm(prev => ({
-        ...prev,
-        pos_provider: 'Payswiff',
-        pos_vendor: prev.pos_vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies'
-      }));
+  // Open Manage Terminals & QR Channel Portfolio for Existing Merchant
+  const handleOpenManageChannels = (user) => {
+    const ch = user.channels || (user.pos_raw ? parseMerchantChannels(user.pos_raw) : parseMerchantChannels(null));
+    setManagingChannelsMerchant(user);
+    setManagingChannelsData(JSON.parse(JSON.stringify(ch)));
+  };
+
+  // Save Channel Portfolio for Existing Merchant
+  const handleSaveManageChannels = async () => {
+    if (!managingChannelsMerchant) return;
+    setIsSavingChannels(true);
+    try {
+      const res = await updateMerchantChannels(managingChannelsMerchant.id, managingChannelsData);
+      if (res.success) {
+        triggerToast(`✓ Successfully updated channel portfolio for ${managingChannelsMerchant.name}!`, 'success');
+        setManagingChannelsMerchant(null);
+        fetchAdminData();
+      } else {
+        triggerToast(res.message || 'Failed to update channels', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      triggerToast('Error saving channels', 'error');
+    } finally {
+      setIsSavingChannels(false);
     }
   };
 
-  // Submit User Creation
+  // Submit User Creation with Multi-Channel Portfolio
   const handleSubmitOnboard = async (e) => {
     e.preventDefault();
     if (!onboardForm.name.trim() || !onboardForm.mobile.trim()) {
       triggerToast('Please provide both Name and Mobile Number.', 'error');
       return;
+    }
+
+    // Determine primary provider for legacy compatibility
+    let primaryProvider = 'Pine Labs';
+    let primaryVendor = 'Rose Navaneetham Enterprises';
+    let primaryTid = '';
+    let primaryRateT1 = onboardForm.commission_rate_t1 || '1.50';
+    let primaryRateInstant = onboardForm.commission_rate_instant || '1.80';
+
+    if (onboardChannels.pine_labs) {
+      primaryProvider = 'Pine Labs';
+      primaryVendor = 'Rose Navaneetham Enterprises';
+      primaryTid = onboardChannels.pine_labs.terminal_id || '';
+      primaryRateT1 = onboardChannels.pine_labs.rate_t1 || '1.50';
+      primaryRateInstant = onboardChannels.pine_labs.rate_instant || '1.80';
+    } else if (onboardChannels.payswiff) {
+      primaryProvider = 'Payswiff';
+      primaryVendor = onboardChannels.payswiff.vendor || 'RONAV Technologies';
+      primaryTid = onboardChannels.payswiff.terminal_id || '';
+      primaryRateT1 = onboardChannels.payswiff.rate_t1 || '1.50';
+      primaryRateInstant = onboardChannels.payswiff.rate_instant || '1.80';
+    } else if (onboardChannels.qr) {
+      primaryProvider = 'QR';
+      primaryVendor = 'RONAV Technologies';
+      primaryTid = 'QR-CHANNEL';
+      primaryRateT1 = onboardChannels.qr.rate_instant || '1.50';
+      primaryRateInstant = onboardChannels.qr.rate_instant || '1.50';
     }
 
     setIsSubmitting(true);
@@ -375,14 +459,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         name: onboardForm.name.trim(),
         mobile: onboardForm.mobile.trim(),
         role: onboardForm.role,
-        pos_provider: onboardForm.pos_provider || 'Pine Labs',
-        pos_vendor: onboardForm.pos_vendor,
-        pos_terminal_id: onboardForm.pos_terminal_id?.trim(),
-        device_plan: onboardForm.device_plan,
-        monthly_rent: onboardForm.monthly_rent,
-        settlement_type: onboardForm.settlement_type,
-        commission_rate_t1: onboardForm.commission_rate_t1,
-        commission_rate_instant: onboardForm.commission_rate_instant
+        channels: onboardChannels,
+        pos_provider: primaryProvider,
+        pos_vendor: primaryVendor,
+        pos_terminal_id: primaryTid,
+        device_plan: onboardChannels.pine_labs?.plan || onboardChannels.payswiff?.plan || 'RENTAL',
+        monthly_rent: onboardChannels.pine_labs?.rent || onboardChannels.payswiff?.rent || '499',
+        settlement_type: 'INSTANT',
+        commission_rate_t1: primaryRateT1,
+        commission_rate_instant: primaryRateInstant
       };
 
       const res = await createDownstreamUser(payload);
@@ -1976,21 +2061,48 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     );
                   })()}
 
-                  {/* Hardware & Vendor Information Tags for Merchant */}
+                  {/* Hardware & Channel Portfolio for Merchant */}
                   {viewingUserDossier.dossierType === 'MERCHANT' && (
-                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#F1F5F9', color: '#334155', padding: '3px 8px', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
-                        Machine: {viewingUserDossier.pos_provider || 'Pine Labs'} ({(viewingUserDossier.pos_terminal || 'PL-TS').split('|')[0]})
-                      </span>
-                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '3px 8px', borderRadius: '6px', border: '1px solid #BFDBFE' }}>
-                        Settlement Entity: {viewingUserDossier.pos_vendor || 'Rose Navaneetham Enterprises'}
-                      </span>
-                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#FEF3C7', color: '#B45309', padding: '3px 8px', borderRadius: '6px', border: '1px solid #FDE68A' }}>
-                        Plan: {viewingUserDossier.pos_plan === 'CUSTOM' ? `Custom Plan (₹${viewingUserDossier.pos_rent || 499}/mo)` : (viewingUserDossier.pos_plan === 'LIFETIME' ? 'One-Time Purchase' : `Monthly Rental (₹${viewingUserDossier.pos_rent || 499}/mo)`)}
-                      </span>
-                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#ECFDF5', color: '#059669', padding: '3px 8px', borderRadius: '6px', border: '1px solid #A7F3D0' }}>
-                        Mode: {viewingUserDossier.pos_settlement === 'INSTANT' ? 'Instant Settlement' : 'T+1 Settlement (1.53% MDR)'}
-                      </span>
+                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                      {viewingUserDossier.channels?.pine_labs?.enabled && (
+                        <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '3px 8px', borderRadius: '6px', border: '1px solid #BFDBFE' }}>
+                          🌲 Pine Labs: {viewingUserDossier.channels.pine_labs.terminal_id || 'PL-01'} (Rose Navaneetham) • {viewingUserDossier.channels.pine_labs.rate_t1}% T+1 / {viewingUserDossier.channels.pine_labs.rate_instant}% Instant
+                        </span>
+                      )}
+                      {viewingUserDossier.channels?.payswiff?.enabled && (
+                        <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#FFFBEB', color: '#D97706', padding: '3px 8px', borderRadius: '6px', border: '1px solid #FDE68A' }}>
+                          ⚡ Payswiff: {viewingUserDossier.channels.payswiff.terminal_id || 'SWIFF-01'} ({viewingUserDossier.channels.payswiff.vendor}) • {viewingUserDossier.channels.payswiff.rate_t1}% T+1 / {viewingUserDossier.channels.payswiff.rate_instant}% Instant
+                        </span>
+                      )}
+                      {viewingUserDossier.channels?.qr?.enabled && (
+                        <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#F5F3FF', color: '#7C3AED', padding: '3px 8px', borderRadius: '6px', border: '1px solid #DDD6FE' }}>
+                          📱 QR Active: {viewingUserDossier.channels.qr.rate_instant}% Instant Settlement (RONAV Technologies)
+                        </span>
+                      )}
+                      {(!viewingUserDossier.channels || (!viewingUserDossier.channels.pine_labs?.enabled && !viewingUserDossier.channels.payswiff?.enabled && !viewingUserDossier.channels.qr?.enabled)) && (
+                        <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#F1F5F9', color: '#334155', padding: '3px 8px', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
+                          📟 Machine: {viewingUserDossier.pos_provider || 'Pine Labs'} ({(viewingUserDossier.pos_terminal || 'PL-TS').split('|')[0]})
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenManageChannels(viewingUserDossier)}
+                        style={{
+                          background: '#0F52BA',
+                          color: '#FFFFFF',
+                          border: 'none',
+                          padding: '3px 9px',
+                          borderRadius: '6px',
+                          fontSize: '0.65625rem',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        ⚙️ Manage Terminals & QR
+                      </button>
                     </div>
                   )}
                 </div>
@@ -4281,20 +4393,51 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             </div>
                           </div>
 
-                          {/* Machine & Legal Vendor Badges */}
-                          <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-                            <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#334155', padding: '2px 6px', borderRadius: '4px' }}>
-                              📟 {m.pos_provider || 'Pine Labs'} ({(m.pos_terminal || 'PL-TS').split('|')[0]})
-                            </span>
-                            <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '2px 6px', borderRadius: '4px' }}>
-                              🏢 {m.pos_vendor || 'Rose Navaneetham'}
-                            </span>
-                            <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#FEF3C7', color: '#B45309', padding: '2px 6px', borderRadius: '4px' }}>
-                              {m.pos_plan === 'CUSTOM' ? `Custom Plan (₹${m.pos_rent || 499}/mo)` : (m.pos_plan === 'LIFETIME' ? 'One-Time Purchase' : `Rental Plan (₹${m.pos_rent || 499}/mo)`)}
-                            </span>
-                            <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#ECFDF5', color: '#059669', padding: '2px 6px', borderRadius: '4px' }}>
-                              {m.pos_settlement === 'INSTANT' ? '⚡ Instant (1.83%)' : '📅 T+1 (1.53%)'}
-                            </span>
+                          {/* Multi-Channel Portfolio & Legal Vendor Badges */}
+                          <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                            {m.channels?.pine_labs?.enabled && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '2px 6px', borderRadius: '4px', border: '1px solid #BFDBFE' }}>
+                                🌲 Pine Labs: {m.channels.pine_labs.terminal_id || 'PL-01'} (Rose Navaneetham)
+                              </span>
+                            )}
+                            {m.channels?.payswiff?.enabled && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#FFFBEB', color: '#D97706', padding: '2px 6px', borderRadius: '4px', border: '1px solid #FDE68A' }}>
+                                ⚡ Payswiff: {m.channels.payswiff.terminal_id || 'SWIFF-01'} ({m.channels.payswiff.vendor || 'RONAV'})
+                              </span>
+                            )}
+                            {m.channels?.qr?.enabled && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F5F3FF', color: '#7C3AED', padding: '2px 6px', borderRadius: '4px', border: '1px solid #DDD6FE' }}>
+                                📱 QR Active: {m.channels.qr.rate_instant || 1.50}% Instant
+                              </span>
+                            )}
+                            {(!m.channels || (!m.channels.pine_labs?.enabled && !m.channels.payswiff?.enabled && !m.channels.qr?.enabled)) && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#64748B', padding: '2px 6px', borderRadius: '4px' }}>
+                                📟 {m.pos_provider || 'Pine Labs'} ({(m.pos_terminal || 'PL-TS').split('|')[0]})
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenManageChannels(m);
+                              }}
+                              style={{
+                                marginLeft: 'auto',
+                                background: '#EFF6FF',
+                                border: '1px solid #BFDBFE',
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                fontSize: '0.625rem',
+                                fontWeight: 800,
+                                color: '#0F52BA',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '3px'
+                              }}
+                            >
+                              ⚙️ Manage Terminals
+                            </button>
                           </div>
 
                           {/* 4 Financial Metrics Grid */}
@@ -7232,177 +7375,406 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 </div>
               </div>
 
-              {/* Counter POS Terminal & Commission Rates (Automatically Assigned to All Partners) */}
+              {/* Option 1: Assigned Payment Channels & Terminals (Multi-Channel Portfolio) */}
               <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px', padding: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                
-                {/* Hardware Provider */}
-                <div>
-                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '4px' }}>
-                    POS Hardware Provider
-                  </label>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
-                    {['Pine Labs', 'Payswiff'].map(p => (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => handleProviderChange(p)}
-                        style={{
-                          padding: '0.45rem',
-                          fontSize: '0.6875rem',
-                          fontWeight: 800,
-                          borderRadius: '6px',
-                          border: onboardForm.pos_provider === p ? '2px solid #0F52BA' : '1px solid #CBD5E1',
-                          background: onboardForm.pos_provider === p ? '#EFF6FF' : '#FFFFFF',
-                          color: onboardForm.pos_provider === p ? '#0F52BA' : '#475569',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        {p === 'Pine Labs' ? '🌲 Pine Labs' : '⚡ Payswiff'}
-                      </button>
-                    ))}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <label style={{ fontSize: '0.75rem', fontWeight: 900, color: '#0F172A', display: 'block' }}>
+                      Assigned Payment Channels & Terminals
+                    </label>
+                    <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
+                      Add physical swipe machines and/or grant Company QR access to this merchant.
+                    </span>
                   </div>
                 </div>
 
-                {/* Vendor Settlement Entity */}
-                <div>
-                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '4px' }}>
-                    Settlement Account & Legal Vendor
-                  </label>
-                  {onboardForm.pos_provider === 'Pine Labs' ? (
-                    <div style={{ padding: '0.45rem', background: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 700, color: '#0F52BA' }}>
-                      Rose Navaneetham Enterprises (Pine Labs)
-                    </div>
-                  ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.375rem' }}>
-                      {['RONAV Technologies', 'R.P. Technologies'].map(v => (
-                        <button
-                          key={v}
-                          type="button"
-                          onClick={() => setOnboardForm(prev => ({ ...prev, pos_vendor: v }))}
-                          style={{
-                            padding: '0.4rem',
-                            fontSize: '0.625rem',
-                            fontWeight: 800,
-                            borderRadius: '6px',
-                            border: onboardForm.pos_vendor === v ? '2px solid #D97706' : '1px solid #CBD5E1',
-                            background: onboardForm.pos_vendor === v ? '#FEF3C7' : '#FFFFFF',
-                            color: onboardForm.pos_vendor === v ? '#B45309' : '#475569',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          {v === 'RONAV Technologies' ? 'RONAV Technologies' : 'R.P. Technologies'}
-                        </button>
-                      ))}
-                    </div>
+                {/* Channel Add Action Buttons */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  {!onboardChannels.pine_labs && (
+                    <button
+                      type="button"
+                      onClick={() => setOnboardChannels(prev => ({
+                        ...prev,
+                        pine_labs: {
+                          enabled: true,
+                          terminal_id: '',
+                          vendor: 'Rose Navaneetham Enterprises',
+                          plan: 'RENTAL',
+                          rent: '499',
+                          rate_t1: '1.50',
+                          rate_instant: '1.80'
+                        }
+                      }))}
+                      style={{
+                        padding: '0.45rem 0.75rem',
+                        fontSize: '0.6875rem',
+                        fontWeight: 800,
+                        borderRadius: '6px',
+                        border: '1px dashed #0F52BA',
+                        background: '#EFF6FF',
+                        color: '#0F52BA',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      <span>🌲 + Add Pine Labs POS</span>
+                    </button>
+                  )}
+
+                  {!onboardChannels.payswiff && (
+                    <button
+                      type="button"
+                      onClick={() => setOnboardChannels(prev => ({
+                        ...prev,
+                        payswiff: {
+                          enabled: true,
+                          terminal_id: '',
+                          vendor: 'RONAV Technologies',
+                          plan: 'RENTAL',
+                          rent: '499',
+                          rate_t1: '1.50',
+                          rate_instant: '1.80'
+                        }
+                      }))}
+                      style={{
+                        padding: '0.45rem 0.75rem',
+                        fontSize: '0.6875rem',
+                        fontWeight: 800,
+                        borderRadius: '6px',
+                        border: '1px dashed #D97706',
+                        background: '#FFFBEB',
+                        color: '#D97706',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      <span>⚡ + Add Payswiff POS</span>
+                    </button>
+                  )}
+
+                  {!onboardChannels.qr && (
+                    <button
+                      type="button"
+                      onClick={() => setOnboardChannels(prev => ({
+                        ...prev,
+                        qr: {
+                          enabled: true,
+                          vendor: 'RONAV Technologies',
+                          rate_instant: '1.50'
+                        }
+                      }))}
+                      style={{
+                        padding: '0.45rem 0.75rem',
+                        fontSize: '0.6875rem',
+                        fontWeight: 800,
+                        borderRadius: '6px',
+                        border: '1px dashed #7C3AED',
+                        background: '#F5F3FF',
+                        color: '#7C3AED',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      <span>📱 + Add QR Channel</span>
+                    </button>
                   )}
                 </div>
 
-                {/* Physical POS Machine / Terminal Serial Number */}
-                <div>
-                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '4px' }}>
-                    POS Machine Serial / Terminal Number *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder={onboardForm.pos_provider === 'Pine Labs' ? 'e.g. PL-884920' : 'e.g. SWIFF-58201'}
-                    value={onboardForm.pos_terminal_id}
-                    onChange={(e) => setOnboardForm(prev => ({ ...prev, pos_terminal_id: e.target.value }))}
-                    style={{ width: '100%', padding: '0.45rem 0.6rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', fontWeight: 700, boxSizing: 'border-box' }}
-                  />
-                  <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
-                    Unique TID / Serial number printed on physical device sticker
-                  </span>
-                </div>
+                {/* Empty State Warning */}
+                {!onboardChannels.pine_labs && !onboardChannels.payswiff && !onboardChannels.qr && (
+                  <div style={{ padding: '0.75rem', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '6px', fontSize: '0.6875rem', color: '#DC2626' }}>
+                    ⚠️ No channels assigned. Please click a button above to attach at least one POS machine or QR channel.
+                  </div>
+                )}
 
-                {/* Device Plan */}
-                <div>
-                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '4px' }}>
-                    Device Plan
-                  </label>
-                  <select
-                    value={onboardForm.device_plan}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setOnboardForm(prev => ({
-                        ...prev,
-                        device_plan: val,
-                        monthly_rent: val === 'RENTAL' ? '499' : (prev.monthly_rent || '499')
-                      }));
-                    }}
-                    style={{ width: '100%', padding: '0.45rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.71875rem', background: '#FFFFFF' }}
-                  >
-                    <option value="RENTAL">Monthly Rental (₹499/mo)</option>
-                    <option value="CUSTOM">Custom Amount</option>
-                  </select>
+                {/* Pine Labs Card */}
+                {onboardChannels.pine_labs && (
+                  <div style={{ background: '#FFFFFF', border: '1.5px solid #BFDBFE', borderRadius: '8px', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '1rem' }}>🌲</span>
+                        <strong style={{ fontSize: '0.75rem', color: '#0F52BA' }}>Pine Labs POS Terminal</strong>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setOnboardChannels(prev => ({ ...prev, pine_labs: null }))}
+                        style={{ background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', fontSize: '0.625rem', fontWeight: 800, borderRadius: '4px', padding: '2px 6px', cursor: 'pointer' }}
+                      >
+                        ✕ Remove
+                      </button>
+                    </div>
 
-                  {onboardForm.device_plan === 'CUSTOM' && (
-                    <div style={{ marginTop: '6px' }}>
-                      <span style={{ fontSize: '0.65625rem', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '3px' }}>
-                        Custom Amount (₹) *
-                      </span>
-                      <div style={{ position: 'relative' }}>
-                        <span style={{ position: 'absolute', left: '9px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', fontWeight: 800, color: '#64748B' }}>₹</span>
+                    <div style={{ fontSize: '0.65625rem', color: '#64748B' }}>
+                      <strong>Vendor Entity:</strong> <span style={{ color: '#0F52BA', fontWeight: 700 }}>Rose Navaneetham Enterprises</span> (Exclusive)
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                      <div>
+                        <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '2px' }}>
+                          Terminal Serial / TID *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. PL-884920"
+                          value={onboardChannels.pine_labs.terminal_id}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setOnboardChannels(prev => ({
+                              ...prev,
+                              pine_labs: { ...prev.pine_labs, terminal_id: val }
+                            }));
+                          }}
+                          style={{ width: '100%', padding: '0.4rem 0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem', fontWeight: 700, boxSizing: 'border-box' }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '2px' }}>
+                          Device Plan
+                        </label>
+                        <select
+                          value={onboardChannels.pine_labs.plan}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setOnboardChannels(prev => ({
+                              ...prev,
+                              pine_labs: { ...prev.pine_labs, plan: val, rent: val === 'RENTAL' ? '499' : prev.pine_labs.rent }
+                            }));
+                          }}
+                          style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.6875rem', background: '#FFFFFF' }}
+                        >
+                          <option value="RENTAL">Monthly Rental (₹499/mo)</option>
+                          <option value="CUSTOM">Custom Plan</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                      <div>
+                        <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '2px' }}>
+                          T+1 MDR (%) *
+                        </label>
                         <input
                           type="number"
-                          step="1"
-                          min="0"
-                          placeholder="e.g. 799"
-                          value={onboardForm.monthly_rent}
-                          onChange={(e) => setOnboardForm(prev => ({ ...prev, monthly_rent: e.target.value }))}
-                          style={{ width: '100%', padding: '0.45rem 0.6rem 0.45rem 1.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', fontWeight: 700, boxSizing: 'border-box' }}
+                          step="0.01"
+                          value={onboardChannels.pine_labs.rate_t1}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setOnboardChannels(prev => ({
+                              ...prev,
+                              pine_labs: { ...prev.pine_labs, rate_t1: val }
+                            }));
+                          }}
+                          style={{ width: '100%', padding: '0.4rem 0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem', fontWeight: 700, boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '2px' }}>
+                          Instant MDR (%) *
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={onboardChannels.pine_labs.rate_instant}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setOnboardChannels(prev => ({
+                              ...prev,
+                              pine_labs: { ...prev.pine_labs, rate_instant: val }
+                            }));
+                          }}
+                          style={{ width: '100%', padding: '0.4rem 0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem', fontWeight: 700, boxSizing: 'border-box' }}
                         />
                       </div>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
 
-                {/* COMMISSION RATES (MDR %) */}
-                <div style={{ background: '#FFFFFF', border: '1px solid #CBD5E1', borderRadius: '8px', padding: '0.65rem' }}>
-                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0F172A', display: 'block', marginBottom: '6px' }}>
-                    Commission Rates (MDR %)
-                  </label>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
-                    {/* T+1 Base Rate */}
-                    <div>
-                      <span style={{ fontSize: '0.65625rem', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '3px' }}>
-                        T+1 Rate (%) *
-                      </span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0.5"
-                        max="3.0"
-                        value={onboardForm.commission_rate_t1}
-                        onChange={(e) => setOnboardForm(prev => ({ ...prev, commission_rate_t1: e.target.value }))}
-                        style={{ width: '100%', padding: '0.45rem 0.6rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', fontWeight: 700, boxSizing: 'border-box' }}
-                      />
-                      <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
-                        Standard settlement
-                      </span>
+                {/* Payswiff Card */}
+                {onboardChannels.payswiff && (
+                  <div style={{ background: '#FFFFFF', border: '1.5px solid #FDE68A', borderRadius: '8px', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '1rem' }}>⚡</span>
+                        <strong style={{ fontSize: '0.75rem', color: '#D97706' }}>Payswiff POS Terminal</strong>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setOnboardChannels(prev => ({ ...prev, payswiff: null }))}
+                        style={{ background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', fontSize: '0.625rem', fontWeight: 800, borderRadius: '4px', padding: '2px 6px', cursor: 'pointer' }}
+                      >
+                        ✕ Remove
+                      </button>
                     </div>
 
-                    {/* Instant Settlement Rate */}
+                    {/* Vendor Entity Selector */}
                     <div>
-                      <span style={{ fontSize: '0.65625rem', fontWeight: 700, color: '#334155', display: 'block', marginBottom: '3px' }}>
-                        Instant / QR Rate (%) *
-                      </span>
+                      <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '3px' }}>
+                        Vendor Entity (Payswiff)
+                      </label>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.375rem' }}>
+                        {['RONAV Technologies', 'R.P. Technologies'].map(v => (
+                          <button
+                            key={v}
+                            type="button"
+                            onClick={() => setOnboardChannels(prev => ({
+                              ...prev,
+                              payswiff: { ...prev.payswiff, vendor: v }
+                            }))}
+                            style={{
+                              padding: '0.35rem',
+                              fontSize: '0.625rem',
+                              fontWeight: 800,
+                              borderRadius: '6px',
+                              border: onboardChannels.payswiff.vendor === v ? '2px solid #D97706' : '1px solid #CBD5E1',
+                              background: onboardChannels.payswiff.vendor === v ? '#FEF3C7' : '#FFFFFF',
+                              color: onboardChannels.payswiff.vendor === v ? '#B45309' : '#475569',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {v}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                      <div>
+                        <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '2px' }}>
+                          Terminal Serial / TID *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. SWIFF-58201"
+                          value={onboardChannels.payswiff.terminal_id}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setOnboardChannels(prev => ({
+                              ...prev,
+                              payswiff: { ...prev.payswiff, terminal_id: val }
+                            }));
+                          }}
+                          style={{ width: '100%', padding: '0.4rem 0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem', fontWeight: 700, boxSizing: 'border-box' }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '2px' }}>
+                          Device Plan
+                        </label>
+                        <select
+                          value={onboardChannels.payswiff.plan}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setOnboardChannels(prev => ({
+                              ...prev,
+                              payswiff: { ...prev.payswiff, plan: val, rent: val === 'RENTAL' ? '499' : prev.payswiff.rent }
+                            }));
+                          }}
+                          style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.6875rem', background: '#FFFFFF' }}
+                        >
+                          <option value="RENTAL">Monthly Rental (₹499/mo)</option>
+                          <option value="CUSTOM">Custom Plan</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                      <div>
+                        <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '2px' }}>
+                          T+1 MDR (%) *
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={onboardChannels.payswiff.rate_t1}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setOnboardChannels(prev => ({
+                              ...prev,
+                              payswiff: { ...prev.payswiff, rate_t1: val }
+                            }));
+                          }}
+                          style={{ width: '100%', padding: '0.4rem 0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem', fontWeight: 700, boxSizing: 'border-box' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '2px' }}>
+                          Instant MDR (%) *
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={onboardChannels.payswiff.rate_instant}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setOnboardChannels(prev => ({
+                              ...prev,
+                              payswiff: { ...prev.payswiff, rate_instant: val }
+                            }));
+                          }}
+                          style={{ width: '100%', padding: '0.4rem 0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem', fontWeight: 700, boxSizing: 'border-box' }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* QR Channel Card */}
+                {onboardChannels.qr && (
+                  <div style={{ background: '#FFFFFF', border: '1.5px solid #DDD6FE', borderRadius: '8px', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '1rem' }}>📱</span>
+                        <strong style={{ fontSize: '0.75rem', color: '#7C3AED' }}>Company QR (UPI) Channel</strong>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setOnboardChannels(prev => ({ ...prev, qr: null }))}
+                        style={{ background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', fontSize: '0.625rem', fontWeight: 800, borderRadius: '4px', padding: '2px 6px', cursor: 'pointer' }}
+                      >
+                        ✕ Remove
+                      </button>
+                    </div>
+
+                    <div style={{ fontSize: '0.65625rem', color: '#64748B' }}>
+                      <strong>Vendor Entity:</strong> <span style={{ color: '#7C3AED', fontWeight: 700 }}>RONAV Technologies</span> (Corporate HQ QR) • <span style={{ color: '#059669', fontWeight: 700 }}>Strictly Instant Settlement</span>
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '2px' }}>
+                        Custom Instant MDR Fee (%) *
+                      </label>
                       <input
                         type="number"
                         step="0.01"
                         min="0.5"
                         max="4.0"
-                        value={onboardForm.commission_rate_instant}
-                        onChange={(e) => setOnboardForm(prev => ({ ...prev, commission_rate_instant: e.target.value }))}
-                        style={{ width: '100%', padding: '0.45rem 0.6rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', fontWeight: 700, boxSizing: 'border-box' }}
+                        value={onboardChannels.qr.rate_instant}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setOnboardChannels(prev => ({
+                            ...prev,
+                            qr: { ...prev.qr, rate_instant: val }
+                          }));
+                        }}
+                        placeholder="e.g. 1.20 or 1.50"
+                        style={{ width: '100%', padding: '0.45rem 0.6rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', fontWeight: 800, color: '#7C3AED', boxSizing: 'border-box' }}
                       />
                       <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
-                        Instant IMPS / QR
+                        This fee percentage is automatically deducted from instant customer UPI scans.
                       </span>
                     </div>
                   </div>
-                </div>
+                )}
 
               </div>
 
@@ -7502,6 +7874,459 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               >
                 Done
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Terminals & QR Channel Portfolio Modal for Existing Merchants */}
+      {managingChannelsMerchant && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(10, 25, 47, 0.7)',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '1rem',
+          backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '540px',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            padding: '1.25rem',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid #E2E8F0', paddingBottom: '0.75rem' }}>
+              <div>
+                <h3 style={{ fontSize: '1rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                  Manage Terminals & Channels
+                </h3>
+                <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
+                  {managingChannelsMerchant.name} (MID: <strong style={{ color: '#059669' }}>{managingChannelsMerchant.id}</strong>)
+                </span>
+              </div>
+              <button onClick={() => setManagingChannelsMerchant(null)} style={{ background: 'none', border: 'none', color: '#64748B', cursor: 'pointer' }}>
+                <X style={{ width: '20px', height: '20px' }} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+              <div style={{ fontSize: '0.71875rem', color: '#475569', background: '#F1F5F9', padding: '0.625rem', borderRadius: '8px' }}>
+                💡 <strong>Option 1 Channel Inventory:</strong> Add or remove terminals and QR for this merchant. Changes update instantly without altering merchant login or wallet balance.
+              </div>
+
+              {/* Quick Add Channel Buttons */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                {!managingChannelsData.pine_labs?.enabled && (
+                  <button
+                    type="button"
+                    onClick={() => setManagingChannelsData(prev => ({
+                      ...prev,
+                      pine_labs: {
+                        enabled: true,
+                        terminal_id: prev.pine_labs?.terminal_id || '',
+                        vendor: 'Rose Navaneetham Enterprises',
+                        plan: prev.pine_labs?.plan || 'RENTAL',
+                        rent: prev.pine_labs?.rent || 499,
+                        rate_t1: prev.pine_labs?.rate_t1 || 1.50,
+                        rate_instant: prev.pine_labs?.rate_instant || 1.80
+                      }
+                    }))}
+                    style={{
+                      padding: '0.45rem 0.75rem',
+                      fontSize: '0.6875rem',
+                      fontWeight: 800,
+                      borderRadius: '6px',
+                      border: '1px dashed #0F52BA',
+                      background: '#EFF6FF',
+                      color: '#0F52BA',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    <span>🌲 + Add Pine Labs POS</span>
+                  </button>
+                )}
+
+                {!managingChannelsData.payswiff?.enabled && (
+                  <button
+                    type="button"
+                    onClick={() => setManagingChannelsData(prev => ({
+                      ...prev,
+                      payswiff: {
+                        enabled: true,
+                        terminal_id: prev.payswiff?.terminal_id || '',
+                        vendor: prev.payswiff?.vendor || 'RONAV Technologies',
+                        plan: prev.payswiff?.plan || 'RENTAL',
+                        rent: prev.payswiff?.rent || 499,
+                        rate_t1: prev.payswiff?.rate_t1 || 1.50,
+                        rate_instant: prev.payswiff?.rate_instant || 1.80
+                      }
+                    }))}
+                    style={{
+                      padding: '0.45rem 0.75rem',
+                      fontSize: '0.6875rem',
+                      fontWeight: 800,
+                      borderRadius: '6px',
+                      border: '1px dashed #D97706',
+                      background: '#FFFBEB',
+                      color: '#D97706',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    <span>⚡ + Add Payswiff POS</span>
+                  </button>
+                )}
+
+                {!managingChannelsData.qr?.enabled && (
+                  <button
+                    type="button"
+                    onClick={() => setManagingChannelsData(prev => ({
+                      ...prev,
+                      qr: {
+                        enabled: true,
+                        vendor: 'RONAV Technologies',
+                        rate_instant: prev.qr?.rate_instant || 1.50
+                      }
+                    }))}
+                    style={{
+                      padding: '0.45rem 0.75rem',
+                      fontSize: '0.6875rem',
+                      fontWeight: 800,
+                      borderRadius: '6px',
+                      border: '1px dashed #7C3AED',
+                      background: '#F5F3FF',
+                      color: '#7C3AED',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    <span>📱 + Add QR Channel</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Active Pine Labs Card */}
+              {managingChannelsData.pine_labs?.enabled && (
+                <div style={{ background: '#FFFFFF', border: '1.5px solid #BFDBFE', borderRadius: '8px', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '1rem' }}>🌲</span>
+                      <strong style={{ fontSize: '0.75rem', color: '#0F52BA' }}>Pine Labs POS Terminal</strong>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setManagingChannelsData(prev => ({
+                        ...prev,
+                        pine_labs: { ...prev.pine_labs, enabled: false }
+                      }))}
+                      style={{ background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', fontSize: '0.625rem', fontWeight: 800, borderRadius: '4px', padding: '2px 6px', cursor: 'pointer' }}
+                    >
+                      ✕ Remove
+                    </button>
+                  </div>
+
+                  <div style={{ fontSize: '0.65625rem', color: '#64748B' }}>
+                    <strong>Vendor Entity:</strong> <span style={{ color: '#0F52BA', fontWeight: 700 }}>Rose Navaneetham Enterprises</span> (Exclusive)
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '2px' }}>
+                        Terminal Serial / TID *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. PL-884920"
+                        value={managingChannelsData.pine_labs.terminal_id || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setManagingChannelsData(prev => ({
+                            ...prev,
+                            pine_labs: { ...prev.pine_labs, terminal_id: val }
+                          }));
+                        }}
+                        style={{ width: '100%', padding: '0.4rem 0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem', fontWeight: 700, boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '2px' }}>
+                        Device Plan
+                      </label>
+                      <select
+                        value={managingChannelsData.pine_labs.plan || 'RENTAL'}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setManagingChannelsData(prev => ({
+                            ...prev,
+                            pine_labs: { ...prev.pine_labs, plan: val, rent: val === 'RENTAL' ? 499 : prev.pine_labs.rent }
+                          }));
+                        }}
+                        style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.6875rem', background: '#FFFFFF' }}
+                      >
+                        <option value="RENTAL">Monthly Rental (₹499/mo)</option>
+                        <option value="CUSTOM">Custom Plan</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '2px' }}>
+                        T+1 MDR (%)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={managingChannelsData.pine_labs.rate_t1 || 1.50}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value) || 1.50;
+                          setManagingChannelsData(prev => ({
+                            ...prev,
+                            pine_labs: { ...prev.pine_labs, rate_t1: val }
+                          }));
+                        }}
+                        style={{ width: '100%', padding: '0.4rem 0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem', fontWeight: 700, boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '2px' }}>
+                        Instant MDR (%)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={managingChannelsData.pine_labs.rate_instant || 1.80}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value) || 1.80;
+                          setManagingChannelsData(prev => ({
+                            ...prev,
+                            pine_labs: { ...prev.pine_labs, rate_instant: val }
+                          }));
+                        }}
+                        style={{ width: '100%', padding: '0.4rem 0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem', fontWeight: 700, boxSizing: 'border-box' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Active Payswiff Card */}
+              {managingChannelsData.payswiff?.enabled && (
+                <div style={{ background: '#FFFFFF', border: '1.5px solid #FDE68A', borderRadius: '8px', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '1rem' }}>⚡</span>
+                      <strong style={{ fontSize: '0.75rem', color: '#D97706' }}>Payswiff POS Terminal</strong>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setManagingChannelsData(prev => ({
+                        ...prev,
+                        payswiff: { ...prev.payswiff, enabled: false }
+                      }))}
+                      style={{ background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', fontSize: '0.625rem', fontWeight: 800, borderRadius: '4px', padding: '2px 6px', cursor: 'pointer' }}
+                    >
+                      ✕ Remove
+                    </button>
+                  </div>
+
+                  {/* Vendor Entity Selector */}
+                  <div>
+                    <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '3px' }}>
+                      Vendor Entity (Payswiff)
+                    </label>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.375rem' }}>
+                      {['RONAV Technologies', 'R.P. Technologies'].map(v => (
+                        <button
+                          key={v}
+                          type="button"
+                          onClick={() => setManagingChannelsData(prev => ({
+                            ...prev,
+                            payswiff: { ...prev.payswiff, vendor: v }
+                          }))}
+                          style={{
+                            padding: '0.35rem',
+                            fontSize: '0.625rem',
+                            fontWeight: 800,
+                            borderRadius: '6px',
+                            border: managingChannelsData.payswiff.vendor === v ? '2px solid #D97706' : '1px solid #CBD5E1',
+                            background: managingChannelsData.payswiff.vendor === v ? '#FEF3C7' : '#FFFFFF',
+                            color: managingChannelsData.payswiff.vendor === v ? '#B45309' : '#475569',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {v}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '2px' }}>
+                        Terminal Serial / TID *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. SWIFF-58201"
+                        value={managingChannelsData.payswiff.terminal_id || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setManagingChannelsData(prev => ({
+                            ...prev,
+                            payswiff: { ...prev.payswiff, terminal_id: val }
+                          }));
+                        }}
+                        style={{ width: '100%', padding: '0.4rem 0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem', fontWeight: 700, boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '2px' }}>
+                        Device Plan
+                      </label>
+                      <select
+                        value={managingChannelsData.payswiff.plan || 'RENTAL'}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setManagingChannelsData(prev => ({
+                            ...prev,
+                            payswiff: { ...prev.payswiff, plan: val, rent: val === 'RENTAL' ? 499 : prev.payswiff.rent }
+                          }));
+                        }}
+                        style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.6875rem', background: '#FFFFFF' }}
+                      >
+                        <option value="RENTAL">Monthly Rental (₹499/mo)</option>
+                        <option value="CUSTOM">Custom Plan</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '2px' }}>
+                        T+1 MDR (%)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={managingChannelsData.payswiff.rate_t1 || 1.50}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value) || 1.50;
+                          setManagingChannelsData(prev => ({
+                            ...prev,
+                            payswiff: { ...prev.payswiff, rate_t1: val }
+                          }));
+                        }}
+                        style={{ width: '100%', padding: '0.4rem 0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem', fontWeight: 700, boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '2px' }}>
+                        Instant MDR (%)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={managingChannelsData.payswiff.rate_instant || 1.80}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value) || 1.80;
+                          setManagingChannelsData(prev => ({
+                            ...prev,
+                            payswiff: { ...prev.payswiff, rate_instant: val }
+                          }));
+                        }}
+                        style={{ width: '100%', padding: '0.4rem 0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem', fontWeight: 700, boxSizing: 'border-box' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Active QR Channel Card */}
+              {managingChannelsData.qr?.enabled && (
+                <div style={{ background: '#FFFFFF', border: '1.5px solid #DDD6FE', borderRadius: '8px', padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '1rem' }}>📱</span>
+                      <strong style={{ fontSize: '0.75rem', color: '#7C3AED' }}>Company QR (UPI) Channel</strong>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setManagingChannelsData(prev => ({
+                        ...prev,
+                        qr: { ...prev.qr, enabled: false }
+                      }))}
+                      style={{ background: '#FEF2F2', border: '1px solid #FECACA', color: '#DC2626', fontSize: '0.625rem', fontWeight: 800, borderRadius: '4px', padding: '2px 6px', cursor: 'pointer' }}
+                    >
+                      ✕ Remove
+                    </button>
+                  </div>
+
+                  <div style={{ fontSize: '0.65625rem', color: '#64748B' }}>
+                    <strong>Vendor Entity:</strong> <span style={{ color: '#7C3AED', fontWeight: 700 }}>RONAV Technologies</span> (Corporate HQ QR) • <span style={{ color: '#059669', fontWeight: 700 }}>Strictly Instant Settlement</span>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: '0.625rem', fontWeight: 800, color: '#1E293B', display: 'block', marginBottom: '2px' }}>
+                      Custom Instant MDR Fee (%) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.5"
+                      max="4.0"
+                      value={managingChannelsData.qr.rate_instant || 1.50}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 1.50;
+                        setManagingChannelsData(prev => ({
+                          ...prev,
+                          qr: { ...prev.qr, rate_instant: val }
+                        }));
+                      }}
+                      placeholder="e.g. 1.20 or 1.50"
+                      style={{ width: '100%', padding: '0.45rem 0.6rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.8125rem', fontWeight: 800, color: '#7C3AED', boxSizing: 'border-box' }}
+                    />
+                    <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                      Configurable Instant fee percentage deducted from customer QR payments.
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setManagingChannelsMerchant(null)}
+                  style={{ flex: 1, padding: '0.5rem', background: '#F1F5F9', border: 'none', borderRadius: '8px', color: '#475569', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveManageChannels}
+                  disabled={isSavingChannels}
+                  style={{ flex: 2, padding: '0.5rem', background: '#0F52BA', border: 'none', borderRadius: '8px', color: '#FFFFFF', fontSize: '0.75rem', fontWeight: 900, cursor: 'pointer' }}
+                >
+                  {isSavingChannels ? 'Saving...' : 'Save Channel Portfolio'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

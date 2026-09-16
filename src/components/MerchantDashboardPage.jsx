@@ -19,6 +19,7 @@ import {
   getPartnerTransactions,
   createDownstreamUser,
   parsePosTerminalRates,
+  parseMerchantChannels,
   getPlatformQrConfig
 } from '../services/api';
 import { subscribeToWallet, subscribeToTransactions } from '../services/supabase';
@@ -207,8 +208,18 @@ export default function MerchantDashboardPage({ user, onLogout }) {
     return parsePosTerminalRates(userPos.terminal_id, userPos.commission_rate);
   }, [userPos]);
 
+  // Channel Portfolio for this merchant (Pine Labs, Payswiff, and explicitly granted QR)
+  const merchantChannels = useMemo(() => {
+    return userPos?.channels || parseMerchantChannels(userPos);
+  }, [userPos]);
+
   // Dynamically compute which hardware machine tabs this merchant actually owns (Strictly assigned terminals)
+  // NOTE: QR is NOT universally granted. It is ONLY visible if explicitly enabled for this merchant!
   const availableMachineTabs = useMemo(() => {
+    if (merchantChannels && merchantChannels.enabledList && merchantChannels.enabledList.length > 0) {
+      return merchantChannels.enabledList;
+    }
+    // Fallback if legacy single pos
     const tabs = [];
     if (userPos) {
       const prov = (userPos.provider || '').toLowerCase();
@@ -220,10 +231,14 @@ export default function MerchantDashboardPage({ user, onLogout }) {
     } else {
       tabs.push('pine_labs');
     }
-    // Company QR is universally available for instant customer collections
-    tabs.push('qr');
     return tabs;
-  }, [userPos]);
+  }, [merchantChannels, userPos]);
+
+  useEffect(() => {
+    if (availableMachineTabs.length > 0 && !availableMachineTabs.includes(selectedMachineKey)) {
+      setSelectedMachineKey(availableMachineTabs[0]);
+    }
+  }, [availableMachineTabs, selectedMachineKey]);
 
   const activeMachine = useMemo(() => {
     const effectiveKey = availableMachineTabs.includes(selectedMachineKey) 
@@ -231,19 +246,43 @@ export default function MerchantDashboardPage({ user, onLogout }) {
       : (availableMachineTabs[0] || 'pine_labs');
     const base = POS_MACHINES_DATA[effectiveKey] || POS_MACHINES_DATA.pine_labs;
 
-    // QR Channel: Strictly inherits merchant's assigned Instant settlement rate from onboarding
+    const ch = merchantChannels?.[effectiveKey];
+
+    // QR Channel: Strictly inherits merchant's assigned custom Instant fee % and RONAV Technologies corporate entity
     if (effectiveKey === 'qr') {
-      const instantRate = (userPosRates && userPosRates.rateInstant)
-        ? userPosRates.rateInstant
-        : (base.rateInstant || 1.80);
+      const instantRate = (ch && ch.rate_instant)
+        ? ch.rate_instant
+        : ((userPosRates && userPosRates.rateInstant) || base.rateInstant || 1.50);
       return {
         ...base,
+        provider: 'Company QR (UPI)',
+        vendor: 'RONAV Technologies',
         rateT1: instantRate,
         rateInstant: instantRate,
         rateStrT1: `${instantRate.toFixed(2)}%`,
         rateStrInstant: `${instantRate.toFixed(2)}%`,
         rate: `${instantRate.toFixed(2)}%`,
         rateNum: instantRate
+      };
+    }
+
+    // Hardware POS terminals (Pine Labs or Payswiff)
+    if (ch && ch.enabled) {
+      const rateT1 = ch.rate_t1 || 1.50;
+      const rateInstant = ch.rate_instant || 1.80;
+      return {
+        ...base,
+        provider: effectiveKey === 'payswiff' ? 'Payswiff' : 'Pine Labs',
+        vendor: ch.vendor || (effectiveKey === 'payswiff' ? 'RONAV Technologies' : 'Rose Navaneetham Enterprises'),
+        terminal_id: ch.terminal_id || (effectiveKey === 'payswiff' ? 'SWIFF-01' : 'PL-01'),
+        rateT1,
+        rateInstant,
+        rateStrT1: `${rateT1.toFixed(2)}%`,
+        rateStrInstant: `${rateInstant.toFixed(2)}%`,
+        rate: `${rateT1.toFixed(2)}%`,
+        rateNum: rateT1,
+        plan: ch.plan || 'RENTAL',
+        rent: ch.rent || 499
       };
     }
 
@@ -261,7 +300,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
       };
     }
     return base;
-  }, [selectedMachineKey, userPos, userPosRates, availableMachineTabs]);
+  }, [selectedMachineKey, userPos, userPosRates, availableMachineTabs, merchantChannels]);
 
   // Live Wallet State (Pure Dynamic DB)
   const [wallet, setWallet] = useState({
