@@ -6686,7 +6686,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 ) : (
                                   /* WITHDRAWAL (BANK PAYOUT) ACTIONS */
                                   isPending ? (
-                                    /* IN PENDING: STRICTLY NO APPROVE BUTTON! ONLY QUEUE INFO & REJECT */
+                                    /* IN PENDING: STRICTLY ONLY REJECT BUTTON! NO COMPLETE BUTTON */
                                     <div style={{
                                       background: '#EFF6FF',
                                       border: '1px solid #BFDBFE',
@@ -6704,35 +6704,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                           Queued for Bank Batch · Select checkbox &amp; download sheet above to process
                                         </span>
                                       </div>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setDisbursingPayout({
-                                              payout: item,
-                                              utr: '',
-                                              remark: '',
-                                              actionType: 'APPROVE',
-                                              isSubmitting: false
-                                            });
-                                            setExpandedPayoutId(null);
-                                          }}
-                                          style={{
-                                            background: '#059669',
-                                            color: '#FFFFFF',
-                                            border: 'none',
-                                            padding: '0.45rem 0.85rem',
-                                            borderRadius: '6px',
-                                            fontSize: '0.72rem',
-                                            fontWeight: 700,
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '3px'
-                                          }}
-                                        >
-                                          ✓ Complete
-                                        </button>
+                                      <div>
                                         <button
                                           type="button"
                                           onClick={() => {
