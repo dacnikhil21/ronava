@@ -113,7 +113,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   const [payoutPage, setPayoutPage] = useState(1);
   const [payoutSettlementFilter, setPayoutSettlementFilter] = useState('ALL'); // 'ALL' | 'T1' | 'INSTANT'
   const [batchDisbursalModal, setBatchDisbursalModal] = useState(null);
-  const [selectedChannel, setSelectedChannel] = useState('payswiff'); // 'payswiff' | 'pinelabs' | 'qr'
+  const [selectedChannel, setSelectedChannel] = useState('all'); // 'all' | 'pinelabs' | 'payswiff' | 'qr'
   const [selectedPayswiffVendor, setSelectedPayswiffVendor] = useState('ronav'); // 'ronav' | 'rp'
   const [companyQrImage, setCompanyQrImage] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -539,12 +539,13 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       const id = (item.id || '').toUpperCase();
 
       const isQR = p.includes('qr') || p.includes('upi') || notes.includes('qr') || notes.includes('upi') || id.includes('QR') || id.includes('UPI');
-      const isSwiff = p.includes('swiff') || t.includes('sw') || t.startsWith('rp') || t.includes('rp') || v.includes('rp') || v.includes('ronav') || notes.includes('payswiff');
+      const isSwiff = p.includes('swiff') || t.includes('sw') || id.includes('SW') || notes.includes('payswiff');
+      const isPine = p.includes('pine') || t.includes('pl') || id.includes('PL') || notes.includes('pine') || (!isSwiff && !isQR);
 
       if (isQR) {
         qr++;
       } else if (isSwiff) {
-        const isRp = v.includes('rp') || t.startsWith('rp') || t.includes('rp') || notes.includes('r.p.') || notes.includes('rp tech') || notes.includes('rp_');
+        const isRp = v.includes('rp') || notes.includes('r.p.') || notes.includes('rp tech') || notes.includes('rp_');
         if (isRp) {
           swiffRp++;
         } else {
@@ -1560,15 +1561,16 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
             {/* iOS Native Segmented Track */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(3, 1fr)',
+              gridTemplateColumns: 'repeat(4, 1fr)',
               background: '#ECEEF0',
               padding: '3px',
               borderRadius: '11px',
               gap: '3px'
             }}>
             {[
-              { id: 'payswiff', label: 'Payswiff', icon: '⚡', count: channelPendingCounts.swiffTotal },
+              { id: 'all', label: 'All Channels', icon: '🌐', count: channelPendingCounts.total },
               { id: 'pinelabs', label: 'Pine Labs', icon: '🌲', count: channelPendingCounts.pine },
+              { id: 'payswiff', label: 'Payswiff', icon: '⚡', count: channelPendingCounts.swiffTotal },
               { id: 'qr', label: 'QR', icon: '📱', count: channelPendingCounts.qr }
             ].map(ch => {
               const isActive = selectedChannel === ch.id;
@@ -2924,6 +2926,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   </div>
 
                   <button
+                    onClick={() => {
+                      setActiveTab('payouts');
+                      setSelectedChannel('all');
+                      setPayoutCategoryFilter('SWIPES');
+                      setPayoutStatusFilter('PENDING');
+                    }}
                     style={{
                       background: channelPendingCounts.total > 0 ? '#DC2626' : '#FFFFFF',
                       color: channelPendingCounts.total > 0 ? '#FFFFFF' : '#15803D',
@@ -3004,17 +3012,17 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             </div>
                             <div style={{ display: 'flex', gap: '0.375rem' }}>
                               <button
-                                onClick={() => handleTransactionAction(tx.id, 'APPROVE', tx.merchant_name, tx.amount)}
-                                style={{ background: '#16A34A', color: '#FFFFFF', border: 'none', padding: '0.45rem 0.75rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '3px' }}
-                                title="Verify with Pine Labs/Payswiff portal and approve"
+                                onClick={() => {
+                                  setActiveTab('payouts');
+                                  setSelectedChannel('all');
+                                  setPayoutCategoryFilter('SWIPES');
+                                  setPayoutStatusFilter('PENDING');
+                                  setExpandedPayoutId(`card_${tx.id}`);
+                                }}
+                                style={{ background: '#0F52BA', color: '#FFFFFF', border: 'none', padding: '0.45rem 0.85rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                title="Open full transaction inspection dossier on Clearance page"
                               >
-                                <span>Verify Slip ✓</span>
-                              </button>
-                              <button
-                                onClick={() => handleTransactionAction(tx.id, 'REJECT', tx.merchant_name, tx.amount)}
-                                style={{ background: '#FFFFFF', color: '#DC2626', border: '1px solid #FCA5A5', padding: '0.45rem 0.65rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer' }}
-                              >
-                                Reject ✕
+                                <span>Inspect Slip & Review →</span>
                               </button>
                             </div>
                           </div>
@@ -4478,7 +4486,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   const id = (item.id || '').toUpperCase();
 
                   const isQR = p.includes('qr') || p.includes('upi') || notes.includes('qr') || notes.includes('upi') || id.includes('QR') || id.includes('UPI');
-                  const isSwiff = p.includes('swiff') || t.includes('sw') || t.startsWith('rp') || t.includes('rp') || v.includes('rp') || v.includes('ronav') || notes.includes('payswiff');
+                  const isSwiff = p.includes('swiff') || t.includes('sw') || id.includes('SW') || notes.includes('payswiff');
+                  const isPine = p.includes('pine') || t.includes('pl') || id.includes('PL') || notes.includes('pine') || (!isSwiff && !isQR);
+
+                  if (selectedChannel === 'all') {
+                    return true;
+                  }
 
                   if (selectedChannel === 'qr') {
                     return isQR;
@@ -4488,7 +4501,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     if (isQR) return false;
                     if (!isSwiff) return false;
 
-                    const isRp = v.includes('rp') || t.startsWith('rp') || t.includes('rp') || notes.includes('r.p.') || notes.includes('rp tech') || notes.includes('rp_');
+                    const isRp = v.includes('rp') || notes.includes('r.p.') || notes.includes('rp tech') || notes.includes('rp_');
                     if (selectedPayswiffVendor === 'rp') {
                       return isRp;
                     } else if (selectedPayswiffVendor === 'ronav') {
@@ -4499,7 +4512,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
                   if (selectedChannel === 'pinelabs') {
                     if (isQR || isSwiff) return false;
-                    return p.includes('pine') || t.includes('pl') || id.includes('PL') || notes.includes('pine') || (!isSwiff && !isQR);
+                    return isPine;
                   }
 
                   return true;
@@ -4682,12 +4695,16 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               const handleDownloadBankExcel = async () => {
                 setIsExportMenuOpen(false);
                 const channelAllWithdrawals = dedupeById(filterByChannel(allWithdrawals));
-                const channelSlug = selectedChannel === 'pinelabs' 
-                  ? 'PineLabs' 
-                  : (selectedPayswiffVendor === 'rp' ? 'Payswiff_RP' : 'Payswiff_RONAV');
-                const channelName = selectedChannel === 'pinelabs' 
-                  ? 'Pine Labs' 
-                  : (selectedPayswiffVendor === 'rp' ? 'Payswiff (RP Tech)' : 'Payswiff (RONAV Tech)');
+                const channelSlug = selectedChannel === 'all'
+                  ? 'All_Channels'
+                  : (selectedChannel === 'pinelabs' 
+                      ? 'PineLabs' 
+                      : (selectedPayswiffVendor === 'rp' ? 'Payswiff_RP' : 'Payswiff_RONAV'));
+                const channelName = selectedChannel === 'all'
+                  ? 'All Channels'
+                  : (selectedChannel === 'pinelabs' 
+                      ? 'Pine Labs' 
+                      : (selectedPayswiffVendor === 'rp' ? 'Payswiff (RP Tech)' : 'Payswiff (RONAV Tech)'));
                 const now = new Date();
                 const today = now.toISOString().slice(0, 10);
 
@@ -4752,9 +4769,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               };
 
               const handleRedownloadSingleBatch = (batch) => {
-                const channelSlug = selectedChannel === 'pinelabs' 
-                  ? 'PineLabs' 
-                  : (selectedPayswiffVendor === 'rp' ? 'Payswiff_RP' : 'Payswiff_RONAV');
+                const channelSlug = selectedChannel === 'all'
+                  ? 'All_Channels'
+                  : (selectedChannel === 'pinelabs' 
+                      ? 'PineLabs' 
+                      : (selectedPayswiffVendor === 'rp' ? 'Payswiff_RP' : 'Payswiff_RONAV'));
                 const today = new Date().toISOString().slice(0, 10);
                 const fileName = `RONAV_${channelSlug}_${batch.batchId || 'Batch'}_${today}.csv`;
                 const res = downloadBankBatchFile(batch.items, { fileName });
@@ -4794,9 +4813,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 // For GST & Tax filing, only completed/approved transactions are exported
                 const completedItems = allChannelItems.filter(item => item._subStatus === 'APPROVED');
 
-                const channelName = selectedChannel === 'pinelabs' 
-                  ? 'Pine Labs' 
-                  : (selectedPayswiffVendor === 'rp' ? 'Payswiff (RP Tech)' : 'Payswiff (RONAV Tech)');
+                const channelName = selectedChannel === 'all'
+                  ? 'All Channels'
+                  : (selectedChannel === 'pinelabs' 
+                      ? 'Pine Labs' 
+                      : (selectedPayswiffVendor === 'rp' ? 'Payswiff (RP Tech)' : 'Payswiff (RONAV Tech)'));
                 const dateLabel = payoutDateFilter === 'CUSTOM' 
                   ? (payoutFromDate && payoutToDate ? `${payoutFromDate}_to_${payoutToDate}` : (payoutFromDate || payoutCustomDate || 'Custom_Range')) 
                   : payoutDateFilter;
@@ -4806,9 +4827,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   return;
                 }
 
-                const channelSlug = selectedChannel === 'pinelabs' 
-                  ? 'PineLabs' 
-                  : (selectedPayswiffVendor === 'rp' ? 'Payswiff_RP' : 'Payswiff_RONAV');
+                const channelSlug = selectedChannel === 'all'
+                  ? 'All_Channels'
+                  : (selectedChannel === 'pinelabs' 
+                      ? 'PineLabs' 
+                      : (selectedPayswiffVendor === 'rp' ? 'Payswiff_RP' : 'Payswiff_RONAV'));
                 const dateSlug = dateLabel.replace(/[^a-zA-Z0-9_-]/g, '_');
                 const today = new Date().toISOString().slice(0, 10);
                 const fileName = `RONAV_Completed_Sales_GST_${channelSlug}_${dateSlug}_${today}.csv`;
