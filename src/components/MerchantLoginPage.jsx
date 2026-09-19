@@ -189,7 +189,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
           {/* Right Action Icons */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <a 
-              href="tel:9966203053"
+              href="tel:9966203038"
               style={{ width: '34px', height: '34px', borderRadius: '50%', background: '#0F52BA', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
               title="Call Helpline"
             >
@@ -635,24 +635,24 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
           {/* Phone Column */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <a 
-              href="tel:9966203053" 
+              href="tel:9966203038" 
               style={{ width: '38px', height: '38px', borderRadius: '50%', background: '#0F52BA', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, textDecoration: 'none' }}
             >
               <Phone style={{ width: '16px', height: '16px' }} />
             </a>
             <div>
               <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', fontWeight: 600 }}>Need Help?</span>
-              <a href="tel:9966203053" style={{ fontSize: '0.8125rem', fontWeight: 800, color: '#0F52BA', textDecoration: 'none', display: 'block', lineHeight: 1.2 }}>
-                9966203053
+              <a href="tel:9966203038" style={{ fontSize: '0.8125rem', fontWeight: 800, color: '#0F52BA', textDecoration: 'none', display: 'block', lineHeight: 1.2 }}>
+                9966203038
               </a>
-              <span style={{ fontSize: '0.5625rem', color: '#94A3B8', display: 'block' }}>Call / WhatsApp</span>
+              <span style={{ fontSize: '0.5625rem', color: '#94A3B8', display: 'block' }}>Call Support</span>
             </div>
           </div>
 
           {/* Email Column */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderLeft: '1px solid #E2E8F0', paddingLeft: '0.5rem' }}>
             <a 
-              href="mailto:rosenavaneethamenterprises@gmail.com" 
+              href="mailto:ronavtechnologies@gmail.com" 
               style={{ width: '38px', height: '38px', borderRadius: '50%', background: '#0F52BA', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, textDecoration: 'none' }}
             >
               <Mail style={{ width: '16px', height: '16px' }} />
@@ -660,10 +660,10 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
             <div style={{ overflow: 'hidden' }}>
               <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', fontWeight: 600 }}>Email Us</span>
               <a 
-                href="mailto:rosenavaneethamenterprises@gmail.com" 
+                href="mailto:ronavtechnologies@gmail.com" 
                 style={{ fontSize: '0.65rem', fontWeight: 800, color: '#0F52BA', textDecoration: 'none', wordBreak: 'break-all', display: 'block', lineHeight: 1.2 }}
               >
-                rosenavaneethamenterprises@gmail.com
+                ronavtechnologies@gmail.com
               </a>
             </div>
           </div>
@@ -740,7 +740,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                   <a
-                    href={`https://api.whatsapp.com/send?phone=9966203053&text=${encodeURIComponent(`Hello Admin, I forgot my password for RONAV account:\nName: ${forgotResult.user?.name}\nUser ID: ${forgotResult.user?.id}\nMobile: ${forgotResult.user?.mobile}\n\nPlease reset my password.`)}`}
+                    href={`https://api.whatsapp.com/send?phone=919966203037&text=${encodeURIComponent(`Hello Admin, I forgot my password for RONAV account:\nName: ${forgotResult.user?.name}\nUser ID: ${forgotResult.user?.id}\nMobile: ${forgotResult.user?.mobile}\n\nPlease reset my password.`)}`}
                     target="_blank"
                     rel="noreferrer"
                     style={{
@@ -758,11 +758,11 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
                       boxShadow: '0 2px 6px rgba(37, 211, 102, 0.25)'
                     }}
                   >
-                    <span>💬 Request Reset via WhatsApp (9966203053)</span>
+                    <span>💬 Request Reset via WhatsApp (9966203037)</span>
                   </a>
 
                   <a
-                    href="tel:9966203053"
+                    href="tel:9966203038"
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -778,7 +778,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
                       fontSize: '0.8125rem'
                     }}
                   >
-                    <span>📞 Call Support: +91 9966203053</span>
+                    <span>📞 Call Support: +91 9966203038</span>
                   </a>
 
                   <button
@@ -815,7 +815,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
                   <input
                     type="text"
                     required
-                    placeholder="e.g. MID3001 or 9966203053"
+                    placeholder="e.g. MID3001 or 9966203038"
                     value={forgotQuery}
                     onChange={(e) => {
                       setForgotQuery(e.target.value);

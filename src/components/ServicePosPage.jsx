@@ -144,12 +144,12 @@ export default function ServicePosPage({ onOpenLogin, onBack, onShowToast }) {
                 </a>
 
                 <a 
-                  href="tel:9966203053"
+                  href="tel:9966203038"
                   className="btn btn-secondary"
                   style={{ backgroundColor: 'rgba(255,255,255,0.1)', color: '#FFFFFF', borderColor: 'rgba(255,255,255,0.2)', fontWeight: 700 }}
                 >
                   <Phone style={{ width: '16px', height: '16px' }} />
-                  <span>Call 9966203053</span>
+                  <span>Call 9966203038</span>
                 </a>
               </div>
             </div>

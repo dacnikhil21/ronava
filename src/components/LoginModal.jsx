@@ -178,7 +178,7 @@ export default function LoginModal({ isOpen, mode, onClose, onSwitchMode }) {
 
             <div style={{ marginTop: '1.25rem', paddingTop: '0.75rem', borderTop: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', justifyBetween: 'space-between', fontSize: '0.75rem', color: '#64748B' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', fontWeight: 700, color: '#0F172A' }}>
-                <PhoneCall style={{ width: '14px', height: '14px', color: '#0F52BA' }} /> Helpdesk: 9966203053
+                <PhoneCall style={{ width: '14px', height: '14px', color: '#0F52BA' }} /> Helpdesk: 9966203038
               </span>
               <span style={{ fontSize: '0.6875rem', color: '#94A3B8' }}>© 2021 RONAV</span>
             </div>

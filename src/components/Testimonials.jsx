@@ -27,7 +27,7 @@ export default function Testimonials() {
       name: 'Suresh Reddy',
       role: 'Distributor Partner',
       location: 'Vijayawada, Andhra Pradesh',
-      quote: 'Managing over 45 retailers across my area. The instant wallet balance transfer engine and 24x7 support line (9966203053) ensure zero operational downtime.',
+      quote: 'Managing over 45 retailers across my area. The instant wallet balance transfer engine and 24x7 support line (9966203038) ensure zero operational downtime.',
       stars: 5
     },
     {

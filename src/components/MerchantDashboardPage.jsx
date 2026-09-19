@@ -6222,7 +6222,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0.75rem', borderRadius: '10px', background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
                         <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>Registered Email:</span>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0F172A' }}>
-                          rosenavaneethamenterprises@gmail.com
+                          ronavtechnologies@gmail.com
                         </span>
                       </div>
 
@@ -6243,7 +6243,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0.75rem', borderRadius: '10px', background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
                         <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>Regional Headquarters:</span>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155' }}>
-                          Hyderabad, Telangana - 500072
+                          Hyderabad, Telangana - 502 319
                         </span>
                       </div>
                     </div>
@@ -6270,14 +6270,14 @@ export default function MerchantDashboardPage({ user, onLogout }) {
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', borderRadius: '12px', background: '#EFF6FF', border: '1px solid #DBEAFE', marginBottom: '0.75rem' }}>
                       <div>
                         <span style={{ fontSize: '0.6875rem', color: '#0F52BA', fontWeight: 700, display: 'block' }}>Official Support Hotline:</span>
-                        <span style={{ fontSize: '0.9375rem', fontWeight: 900, color: '#0F172A', fontFamily: 'monospace' }}>9966203053</span>
+                        <span style={{ fontSize: '0.9375rem', fontWeight: 900, color: '#0F172A', fontFamily: 'monospace' }}>9966203038</span>
                       </div>
                       <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        <a href="tel:9966203053" style={{ background: '#0F52BA', color: '#FFFFFF', padding: '0.45rem 0.75rem', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '4px', textDecoration: 'none', fontSize: '0.75rem', fontWeight: 800 }}>
+                        <a href="tel:9966203038" style={{ background: '#0F52BA', color: '#FFFFFF', padding: '0.45rem 0.75rem', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '4px', textDecoration: 'none', fontSize: '0.75rem', fontWeight: 800 }}>
                           <Phone style={{ width: '13px', height: '13px' }} />
                           <span>Call</span>
                         </a>
-                        <a href="https://wa.me/919966203053" target="_blank" rel="noreferrer" style={{ background: '#22C55E', color: '#FFFFFF', padding: '0.45rem 0.75rem', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '4px', textDecoration: 'none', fontSize: '0.75rem', fontWeight: 800 }}>
+                        <a href="https://wa.me/919966203037" target="_blank" rel="noreferrer" style={{ background: '#22C55E', color: '#FFFFFF', padding: '0.45rem 0.75rem', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '4px', textDecoration: 'none', fontSize: '0.75rem', fontWeight: 800 }}>
                           <MessageCircle style={{ width: '13px', height: '13px' }} />
                           <span>WhatsApp</span>
                         </a>

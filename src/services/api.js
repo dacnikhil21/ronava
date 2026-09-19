@@ -40,7 +40,7 @@ export async function loginUser(credentials) {
         if (sMap[user.id] === 'SUSPENDED') {
           return {
             success: false,
-            message: `Account ${user.id} has been suspended by Administrator. Please contact Support at 9966203053.`
+            message: `Account ${user.id} has been suspended by Administrator. Please contact Support at 9966203038.`
           };
         }
       }
@@ -209,7 +209,7 @@ export async function verifySponsor(query) {
     if (clean.toUpperCase() === 'ADM001' || clean.toLowerCase() === 'admin') {
       return {
         success: true,
-        sponsor: { id: 'ADM001', name: 'RONAV Super Admin', role: 'ADMIN', mobile: '9966203053' }
+        sponsor: { id: 'ADM001', name: 'RONAV Super Admin', role: 'ADMIN', mobile: '9966203038' }
       };
     }
 
@@ -357,7 +357,7 @@ export async function adminResetUserPassword(userId, newPassword) {
         id: 'SYS-USER-PASSWORDS',
         type: 'FRANCHISE',
         name: 'SYSTEM_USER_PASSWORDS',
-        phone: '9966203053',
+        phone: '9966203038',
         category: 'PLATFORM_SETTINGS',
         location: 'SYSTEM',
         remarks: JSON.stringify(pMap),
@@ -2701,7 +2701,7 @@ export async function updateUserStatus(userId, status) {
         id: 'SYS-USER-STATUSES',
         type: 'FRANCHISE',
         name: 'RONAV_USER_STATUS_REGISTRY',
-        phone: '9966203053',
+        phone: '9966203038',
         category: 'PLATFORM_SETTINGS',
         location: 'SYSTEM',
         remarks: JSON.stringify(statusMap),
@@ -2830,7 +2830,7 @@ export async function savePlatformQrConfig({ image, name }) {
         id: 'SYS-CONFIG-QR',
         type: 'FRANCHISE',
         name: 'RONAV_COMPANY_QR',
-        phone: '9966203053',
+        phone: '9966203038',
         category: 'PLATFORM_SETTINGS',
         location: payeeName,
         remarks: image || '',

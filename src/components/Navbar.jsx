@@ -307,7 +307,7 @@ export default function Navbar({ onOpenLogin, onNavigate, currentView = 'home' }
 
         <div className="mobile-nav-toggle" style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
           <a 
-            href="tel:9966203053" 
+            href="tel:9966203038" 
             style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#EFF6FF', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
             title="Direct Merchant Hotline"
           >

@@ -115,28 +115,28 @@ export default function ContactPage({ onBack, onShowToast }) {
                 <div style={{ flexGrow: 1 }}>
                   <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748B', display: 'block' }}>Hotline / WhatsApp</span>
                   <a 
-                    href="tel:9966203053" 
+                    href="tel:9966203038" 
                     style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0F172A', textDecoration: 'none', display: 'block', margin: '2px 0 6px' }}
                   >
-                    +91 9966203053
+                    +91 9966203038
                   </a>
                   <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                     <a 
-                      href="tel:9966203053" 
+                      href="tel:9966203038" 
                       className="btn btn-sm btn-primary"
                       style={{ backgroundColor: '#0F52BA', fontSize: '0.75rem', padding: '0.35rem 0.75rem' }}
                     >
                       <span>Direct Call</span>
                     </a>
                     <a 
-                      href="https://wa.me/919966203053" 
+                      href="https://wa.me/919966203037" 
                       target="_blank" 
                       rel="noopener noreferrer"
                       className="btn btn-sm"
                       style={{ backgroundColor: '#10B981', color: '#FFFFFF', fontSize: '0.75rem', padding: '0.35rem 0.75rem' }}
                     >
                       <MessageSquare style={{ width: '14px', height: '14px' }} />
-                      <span>WhatsApp</span>
+                      <span>WhatsApp (9966203037)</span>
                     </a>
                   </div>
                 </div>
@@ -152,30 +152,39 @@ export default function ContactPage({ onBack, onShowToast }) {
                 <div style={{ flexGrow: 1, overflow: 'hidden' }}>
                   <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748B', display: 'block' }}>Official Support Email</span>
                   <a 
-                    href="mailto:rosenavaneethamenterprises@gmail.com" 
+                    href="mailto:ronavtechnologies@gmail.com" 
                     style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#0F52BA', textDecoration: 'none', display: 'block', wordBreak: 'break-all', margin: '2px 0 6px' }}
                   >
-                    rosenavaneethamenterprises@gmail.com
+                    ronavtechnologies@gmail.com
                   </a>
                   <span style={{ fontSize: '0.6875rem', color: '#94A3B8' }}>Inquiries answered within 2 hours</span>
                 </div>
               </div>
             </div>
 
-            {/* Headquarters & Operating Hours */}
+            {/* Headquarters & Operating Locations */}
             <div className="card" style={{ backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '18px', padding: '1.5rem', boxShadow: '0 4px 16px rgba(15,23,42,0.04)' }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
                 <div style={{ width: '46px', height: '46px', borderRadius: '12px', background: '#F8FAFC', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <MapPin style={{ width: '22px', height: '22px' }} />
                 </div>
                 <div>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748B', display: 'block' }}>Registered Office & Hub</span>
-                  <strong style={{ fontSize: '1rem', fontWeight: 800, color: '#0F172A', display: 'block', margin: '2px 0 4px' }}>
-                    Hyderabad, Telangana, India
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748B', display: 'block' }}>Head Office</span>
+                  <strong style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#0F172A', display: 'block', margin: '2px 0 4px' }}>
+                    Tirupati, Andhra Pradesh
+                  </strong>
+                  <p style={{ fontSize: '0.75rem', color: '#64748B', margin: '0 0 0.75rem', lineHeight: 1.4 }}>
+                    1-76, Ramachandra Nagra, Chandragiri, Tirupati dist, Andhra Pradesh — 517 101
+                  </p>
+
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748B', display: 'block' }}>Hyderabad Office</span>
+                  <strong style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#0F172A', display: 'block', margin: '2px 0 4px' }}>
+                    Hyderabad, Telangana
                   </strong>
                   <p style={{ fontSize: '0.75rem', color: '#64748B', margin: '0 0 0.5rem', lineHeight: 1.4 }}>
-                    Regional merchant distribution hubs active across Andhra Pradesh & Telangana.
+                    3-7, Beeramguda Road, Kistareddypet, Ameenpur, municipally, Hyderabad, Telangana — 502 319
                   </p>
+
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', fontSize: '0.6875rem', color: '#059669', fontWeight: 700 }}>
                     <Clock style={{ width: '13px', height: '13px' }} />
                     <span>24x7 Technical & Merchant Operations Active</span>

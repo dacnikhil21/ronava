@@ -41,7 +41,7 @@ export default function HowItWorks() {
       border: '#BFDBFE',
       chips: [
         { label: '2-Min Digital Form', icon: Zap },
-        { label: 'Direct Helpline 9966203053', icon: Phone },
+        { label: 'Direct Helpline 9966203038', icon: Phone },
         { label: 'FREE Onboarding', icon: Gift }
       ]
     },

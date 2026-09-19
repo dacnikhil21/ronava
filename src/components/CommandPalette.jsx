@@ -28,7 +28,7 @@ export default function CommandPalette({ isOpen, onClose, onOpenLogin }) {
     { title: 'Payment Gateway & POS Machines', icon: CreditCard, color: '#4F46E5', link: '#services', desc: 'QR Code & Mobile Swiping Terminals' },
     { title: 'Partner Network Portal Gateway', icon: User, color: '#0F52BA', action: () => { onClose(); onOpenLogin('merchant'); }, desc: 'Master, Super Dist, Dist Franchise, Distributor & Retailer Login' },
     { title: 'Admin Command Portal Gateway (/admin)', icon: ShieldCheck, color: '#7C3AED', action: () => { onClose(); onOpenLogin('admin'); }, desc: 'Platform Super Administrator Command Center' },
-    { title: 'Call Direct Hotline: 9966203053', icon: Phone, color: '#059669', href: 'tel:9966203053', desc: 'Instant support desk' }
+    { title: 'Call Direct Hotline: 9966203038', icon: Phone, color: '#059669', href: 'tel:9966203038', desc: 'Instant support desk' }
   ];
 
   const filtered = actions.filter(a => a.title.toLowerCase().includes(query.toLowerCase()) || a.desc.toLowerCase().includes(query.toLowerCase()));

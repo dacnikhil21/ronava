@@ -50,35 +50,35 @@ export default function ContactSection({ onOpenOfficeModal }) {
             
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
               
-              <a href="tel:9966203053" className="card card-glow" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', backgroundColor: '#F8FAFC' }}>
+              <a href="tel:9966203038" className="card card-glow" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', backgroundColor: '#F8FAFC' }}>
                 <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#0F52BA', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <Phone style={{ width: '24px', height: '24px' }} />
                 </div>
                 <div>
                   <p style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>Direct Hotline</p>
-                  <h4 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>9966203053</h4>
+                  <h4 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>9966203038</h4>
                   <p style={{ fontSize: '0.75rem', color: '#0F52BA', fontWeight: 700 }}>Call Now for Merchant Support</p>
                 </div>
               </a>
 
-              <a href="https://wa.me/919966203053" target="_blank" rel="noopener noreferrer" className="card card-glow" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', backgroundColor: '#F8FAFC' }}>
+              <a href="https://wa.me/919966203037" target="_blank" rel="noopener noreferrer" className="card card-glow" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', backgroundColor: '#F8FAFC' }}>
                 <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#059669', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <MessageSquare style={{ width: '24px', height: '24px' }} />
                 </div>
                 <div>
                   <p style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>WhatsApp Support</p>
-                  <h4 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>9966203053</h4>
+                  <h4 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>9966203037</h4>
                   <p style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 700 }}>Chat Directly on WhatsApp</p>
                 </div>
               </a>
 
-              <a href="mailto:rosenavaneethamenterprises@gmail.com" className="card card-glow" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', backgroundColor: '#F8FAFC' }}>
+              <a href="mailto:ronavtechnologies@gmail.com" className="card card-glow" style={{ padding: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', backgroundColor: '#F8FAFC' }}>
                 <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#4F46E5', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <Mail style={{ width: '24px', height: '24px' }} />
                 </div>
                 <div style={{ overflow: 'hidden' }}>
                   <p style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>Official Email</p>
-                  <h4 style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0F172A', margin: 0, wordBreak: 'break-all' }}>rosenavaneethamenterprises@gmail.com</h4>
+                  <h4 style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0F172A', margin: 0, wordBreak: 'break-all' }}>ronavtechnologies@gmail.com</h4>
                   <p style={{ fontSize: '0.75rem', color: '#4F46E5', fontWeight: 700 }}>Corporate &amp; Partnership Queries</p>
                 </div>
               </a>

@@ -101,15 +101,25 @@ export default function Footer({ onOpenLogin, onOpenOfficeModal, onNavigate }) {
               </button>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', fontSize: '0.75rem', color: '#94A3B8' }}>
-              <p style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                <Phone style={{ width: '14px', height: '14px', color: '#38BDF8' }} />
-                <span>9966203053</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.75rem', color: '#94A3B8' }}>
+              <p style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', margin: 0 }}>
+                <Phone style={{ width: '14px', height: '14px', color: '#38BDF8', flexShrink: 0 }} />
+                <span>Call: <a href="tel:9966203038" style={{ color: '#F1F5F9', textDecoration: 'none', fontWeight: 700 }}>9966203038</a></span>
               </p>
-              <p style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                <Mail style={{ width: '14px', height: '14px', color: '#38BDF8' }} />
-                <span>rosenavaneethamenterprises@gmail.com</span>
+              <p style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', margin: 0 }}>
+                <span style={{ fontSize: '13px', lineHeight: 1 }}>💬</span>
+                <span>WhatsApp: <a href="https://wa.me/919966203037" target="_blank" rel="noopener noreferrer" style={{ color: '#4ADE80', textDecoration: 'none', fontWeight: 700 }}>9966203037</a></span>
               </p>
+              <p style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', margin: 0 }}>
+                <Mail style={{ width: '14px', height: '14px', color: '#38BDF8', flexShrink: 0 }} />
+                <a href="mailto:ronavtechnologies@gmail.com" style={{ color: '#F1F5F9', textDecoration: 'none', wordBreak: 'break-all' }}>ronavtechnologies@gmail.com</a>
+              </p>
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '0.5rem', marginTop: '0.25rem' }}>
+                <p style={{ margin: '0 0 2px', fontSize: '0.6875rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>Head Office:</p>
+                <p style={{ margin: '0 0 4px', fontSize: '0.6875rem', color: '#CBD5E1', lineHeight: 1.3 }}>1-76, Ramachandra Nagra, Chandragiri, Tirupati dist, AP 517 101</p>
+                <p style={{ margin: '0 0 2px', fontSize: '0.6875rem', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>Hyderabad Office:</p>
+                <p style={{ margin: 0, fontSize: '0.6875rem', color: '#CBD5E1', lineHeight: 1.3 }}>3-7, Beeramguda Rd, Kistareddypet, Ameenpur, Hyderabad 502 319</p>
+              </div>
             </div>
           </div>
 
@@ -117,7 +127,7 @@ export default function Footer({ onOpenLogin, onOpenOfficeModal, onNavigate }) {
 
         {/* Sub-Footer Legal Copyright */}
         <div style={{ paddingTop: '1.5rem', display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', fontSize: '0.75rem' }}>
-          <p>© 2021 – {new Date().getFullYear()} RONAV TECHNOLOGIES • Powered by Rose Navaneetham Enterprises. All Rights Reserved.</p>
+          <p>© 2021 – {new Date().getFullYear()} RONAV TECHNOLOGIES. All Rights Reserved.</p>
           <div style={{ display: 'flex', gap: '1.25rem' }}>
             <a href="#" className="footer-link">Privacy Policy</a>
             <a href="#" className="footer-link">Terms of Service</a>

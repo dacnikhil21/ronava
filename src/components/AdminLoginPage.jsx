@@ -113,7 +113,7 @@ export default function AdminLoginPage({ onLoginSuccess, onBackToHome }) {
           {/* Contact Helpline Call Icon in Blue Circle */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <a 
-              href="tel:9966203053"
+              href="tel:9966203038"
               style={{ width: '36px', height: '36px', borderRadius: '50%', background: '#0F52BA', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
               title="Call Helpline"
             >
@@ -384,9 +384,9 @@ export default function AdminLoginPage({ onLoginSuccess, onBackToHome }) {
           <div>
             <span style={{ fontSize: '0.75rem', color: '#0A192F', display: 'block', fontWeight: 700 }}>Need Help?</span>
             <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#475569' }}>
-              <a href="tel:9966203053" style={{ color: '#0F52BA', textDecoration: 'none', fontWeight: 800 }}>9966203053</a>
+              <a href="tel:9966203038" style={{ color: '#0F52BA', textDecoration: 'none', fontWeight: 800 }}>9966203038</a>
               <span style={{ color: '#94A3B8', margin: '0 6px' }}>|</span>
-              <a href="mailto:admin@ronavtech.com" style={{ color: '#0F52BA', textDecoration: 'none', fontWeight: 800 }}>admin@ronavtech.com</a>
+              <a href="mailto:ronavtechnologies@gmail.com" style={{ color: '#0F52BA', textDecoration: 'none', fontWeight: 800 }}>ronavtechnologies@gmail.com</a>
             </span>
           </div>
         </div>

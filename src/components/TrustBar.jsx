@@ -27,7 +27,7 @@ export default function TrustBar() {
     {
       icon: Headphones,
       title: '24x7 Support',
-      subtitle: 'Helpline: 9966203053',
+      subtitle: 'Helpline: 9966203038',
       color: '#4F46E5',
       badgeBg: '#EEF2FF'
     }
