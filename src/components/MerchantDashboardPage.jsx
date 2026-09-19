@@ -20,7 +20,8 @@ import {
   createDownstreamUser,
   parsePosTerminalRates,
   parseMerchantChannels,
-  getPlatformQrConfig
+  getPlatformQrConfig,
+  classifyTransactionChannel
 } from '../services/api';
 import { subscribeToWallet, subscribeToTransactions } from '../services/supabase';
 import RonavLogo from './RonavLogo';
@@ -140,38 +141,9 @@ const POS_MACHINES_DATA = {
   }
 };
 
-const isQRTxn = (t) => {
-  const p = (t?.provider || '').toLowerCase();
-  const n = (t?.notes || '').toLowerCase();
-  const type = (t?.type || '').toUpperCase();
-  return type === 'QR' || p.includes('qr') || p.includes('phonepe') || p.includes('gpay') || n.includes('qr') || n.includes('upi');
-};
-
-// Machine & Provider transaction classifier helpers
-const isPayswiffTxn = (t) => {
-  const p = (t?.provider || '').toLowerCase();
-  const n = (t?.notes || '').toLowerCase();
-  const id = (t?.id || '').toUpperCase();
-  const ref = (t?.ref_number || '').toUpperCase();
-  return p.includes('swiff') || 
-         n.includes('swiff') || 
-         n.includes('payswiff') || 
-         id.includes('SW') || 
-         ref.includes('SW') ||
-         n.includes('swiff-ts');
-};
-
-const isPineLabsTxn = (t) => {
-  const p = (t?.provider || '').toLowerCase();
-  const n = (t?.notes || '').toLowerCase();
-  const id = (t?.id || '').toUpperCase();
-  const ref = (t?.ref_number || '').toUpperCase();
-  return p.includes('pine') || 
-         n.includes('pine') || 
-         id.includes('PL') || 
-         ref.includes('PL') ||
-         n.includes('pl-hyd');
-};
+const isQRTxn = (t) => classifyTransactionChannel(t) === 'qr';
+const isPayswiffTxn = (t) => classifyTransactionChannel(t) === 'payswiff';
+const isPineLabsTxn = (t) => classifyTransactionChannel(t) === 'pinelabs';
 
 
 
@@ -492,17 +464,17 @@ export default function MerchantDashboardPage({ user, onLogout }) {
   const activeMachineTransactions = useMemo(() => {
     return (transactions || []).filter(t => {
       if (t.type === 'BBPS_BILL') return false;
+      const channel = classifyTransactionChannel(t);
       if (selectedMachineKey === 'qr') {
-        return isQRTxn(t);
+        return channel === 'qr';
       } else if (selectedMachineKey === 'payswiff') {
-        const swiff = isPayswiffTxn(t) && !isQRTxn(t);
-        if (!swiff) return false;
+        if (channel !== 'payswiff') return false;
         const notes = (t.notes || '').toLowerCase();
         if (merchantPayswiffVendor === 'ronav') return !notes.includes('rp') && !notes.includes('r.p.');
         if (merchantPayswiffVendor === 'rp') return notes.includes('rp') || notes.includes('r.p.');
         return true;
       } else {
-        return (isPineLabsTxn(t) || (!isPayswiffTxn(t) && t.type === 'POS_SWIPE')) && !isQRTxn(t);
+        return channel === 'pinelabs';
       }
     });
   }, [transactions, selectedMachineKey, merchantPayswiffVendor]);
@@ -513,15 +485,13 @@ export default function MerchantDashboardPage({ user, onLogout }) {
   // Live withdrawals filtered for the active machine
   const activeMachineWithdrawals = useMemo(() => {
     return (withdrawals || []).filter(w => {
-      const remark = ((w.admin_remark || '') + ' ' + (w.notes || '')).toLowerCase();
-      const isSwiff = remark.includes('swiff') || remark.includes('payswiff');
-      const isQR = remark.includes('qr') || remark.includes('upi');
+      const channel = classifyTransactionChannel(w);
       if (selectedMachineKey === 'qr') {
-        return isQR;
+        return channel === 'qr';
       } else if (selectedMachineKey === 'payswiff') {
-        return isSwiff && !isQR;
+        return channel === 'payswiff';
       } else {
-        return !isSwiff && !isQR;
+        return channel === 'pinelabs';
       }
     });
   }, [withdrawals, selectedMachineKey]);
@@ -533,7 +503,21 @@ export default function MerchantDashboardPage({ user, onLogout }) {
 
     const totalSales = txns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
     const approvedTxns = txns.filter(t => (t.status || '').toUpperCase() === 'APPROVED');
-    const receivedSales = approvedTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+    
+    // Accurate net settlement amount credited (gross minus company fee)
+    const receivedSales = approvedTxns.reduce((sum, t) => {
+      const gross = parseFloat(t.amount) || 0;
+      let fee = 0;
+      if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
+        try {
+          const jsonPart = t.notes.slice(t.notes.indexOf('{'));
+          const meta = JSON.parse(jsonPart);
+          fee = parseFloat(meta.company_fee) || 0;
+        } catch (_) {}
+      }
+      return sum + Math.max(0, gross - fee);
+    }, 0);
+
     const pendingTxns = txns.filter(t => (t.status || '').toUpperCase() === 'PENDING');
     const pendingBalance = pendingTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
 
@@ -542,11 +526,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
     const pendingWiths = withs.filter(w => (w.status || '').toUpperCase() === 'PENDING');
     const pendingWithdrawn = pendingWiths.reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
 
-    // Initial state handling: If global wallet has balance and merchant has no Payswiff txns yet, Pine Labs gets the verified funds
-    let availableBalance = Math.max(0, receivedSales - withdrawnAmount - pendingWithdrawn);
-    if (selectedMachineKey === 'pine_labs' && availableBalance === 0 && (wallet?.available_balance || 0) > 0 && totalSales === 0) {
-      availableBalance = wallet.available_balance;
-    }
+    const availableBalance = Math.max(0, parseFloat((receivedSales - withdrawnAmount - pendingWithdrawn).toFixed(2)));
 
     return {
       available_balance: availableBalance,
@@ -555,7 +535,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
       pending_balance: pendingBalance,
       withdrawn_amount: withdrawnAmount
     };
-  }, [activeMachineTransactions, activeMachineWithdrawals, selectedMachineKey, wallet]);
+  }, [activeMachineTransactions, activeMachineWithdrawals]);
 
   // Dynamic Today's Stats filtered strictly for the active machine
   const todayStats = useMemo(() => {
@@ -1163,6 +1143,7 @@ export default function MerchantDashboardPage({ user, onLogout }) {
         customer_charge: 0,
         company_fee: companyFee,
         merchant_commission: 0,
+        terminal_id: activeMachine.terminal_id,
         notes: selectedMachineKey === 'qr' 
           ? `Company QR UPI Collection (${companyQrPayeeName || 'RONAV TECHNOLOGIES'})` 
           : `${activeMachine.title} Swipe`
@@ -1236,7 +1217,9 @@ export default function MerchantDashboardPage({ user, onLogout }) {
         payout_type: 'CUSTOMER_DISBURSAL',
         customer_name: customerPayoutForm.customer_name.trim(),
         customer_mobile: (customerPayoutForm.customer_mobile || '').trim(),
-        settlement_mode: customerPayoutForm.settlement_mode || 'INSTANT'
+        settlement_mode: customerPayoutForm.settlement_mode || 'INSTANT',
+        channel: selectedMachineKey,
+        provider: activeMachine.provider
       };
     } else {
       const targetBank = beneficiaries.find(b => b.id === selectedBankId) || beneficiaries[0];
@@ -1252,7 +1235,9 @@ export default function MerchantDashboardPage({ user, onLogout }) {
         account_number: targetBank.account_number || targetBank.account,
         ifsc: targetBank.ifsc || 'SBIN0001234',
         payout_type: 'MERCHANT_OWN',
-        settlement_mode: 'INSTANT'
+        settlement_mode: 'INSTANT',
+        channel: selectedMachineKey,
+        provider: activeMachine.provider
       };
     }
 

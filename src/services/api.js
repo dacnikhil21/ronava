@@ -1242,13 +1242,76 @@ export function parsePosTerminalRates(terminalStr, baseRate = 1.50) {
 
 // ----------------------------------------------------
 // 4.1 TRANSACTIONS & MULTI-TIER COMMISSION ROLL-UP
+// -------------------------// ----------------------------------------------------
+// TRANSACTION CHANNEL CLASSIFIER (CENTRAL SOURCE OF TRUTH)
 // ----------------------------------------------------
+export function classifyTransactionChannel(item) {
+  if (!item) return 'pinelabs';
+
+  const type = (item.type || '').toUpperCase();
+  const provider = (item.pos_provider || item.provider || '').toLowerCase();
+  const id = (item.id || '').toUpperCase();
+
+  // 1. Explicit QR Scan / QR payment type
+  if (type === 'QR_SCAN' || type === 'QR' || type === 'QR_PAYMENT') return 'qr';
+
+  // 2. Provider or ID indicates QR/UPI (excluding hardware swipe providers)
+  if ((provider.includes('qr') || provider.includes('upi') || id.startsWith('TXN-QR-')) && !provider.includes('swiff') && !provider.includes('pine')) {
+    return 'qr';
+  }
+
+  // 3. Provider or ID indicates Payswiff
+  if (provider.includes('swiff') || id.startsWith('TXN-SW-') || id.includes('SWIFF')) {
+    return 'payswiff';
+  }
+
+  // 4. Provider or ID indicates Pine Labs
+  if (provider.includes('pine') || id.startsWith('TXN-PL-') || id.includes('PINE')) {
+    return 'pinelabs';
+  }
+
+  // 5. Check parsed swipe metadata if available (never raw string search)
+  if (item.notes && typeof item.notes === 'string' && item.notes.includes('[CARD_SWIPE_ENTRY]')) {
+    try {
+      const jsonPart = item.notes.slice(item.notes.indexOf('{'));
+      const meta = JSON.parse(jsonPart);
+      const metaProv = (meta.pos_provider || '').toLowerCase();
+      if (metaProv.includes('swiff')) return 'payswiff';
+      if (metaProv.includes('pine')) return 'pinelabs';
+      if (metaProv.includes('qr') || metaProv.includes('upi')) return 'qr';
+
+      const userNotes = (meta.user_notes || '').toLowerCase();
+      if (userNotes.includes('swiff') || userNotes.includes('payswiff')) return 'payswiff';
+      if (userNotes.includes('pine')) return 'pinelabs';
+      if (userNotes.includes('qr') || userNotes.includes('upi')) return 'qr';
+    } catch (_) {}
+  }
+
+  // 6. Plain text notes (only for legacy transactions without [CARD_SWIPE_ENTRY])
+  if (item.notes && typeof item.notes === 'string' && !item.notes.includes('[CARD_SWIPE_ENTRY]')) {
+    const n = item.notes.toLowerCase();
+    if (n.includes('swiff') || n.includes('payswiff')) return 'payswiff';
+    if (n.includes('qr') || n.includes('upi')) return 'qr';
+    if (n.includes('pine')) return 'pinelabs';
+  }
+
+  // 7. Check admin remark for withdrawals or overrides
+  if (item.admin_remark && typeof item.admin_remark === 'string') {
+    const r = item.admin_remark.toLowerCase();
+    if (r.includes('pos: payswiff') || r.includes('swiff') || r.includes('payswiff')) return 'payswiff';
+    if (r.includes('pos: company qr') || r.includes('channel: qr') || r.includes('qr') || r.includes('upi')) return 'qr';
+    if (r.includes('pos: pine labs') || r.includes('pine')) return 'pinelabs';
+  }
+
+  return 'pinelabs';
+}
+
 export async function recordMerchantSale(saleData) {
   try {
     const { 
       merchant_id, 
       amount, 
-      customer_name,
+      customer_name, 
       customer_mobile, 
       type, 
       provider: bodyProvider, 
@@ -1258,6 +1321,7 @@ export async function recordMerchantSale(saleData) {
       customer_charge,
       company_fee,
       merchant_commission,
+      terminal_id: bodyTerminalId,
       notes 
     } = saleData;
 
@@ -1299,6 +1363,26 @@ export async function recordMerchantSale(saleData) {
 
     const finalRrn = (rrn_number || ref_number || '').trim().toUpperCase() || `RRN${Date.now().toString().slice(-8)}`;
 
+    // Resolve specific terminal ID cleanly (never serialize raw [PORTFOLIO] JSON into notes)
+    let specificTerminalId = bodyTerminalId || '';
+    if (!specificTerminalId && pos) {
+      if (pos.terminal_id && pos.terminal_id.startsWith('[PORTFOLIO]')) {
+        const channels = parseMerchantChannels(pos);
+        if (provider === 'Payswiff') {
+          specificTerminalId = channels.payswiff?.terminal_id || 'SWIFF-01';
+        } else if (provider === 'Pine Labs') {
+          specificTerminalId = channels.pine_labs?.terminal_id || 'PL-01';
+        } else {
+          specificTerminalId = 'RONAV-UPI-HQ';
+        }
+      } else {
+        specificTerminalId = pos.terminal_id || (provider === 'Payswiff' ? 'SWIFF-01' : 'PL-HYD-9941');
+      }
+    }
+    if (!specificTerminalId) {
+      specificTerminalId = provider === 'Payswiff' ? 'SWIFF-01' : (provider === 'Pine Labs' ? 'PL-01' : 'RONAV-UPI-HQ');
+    }
+
     // Package extended metadata safely in notes
     const swipeMeta = {
       customer_name: customer_name ? customer_name.trim() : 'Counter Customer',
@@ -1308,7 +1392,7 @@ export async function recordMerchantSale(saleData) {
       customer_charge: parseFloat(customer_charge) || 0,
       company_fee: parseFloat(company_fee) || 0,
       merchant_commission: parseFloat(merchant_commission) || 0,
-      terminal_id: pos ? pos.terminal_id : (provider === 'Payswiff' ? 'SWIFF-01' : 'PL-HYD-9941'),
+      terminal_id: specificTerminalId,
       pos_provider: provider,
       pos_vendor: finalVendor,
       user_notes: notes || ''
@@ -1320,7 +1404,7 @@ export async function recordMerchantSale(saleData) {
     let finalTxnType = 'POS_SWIPE';
     if (type === 'BBPS_BILL' || provider === 'BBPS') {
       finalTxnType = 'BBPS_BILL';
-    } else if (type === 'QR_SCAN' || type === 'QR' || type === 'QR_PAYMENT' || provider === 'RONAV_QR' || provider === 'QR') {
+    } else if (type === 'QR_SCAN' || type === 'QR' || type === 'QR_PAYMENT' || provider === 'RONAV_QR' || provider === 'QR' || provider === 'Company QR (UPI)') {
       finalTxnType = 'QR_SCAN';
     } else {
       finalTxnType = 'POS_SWIPE';
@@ -2177,7 +2261,9 @@ export async function requestWithdrawal(withdrawalData) {
       payout_type = 'CUSTOMER_DISBURSAL', // 'CUSTOMER_DISBURSAL' | 'MERCHANT_OWN'
       customer_name = '',
       customer_mobile = '',
-      settlement_mode = 'T1' // 'T1' | 'INSTANT'
+      settlement_mode = 'T1', // 'T1' | 'INSTANT'
+      channel = '',
+      provider = ''
     } = withdrawalData;
     
     const numAmount = parseFloat(amount);
@@ -2220,7 +2306,8 @@ export async function requestWithdrawal(withdrawalData) {
       .eq('merchant_id', merchant_id)
       .maybeSingle();
 
-    const posTag = posRec ? ` | POS: ${posRec.provider || 'Pine Labs'} | Vendor: ${posRec.vendor_entity || 'Single Vendor'}` : '';
+    const targetProvider = provider || (channel === 'payswiff' ? 'Payswiff' : (channel === 'qr' ? 'Company QR (UPI)' : (posRec?.provider || 'Pine Labs')));
+    const posTag = ` | POS: ${targetProvider} | Channel: ${channel || 'default'} | Vendor: ${posRec?.vendor_entity || 'RONAV Technologies'}`;
 
     // Formulate descriptive remark header for clarity in DB
     const initialRemark = payout_type === 'CUSTOMER_DISBURSAL'

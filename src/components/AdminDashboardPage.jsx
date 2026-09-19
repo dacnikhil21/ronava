@@ -30,7 +30,8 @@ import {
   adminResetUserPassword,
   updateMerchantChannels,
   parseMerchantChannels,
-  serializeMerchantChannels
+  serializeMerchantChannels,
+  classifyTransactionChannel
 } from '../services/api';
 import { subscribeToAdminFeed } from '../services/supabase';
 import RonavLogo from './RonavLogo';
@@ -616,20 +617,14 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     let qr = 0;
 
     pendingItems.forEach(item => {
+      const channel = classifyTransactionChannel(item);
       const uPos = userPosLookup[item.merchant_id] || {};
-      const p = (item.pos_provider || item.provider || uPos.provider || '').toLowerCase();
       const v = (item.pos_vendor || uPos.vendor || '').toLowerCase();
-      const t = (item.pos_terminal || uPos.terminal || '').toLowerCase();
       const notes = (item.notes || item.admin_remark || '').toLowerCase();
-      const id = (item.id || '').toUpperCase();
 
-      const isQR = p.includes('qr') || p.includes('upi') || notes.includes('qr') || notes.includes('upi') || id.includes('QR') || id.includes('UPI');
-      const isSwiff = p.includes('swiff') || t.includes('sw') || id.includes('SW') || notes.includes('payswiff');
-      const isPine = p.includes('pine') || t.includes('pl') || id.includes('PL') || notes.includes('pine') || (!isSwiff && !isQR);
-
-      if (isQR) {
+      if (channel === 'qr') {
         qr++;
-      } else if (isSwiff) {
+      } else if (channel === 'payswiff') {
         const isRp = v.includes('rp') || notes.includes('r.p.') || notes.includes('rp tech') || notes.includes('rp_');
         if (isRp) {
           swiffRp++;
@@ -4621,28 +4616,21 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               const filterByChannel = (items) => {
                 return items.filter(item => {
                   if (!item) return false;
+                  const channel = classifyTransactionChannel(item);
                   const uPos = userPosLookup[item.merchant_id] || {};
-                  const p = (item.pos_provider || item.provider || uPos.provider || '').toLowerCase();
                   const v = (item.pos_vendor || uPos.vendor || '').toLowerCase();
-                  const t = (item.pos_terminal || uPos.terminal || '').toLowerCase();
                   const notes = (item.notes || item.admin_remark || '').toLowerCase();
-                  const id = (item.id || '').toUpperCase();
-
-                  const isQR = p.includes('qr') || p.includes('upi') || notes.includes('qr') || notes.includes('upi') || id.includes('QR') || id.includes('UPI');
-                  const isSwiff = p.includes('swiff') || t.includes('sw') || id.includes('SW') || notes.includes('payswiff');
-                  const isPine = p.includes('pine') || t.includes('pl') || id.includes('PL') || notes.includes('pine') || (!isSwiff && !isQR);
 
                   if (selectedChannel === 'all') {
                     return true;
                   }
 
                   if (selectedChannel === 'qr') {
-                    return isQR;
+                    return channel === 'qr';
                   }
 
                   if (selectedChannel === 'payswiff') {
-                    if (isQR) return false;
-                    if (!isSwiff) return false;
+                    if (channel !== 'payswiff') return false;
 
                     const isRp = v.includes('rp') || notes.includes('r.p.') || notes.includes('rp tech') || notes.includes('rp_');
                     if (selectedPayswiffVendor === 'rp') {
@@ -4654,8 +4642,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   }
 
                   if (selectedChannel === 'pinelabs') {
-                    if (isQR || isSwiff) return false;
-                    return isPine;
+                    return channel === 'pinelabs';
                   }
 
                   return true;
