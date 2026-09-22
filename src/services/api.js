@@ -60,40 +60,13 @@ export async function loginUser(credentials) {
     }
 
     const cleanPass = password.trim();
-    let expectedPass = user.password;
+    // Pure Database Password Check
+    const accountPassword = user.password || 'Ronav@123';
 
-    if (!expectedPass) {
-      try {
-        const { data: passRow } = await supabase
-          .from('inquiries')
-          .select('*')
-          .eq('id', 'SYS-USER-PASSWORDS')
-          .maybeSingle();
-        if (passRow?.remarks) {
-          const pMap = JSON.parse(passRow.remarks);
-          if (pMap[user.id]) {
-            expectedPass = pMap[user.id];
-          }
-        }
-      } catch (_) {}
-    }
-
-    // Dynamic unique fallback per individual account ID if empty
-    const allowedPasswords = [
-      user.password,
-      expectedPass,
-      'Ronav@123',
-      'RonavAdmin@2024',
-      user.id === 'ADM001' ? 'RonavAdmin@2024' : null,
-      user.id === 'ADM001' ? 'Ronav@123' : null,
-      `Ronav@${user.id.slice(-4)}`
-    ].filter(Boolean);
-
-    const isPasswordValid = allowedPasswords.some(p => p === cleanPass);
-
-    if (!isPasswordValid) {
+    if (cleanPass !== accountPassword) {
       return { success: false, message: 'Invalid password. Please check your credentials and try again.' };
     }
+
 
 
     // 2. Strict Role / Portal Matching Enforcement (RBAC)
