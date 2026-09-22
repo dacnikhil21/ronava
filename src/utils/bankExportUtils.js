@@ -11,14 +11,22 @@
  */
 
 export function generateBankBatchCSV(payoutsList, options = {}) {
-  // STRICTLY 6 COLUMNS: Sl No, Beneficiary Name, Account Number, IFSC Code, Bank Name, Amount
+  // Comprehensive Payout Report with Merchant Identifiers, Bank Details, and Audit Trail
   const headers = [
     'Sl No',
-    'Beneficiary Name',
+    'Merchant ID (User ID)',
+    'Merchant Name (Store / Owner)',
+    'Merchant Mobile',
+    'Beneficiary Name (Recipient)',
     'Account Number',
     'IFSC Code',
     'Bank Name',
-    'Amount'
+    'Payout Amount (INR)',
+    'Channel / Provider',
+    'Settlement Speed',
+    'Payout Reference ID',
+    'Request Date & Time',
+    'Status'
   ];
 
   const escapeCSV = (val) => {
@@ -31,7 +39,16 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
     // 1. Sl No (1 to N)
     const slNo = index + 1;
 
-    // 2. Beneficiary Name (Whom they want to send money to)
+    // 2. Merchant ID / User ID
+    const merchantId = item.merchant_id || item.user_id || 'MID-UNKNOWN';
+
+    // 3. Merchant Name
+    const merchantName = item.merchant_name || item.name || 'Merchant';
+
+    // 4. Merchant Mobile
+    const merchantMobile = item.merchant_mobile || item.mobile || 'N/A';
+
+    // 5. Beneficiary Name (Whom they want to send money to)
     let recipient = item.customer_name || item.holder_name || item.beneficiary_name || '';
     if (!recipient && item.admin_remark) {
       const nameMatch = item.admin_remark.match(/Name:\s*([^|•\r\n]+)/i);
@@ -39,26 +56,49 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
     }
     if (!recipient) recipient = item.merchant_name || 'Beneficiary';
 
-    // 3. Account Number (Preserved as text formula ="..." so Excel never corrupts digits or uses scientific notation)
+    // 6. Account Number (Preserved as text formula ="..." so Excel never corrupts digits or uses scientific notation)
     const rawAcc = String(item.account_number || item.accountNumber || item.bank_account || '').replace(/[^0-9]/g, '').trim();
     const formattedAcc = rawAcc ? `="${rawAcc}"` : '""';
 
-    // 4. IFSC Code
+    // 7. IFSC Code
     const ifsc = String(item.ifsc_code || item.ifsc || '').toUpperCase().trim();
 
-    // 5. Bank Name
+    // 8. Bank Name
     const bankName = item.bank_name || item.bankName || 'Bank';
 
-    // 6. Amount
+    // 9. Payout Amount
     const amt = parseFloat(item.amount || 0).toFixed(2);
+
+    // 10. Channel / Provider
+    const channel = item.channel || item.pos_provider || (item.is_customer_payout ? 'Customer Payout' : 'Bank Transfer');
+
+    // 11. Settlement Speed
+    const speed = (item.settlement_mode || item.settlement_type || 'T1').toUpperCase();
+
+    // 12. Payout Ref ID
+    const refId = item.id || item.ref_number || item.payout_id || 'N/A';
+
+    // 13. Date & Time
+    const dateStr = item.created_at ? new Date(item.created_at).toLocaleString('en-IN') : 'N/A';
+
+    // 14. Status
+    const status = item.status || 'PENDING';
 
     return [
       slNo,
+      escapeCSV(merchantId),
+      escapeCSV(merchantName),
+      escapeCSV(merchantMobile),
       escapeCSV(recipient),
       formattedAcc,
       escapeCSV(ifsc),
       escapeCSV(bankName),
-      amt
+      amt,
+      escapeCSV(channel),
+      escapeCSV(speed),
+      escapeCSV(refId),
+      escapeCSV(dateStr),
+      escapeCSV(status)
     ].join(',');
   });
 
@@ -191,4 +231,94 @@ export function downloadGstAuditFile(transactionsList, options = {}) {
   
   return { success: true, count, fileName };
 }
+
+/**
+ * Monthly POS Terminal Rental Report Export Utility (Item #22 & #23)
+ * Exports merchant terminal rent status (Paid vs Pending ₹499/custom rent per merchant).
+ */
+export function generateRentalReportCSV(rentalList, options = {}) {
+  const headers = [
+    'Sl No',
+    'Merchant ID',
+    'Merchant Name',
+    'Store / Shop Name',
+    'Merchant Mobile',
+    'POS Machine Provider',
+    'Terminal ID (TID)',
+    'Device Plan',
+    'Monthly Rent (INR)',
+    'Assigned Distributor / Creator',
+    'Billing Cycle / Month',
+    'Rental Status',
+    'Payment Date',
+    'Remarks / Notes'
+  ];
+
+  const escapeCSV = (val) => {
+    if (val === null || val === undefined) return '""';
+    const str = String(val).replace(/"/g, '""').trim();
+    return `"${str}"`;
+  };
+
+  const rows = rentalList.map((item, index) => {
+    const slNo = index + 1;
+    const mid = item.merchant_id || item.id || 'MID-UNKNOWN';
+    const mName = item.merchant_name || item.name || 'Merchant';
+    const shopName = item.shop_name || item.business_name || 'Retail Outlet';
+    const mobile = item.mobile || item.merchant_mobile || 'N/A';
+    const provider = item.pos_provider || item.provider || 'Pine Labs';
+    const tid = item.terminal_id || item.pos_terminal || 'TID-N/A';
+    const plan = item.device_plan || item.plan || 'RENTAL';
+    const rentAmt = parseFloat(item.monthly_rent || item.rent || 499).toFixed(2);
+    const distributor = item.creator_name ? `${item.creator_name} (${item.creator_id || 'DIRECT'})` : (item.creator_id || 'Super Admin');
+    const month = item.billing_month || options.billingMonth || new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+    const status = (item.rental_status || item.status || 'PENDING').toUpperCase();
+    const payDate = item.paid_at ? new Date(item.paid_at).toLocaleDateString('en-IN') : (status === 'PAID' ? 'Collected' : 'Pending');
+    const remark = item.remarks || item.notes || (status === 'PAID' ? 'Rental collected' : 'Pending payment for billing month');
+
+    return [
+      slNo,
+      escapeCSV(mid),
+      escapeCSV(mName),
+      escapeCSV(shopName),
+      escapeCSV(mobile),
+      escapeCSV(provider),
+      escapeCSV(tid),
+      escapeCSV(plan),
+      rentAmt,
+      escapeCSV(distributor),
+      escapeCSV(month),
+      escapeCSV(status),
+      escapeCSV(payDate),
+      escapeCSV(remark)
+    ].join(',');
+  });
+
+  const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+  return { success: true, csvContent, count: rentalList.length };
+}
+
+export function downloadRentalReportFile(rentalList, options = {}) {
+  if (!rentalList || rentalList.length === 0) {
+    return { success: false, count: 0, error: 'No rental records to export' };
+  }
+
+  const { csvContent, count } = generateRentalReportCSV(rentalList, options);
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  
+  const today = new Date().toISOString().slice(0, 10);
+  const fileName = options.fileName || `RONAV_Monthly_POS_Rental_Report_${today}.csv`;
+
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', fileName);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  
+  return { success: true, count, fileName };
+}
+
 

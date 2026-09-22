@@ -8,7 +8,7 @@ import {
   Check, Phone, DollarSign, ArrowUpRight, Zap, Crown, User,
   Download, Edit3, UserCheck, UserX, FileText, MapPin, BadgeCheck, Key
 } from 'lucide-react';
-import { downloadBankBatchFile, downloadGstAuditFile } from '../utils/bankExportUtils.js';
+import { downloadBankBatchFile, downloadGstAuditFile, downloadRentalReportFile } from '../utils/bankExportUtils.js';
 import { 
   getAdminPending, 
   verifyTransaction, 
@@ -31,7 +31,9 @@ import {
   updateMerchantChannels,
   parseMerchantChannels,
   serializeMerchantChannels,
-  classifyTransactionChannel
+  classifyTransactionChannel,
+  getMonthlyRentalReport,
+  updatePosRentalStatus
 } from '../services/api';
 import { subscribeToAdminFeed } from '../services/supabase';
 import RonavLogo from './RonavLogo';
@@ -209,6 +211,58 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   const [customEndDate, setCustomEndDate] = useState('');
   const [selectedProfitTier, setSelectedProfitTier] = useState('COMPANY'); // 'COMPANY' | 'MASTER' | 'SUPER' | 'DISTRICT' | 'DISTRIBUTOR' | 'MERCHANT'
 
+  // Monthly POS Terminal Rental Report State (Items #22 & #23)
+  const [rentalReportData, setRentalReportData] = useState({
+    list: [],
+    summary: { totalTerminals: 0, totalDue: 0, totalCollected: 0, totalPending: 0, paidCount: 0, pendingCount: 0 }
+  });
+  const [rentalMonth, setRentalMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [rentalStatusFilter, setRentalStatusFilter] = useState('ALL'); // 'ALL' | 'PENDING' | 'PAID'
+  const [rentalSearchQuery, setRentalSearchQuery] = useState('');
+  const [isLoadingRental, setIsLoadingRental] = useState(false);
+  const [updatingRentalId, setUpdatingRentalId] = useState(null);
+
+  const fetchRentalReport = async (monthVal) => {
+    setIsLoadingRental(true);
+    try {
+      const res = await getMonthlyRentalReport(monthVal || rentalMonth);
+      if (res && res.success) {
+        setRentalReportData({
+          list: res.list || [],
+          summary: res.summary || {}
+        });
+      }
+    } catch (e) {
+      console.error('Failed to load rental report:', e);
+    } finally {
+      setIsLoadingRental(false);
+    }
+  };
+
+  const handleToggleRentalStatus = async (item) => {
+    const newStatus = item.rental_status === 'PAID' ? 'PENDING' : 'PAID';
+    setUpdatingRentalId(`${item.merchant_id}_${item.terminal_id}`);
+    try {
+      const res = await updatePosRentalStatus({
+        merchant_id: item.merchant_id,
+        terminal_id: item.terminal_id,
+        billing_month: item.billing_month || rentalMonth,
+        status: newStatus,
+        remarks: newStatus === 'PAID' ? 'Collected by Admin' : 'Marked pending'
+      });
+      if (res && res.success) {
+        triggerToast(`✓ Updated ${item.merchant_name} (${item.terminal_id}) to ${newStatus}!`, 'success');
+        fetchRentalReport(rentalMonth);
+      } else {
+        triggerToast(res?.message || 'Failed to update rental status', 'error');
+      }
+    } catch (e) {
+      triggerToast('Error updating rental status', 'error');
+    } finally {
+      setUpdatingRentalId(null);
+    }
+  };
+
   // Toast Helper
   const triggerToast = (msg, type = 'success') => {
     setToast({ msg, type });
@@ -311,6 +365,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       if (treeRes && treeRes.success) {
         setHierarchyData(treeRes);
       }
+
+      fetchRentalReport(rentalMonth);
     } catch (err) {
       console.error('Error fetching admin data:', err);
     }
@@ -334,6 +390,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     setViewingUserDossier(null);
     setDossierHistory([]);
     fetchAdminData();
+    if (tab === 'rentals') {
+      fetchRentalReport(rentalMonth);
+    }
     setTimeout(() => setTabLoading(false), 150);
   };
 
@@ -358,6 +417,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     setOnboardForm({
       name: '',
       mobile: '',
+      email: '',
+      aadhaar: '',
+      pan: '',
+      address: '',
+      agreement_accepted: false,
       role: role,
       parent_id: parentId,
       assign_pos: true,
@@ -420,8 +484,39 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   // Submit User Creation with Multi-Channel Portfolio
   const handleSubmitOnboard = async (e) => {
     e.preventDefault();
-    if (!onboardForm.name.trim() || !onboardForm.mobile.trim()) {
-      triggerToast('Please provide both Name and Mobile Number.', 'error');
+    const cleanName = (onboardForm.name || '').trim();
+    const cleanMobile = (onboardForm.mobile || '').replace(/\D/g, '').trim();
+    const cleanEmail = (onboardForm.email || '').trim();
+    const cleanAadhaar = (onboardForm.aadhaar || '').replace(/\D/g, '').trim();
+    const cleanPan = (onboardForm.pan || '').toUpperCase().trim();
+    const cleanAddress = (onboardForm.address || '').trim();
+
+    if (!cleanName) {
+      triggerToast('Please provide full name / store name.', 'error');
+      return;
+    }
+    if (!cleanMobile || cleanMobile.length !== 10) {
+      triggerToast('Please provide a valid 10-digit mobile number.', 'error');
+      return;
+    }
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      triggerToast('Please provide a valid email address.', 'error');
+      return;
+    }
+    if (!cleanAadhaar || cleanAadhaar.length !== 12) {
+      triggerToast('Please provide a valid 12-digit Aadhaar Card number.', 'error');
+      return;
+    }
+    if (!cleanPan || cleanPan.length !== 10) {
+      triggerToast('Please provide a valid 10-digit PAN Card number.', 'error');
+      return;
+    }
+    if (!cleanAddress) {
+      triggerToast('Please provide the full business address.', 'error');
+      return;
+    }
+    if (!onboardForm.agreement_accepted) {
+      triggerToast('Please accept the Merchant Service Agreement to proceed.', 'error');
       return;
     }
 
@@ -457,8 +552,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       const payload = {
         creator_id: 'ADM001',
         parent_id: onboardForm.parent_id || 'ADM001',
-        name: onboardForm.name.trim(),
-        mobile: onboardForm.mobile.trim(),
+        name: cleanName,
+        mobile: cleanMobile,
+        email: cleanEmail,
+        aadhaar: cleanAadhaar,
+        pan: cleanPan,
+        address: cleanAddress,
         role: onboardForm.role,
         channels: onboardChannels,
         pos_provider: primaryProvider,
@@ -471,6 +570,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         commission_rate_instant: primaryRateInstant
       };
 
+
       const res = await createDownstreamUser(payload);
       if (res && res.success) {
         setIsCreateModalOpen(false);
@@ -480,7 +580,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           mobile: res.user?.mobile,
           role: res.user?.role,
           parent_name: res.parent?.name || 'Super Admin',
-          password: 'Ronav@' + (res.user?.id || '').slice(-4)
+          password: 'Ronav@123'
         });
         triggerToast(`✓ Successfully created ${onboardForm.role}!`, 'success');
         fetchAdminData();
@@ -1460,6 +1560,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 { id: 'district_distributors', label: 'District Dist', icon: Shield },
                 { id: 'distributors', label: 'Distributor', icon: GitFork },
                 { id: 'merchants', label: 'Merchants', icon: Store },
+                { id: 'rentals', label: 'POS Rentals', icon: CreditCard },
                 { id: 'payouts', label: 'Payouts', icon: Landmark, badge: channelPendingCounts.total > 0 ? channelPendingCounts.total : null },
                 { id: 'loans', label: 'Loans', icon: FileText },
                 { id: 'franchises', label: 'Franchise', icon: Building2 }
@@ -4797,13 +4898,20 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 else if (!utr && remark && !remark.includes('[')) utr = remark.replace('[PENDING_TO_DISBURSE]', '').trim();
                 const nameMatch = remark.match(/Name:\s*([^|•\r\n]+)/i);
                 if (nameMatch) recipient = nameMatch[1].trim();
+
+                const isCommission = remark.includes('[COMMISSION_PAYOUT]') || p.payout_purpose === 'COMMISSION';
+                const matchNote = remark.match(/Note:\s*([^|•\r\n]+)/i);
+                const merchantNote = matchNote ? matchNote[1].trim() : (p.merchant_remarks || '');
                 
                 return {
                   utr: utr || 'IMPS Cleared',
                   recipient: recipient || p.merchant_name,
                   bank: p.bank_name || 'Bank',
                   acc: p.account_number || '',
-                  ifsc: p.ifsc_code || 'SBIN0001234'
+                  ifsc: p.ifsc_code || 'SBIN0001234',
+                  isCommission,
+                  purpose: isCommission ? 'COMMISSION' : 'REGULAR',
+                  remarks: merchantNote
                 };
               };
 
@@ -6157,15 +6265,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                     fontWeight: 800,
                                     padding: '2px 7px',
                                     borderRadius: '5px',
-                                    background: isSwipe ? '#ECFDF5' : '#EFF6FF',
-                                    color: isSwipe ? '#047857' : '#1D4ED8',
-                                    border: isSwipe ? '1px solid #A7F3D0' : '1px solid #BFDBFE',
+                                    background: isSwipe ? '#ECFDF5' : (details.isCommission ? '#F5F3FF' : '#EFF6FF'),
+                                    color: isSwipe ? '#047857' : (details.isCommission ? '#7C3AED' : '#1D4ED8'),
+                                    border: isSwipe ? '1px solid #A7F3D0' : (details.isCommission ? '1px solid #DDD6FE' : '1px solid #BFDBFE'),
                                     letterSpacing: '0.02em',
                                     textTransform: 'uppercase',
                                     whiteSpace: 'nowrap',
                                     lineHeight: 1.2
                                   }}>
-                                    {isSwipe ? '💳 Swipe' : '🏦 Withdrawal'}
+                                    {isSwipe ? '💳 Swipe' : (details.isCommission ? '💎 Commission Payout' : '🏦 Regular Settlement')}
                                   </span>
                                 </div>
 
@@ -6572,13 +6680,52 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                     </div>
 
                                     <div style={{
-                                      display: 'flex',
-                                      justifyContent: 'space-between',
-                                      alignItems: 'center',
-                                      padding: '0.65rem 0.85rem',
-                                      fontSize: '0.78125rem'
-                                    }}>
-                                      <span style={{ color: '#64748B', fontWeight: 600 }}>Requested At</span>
+                                       display: 'flex',
+                                       justifyContent: 'space-between',
+                                       alignItems: 'center',
+                                       padding: '0.65rem 0.85rem',
+                                       borderBottom: '1px solid #F1F5F9',
+                                       fontSize: '0.78125rem'
+                                     }}>
+                                       <span style={{ color: '#64748B', fontWeight: 600 }}>Payout Purpose</span>
+                                       <span style={{
+                                         fontSize: '0.71875rem',
+                                         fontWeight: 800,
+                                         color: details.isCommission ? '#7C3AED' : '#0F52BA',
+                                         background: details.isCommission ? '#F5F3FF' : '#EFF6FF',
+                                         padding: '2px 8px',
+                                         borderRadius: '4px',
+                                         border: details.isCommission ? '1px solid #DDD6FE' : '1px solid #BFDBFE'
+                                       }}>
+                                         {details.isCommission ? '💎 Commission Disbursal' : '💰 Regular Sales Settlement'}
+                                       </span>
+                                     </div>
+
+                                     {details.remarks && (
+                                       <div style={{
+                                         display: 'flex',
+                                         justifyContent: 'space-between',
+                                         alignItems: 'center',
+                                         padding: '0.65rem 0.85rem',
+                                         borderBottom: '1px solid #F1F5F9',
+                                         fontSize: '0.78125rem',
+                                         background: '#FFFBEB'
+                                       }}>
+                                         <span style={{ color: '#92400E', fontWeight: 700 }}>Merchant Note</span>
+                                         <strong style={{ color: '#B45309', fontSize: '0.8125rem' }}>
+                                           "{details.remarks}"
+                                         </strong>
+                                       </div>
+                                     )}
+
+                                     <div style={{
+                                       display: 'flex',
+                                       justifyContent: 'space-between',
+                                       alignItems: 'center',
+                                       padding: '0.65rem 0.85rem',
+                                       fontSize: '0.78125rem'
+                                     }}>
+                                       <span style={{ color: '#64748B', fontWeight: 600 }}>Requested At</span>
                                       <span style={{ color: '#0F172A', fontWeight: 600 }}>{displayDate}</span>
                                     </div>
                                   </div>
@@ -7157,10 +7304,371 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 )}
               </div>
             )}
+            {/* TAB VIEW 8: MONTHLY POS TERMINAL RENTAL REPORT (ITEMS #22 & #23) */}
+            {activeTab === 'rentals' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                
+                {/* Header & Month Selector */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                  <div>
+                    <button
+                      onClick={() => handleTabSwitch('overview')}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        background: '#F1F5F9',
+                        border: '1px solid #CBD5E1',
+                        borderRadius: '6px',
+                        padding: '0.3rem 0.6rem',
+                        fontSize: '0.6875rem',
+                        fontWeight: 800,
+                        color: '#334155',
+                        cursor: 'pointer',
+                        marginBottom: '0.5rem'
+                      }}
+                    >
+                      <ArrowLeft style={{ width: '12px', height: '12px' }} />
+                      <span>← Back to Overview</span>
+                    </button>
+                    <h2 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: 0, letterSpacing: '-0.01em' }}>
+                      Monthly POS Terminal Rental Report
+                    </h2>
+                    <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
+                      Track merchant terminal rent collection status (Paid vs Pending ₹499/custom rent per merchant)
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    {/* Billing Month Selector */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#FFFFFF', padding: '0.35rem 0.65rem', borderRadius: '8px', border: '1px solid #CBD5E1' }}>
+                      <Calendar style={{ width: '14px', height: '14px', color: '#64748B' }} />
+                      <input 
+                        type="month"
+                        value={rentalMonth}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setRentalMonth(val);
+                          fetchRentalReport(val);
+                        }}
+                        style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', cursor: 'pointer' }}
+                      />
+                    </div>
+
+                    <button
+                      onClick={() => fetchRentalReport(rentalMonth)}
+                      disabled={isLoadingRental}
+                      style={{
+                        background: '#FFFFFF',
+                        border: '1px solid #CBD5E1',
+                        borderRadius: '8px',
+                        padding: '0.45rem 0.75rem',
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        color: '#334155',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px'
+                      }}
+                    >
+                      <RefreshCw style={{ width: '13px', height: '13px', animation: isLoadingRental ? 'spin 1s linear infinite' : 'none' }} />
+                      <span>Refresh</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        const filtered = rentalReportData.list.filter(item => {
+                          if (rentalStatusFilter === 'PENDING' && item.rental_status !== 'PENDING') return false;
+                          if (rentalStatusFilter === 'PAID' && item.rental_status !== 'PAID') return false;
+                          if (rentalSearchQuery.trim()) {
+                            const q = rentalSearchQuery.toLowerCase();
+                            return (item.merchant_name || '').toLowerCase().includes(q) ||
+                                   (item.merchant_id || '').toLowerCase().includes(q) ||
+                                   (item.terminal_id || '').toLowerCase().includes(q) ||
+                                   (item.mobile || '').includes(q) ||
+                                   (item.creator_name || '').toLowerCase().includes(q);
+                          }
+                          return true;
+                        });
+                        downloadRentalReportFile(filtered, { billingMonth: rentalMonth });
+                        triggerToast('✓ Exported POS Rental Report CSV!', 'success');
+                      }}
+                      style={{
+                        background: 'linear-gradient(135deg, #0F52BA 0%, #1E3A8A 100%)',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        borderRadius: '8px',
+                        padding: '0.45rem 0.875rem',
+                        fontSize: '0.75rem',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        boxShadow: '0 2px 6px rgba(15,82,186,0.25)'
+                      }}
+                    >
+                      <Download style={{ width: '13px', height: '13px' }} />
+                      <span>Download CSV</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 4 KPI Metric Cards */}
+                <div className="admin-kpi-grid">
+                  <div style={{ background: '#FFFFFF', padding: '1rem', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>Rental Terminals</span>
+                      <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#EFF6FF', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <CreditCard style={{ width: '15px', height: '15px' }} />
+                      </div>
+                    </div>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: '6px 0 2px' }}>
+                      {rentalReportData.summary?.totalTerminals || 0}
+                    </h3>
+                    <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 700 }}>
+                      Active Machines on Rent
+                    </span>
+                  </div>
+
+                  <div style={{ background: '#FFFFFF', padding: '1rem', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>Total Rent Due</span>
+                      <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#FEF3C7', color: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <DollarSign style={{ width: '15px', height: '15px' }} />
+                      </div>
+                    </div>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: '6px 0 2px' }}>
+                      ₹{parseFloat(rentalReportData.summary?.totalDue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </h3>
+                    <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 700 }}>
+                      Billing Cycle: {rentalMonth}
+                    </span>
+                  </div>
+
+                  <div style={{ background: '#ECFDF5', padding: '1rem', borderRadius: '12px', border: '1.5px solid #A7F3D0' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#059669', textTransform: 'uppercase' }}>Collected</span>
+                      <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#D1FAE5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <CheckCircle2 style={{ width: '15px', height: '15px' }} />
+                      </div>
+                    </div>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#059669', margin: '6px 0 2px' }}>
+                      ₹{parseFloat(rentalReportData.summary?.totalCollected || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </h3>
+                    <span style={{ fontSize: '0.625rem', color: '#047857', fontWeight: 800 }}>
+                      ✓ {rentalReportData.summary?.paidCount || 0} Terminals Cleared
+                    </span>
+                  </div>
+
+                  <div style={{ background: '#FFFBEB', padding: '1rem', borderRadius: '12px', border: '1.5px solid #FDE68A' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#B45309', textTransform: 'uppercase' }}>Pending Collection</span>
+                      <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#FEF3C7', color: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Clock style={{ width: '15px', height: '15px' }} />
+                      </div>
+                    </div>
+                    <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#B45309', margin: '6px 0 2px' }}>
+                      ₹{parseFloat(rentalReportData.summary?.totalPending || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </h3>
+                    <span style={{ fontSize: '0.625rem', color: '#D97706', fontWeight: 800 }}>
+                      ⏳ {rentalReportData.summary?.pendingCount || 0} Terminals Unpaid
+                    </span>
+                  </div>
+                </div>
+
+                {/* Filter Toolbar & Search */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.625rem', background: '#FFFFFF', padding: '0.75rem', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+                  {/* Status Pills */}
+                  <div style={{ display: 'flex', gap: '0.35rem', overflowX: 'auto' }}>
+                    {[
+                      { id: 'ALL', label: `All Terminals (${rentalReportData.list.length})` },
+                      { id: 'PENDING', label: `⏳ Pending (${rentalReportData.summary?.pendingCount || 0})` },
+                      { id: 'PAID', label: `✓ Collected (${rentalReportData.summary?.paidCount || 0})` }
+                    ].map(tab => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setRentalStatusFilter(tab.id)}
+                        style={{
+                          padding: '0.35rem 0.75rem',
+                          borderRadius: '20px',
+                          fontSize: '0.72rem',
+                          fontWeight: 800,
+                          border: rentalStatusFilter === tab.id ? '1.5px solid #0F52BA' : '1px solid #CBD5E1',
+                          background: rentalStatusFilter === tab.id ? '#0F52BA' : '#FFFFFF',
+                          color: rentalStatusFilter === tab.id ? '#FFFFFF' : '#475569',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Search Input */}
+                  <div style={{ position: 'relative', minWidth: '240px', flex: 1 }}>
+                    <Search style={{ width: '14px', height: '14px', position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
+                    <input
+                      type="text"
+                      placeholder="Search Merchant, TID, Mobile, Distributor..."
+                      value={rentalSearchQuery}
+                      onChange={(e) => setRentalSearchQuery(e.target.value)}
+                      style={{ width: '100%', boxSizing: 'border-box', padding: '0.45rem 0.75rem 0.45rem 2rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.75rem', outline: 'none' }}
+                    />
+                  </div>
+                </div>
+
+                {/* Rental Roster Table / Card Stream */}
+                {(() => {
+                  const filtered = rentalReportData.list.filter(item => {
+                    if (rentalStatusFilter === 'PENDING' && item.rental_status !== 'PENDING') return false;
+                    if (rentalStatusFilter === 'PAID' && item.rental_status !== 'PAID') return false;
+                    if (rentalSearchQuery.trim()) {
+                      const q = rentalSearchQuery.toLowerCase();
+                      return (item.merchant_name || '').toLowerCase().includes(q) ||
+                             (item.merchant_id || '').toLowerCase().includes(q) ||
+                             (item.terminal_id || '').toLowerCase().includes(q) ||
+                             (item.mobile || '').includes(q) ||
+                             (item.creator_name || '').toLowerCase().includes(q);
+                    }
+                    return true;
+                  });
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div style={{ padding: '3rem 1rem', textAlign: 'center', background: '#FFFFFF', borderRadius: '12px', border: '1px dashed #CBD5E1', color: '#64748B' }}>
+                        <CreditCard style={{ width: '32px', height: '32px', margin: '0 auto 0.5rem', color: '#94A3B8' }} />
+                        <h4 style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
+                          No rental records found
+                        </h4>
+                        <p style={{ margin: '4px 0 0', fontSize: '0.75rem' }}>
+                          No POS terminals match the selected filter for {rentalMonth}.
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+                      {filtered.map(item => {
+                        const isPaid = item.rental_status === 'PAID';
+                        const isUpdating = updatingRentalId === `${item.merchant_id}_${item.terminal_id}`;
+                        const isPine = (item.pos_provider || '').toLowerCase().includes('pine');
+
+                        return (
+                          <div
+                            key={`${item.merchant_id}_${item.terminal_id}`}
+                            style={{
+                              background: '#FFFFFF',
+                              border: isPaid ? '1px solid #E2E8F0' : '1.5px solid #FDE68A',
+                              borderRadius: '12px',
+                              padding: '0.875rem 1rem',
+                              boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              flexWrap: 'wrap',
+                              gap: '0.75rem'
+                            }}
+                          >
+                            {/* Left: Merchant & Machine identity */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: '240px', flex: 1 }}>
+                              <div style={{
+                                width: '38px',
+                                height: '38px',
+                                borderRadius: '10px',
+                                background: isPine ? '#EFF6FF' : '#FEF3C7',
+                                color: isPine ? '#0F52BA' : '#D97706',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontWeight: 900,
+                                fontSize: '1rem',
+                                flexShrink: 0
+                              }}>
+                                {isPine ? '🌲' : '⚡'}
+                              </div>
+
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                  <strong style={{ fontSize: '0.875rem', color: '#0F172A' }}>{item.merchant_name}</strong>
+                                  <span style={{ fontSize: '0.6875rem', color: '#64748B', fontFamily: 'monospace', background: '#F1F5F9', padding: '1px 5px', borderRadius: '4px' }}>
+                                    {item.merchant_id}
+                                  </span>
+                                </div>
+
+                                <div style={{ fontSize: '0.72rem', color: '#64748B', marginTop: '2px' }}>
+                                  <span>{item.pos_provider}</span>
+                                  <span style={{ margin: '0 4px' }}>•</span>
+                                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0F52BA' }}>{item.terminal_id}</span>
+                                  <span style={{ margin: '0 4px' }}>•</span>
+                                  <span>Distributor: <strong>{item.creator_name || 'Super Admin'}</strong></span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Middle: Plan & Rent Fee */}
+                            <div style={{ textAlign: 'right', minWidth: '130px' }}>
+                              <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>
+                                Monthly Rent
+                              </span>
+                              <strong style={{ fontSize: '1.05rem', color: '#0F172A', fontVariantNumeric: 'tabular-nums' }}>
+                                ₹{item.monthly_rent.toFixed(2)}
+                              </strong>
+                              <span style={{ fontSize: '0.65rem', color: '#64748B', display: 'block' }}>
+                                {item.device_plan || 'RENTAL'}
+                              </span>
+                            </div>
+
+                            {/* Right: Status Pill & Toggle Action Button */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{
+                                fontSize: '0.72rem',
+                                fontWeight: 800,
+                                padding: '3px 8px',
+                                borderRadius: '6px',
+                                background: isPaid ? '#ECFDF5' : '#FEF3C7',
+                                color: isPaid ? '#059669' : '#B45309',
+                                border: isPaid ? '1px solid #A7F3D0' : '1px solid #FDE68A',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                {isPaid ? '✓ Paid' : '⏳ Pending'}
+                              </span>
+
+                              <button
+                                type="button"
+                                disabled={isUpdating}
+                                onClick={() => handleToggleRentalStatus(item)}
+                                style={{
+                                  background: isPaid ? '#F1F5F9' : '#059669',
+                                  color: isPaid ? '#475569' : '#FFFFFF',
+                                  border: isPaid ? '1px solid #CBD5E1' : 'none',
+                                  borderRadius: '6px',
+                                  padding: '0.4rem 0.75rem',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 800,
+                                  cursor: isUpdating ? 'not-allowed' : 'pointer',
+                                  whiteSpace: 'nowrap',
+                                  transition: 'all 0.15s ease'
+                                }}
+                              >
+                                {isUpdating ? 'Updating...' : (isPaid ? 'Revert to Pending' : '✓ Mark Paid')}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
 
           </div>
         )}
-
       </main>
 
       {/* 5. Mobile Sticky Bottom Navigation Bar (5-Tier Network Hierarchy + Overview + Payouts) */}
@@ -7326,7 +7834,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
                 <div>
                   <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '4px' }}>
-                    Full Name / Store Name *
+                    Full Name / Store Name <span style={{ color: '#DC2626' }}>*</span>
                   </label>
                   <input
                     type="text"
@@ -7339,7 +7847,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 </div>
                 <div>
                   <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '4px' }}>
-                    Mobile Number *
+                    Mobile Number <span style={{ color: '#DC2626' }}>*</span>
                   </label>
                   <input
                     type="tel"
@@ -7348,6 +7856,68 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     placeholder="10-digit mobile"
                     value={onboardForm.mobile}
                     onChange={(e) => setOnboardForm(prev => ({ ...prev, mobile: e.target.value }))}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem' }}
+                  />
+                </div>
+              </div>
+
+              {/* Email & Aadhaar Card */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                    Gmail / Email Address <span style={{ color: '#DC2626' }}>*</span>
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="e.g. partner@gmail.com"
+                    value={onboardForm.email || ''}
+                    onChange={(e) => setOnboardForm(prev => ({ ...prev, email: e.target.value }))}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                    Aadhaar Card (12 Digits) <span style={{ color: '#DC2626' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={12}
+                    placeholder="12-digit Aadhaar number"
+                    value={onboardForm.aadhaar || ''}
+                    onChange={(e) => setOnboardForm(prev => ({ ...prev, aadhaar: e.target.value.replace(/\D/g, '') }))}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem' }}
+                  />
+                </div>
+              </div>
+
+              {/* PAN Card & Full Business Address */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
+                <div>
+                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                    PAN Card (10 Digits) <span style={{ color: '#DC2626' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={10}
+                    placeholder="e.g. ABCDE1234F"
+                    value={onboardForm.pan || ''}
+                    onChange={(e) => setOnboardForm(prev => ({ ...prev, pan: e.target.value.toUpperCase() }))}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem', textTransform: 'uppercase' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                    Full Business Address <span style={{ color: '#DC2626' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Shop No, Street, City, PIN"
+                    value={onboardForm.address || ''}
+                    onChange={(e) => setOnboardForm(prev => ({ ...prev, address: e.target.value }))}
                     style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.75rem' }}
                   />
                 </div>
@@ -7523,7 +8093,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             const val = e.target.value;
                             setOnboardChannels(prev => ({
                               ...prev,
-                              pine_labs: { ...prev.pine_labs, plan: val, rent: val === 'RENTAL' ? '499' : prev.pine_labs.rent }
+                              pine_labs: { ...prev.pine_labs, plan: val, rent: val === 'RENTAL' ? '499' : (prev.pine_labs.rent || '499') }
                             }));
                           }}
                           style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.6875rem', background: '#FFFFFF' }}
@@ -7531,6 +8101,33 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           <option value="RENTAL">Monthly Rental (₹499/mo)</option>
                           <option value="CUSTOM">Custom Plan</option>
                         </select>
+
+                        {onboardChannels.pine_labs.plan === 'CUSTOM' && (
+                          <div style={{ marginTop: '5px' }}>
+                            <label style={{ fontSize: '0.59375rem', fontWeight: 800, color: '#0F52BA', display: 'block', marginBottom: '2px' }}>
+                              Custom Amount (₹) *
+                            </label>
+                            <div style={{ position: 'relative' }}>
+                              <span style={{ position: 'absolute', left: '7px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', fontWeight: 800, color: '#64748B' }}>₹</span>
+                              <input
+                                type="number"
+                                step="1"
+                                min="0"
+                                required
+                                placeholder="e.g. 799"
+                                value={onboardChannels.pine_labs.rent || ''}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setOnboardChannels(prev => ({
+                                    ...prev,
+                                    pine_labs: { ...prev.pine_labs, rent: val }
+                                  }));
+                                }}
+                                style={{ width: '100%', padding: '0.35rem 0.5rem 0.35rem 1.3rem', borderRadius: '6px', border: '1.5px solid #0F52BA', fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', boxSizing: 'border-box' }}
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -7654,7 +8251,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             const val = e.target.value;
                             setOnboardChannels(prev => ({
                               ...prev,
-                              payswiff: { ...prev.payswiff, plan: val, rent: val === 'RENTAL' ? '499' : prev.payswiff.rent }
+                              payswiff: { ...prev.payswiff, plan: val, rent: val === 'RENTAL' ? '499' : (prev.payswiff.rent || '499') }
                             }));
                           }}
                           style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.6875rem', background: '#FFFFFF' }}
@@ -7662,6 +8259,33 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           <option value="RENTAL">Monthly Rental (₹499/mo)</option>
                           <option value="CUSTOM">Custom Plan</option>
                         </select>
+
+                        {onboardChannels.payswiff.plan === 'CUSTOM' && (
+                          <div style={{ marginTop: '5px' }}>
+                            <label style={{ fontSize: '0.59375rem', fontWeight: 800, color: '#D97706', display: 'block', marginBottom: '2px' }}>
+                              Custom Amount (₹) *
+                            </label>
+                            <div style={{ position: 'relative' }}>
+                              <span style={{ position: 'absolute', left: '7px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', fontWeight: 800, color: '#64748B' }}>₹</span>
+                              <input
+                                type="number"
+                                step="1"
+                                min="0"
+                                required
+                                placeholder="e.g. 799"
+                                value={onboardChannels.payswiff.rent || ''}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setOnboardChannels(prev => ({
+                                    ...prev,
+                                    payswiff: { ...prev.payswiff, rent: val }
+                                  }));
+                                }}
+                                style={{ width: '100%', padding: '0.35rem 0.5rem 0.35rem 1.3rem', borderRadius: '6px', border: '1.5px solid #D97706', fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', boxSizing: 'border-box' }}
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -7734,7 +8358,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       <input
                         type="number"
                         step="0.01"
-                        min="0.5"
+                        min="0.0"
                         max="4.0"
                         value={onboardChannels.qr.rate_instant}
                         onChange={(e) => {
@@ -7754,6 +8378,21 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   </div>
                 )}
 
+              </div>
+
+              {/* Agreement Copy & Confirmation Checkbox */}
+              <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.65rem 0.75rem', display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                <input
+                  type="checkbox"
+                  id="admin_agreement_accepted"
+                  required
+                  checked={!!onboardForm.agreement_accepted}
+                  onChange={(e) => setOnboardForm(prev => ({ ...prev, agreement_accepted: e.target.checked }))}
+                  style={{ width: '16px', height: '16px', marginTop: '2px', accentColor: '#0F52BA', cursor: 'pointer' }}
+                />
+                <label htmlFor="admin_agreement_accepted" style={{ fontSize: '0.6875rem', color: '#334155', lineHeight: '1.4', cursor: 'pointer', margin: 0 }}>
+                  <strong style={{ color: '#0F172A' }}>Merchant Service Agreement & KYC Declaration:</strong> I hereby certify that the partner details, PAN, Aadhaar, and address have been physically verified. The onboarded partner agrees to RONAV Technologies terms of business and MDR margin structure. <span style={{ color: '#DC2626' }}>*</span>
+                </label>
               </div>
 
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
@@ -8268,7 +8907,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     <input
                       type="number"
                       step="0.01"
-                      min="0.5"
+                      min="0.0"
                       max="4.0"
                       value={managingChannelsData.qr.rate_instant || 1.50}
                       onChange={(e) => {

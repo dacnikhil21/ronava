@@ -46,13 +46,18 @@ export default function AdminLoginPage({ onLoginSuccess, onBackToHome }) {
     const cleanPass = (password || '').trim();
 
     if (!cleanId) {
-      setLoginError('Please enter your Admin ID or Mobile.');
+      setLoginError('Please enter your Admin ID.');
+      return;
+    }
+    if (/^\d{10}$/.test(cleanId)) {
+      setLoginError('Mobile number login is disabled. Please enter your Admin ID (e.g. ADM001).');
       return;
     }
     if (!cleanPass) {
       setLoginError('Please enter your Admin Password.');
       return;
     }
+
 
     setIsLoading(true);
     setLoginError('');

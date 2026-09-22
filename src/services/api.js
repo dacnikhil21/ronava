@@ -14,16 +14,24 @@ export async function loginUser(credentials) {
     const { id, role, password } = credentials || {};
     const cleanId = (id || '').trim();
     if (!cleanId) {
-      return { success: false, message: 'Please enter your User ID or Mobile Number.' };
+      return { success: false, message: 'Please enter your User ID.' };
+    }
+
+    // Explicitly reject 10-digit mobile numbers
+    if (/^\d{10}$/.test(cleanId)) {
+      return { 
+        success: false, 
+        message: 'Access Denied: Mobile number login is disabled. Please login using your assigned User ID (e.g. ADM001, MST..., SD..., DIST..., MID...).' 
+      };
     }
 
     const { data: users, error } = await supabase
       .from('users')
       .select('*')
-      .or(`id.eq.${cleanId},mobile.eq.${cleanId}`);
+      .eq('id', cleanId);
 
     if (error || !users || users.length === 0) {
-      return { success: false, message: `No registered account found for "${cleanId}".` };
+      return { success: false, message: `User ID "${cleanId}" not found. Please verify your assigned User ID.` };
     }
 
     const user = users[0];
@@ -46,10 +54,15 @@ export async function loginUser(credentials) {
       }
     } catch (_) {}
 
-    // 1. Password Verification (Custom Admin-Set Password or Standard Default)
-    if (password) {
-      const cleanPass = password.trim();
-      let customPass = null;
+    // 1. Mandatory Strict Password Verification
+    if (!password || !password.trim()) {
+      return { success: false, message: 'Please enter your password.' };
+    }
+
+    const cleanPass = password.trim();
+    let expectedPass = user.password;
+
+    if (!expectedPass) {
       try {
         const { data: passRow } = await supabase
           .from('inquiries')
@@ -59,31 +72,19 @@ export async function loginUser(credentials) {
         if (passRow?.remarks) {
           const pMap = JSON.parse(passRow.remarks);
           if (pMap[user.id]) {
-            customPass = pMap[user.id];
+            expectedPass = pMap[user.id];
           }
         }
       } catch (_) {}
+    }
 
-      if (customPass) {
-        if (cleanPass !== customPass) {
-          return { success: false, message: 'Incorrect password. Please verify your credentials or contact Admin Support.' };
-        }
-      } else {
-        const last4Id = (user.id || '').slice(-4);
-        const last4Mob = (user.mobile || '').slice(-4);
-        const validPasswords = [
-          `Ronav@${last4Id}`,
-          `Ronav@${last4Mob}`,
-          'Ronav@123',
-          'Admin@123',
-          'Ronav@Admin2024',
-          'Ronav@3053',
-          '123456'
-        ];
-        if (!validPasswords.includes(cleanPass)) {
-          return { success: false, message: 'Incorrect password. Please verify your credentials or contact Admin Support.' };
-        }
-      }
+    // Dynamic unique fallback per individual account ID if empty
+    if (!expectedPass) {
+      expectedPass = user.id === 'ADM001' ? 'RonavAdmin@2024' : `Ronav@${user.id.slice(-4)}`;
+    }
+
+    if (cleanPass !== expectedPass) {
+      return { success: false, message: 'Invalid password. Please check your credentials and try again.' };
     }
 
     // 2. Strict Role / Portal Matching Enforcement (RBAC)
@@ -199,6 +200,132 @@ export async function loginUser(credentials) {
   }
 }
 
+/**
+ * Reset user password by registered User ID or Mobile
+ */
+export async function resetUserPassword(query) {
+  try {
+    if (!query || !query.trim()) {
+      return { success: false, message: 'Please enter your registered User ID or Mobile Number.' };
+    }
+    const clean = query.trim();
+
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('*')
+      .or(`id.eq.${clean},mobile.eq.${clean}`);
+
+    if (error || !users || users.length === 0) {
+      return { success: false, message: 'No registered account found matching that User ID or Mobile.' };
+    }
+
+    const user = users[0];
+    const randomDigits = Math.floor(1000 + Math.random() * 9000);
+    const newTempPassword = `Ronav@${randomDigits}`;
+
+    const { error: updErr } = await supabase
+      .from('users')
+      .update({ password: newTempPassword })
+      .eq('id', user.id);
+
+    if (updErr) {
+      try {
+        const { data: passRow } = await supabase
+          .from('inquiries')
+          .select('*')
+          .eq('id', 'SYS-USER-PASSWORDS')
+          .maybeSingle();
+        let pMap = {};
+        if (passRow?.remarks) {
+          try { pMap = JSON.parse(passRow.remarks); } catch (_) {}
+        }
+        pMap[user.id] = newTempPassword;
+        await supabase
+          .from('inquiries')
+          .upsert({
+            id: 'SYS-USER-PASSWORDS',
+            name: 'System User Passwords',
+            mobile: '9966203038',
+            category: 'SECURITY',
+            message: 'Central Encrypted Password Store',
+            remarks: JSON.stringify(pMap),
+            status: 'ACTIVE'
+          });
+      } catch (_) {}
+    }
+
+    return {
+      success: true,
+      message: `Password reset successfully for ${user.name} (${user.id}).`,
+      user: {
+        id: user.id,
+        name: user.name,
+        mobile: user.mobile,
+        role: user.role,
+        tempPassword: newTempPassword
+      }
+    };
+  } catch (err) {
+    console.error('resetUserPassword error:', err);
+    return { success: false, message: err.message || 'Failed to reset password.' };
+  }
+}
+
+/**
+ * Update user password with current password verification
+ */
+export async function updateUserPassword(userId, currentPassword, newPassword) {
+  try {
+    if (!userId || !currentPassword || !newPassword) {
+      return { success: false, message: 'All password fields are required.' };
+    }
+    if (newPassword.length < 6) {
+      return { success: false, message: 'New password must be at least 6 characters long.' };
+    }
+
+    const loginRes = await loginUser({ id: userId, password: currentPassword });
+    if (!loginRes.success) {
+      return { success: false, message: 'Current password is incorrect.' };
+    }
+
+    const { error } = await supabase
+      .from('users')
+      .update({ password: newPassword })
+      .eq('id', userId);
+
+    if (error) {
+      try {
+        const { data: passRow } = await supabase
+          .from('inquiries')
+          .select('*')
+          .eq('id', 'SYS-USER-PASSWORDS')
+          .maybeSingle();
+        let pMap = {};
+        if (passRow?.remarks) {
+          try { pMap = JSON.parse(passRow.remarks); } catch (_) {}
+        }
+        pMap[userId] = newPassword;
+        await supabase
+          .from('inquiries')
+          .upsert({
+            id: 'SYS-USER-PASSWORDS',
+            name: 'System User Passwords',
+            mobile: '9966203038',
+            category: 'SECURITY',
+            message: 'Central Encrypted Password Store',
+            remarks: JSON.stringify(pMap),
+            status: 'ACTIVE'
+          });
+      } catch (_) {}
+    }
+
+    return { success: true, message: 'Password updated successfully!' };
+  } catch (err) {
+    console.error('updateUserPassword error:', err);
+    return { success: false, message: err.message || 'Failed to update password.' };
+  }
+}
+
 export async function verifySponsor(query) {
   try {
     if (!query || !query.trim()) {
@@ -288,43 +415,6 @@ export async function registerWithReferral(data) {
   }
 }
 
-export async function resetUserPassword(query) {
-  try {
-    if (!query || !query.trim()) {
-      return { success: false, message: 'Please enter your registered User ID or Mobile Number.' };
-    }
-    const clean = query.trim();
-
-    const { data: users, error } = await supabase
-      .from('users')
-      .select('*')
-      .or(`id.eq.${clean},mobile.eq.${clean}`);
-
-    if (error || !users || users.length === 0) {
-      return { 
-        success: false, 
-        message: 'No registered account found with this User ID or Mobile Number. Please check or contact your sponsor.' 
-      };
-    }
-
-    const user = users[0];
-
-    return {
-      success: true,
-      message: 'Account verified successfully.',
-      user: {
-        id: user.id,
-        name: user.name,
-        mobile: user.mobile,
-        role: user.role
-      }
-    };
-  } catch (err) {
-    console.error('resetUserPassword error:', err);
-    return { success: false, message: err.message };
-  }
-}
-
 export async function adminResetUserPassword(userId, newPassword) {
   try {
     if (!userId || !newPassword || !newPassword.trim()) {
@@ -333,7 +423,13 @@ export async function adminResetUserPassword(userId, newPassword) {
     const cleanPass = newPassword.trim();
     const cleanUid = userId.trim();
 
-    // Read current SYS-USER-PASSWORDS map from inquiries table
+    // 1. Update directly in users table
+    await supabase
+      .from('users')
+      .update({ password: cleanPass })
+      .eq('id', cleanUid);
+
+    // 2. Read and update SYS-USER-PASSWORDS map in inquiries table for secondary sync
     const { data: existingRow } = await supabase
       .from('inquiries')
       .select('*')
@@ -351,7 +447,7 @@ export async function adminResetUserPassword(userId, newPassword) {
 
     pMap[cleanUid] = cleanPass;
 
-    const { error: upsertErr } = await supabase
+    await supabase
       .from('inquiries')
       .upsert({
         id: 'SYS-USER-PASSWORDS',
@@ -363,7 +459,6 @@ export async function adminResetUserPassword(userId, newPassword) {
         remarks: JSON.stringify(pMap),
         status: 'ACTIVE'
       });
-    if (upsertErr) throw upsertErr;
 
     return {
       success: true,
@@ -812,25 +907,79 @@ export async function createDownstreamUser(userData) {
       newUserId = `${idPrefix}${Date.now().toString().slice(-4)}`;
     }
 
-    // 1. Insert User
-    const { data: newUser, error: uErr } = await supabase
+    // 1. Generate unique temporary password and Insert User
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    const initialPassword = userData.password || `Ronav@${randomSuffix}`;
+
+    let newUser = null;
+    const { data: insertedWithPass, error: uErrWithPass } = await supabase
       .from('users')
       .insert({
         id: newUserId,
         name,
         mobile,
         role: dbRole,
-        creator_id: assignedCreatorId
+        creator_id: assignedCreatorId,
+        password: initialPassword
       })
       .select()
-      .single();
+      .maybeSingle();
 
-    if (uErr) {
-      if (uErr.message && uErr.message.includes('unique')) {
+    if (uErrWithPass) {
+      if (uErrWithPass.message && uErrWithPass.message.includes('unique')) {
         return { success: false, message: 'A user with this mobile number already exists.' };
       }
-      return { success: false, message: uErr.message };
+      // If Supabase schema cache doesn't have password column, insert with standard columns
+      const { data: standardUser, error: uErrStd } = await supabase
+        .from('users')
+        .insert({
+          id: newUserId,
+          name,
+          mobile,
+          role: dbRole,
+          creator_id: assignedCreatorId
+        })
+        .select()
+        .single();
+
+      if (uErrStd) {
+        if (uErrStd.message && uErrStd.message.includes('unique')) {
+          return { success: false, message: 'A user with this mobile number already exists.' };
+        }
+        return { success: false, message: uErrStd.message };
+      }
+      newUser = standardUser;
+    } else {
+      newUser = insertedWithPass;
     }
+
+    // Always store the unique password in Supabase inquiries password vault
+    try {
+      const { data: passRow } = await supabase
+        .from('inquiries')
+        .select('*')
+        .eq('id', 'SYS-USER-PASSWORDS')
+        .maybeSingle();
+
+      let pMap = {};
+      if (passRow && passRow.remarks) {
+        try { pMap = JSON.parse(passRow.remarks); } catch (_) {}
+      }
+      pMap[newUserId] = initialPassword;
+
+      await supabase
+        .from('inquiries')
+        .upsert({
+          id: 'SYS-USER-PASSWORDS',
+          type: 'FRANCHISE',
+          name: 'SYSTEM_USER_PASSWORDS',
+          phone: '9966203038',
+          category: 'PLATFORM_SETTINGS',
+          location: 'SYSTEM',
+          remarks: JSON.stringify(pMap),
+          status: 'ACTIVE'
+        });
+    } catch (_) {}
 
     // 2. Initialize Wallet
     await supabase.from('wallets').insert({
@@ -966,7 +1115,7 @@ export async function createDownstreamUser(userData) {
         name: newUser.name,
         mobile: newUser.mobile,
         role: newUser.role,
-        password: 'Ronav@' + newUserId.slice(-4)
+        password: initialPassword
       }
     };
   } catch (err) {
@@ -1362,6 +1511,22 @@ export async function recordMerchantSale(saleData) {
     }
 
     const finalRrn = (rrn_number || ref_number || '').trim().toUpperCase() || `RRN${Date.now().toString().slice(-8)}`;
+
+    // Item #7: Strict Unique UTR / RRN Validation (Prevent double entry / duplicate submissions)
+    if (finalRrn && !finalRrn.startsWith('RRN') && finalRrn.length >= 6) {
+      const { data: existingTxn } = await supabase
+        .from('transactions')
+        .select('id, ref_number, status, amount, created_at')
+        .eq('ref_number', finalRrn)
+        .maybeSingle();
+
+      if (existingTxn) {
+        return {
+          success: false,
+          message: `Duplicate UTR / RRN: Reference number "${finalRrn}" has already been submitted under ${existingTxn.id} (Status: ${existingTxn.status}, Amount: ₹${existingTxn.amount}).`
+        };
+      }
+    }
 
     // Resolve specific terminal ID cleanly (never serialize raw [PORTFOLIO] JSON into notes)
     let specificTerminalId = bodyTerminalId || '';
@@ -1841,11 +2006,17 @@ export async function getAdminPending() {
         const u = userMap[w.merchant_id] || {};
         const p = posMap[w.merchant_id] || {};
         const isCustomer = (w.admin_remark || '').includes('[CUSTOMER_PAYOUT]');
+        const isCommission = (w.admin_remark || '').includes('[COMMISSION_PAYOUT]');
         const isSubmittedToBank = (w.admin_remark || '').includes('[SUBMITTED_TO_BANK]');
         let custName = '';
         let custMob = '';
         let settMode = 'T1';
-        if (isCustomer) {
+        let merchantNote = '';
+
+        const matchNote = (w.admin_remark || '').match(/Note:\s*([^|•\r\n]+)/i);
+        if (matchNote) merchantNote = matchNote[1].trim();
+
+        if (isCustomer || isCommission || (w.admin_remark || '').includes('[REGULAR_SETTLEMENT]')) {
           const matchName = (w.admin_remark || '').match(/Name:\s*([^|]+)/);
           const matchMob = (w.admin_remark || '').match(/Mob:\s*([^|]+)/);
           const matchMode = (w.admin_remark || '').match(/Mode:\s*([^|]+)/);
@@ -1858,6 +2029,9 @@ export async function getAdminPending() {
           merchant_name: u.name || w.merchant_id,
           merchant_mobile: u.mobile || 'N/A',
           is_customer_payout: isCustomer,
+          is_commission_payout: isCommission,
+          payout_purpose: isCommission ? 'COMMISSION' : 'REGULAR',
+          merchant_remarks: merchantNote,
           is_submitted_to_bank: isSubmittedToBank,
           customer_name: custName,
           customer_mobile: custMob,
@@ -2051,6 +2225,24 @@ export async function verifyTransaction(txnId, action, remark = '') {
     let updatedWallet = null;
 
     if (action === 'APPROVE') {
+      // Item #7: Ensure this UTR/RRN is unique and hasn't been approved under another transaction
+      if (txn.ref_number && !txn.ref_number.startsWith('RRN') && txn.ref_number.length >= 6) {
+        const { data: duplicateApproved } = await supabase
+          .from('transactions')
+          .select('id, ref_number, status, amount')
+          .eq('ref_number', txn.ref_number)
+          .eq('status', 'APPROVED')
+          .neq('id', txnId)
+          .maybeSingle();
+
+        if (duplicateApproved) {
+          return {
+            success: false,
+            message: `Approval Blocked: Duplicate UTR / RRN "${txn.ref_number}" was already approved under transaction ${duplicateApproved.id} (₹${duplicateApproved.amount}).`
+          };
+        }
+      }
+
       await supabase
         .from('transactions')
         .update({
@@ -2259,6 +2451,8 @@ export async function requestWithdrawal(withdrawalData) {
       account_number, 
       ifsc,
       payout_type = 'CUSTOMER_DISBURSAL', // 'CUSTOMER_DISBURSAL' | 'MERCHANT_OWN'
+      payout_purpose = 'REGULAR', // 'REGULAR' (Sales Settlement) | 'COMMISSION' (Commission Disbursal)
+      remarks = '',
       customer_name = '',
       customer_mobile = '',
       settlement_mode = 'T1', // 'T1' | 'INSTANT'
@@ -2278,17 +2472,20 @@ export async function requestWithdrawal(withdrawalData) {
       .eq('user_id', merchant_id)
       .single();
 
-    if (!wallet || (wallet.available_balance || 0) < numAmount) {
+    const MIN_RESERVE_HOLD = 500.0;
+    const currAvail = parseFloat(wallet.available_balance || 0);
+    const maxWithdrawable = Math.max(0, currAvail - MIN_RESERVE_HOLD);
+
+    if (numAmount > maxWithdrawable) {
       return {
         success: false,
-        message: `Insufficient balance! Available: ₹${wallet ? wallet.available_balance.toFixed(2) : '0.00'}`
+        message: `Withdrawal restricted: A minimum reserve of ₹500.00 must remain in your wallet to keep your account active. Maximum withdrawable amount is ₹${maxWithdrawable.toFixed(2)} (Available Balance: ₹${currAvail.toFixed(2)}).`
       };
     }
 
     const wId = `WTH-${Date.now().toString().slice(-6)}`;
 
     // Deduct from available balance and hold in pending
-    const currAvail = parseFloat(wallet.available_balance || 0);
     const currPend = parseFloat(wallet.pending_balance || 0);
 
     await supabase
@@ -2308,11 +2505,15 @@ export async function requestWithdrawal(withdrawalData) {
 
     const targetProvider = provider || (channel === 'payswiff' ? 'Payswiff' : (channel === 'qr' ? 'Company QR (UPI)' : (posRec?.provider || 'Pine Labs')));
     const posTag = ` | POS: ${targetProvider} | Channel: ${channel || 'default'} | Vendor: ${posRec?.vendor_entity || 'RONAV Technologies'}`;
+    const cleanRemarks = remarks ? remarks.trim() : '';
+    const noteTag = cleanRemarks ? ` | Note: ${cleanRemarks}` : '';
 
     // Formulate descriptive remark header for clarity in DB
-    const initialRemark = payout_type === 'CUSTOMER_DISBURSAL'
-      ? `[CUSTOMER_PAYOUT] Name: ${customer_name ? customer_name.trim() : 'Customer'} | Mob: ${customer_mobile ? customer_mobile.trim() : 'N/A'} | Mode: ${settlement_mode}${posTag}`
-      : `[MERCHANT_WITHDRAWAL] Mode: ${settlement_mode}${posTag}`;
+    const headerTag = payout_purpose === 'COMMISSION' 
+      ? '[COMMISSION_PAYOUT]' 
+      : (payout_type === 'CUSTOMER_DISBURSAL' ? '[CUSTOMER_PAYOUT]' : '[REGULAR_SETTLEMENT]');
+
+    const initialRemark = `${headerTag}${noteTag} | Name: ${customer_name ? customer_name.trim() : 'Beneficiary'} | Mob: ${customer_mobile ? customer_mobile.trim() : 'N/A'} | Mode: ${settlement_mode}${posTag}`;
 
     const { data: createdWth, error: wErr } = await supabase
       .from('withdrawals')
@@ -2331,11 +2532,10 @@ export async function requestWithdrawal(withdrawalData) {
 
     if (wErr) return { success: false, message: wErr.message };
 
+    const purposeLabel = payout_purpose === 'COMMISSION' ? 'Commission Disbursal' : 'Sales Settlement';
     return {
       success: true,
-      message: payout_type === 'CUSTOMER_DISBURSAL'
-        ? `✓ Payout request for ₹${numAmount.toLocaleString('en-IN')} submitted for ${customer_name || 'Customer'}. Pending Admin disbursal.`
-        : `✓ Withdrawal request submitted! Pending Admin payout clearance.`,
+      message: `✓ ${purposeLabel} request for ₹${numAmount.toLocaleString('en-IN')} submitted to ${bank_name}! Pending Admin disbursal clearance.`,
       withdrawal: createdWth,
       withdrawal_id: wId
     };
@@ -2392,6 +2592,28 @@ export async function verifyWithdrawal(withdrawalId, action, remark = '', utrNum
       };
     } else if (action === 'APPROVE') {
       const cleanUtr = (utrNumber || '').trim();
+
+      // Item #7: Strict Unique Bank UTR validation on withdrawal approval
+      if (cleanUtr) {
+        const { data: dupWithdrawals } = await supabase
+          .from('withdrawals')
+          .select('id, amount, status, admin_remark')
+          .eq('status', 'APPROVED')
+          .neq('id', withdrawalId);
+
+        const isDuplicate = dupWithdrawals?.some(w => {
+          const m = (w.admin_remark || '').match(/UTR:\s*([A-Za-z0-9_-]+)/i);
+          return m && m[1].trim().toLowerCase() === cleanUtr.toLowerCase();
+        });
+
+        if (isDuplicate) {
+          return {
+            success: false,
+            message: `Approval Blocked: Bank UTR "${cleanUtr}" has already been issued for another approved disbursal. Each payout requires a unique bank reference.`
+          };
+        }
+      }
+
       const existingRemark = (wth.admin_remark || '').replace(/\[PENDING_TO_DISBURSE\][^•]*•/g, '').trim();
       const utrPrefix = cleanUtr ? `UTR: ${cleanUtr}` : 'Cleared via IMPS/NEFT';
       const finalRemark = `${utrPrefix} • ${remark || 'Disbursed by Admin'} • ${existingRemark}`;
@@ -2566,9 +2788,11 @@ export async function getMerchantWithdrawals(merchantId) {
     const enriched = (withdrawals || []).map(w => {
       let utrNumber = '';
       let isCustomerDisbursal = false;
+      let isCommission = (w.admin_remark || '').includes('[COMMISSION_PAYOUT]');
       let customerName = '';
       let customerMobile = '';
       let settlementMode = 'INSTANT';
+      let merchantNote = '';
 
       const isPendingToDisburse = (w.admin_remark || '').includes('[PENDING_TO_DISBURSE]');
       const isSubmittedToBank = (w.admin_remark || '').includes('[SUBMITTED_TO_BANK]') || Boolean(w.submitted_to_bank_at);
@@ -2579,16 +2803,19 @@ export async function getMerchantWithdrawals(merchantId) {
         if (utrMatch) {
           utrNumber = utrMatch[1].trim();
         }
-        // Extract [CUSTOMER_PAYOUT] json if present
-        if (w.admin_remark.startsWith('[CUSTOMER_PAYOUT]')) {
-          try {
-            const rawJson = w.admin_remark.replace('[CUSTOMER_PAYOUT]', '').split('•')[0].trim();
-            const parsed = JSON.parse(rawJson);
-            isCustomerDisbursal = true;
-            customerName = parsed.customer_name || '';
-            customerMobile = parsed.customer_mobile || '';
-            settlementMode = parsed.settlement_mode || 'INSTANT';
-          } catch (e) {}
+
+        const matchNote = w.admin_remark.match(/Note:\s*([^|•\r\n]+)/i);
+        if (matchNote) merchantNote = matchNote[1].trim();
+
+        // Extract [CUSTOMER_PAYOUT] json or text if present
+        if (w.admin_remark.includes('[CUSTOMER_PAYOUT]') || w.admin_remark.includes('[COMMISSION_PAYOUT]') || w.admin_remark.includes('[REGULAR_SETTLEMENT]')) {
+          const matchName = w.admin_remark.match(/Name:\s*([^|]+)/i);
+          const matchMob = w.admin_remark.match(/Mob:\s*([^|]+)/i);
+          const matchMode = w.admin_remark.match(/Mode:\s*([^|]+)/i);
+          if (matchName) customerName = matchName[1].trim();
+          if (matchMob) customerMobile = matchMob[1].trim();
+          if (matchMode) settlementMode = matchMode[1].trim();
+          isCustomerDisbursal = w.admin_remark.includes('[CUSTOMER_PAYOUT]');
         }
       }
 
@@ -2596,6 +2823,9 @@ export async function getMerchantWithdrawals(merchantId) {
         ...w,
         utr_number: utrNumber,
         is_customer_disbursal: isCustomerDisbursal,
+        is_commission_payout: isCommission,
+        payout_purpose: isCommission ? 'COMMISSION' : 'REGULAR',
+        merchant_remarks: merchantNote,
         customer_name: customerName,
         customer_mobile: customerMobile,
         settlement_mode: settlementMode,
@@ -2885,4 +3115,208 @@ export async function getPlatformPublicStats() {
     };
   }
 }
+
+// ----------------------------------------------------
+// 12. MONTHLY POS TERMINAL RENTAL REPORT & LEDGER (ITEMS #22 & #23)
+// ----------------------------------------------------
+export async function getMonthlyRentalReport(targetMonth = '') {
+  try {
+    const monthKey = targetMonth || new Date().toISOString().slice(0, 7); // 'YYYY-MM'
+    
+    // 1. Fetch live merchants, creators, and pos records
+    const [usersRes, posRes] = await Promise.all([
+      supabase.from('users').select('*'),
+      supabase.from('merchant_pos').select('*')
+    ]);
+
+    const allUsers = usersRes.data || [];
+    const allPos = posRes.data || [];
+    const userMap = {};
+    allUsers.forEach(u => { userMap[u.id] = u; });
+
+    // 2. Fetch rental status ledger from Supabase (or fallback storage)
+    let rentalStatusMap = {};
+    try {
+      const { data: ledgerRecords } = await supabase
+        .from('inquiries')
+        .select('*')
+        .eq('category', `RENTAL_LEDGER_${monthKey}`);
+      
+      if (ledgerRecords && ledgerRecords.length > 0) {
+        ledgerRecords.forEach(rec => {
+          // id format: RENT-{monthKey}-{mid}-{tid}
+          rentalStatusMap[rec.location] = {
+            status: rec.status, // 'PAID' | 'PENDING'
+            remarks: rec.remarks,
+            paid_at: rec.amount // stores ISO date
+          };
+        });
+      }
+    } catch (e) {
+      console.warn('Could not fetch rental ledger records from Supabase:', e);
+    }
+
+    // Also check localStorage cache for fast offline / local updates
+    try {
+      const localMap = JSON.parse(localStorage.getItem(`ronav_rental_ledger_${monthKey}`) || '{}');
+      rentalStatusMap = { ...rentalStatusMap, ...localMap };
+    } catch (e) {}
+
+    // 3. Compile terminal list
+    const rentalList = [];
+    const merchants = allUsers.filter(u => u.role === 'MERCHANT');
+
+    merchants.forEach(m => {
+      const posRec = allPos.find(p => p.merchant_id === m.id);
+      const creator = userMap[m.creator_id] || null;
+
+      // Extract multi-device channels
+      const channels = parseMerchantChannels(posRec?.terminal_id, posRec);
+
+      // Pine Labs terminal
+      if (channels.pine_labs?.enabled) {
+        const pine = channels.pine_labs;
+        const plan = pine.plan || posRec?.device_plan || 'RENTAL';
+        if (plan === 'RENTAL' || plan === 'CUSTOM') {
+          const rent = parseFloat(pine.rent || posRec?.monthly_rent || 499);
+          const tid = pine.terminal_id || posRec?.terminal_id || `PL-${m.id.slice(-4)}`;
+          const lookupKey = `${m.id}_${tid}`;
+          const recorded = rentalStatusMap[lookupKey] || { status: 'PENDING', remarks: '', paid_at: null };
+
+          rentalList.push({
+            merchant_id: m.id,
+            merchant_name: m.name,
+            shop_name: m.address ? m.address.split(',')[0] : `${m.name}'s Store`,
+            mobile: m.mobile,
+            pos_provider: 'Pine Labs',
+            terminal_id: tid,
+            device_plan: plan,
+            monthly_rent: rent,
+            creator_id: m.creator_id,
+            creator_name: creator ? creator.name : 'Super Admin',
+            creator_role: creator ? creator.role : 'ADMIN',
+            billing_month: monthKey,
+            rental_status: recorded.status || 'PENDING',
+            paid_at: recorded.paid_at || null,
+            remarks: recorded.remarks || ''
+          });
+        }
+      }
+
+      // Payswiff terminal
+      if (channels.payswiff?.enabled) {
+        const swiff = channels.payswiff;
+        const plan = swiff.plan || posRec?.device_plan || 'RENTAL';
+        if (plan === 'RENTAL' || plan === 'CUSTOM') {
+          const rent = parseFloat(swiff.rent || posRec?.monthly_rent || 499);
+          const tid = swiff.terminal_id || posRec?.terminal_id || `SWIFF-${m.id.slice(-4)}`;
+          const lookupKey = `${m.id}_${tid}`;
+          const recorded = rentalStatusMap[lookupKey] || { status: 'PENDING', remarks: '', paid_at: null };
+
+          rentalList.push({
+            merchant_id: m.id,
+            merchant_name: m.name,
+            shop_name: m.address ? m.address.split(',')[0] : `${m.name}'s Store`,
+            mobile: m.mobile,
+            pos_provider: 'Payswiff',
+            terminal_id: tid,
+            device_plan: plan,
+            monthly_rent: rent,
+            creator_id: m.creator_id,
+            creator_name: creator ? creator.name : 'Super Admin',
+            creator_role: creator ? creator.role : 'ADMIN',
+            billing_month: monthKey,
+            rental_status: recorded.status || 'PENDING',
+            paid_at: recorded.paid_at || null,
+            remarks: recorded.remarks || ''
+          });
+        }
+      }
+    });
+
+    // 4. Aggregate metrics
+    const totalTerminals = rentalList.length;
+    const totalDue = rentalList.reduce((sum, item) => sum + item.monthly_rent, 0);
+    const paidList = rentalList.filter(item => item.rental_status === 'PAID');
+    const pendingList = rentalList.filter(item => item.rental_status === 'PENDING');
+    const totalCollected = paidList.reduce((sum, item) => sum + item.monthly_rent, 0);
+    const totalPending = pendingList.reduce((sum, item) => sum + item.monthly_rent, 0);
+
+    return {
+      success: true,
+      billingMonth: monthKey,
+      summary: {
+        totalTerminals,
+        totalDue: parseFloat(totalDue.toFixed(2)),
+        totalCollected: parseFloat(totalCollected.toFixed(2)),
+        totalPending: parseFloat(totalPending.toFixed(2)),
+        paidCount: paidList.length,
+        pendingCount: pendingList.length
+      },
+      list: rentalList
+    };
+  } catch (err) {
+    console.error('getMonthlyRentalReport error:', err);
+    return {
+      success: false,
+      message: err.message,
+      summary: { totalTerminals: 0, totalDue: 0, totalCollected: 0, totalPending: 0, paidCount: 0, pendingCount: 0 },
+      list: []
+    };
+  }
+}
+
+export async function updatePosRentalStatus({ merchant_id, terminal_id, billing_month, status, remarks = '' }) {
+  try {
+    const monthKey = billing_month || new Date().toISOString().slice(0, 7);
+    const lookupKey = `${merchant_id}_${terminal_id}`;
+    const cleanStatus = status === 'PAID' ? 'PAID' : 'PENDING';
+    const paidAt = cleanStatus === 'PAID' ? new Date().toISOString() : null;
+    const recordId = `RENT-${monthKey}-${merchant_id}-${terminal_id}`.replace(/[^A-Za-z0-9_-]/g, '_');
+
+    // 1. Persist to Supabase inquiries (polymorphic metadata table)
+    try {
+      await supabase
+        .from('inquiries')
+        .upsert({
+          id: recordId,
+          type: 'RENTAL_STATUS',
+          name: merchant_id,
+          phone: terminal_id,
+          merchant_id: merchant_id,
+          category: `RENTAL_LEDGER_${monthKey}`,
+          location: lookupKey,
+          amount: paidAt || '',
+          status: cleanStatus,
+          remarks: remarks || ''
+        });
+    } catch (e) {
+      console.warn('Could not persist rental status to Supabase:', e);
+    }
+
+    // 2. Update localStorage cache
+    try {
+      const localMap = JSON.parse(localStorage.getItem(`ronava_rental_ledger_${monthKey}`) || '{}');
+      localMap[lookupKey] = {
+        status: cleanStatus,
+        remarks: remarks || '',
+        paid_at: paidAt
+      };
+      localStorage.setItem(`ronava_rental_ledger_${monthKey}`, JSON.stringify(localMap));
+    } catch (e) {}
+
+    return {
+      success: true,
+      merchant_id,
+      terminal_id,
+      billing_month: monthKey,
+      status: cleanStatus,
+      paid_at: paidAt
+    };
+  } catch (err) {
+    console.error('updatePosRentalStatus error:', err);
+    return { success: false, message: err.message };
+  }
+}
+
 

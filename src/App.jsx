@@ -63,6 +63,15 @@ const getInitialView = () => {
     }
 
     if (savedUser && (savedView === 'merchant-dashboard' || hash === 'merchant-dashboard')) {
+      try {
+        const u = JSON.parse(savedUser);
+        if (u?.role === 'ADMIN' || u?.id === 'ADM001' || u?.user?.role === 'ADMIN' || u?.id?.startsWith('ADM')) {
+          sessionStorage.setItem('ronav_admin_session', 'true');
+          sessionStorage.setItem('ronav_current_view', 'admin-dashboard');
+          sessionStorage.removeItem('ronav_merchant_user');
+          return 'admin-dashboard';
+        }
+      } catch (_) {}
       return 'merchant-dashboard';
     }
 
@@ -228,6 +237,13 @@ export default function App() {
 
   const handleMerchantLoginSuccess = (userData) => {
     const user = userData || { name: 'Ravi Enterprise', mid: 'RONAV12345', role: 'Retailer' };
+    
+    // If Administrator logs in, route directly to the Admin Command Center
+    if (user?.role === 'ADMIN' || user?.id === 'ADM001' || user?.user?.role === 'ADMIN' || user?.id?.startsWith('ADM')) {
+      handleAdminLoginSuccess();
+      return;
+    }
+
     setCurrentUser(user);
     if (typeof window !== 'undefined') {
       sessionStorage.setItem('ronav_merchant_user', JSON.stringify(user));

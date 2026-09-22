@@ -47,20 +47,41 @@ export async function handleApiRequest(req, res) {
 
   try {
     // ----------------------------------------------------
-    // 1. AUTH & USER PROFILES
+    // 1. AUTH & USER PROFILES (Strict User ID & Standard Password)
     // ----------------------------------------------------
     if (pathname === '/api/auth/login' && method === 'POST') {
-      const { id, role, mobile } = await parseJsonBody(req);
-      
-      let user = null;
-      if (id) {
-        user = db.prepare(`SELECT * FROM users WHERE id = ? OR mobile = ?`).get(id, id);
-      } else if (role) {
-        user = db.prepare(`SELECT * FROM users WHERE role = ? LIMIT 1`).get(role);
+      const { id, password } = await parseJsonBody(req);
+      const cleanId = (id || '').toString().trim();
+      const cleanPass = (password || '').toString().trim();
+
+      if (!cleanId) {
+        return sendJson(res, 400, { success: false, message: 'Please enter your User ID.' });
       }
 
+      // Explicitly reject pure 10-digit mobile numbers as per client requirement #21
+      if (/^\d{10}$/.test(cleanId)) {
+        return sendJson(res, 400, { 
+          success: false, 
+          message: 'Access Denied: Mobile number login is disabled. Please login using your assigned User ID (e.g. ADM001, MST..., SD..., DIST..., MID...).' 
+        });
+      }
+
+      // Query STRICTLY by User ID (exact ID match)
+      const user = db.prepare(`SELECT * FROM users WHERE id = ?`).get(cleanId);
+
       if (!user) {
-        return sendJson(res, 404, { success: false, message: 'User not found in system.' });
+        return sendJson(res, 404, { 
+          success: false, 
+          message: `User ID "${cleanId}" not found. Please verify your assigned User ID.` 
+        });
+      }
+
+      const expectedPassword = user.password || 'Ronav@123';
+      if (cleanPass && cleanPass !== expectedPassword) {
+        return sendJson(res, 401, { 
+          success: false, 
+          message: 'Incorrect password. Please verify your password credentials.' 
+        });
       }
 
       const wallet = db.prepare(`SELECT * FROM wallets WHERE user_id = ?`).get(user.id);
@@ -250,13 +271,18 @@ export async function handleApiRequest(req, res) {
         parent_id, 
         name, 
         mobile, 
+        email,
+        pan,
+        aadhaar,
+        address,
         role, 
         pos_provider, 
         pos_vendor,
         device_plan,
         monthly_rent,
         settlement_type,
-        commission_rate 
+        commission_rate,
+        margin_rate
       } = await parseJsonBody(req);
 
       if (!creator_id || !name || !mobile || !role) {
@@ -322,11 +348,26 @@ export async function handleApiRequest(req, res) {
       const randomNum = Math.floor(1000 + Math.random() * 9000);
       const newUserId = `${prefixMap[role] || 'USR'}${randomNum}`;
 
+      const effectiveMargin = parseFloat(margin_rate || commission_rate || 0.0);
+      const generatedPassword = password || `Ronav@${randomNum}`;
+
       try {
         db.prepare(`
-          INSERT INTO users (id, name, mobile, role, creator_id)
-          VALUES (?, ?, ?, ?, ?)
-        `).run(newUserId, name, mobile, role, assignedCreatorId);
+          INSERT INTO users (id, name, mobile, email, pan, aadhaar, address, margin_rate, role, creator_id, password)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          newUserId, 
+          name, 
+          mobile, 
+          email || null, 
+          pan ? pan.toUpperCase().trim() : null, 
+          aadhaar ? aadhaar.trim() : null, 
+          address ? address.trim() : null, 
+          effectiveMargin, 
+          role, 
+          assignedCreatorId,
+          generatedPassword
+        );
 
         // Initialize user wallet
         db.prepare(`
@@ -397,7 +438,7 @@ export async function handleApiRequest(req, res) {
             mobile: createdUser.mobile,
             role: createdUser.role,
             parent_name: parentUser ? parentUser.name : 'Super Admin',
-            password: 'Ronav@' + newUserId.slice(-4)
+            password: generatedPassword
           }
         });
       } catch (err) {

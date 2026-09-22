@@ -104,6 +104,16 @@ export function initDatabase() {
   `);
 
   // Safe runtime migrations for existing databases
+  try { db.exec(`ALTER TABLE users ADD COLUMN password TEXT DEFAULT 'Ronav@123'`); } catch(e){}
+  try { db.exec(`ALTER TABLE users ADD COLUMN email TEXT`); } catch(e){}
+  try { db.exec(`ALTER TABLE users ADD COLUMN pan TEXT`); } catch(e){}
+  try { db.exec(`ALTER TABLE users ADD COLUMN aadhaar TEXT`); } catch(e){}
+  try { db.exec(`ALTER TABLE users ADD COLUMN address TEXT`); } catch(e){}
+  try { db.exec(`ALTER TABLE users ADD COLUMN margin_rate REAL DEFAULT 0.0`); } catch(e){}
+
+  // Ensure standard password on all existing users
+  try { db.exec(`UPDATE users SET password = 'Ronav@123' WHERE password IS NULL OR password = ''`); } catch(e){}
+
   try { db.exec(`ALTER TABLE merchant_pos ADD COLUMN vendor_entity TEXT DEFAULT 'Rose Navaneetham Enterprises'`); } catch(e){}
   try { db.exec(`ALTER TABLE merchant_pos ADD COLUMN device_plan TEXT DEFAULT 'RENTAL'`); } catch(e){}
   try { db.exec(`ALTER TABLE merchant_pos ADD COLUMN monthly_rent REAL DEFAULT 499.0`); } catch(e){}
@@ -114,6 +124,8 @@ export function initDatabase() {
   try { db.exec(`ALTER TABLE transactions ADD COLUMN settlement_type TEXT DEFAULT 'T1'`); } catch(e){}
   try { db.exec(`ALTER TABLE transactions ADD COLUMN instant_fee REAL DEFAULT 0.0`); } catch(e){}
   try { db.exec(`ALTER TABLE transactions ADD COLUMN admin_margin REAL DEFAULT 0.0`); } catch(e){}
+
+
 
   // Seed default Super Admin account if not exists
   const existingAdmin = db.prepare(`SELECT * FROM users WHERE role = 'ADMIN'`).get();

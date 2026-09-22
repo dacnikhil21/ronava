@@ -4,9 +4,6 @@ import { User, Lock, Eye, EyeOff, ShieldCheck, Headphones, Zap, TrendingUp, Phon
 import { loginUser, resetUserPassword } from '../services/api';
 
 export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavigate }) {
-  const [selectedRole, setSelectedRole] = useState('Retailer');
-  const [isRoleDropdownOpen, setIsRoleDropdownOpen] = useState(false);
-  const roleDropdownRef = useRef(null);
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -23,16 +20,6 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
   const [forgotError, setForgotError] = useState('');
   const [isResetting, setIsResetting] = useState(false);
   const [copiedCreds, setCopiedCreds] = useState(false);
-
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (roleDropdownRef.current && !roleDropdownRef.current.contains(event.target)) {
-        setIsRoleDropdownOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   // Redirect to Public Website Services Section for Service Inquiry & Onboarding
   const handleSignUpRedirect = () => {
@@ -78,16 +65,6 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
     setTimeout(() => setCopiedCreds(false), 2000);
   };
 
-  const roleOptions = [
-    { id: 'MASTER', label: 'MASTER (Master Distributor)', icon: '👑', desc: 'Master Distributor Command & Regional Network' },
-    { id: 'Super Distributor', label: 'Super Distributor', icon: '⚡', desc: 'Super Distributor Network & Commission Settlements' },
-    { id: 'DIST Franchise', label: 'DIST Franchise (Distributor Franchise)', icon: '🏢', desc: 'Distributor Franchise & ATM/CDM Operations' },
-    { id: 'Distributor', label: 'Distributor', icon: '📦', desc: 'Distributor Workspace & Retailer Management' },
-    { id: 'Retailer', label: 'Retailer (Merchant)', icon: '🏪', desc: 'Retail Merchant Portal, BBPS Bills & POS' }
-  ];
-
-  const currentRoleInfo = roleOptions.find((r) => r.id === selectedRole) || roleOptions[4];
-
   useEffect(() => {
     const timer = setTimeout(() => {
       setAnimated(true);
@@ -101,9 +78,15 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
     const cleanPass = (password || '').trim();
 
     if (!cleanId) {
-      setLoginError(`Please enter your ${selectedRole} User ID or Mobile.`);
+      setLoginError('Please enter your User ID.');
       return;
     }
+
+    if (/^\d{10}$/.test(cleanId)) {
+      setLoginError('Mobile number login is disabled. Please enter your User ID (e.g. MST..., SD..., DIST..., MID...).');
+      return;
+    }
+
     if (!cleanPass) {
       setLoginError('Please enter your password.');
       return;
@@ -112,13 +95,8 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
     setIsLoading(true);
     setLoginError('');
     try {
-      const rolePayload = selectedRole === 'Retailer' 
-        ? 'MERCHANT' 
-        : (selectedRole === 'DIST Franchise' ? 'DIST_FRANCHISE' : (selectedRole === 'Super Distributor' ? 'SUPER_DISTRIBUTOR' : selectedRole));
-
       const res = await loginUser({ 
         id: cleanId, 
-        role: rolePayload,
         password: cleanPass
       });
 
@@ -128,10 +106,11 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
           name: res.user.name,
           mid: res.user.id,
           role: res.user.role === 'MERCHANT' ? 'Retailer' : res.user.role,
+          user: res.user,
           pos: res.pos || null
         });
       } else {
-        setLoginError(res?.message || `Access Denied: Invalid credentials or account is not registered as ${selectedRole}.`);
+        setLoginError(res?.message || 'Access Denied: Invalid User ID or credentials.');
       }
     } catch (err) {
       console.error(err);
@@ -265,7 +244,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
         </div>
       )}
 
-      {/* 2. Dark Navy Banner Header (Title & Subtitle Adapt Dynamically to Selected Role) */}
+      {/* 2. Dark Navy Banner Header */}
       <div 
         style={{ 
           backgroundImage: 'radial-gradient(circle at 50% 30%, rgba(15, 82, 186, 0.25) 0%, rgba(7, 15, 30, 0.95) 80%), url("/hero_bg.png")',
@@ -279,15 +258,15 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
         }}
       >
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', padding: '0.25rem 0.75rem', background: 'rgba(255,255,255,0.12)', borderRadius: '20px', fontSize: '0.75rem', color: '#BFDBFE', fontWeight: 800, marginBottom: '0.75rem' }}>
-          <span>{currentRoleInfo.icon}</span>
-          <span>{selectedRole.toUpperCase()} PORTAL</span>
+          <ShieldCheck style={{ width: '14px', height: '14px', color: '#60A5FA' }} />
+          <span>RONAV PARTNER & MERCHANT PORTAL</span>
         </div>
 
         <h1 style={{ fontSize: 'var(--text-h1)', fontWeight: 900, color: '#FFFFFF', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>
-          {selectedRole} Login
+          Partner & Merchant Login
         </h1>
-        <p style={{ fontSize: '0.875rem', color: 'rgba(255, 255, 255, 0.85)', fontWeight: 500, maxWidth: '420px', margin: '0 auto' }}>
-          {currentRoleInfo.desc}
+        <p style={{ fontSize: '0.875rem', color: 'rgba(255, 255, 255, 0.85)', fontWeight: 500, maxWidth: '440px', margin: '0 auto' }}>
+          Secure access for Merchants, Retailers, Distributors & Super Distributors. Login with your assigned User ID.
         </p>
         <div style={{ width: '36px', height: '4px', background: '#0F52BA', borderRadius: '2px', margin: '0.75rem auto 0' }} />
       </div>
@@ -297,120 +276,6 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
         
         <div className="card" style={{ backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0', padding: '1.75rem 1.5rem', borderRadius: '18px', boxShadow: '0 12px 32px -4px rgba(15,23,42,0.1)' }}>
           
-          {/* Custom Styled Dynamic Role Dropdown Selector */}
-          <div ref={roleDropdownRef} style={{ marginBottom: '1.25rem', paddingBottom: '1rem', borderBottom: '1px solid #F1F5F9', position: 'relative' }}>
-            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8125rem', fontWeight: 800, color: '#0F172A', marginBottom: '0.5rem' }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                <Layers style={{ width: '16px', height: '16px', color: '#0F52BA' }} />
-                Select Business Role
-              </span>
-              <span style={{ fontSize: '0.6875rem', color: '#059669', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#059669' }}></span>
-                Active: {selectedRole}
-              </span>
-            </label>
-
-            {/* Custom Dropdown Trigger Button */}
-            <button
-              type="button"
-              onClick={() => setIsRoleDropdownOpen(!isRoleDropdownOpen)}
-              style={{
-                width: '100%',
-                padding: '0.75rem 1rem',
-                borderRadius: '12px',
-                border: isRoleDropdownOpen ? '2px solid #0F52BA' : '1.5px solid #0F52BA',
-                backgroundColor: '#EFF6FF',
-                fontSize: '0.875rem',
-                fontWeight: 800,
-                color: '#0F172A',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                cursor: 'pointer',
-                boxShadow: isRoleDropdownOpen ? '0 0 0 3px rgba(15, 82, 186, 0.15)' : '0 2px 8px rgba(15, 82, 186, 0.08)',
-                transition: 'all 150ms ease'
-              }}
-            >
-              <span style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                <span style={{ fontSize: '1.125rem' }}>{currentRoleInfo.icon}</span>
-                <span style={{ color: '#0F172A', fontWeight: 800 }}>{currentRoleInfo.label}</span>
-              </span>
-              {isRoleDropdownOpen ? (
-                <ChevronUp style={{ width: '18px', height: '18px', color: '#0F52BA', flexShrink: 0 }} />
-              ) : (
-                <ChevronDown style={{ width: '18px', height: '18px', color: '#0F52BA', flexShrink: 0 }} />
-              )}
-            </button>
-
-            {/* Custom Sleek Dropdown Menu */}
-            {isRoleDropdownOpen && (
-              <div 
-                style={{
-                  position: 'absolute',
-                  top: 'calc(100% - 6px)',
-                  left: 0,
-                  right: 0,
-                  backgroundColor: '#FFFFFF',
-                  border: '1.5px solid #BFDBFE',
-                  borderRadius: '14px',
-                  boxShadow: '0 16px 36px -4px rgba(15, 82, 186, 0.25), 0 4px 12px rgba(0,0,0,0.06)',
-                  zIndex: 50,
-                  overflow: 'hidden',
-                  padding: '0.375rem'
-                }}
-              >
-                {roleOptions.map((role) => {
-                  const isSelected = role.id === selectedRole;
-                  return (
-                    <button
-                      key={role.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedRole(role.id);
-                        setIsRoleDropdownOpen(false);
-                        setLoginError('');
-                      }}
-                      style={{
-                        width: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: '0.625rem 0.75rem',
-                        borderRadius: '10px',
-                        border: 'none',
-                        backgroundColor: isSelected ? '#EFF6FF' : 'transparent',
-                        color: isSelected ? '#0F52BA' : '#1E293B',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        transition: 'all 120ms ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isSelected) e.currentTarget.style.backgroundColor = '#F8FAFC';
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-                        <span style={{ fontSize: '1.125rem' }}>{role.icon}</span>
-                        <div>
-                          <div style={{ fontSize: '0.8125rem', fontWeight: isSelected ? 800 : 700 }}>
-                            {role.label}
-                          </div>
-                        </div>
-                      </div>
-                      {isSelected && (
-                        <div style={{ width: '20px', height: '20px', borderRadius: '50%', backgroundColor: '#0F52BA', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <Check style={{ width: '12px', height: '12px', strokeWidth: 3 }} />
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.125rem' }}>
             
             {loginError && (
@@ -437,13 +302,13 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
             {/* User ID Field */}
             <div className="form-group" style={{ margin: 0 }}>
               <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#0F172A', marginBottom: '0.375rem' }}>
-                {selectedRole} User ID / Mobile
+                User ID <span style={{ color: '#DC2626' }}>*</span>
               </label>
               <div style={{ position: 'relative' }}>
                 <User style={{ width: '18px', height: '18px', color: '#0F52BA', position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
                 <input
                   type="text"
-                  placeholder={`Enter ${selectedRole} User ID`}
+                  placeholder="Enter User ID"
                   value={userId}
                   onChange={(e) => setUserId(e.target.value)}
                   style={{
@@ -465,7 +330,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
             {/* Password Field */}
             <div className="form-group" style={{ margin: 0 }}>
               <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: '#0F172A', marginBottom: '0.375rem' }}>
-                Password
+                Password <span style={{ color: '#DC2626' }}>*</span>
               </label>
               <div style={{ position: 'relative' }}>
                 <Lock style={{ width: '18px', height: '18px', color: '#0F52BA', position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }} />
@@ -497,11 +362,8 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
                 </button>
               </div>
 
-              {/* Password Info & Forgot Password Link */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.375rem' }}>
-                <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
-                  Default: <strong>Ronav@&lt;last4Id&gt;</strong>
-                </span>
+              {/* Forgot Password Link */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginTop: '0.375rem' }}>
                 <button
                   type="button"
                   onClick={() => setShowForgotModal(true)}
@@ -535,7 +397,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
               }}
             >
               <ArrowRight style={{ width: '18px', height: '18px' }} />
-              <span>{isLoading ? 'AUTHENTICATING...' : `LOGIN AS ${selectedRole.toUpperCase()}`}</span>
+              <span>{isLoading ? 'AUTHENTICATING...' : 'SECURE LOGIN'}</span>
             </button>
 
             {/* OR Divider */}
