@@ -1,8 +1,10 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { recordMediaFile } from './pg_db.js';
 
 const region = process.env.AWS_REGION || 'ap-south-1';
 const bucketName = process.env.AWS_S3_BUCKET_NAME || 'ronav-media-storage-688927';
+const cloudFrontDomain = process.env.AWS_CLOUDFRONT_DOMAIN || 'd1rqftl6szhydo.cloudfront.net';
 const accessKeyId = process.env.AWS_ACCESS_KEY_ID || '';
 const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY || '';
 
@@ -25,6 +27,13 @@ export function getS3Client() {
 }
 
 /**
+ * Helper to get CDN URL from S3 key
+ */
+export function getCdnUrl(key) {
+  return cloudFrontDomain ? `https://${cloudFrontDomain}/${key}` : `https://${bucketName}.s3.${region}.amazonaws.com/${key}`;
+}
+
+/**
  * Verify S3 bucket connection and access
  */
 export async function verifyS3Connection() {
@@ -39,6 +48,7 @@ export async function verifyS3Connection() {
       success: true,
       bucket: bucketName,
       region,
+      cloudFrontDomain,
       keyCount: res.KeyCount || 0,
     };
   } catch (error) {
@@ -67,11 +77,14 @@ export async function getPresignedUploadUrl(fileName, contentType = 'application
   });
 
   const uploadUrl = await getSignedUrl(client, command, { expiresIn: 900 }); // 15 mins
-  const publicUrl = `https://${bucketName}.s3.${region}.amazonaws.com/${key}`;
+  const s3Url = `https://${bucketName}.s3.${region}.amazonaws.com/${key}`;
+  const cdnUrl = getCdnUrl(key);
 
   return {
     uploadUrl,
-    publicUrl,
+    s3Url,
+    cdnUrl,
+    publicUrl: cdnUrl,
     key,
     bucket: bucketName,
     region,
@@ -79,9 +92,9 @@ export async function getPresignedUploadUrl(fileName, contentType = 'application
 }
 
 /**
- * Direct buffer upload from server to S3
+ * Direct buffer upload from server to S3 and auto-record in media relational table
  */
-export async function uploadBufferToS3(buffer, key, contentType = 'application/octet-stream') {
+export async function uploadBufferToS3(buffer, key, contentType = 'application/octet-stream', meta = {}) {
   const client = getS3Client();
   const command = new PutObjectCommand({
     Bucket: bucketName,
@@ -90,9 +103,34 @@ export async function uploadBufferToS3(buffer, key, contentType = 'application/o
     ContentType: contentType,
   });
   await client.send(command);
+
+  const s3Url = `https://${bucketName}.s3.${region}.amazonaws.com/${key}`;
+  const cdnUrl = getCdnUrl(key);
+
+  // Auto-record relational metadata
+  let dbRecord = null;
+  try {
+    dbRecord = await recordMediaFile({
+      merchant_id: meta.merchant_id || null,
+      file_name: meta.fileName || key.split('/').pop(),
+      s3_key: key,
+      s3_url: s3Url,
+      cdn_url: cdnUrl,
+      mime_type: contentType,
+      file_size_bytes: buffer.length || 0,
+      entity_type: meta.entity_type || 'GENERAL',
+      entity_id: meta.entity_id || null,
+    });
+  } catch (e) {
+    console.warn('[Media DB Record Error]:', e.message);
+  }
+
   return {
     key,
-    publicUrl: `https://${bucketName}.s3.${region}.amazonaws.com/${key}`,
+    s3Url,
+    cdnUrl,
+    publicUrl: cdnUrl,
+    dbRecord,
   };
 }
 
@@ -108,3 +146,4 @@ export async function deleteS3Object(key) {
   await client.send(command);
   return { success: true, key };
 }
+

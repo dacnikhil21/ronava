@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import http from 'node:http';
 import { handleApiRequest } from './api.js';
 import { initDatabase } from './db.js';

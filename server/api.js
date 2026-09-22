@@ -1,6 +1,11 @@
+import 'dotenv/config';
 import { db } from './db.js';
 import { syncToSupabase } from './supabase.js';
 import { verifyS3Connection, getPresignedUploadUrl, uploadBufferToS3, deleteS3Object } from './s3.js';
+import { initPostgresSchema, getMediaFiles } from './pg_db.js';
+
+// Auto-initialize PostgreSQL schema if DATABASE_URL is configured
+initPostgresSchema().catch(() => {});
 
 // Helper to parse JSON body from incoming Node HTTP request
 export async function parseJsonBody(req) {
@@ -1069,6 +1074,13 @@ export async function handleApiRequest(req, res) {
       } catch (err) {
         return sendJson(res, 500, { success: false, message: err.message });
       }
+    }
+
+    if (pathname === '/api/s3/media' && method === 'GET') {
+      const merchantId = url.searchParams.get('merchant_id');
+      const entityType = url.searchParams.get('entity_type');
+      const media = await getMediaFiles(merchantId, entityType);
+      return sendJson(res, 200, { success: true, media });
     }
 
     if (pathname === '/api/s3/delete' && method === 'POST') {
