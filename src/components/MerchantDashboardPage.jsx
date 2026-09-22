@@ -601,8 +601,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   const [networkSubTab, setNetworkSubTab] = useState('members'); // 'members' | 'rentals'
   const [rentalSearchQuery, setRentalSearchQuery] = useState('');
 
-  const merchantId = user?.id || (user?.mid ? user.mid.replace('MID: ', '').trim() : 'MID3001');
-  const merchantName = user?.name || 'Ravi Retail Store';
+  const merchantId = user?.id || (user?.mid ? user.mid.replace('MID: ', '').trim() : '');
+  const merchantName = user?.name || 'Partner Account';
   const userRole = user?.role ? (user.role === 'MERCHANT' ? 'Retailer' : user.role) : 'Retailer';
 
   // Network & Referral Engine State
@@ -1355,12 +1355,20 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       return;
     }
 
-    const MIN_RESERVE_HOLD = 500.0;
-    const maxWithdrawable = Math.max(0, activeMachineWallet.available_balance - MIN_RESERVE_HOLD);
+    const maxWithdrawable = activeMachineWallet.available_balance;
 
     if (amountNum > maxWithdrawable) {
-      showToast(`⚠️ Active reserve of ₹500.00 must remain in wallet. Max withdrawable: ₹${maxWithdrawable.toFixed(2)} (Total Available: ₹${activeMachineWallet.available_balance.toFixed(2)})`);
+      showToast(`⚠️ Insufficient balance. Maximum withdrawable amount is ₹${maxWithdrawable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`);
       return;
+    }
+
+    // Check Sunday-only schedule for self commission withdrawal
+    if (payoutTargetType === 'MERCHANT') {
+      const currentDay = new Date().getDay(); // 0 is Sunday
+      if (currentDay !== 0) {
+        showToast('🔒 Self-Commission Payout Schedule: Weekly profit & commission withdrawals unlock strictly on Sundays (00:00 to 23:59).');
+        return;
+      }
     }
 
     let payload;
@@ -1393,7 +1401,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         account_number: customerPayoutForm.account_number.trim(),
         ifsc: customerPayoutForm.ifsc.trim().toUpperCase(),
         payout_type: 'CUSTOMER_DISBURSAL',
-        payout_purpose: customerPayoutForm.payout_purpose || 'REGULAR',
+        payout_purpose: 'REGULAR',
         remarks: (customerPayoutForm.remarks || '').trim(),
         customer_name: customerPayoutForm.customer_name.trim(),
         customer_mobile: (customerPayoutForm.customer_mobile || '').trim(),
@@ -1415,7 +1423,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         account_number: targetBank.account_number || targetBank.account,
         ifsc: targetBank.ifsc || 'SBIN0001234',
         payout_type: 'MERCHANT_OWN',
-        payout_purpose: customerPayoutForm.payout_purpose || 'REGULAR',
+        payout_purpose: 'COMMISSION',
         remarks: (customerPayoutForm.remarks || '').trim(),
         settlement_mode: 'INSTANT',
         channel: selectedMachineKey,

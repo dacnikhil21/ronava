@@ -7,6 +7,8 @@
 class TableQueryBuilder {
   constructor(table) {
     this.table = table;
+    this._action = 'select'; // 'select' | 'insert' | 'update'
+    this._data = null;
     this._filters = {};
     this._options = {};
     this._single = false;
@@ -20,6 +22,42 @@ class TableQueryBuilder {
 
   eq(column, value) {
     this._filters[column] = value;
+    return this;
+  }
+
+  neq(column, value) {
+    return this;
+  }
+
+  like(column, pattern) {
+    return this;
+  }
+
+  ilike(column, pattern) {
+    return this;
+  }
+
+  in(column, values) {
+    return this;
+  }
+
+  gt(column, value) {
+    return this;
+  }
+
+  gte(column, value) {
+    return this;
+  }
+
+  lt(column, value) {
+    return this;
+  }
+
+  lte(column, value) {
+    return this;
+  }
+
+  or(filters) {
     return this;
   }
 
@@ -44,60 +82,69 @@ class TableQueryBuilder {
     return this;
   }
 
-  async insert(data) {
-    try {
-      const isArray = Array.isArray(data);
-      const items = isArray ? data : [data];
-      const results = [];
+  insert(data) {
+    this._action = 'insert';
+    this._data = data;
+    return this;
+  }
 
-      for (const item of items) {
-        const res = await fetch('/api/db/insert', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ table: this.table, data: item }),
-        });
-        const json = await res.json();
-        if (!json.success) throw new Error(json.error || 'Insert failed');
-        results.push(json.data);
+  upsert(data) {
+    this._action = 'insert';
+    this._data = data;
+    return this;
+  }
+
+  update(data) {
+    this._action = 'update';
+    this._data = data;
+    return this;
+  }
+
+  async execute() {
+    try {
+      if (this._action === 'insert') {
+        const isArray = Array.isArray(this._data);
+        const items = isArray ? this._data : [this._data];
+        const results = [];
+
+        for (const item of items) {
+          const res = await fetch('/api/db/insert', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ table: this.table, data: item }),
+          });
+          const json = await res.json();
+          if (!json.success) throw new Error(json.error || json.message || 'Insert failed');
+          results.push(json.data);
+        }
+
+        let data = isArray ? results : results[0];
+        if (this._single && !data) throw new Error('Row not found');
+        return { data, error: null };
       }
 
-      return { data: isArray ? results : results[0], error: null };
-    } catch (err) {
-      console.error(`[DB Insert Error: ${this.table}]`, err.message);
-      return { data: null, error: err };
-    }
-  }
+      if (this._action === 'update') {
+        const filterKeys = Object.keys(this._filters);
+        const matchCol = filterKeys[0] || 'id';
+        const matchVal = this._filters[matchCol];
 
-  async update(data) {
-    try {
-      // Find the filter key
-      const filterKeys = Object.keys(this._filters);
-      const matchCol = filterKeys[0] || 'id';
-      const matchVal = this._filters[matchCol];
+        const res = await fetch('/api/db/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            table: this.table,
+            data: this._data,
+            matchColumn: matchCol,
+            matchValue: matchVal,
+          }),
+        });
 
-      const res = await fetch('/api/db/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          table: this.table,
-          data,
-          matchColumn: matchCol,
-          matchValue: matchVal,
-        }),
-      });
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error || json.message || 'Update failed');
+        return { data: json.data, error: null };
+      }
 
-      const json = await res.json();
-      if (!json.success) throw new Error(json.error || 'Update failed');
-      return { data: json.data, error: null };
-    } catch (err) {
-      console.error(`[DB Update Error: ${this.table}]`, err.message);
-      return { data: null, error: err };
-    }
-  }
-
-  // Execute SELECT when awaited or called directly
-  async then(resolve, reject) {
-    try {
+      // Default: select
       const res = await fetch('/api/db/select', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -110,26 +157,31 @@ class TableQueryBuilder {
 
       const json = await res.json();
       if (!json.success) {
-        resolve({ data: null, error: json.error || new Error('Query failed') });
-        return;
+        return { data: null, error: new Error(json.error || json.message || 'Query failed') };
       }
 
       let data = json.data || [];
       if (this._single) {
         data = data.length > 0 ? data[0] : null;
         if (!data) {
-          resolve({ data: null, error: new Error('Row not found') });
-          return;
+          return { data: null, error: new Error('Row not found') };
         }
       } else if (this._maybeSingle) {
         data = data.length > 0 ? data[0] : null;
       }
 
-      resolve({ data, error: null });
+      return { data, error: null };
     } catch (err) {
-      console.error(`[DB Select Error: ${this.table}]`, err.message);
-      resolve({ data: null, error: err });
+      console.error(`[DB ${this._action} Error: ${this.table}]`, err.message);
+      return { data: null, error: err };
     }
+  }
+
+  // Execute when awaited
+  then(resolve, reject) {
+    return this.execute().then(resolve, (err) => {
+      resolve({ data: null, error: err });
+    });
   }
 }
 

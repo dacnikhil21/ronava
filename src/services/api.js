@@ -670,14 +670,26 @@ export async function getHierarchyTree() {
         if (dMap[u.id]?.mobile) userMobile = dMap[u.id].mobile;
       } catch (e) {}
 
+      const parsedChannels = parseMerchantChannels(p || {
+        provider: u.pos_provider || 'Pine Labs',
+        terminal_id: u.pos_terminal || `PL-${u.id}`,
+        commission_rate_t1: u.commission_rate_t1 || 1.40,
+        commission_rate_instant: u.commission_rate_instant || 1.70
+      });
+
       return {
         ...u,
         name: userName,
         mobile: userMobile,
         status: userStatus,
-        pos_provider: p.provider || null,
-        pos_terminal: p.terminal_id ? p.terminal_id.split('|')[0] : null,
-        pos_rate: p.commission_rate || null,
+        pos_raw: p || null,
+        channels: parsedChannels,
+        commission_rate_t1: u.commission_rate_t1 || p.commission_rate_t1 || (parsedChannels.pine_labs?.enabled ? parsedChannels.pine_labs.rate_t1 : (parsedChannels.payswiff?.enabled ? parsedChannels.payswiff.rate_t1 : 1.40)),
+        commission_rate_instant: u.commission_rate_instant || p.commission_rate_instant || (parsedChannels.pine_labs?.enabled ? parsedChannels.pine_labs.rate_instant : (parsedChannels.payswiff?.enabled ? parsedChannels.payswiff.rate_instant : 1.70)),
+        upline_override_rate: u.upline_override_rate || p.upline_override_rate || 0.20,
+        pos_provider: p.provider || (parsedChannels.pine_labs?.enabled ? 'Pine Labs' : (parsedChannels.payswiff?.enabled ? 'Payswiff' : 'Pine Labs')),
+        pos_terminal: p.terminal_id ? p.terminal_id.split('|')[0] : (parsedChannels.pine_labs?.terminal_id || `PL-${u.id}`),
+        pos_rate: p.commission_rate || u.commission_rate_t1 || 1.40,
         pos_vendor: p.vendor_entity || 'Rose Navaneetham Enterprises',
         pos_plan: p.device_plan || 'RENTAL',
         pos_rent: p.monthly_rent || 499.0,
@@ -900,9 +912,16 @@ export async function createDownstreamUser(userData) {
         id: newUserId,
         name,
         mobile,
+        email: userData.email || null,
+        aadhaar: userData.aadhaar || null,
+        pan: userData.pan || null,
+        address: userData.address || null,
         role: dbRole,
         creator_id: assignedCreatorId,
-        password: initialPassword
+        password: initialPassword,
+        margin_rate: parseFloat(userData.margin_rate) || (dbRole === 'SUPER_DISTRIBUTOR' ? 0.40 : dbRole === 'DISTRIBUTOR' ? 0.25 : 0.0),
+        commission_rate_t1: parseFloat(userData.commission_rate_t1) || 1.50,
+        commission_rate_instant: parseFloat(userData.commission_rate_instant) || 1.80
       })
       .select()
       .maybeSingle();
@@ -911,7 +930,6 @@ export async function createDownstreamUser(userData) {
       if (uErrWithPass.message && uErrWithPass.message.includes('unique')) {
         return { success: false, message: 'A user with this mobile number already exists.' };
       }
-      // If Supabase schema cache doesn't have password column, insert with standard columns
       const { data: standardUser, error: uErrStd } = await supabase
         .from('users')
         .insert({
@@ -1296,6 +1314,14 @@ export async function updateMerchantChannels(merchantId, channels) {
       });
     }
 
+    // Sync users table with active rates and primary POS details
+    await supabase.from('users').update({
+      commission_rate_t1: primaryRateT1,
+      commission_rate_instant: primaryRateInstant,
+      pos_provider: primaryProvider,
+      pos_terminal: (pine?.enabled ? pine.terminal_id : (swiff?.enabled ? swiff.terminal_id : 'QR')) || `PL-${merchantId}`
+    }).eq('id', merchantId);
+
     return { success: true, message: 'Channels updated successfully!' };
   } catch (err) {
     console.error('updateMerchantChannels error:', err);
@@ -1437,6 +1463,24 @@ export function classifyTransactionChannel(item) {
   return 'pinelabs';
 }
 
+// Central Dynamic User Rate Resolver (Zero Hardcoded Percentages)
+export function getUserBuyRate(user, pos, isInstant = false) {
+  if (pos) {
+    const parsed = parsePosTerminalRates(pos.terminal_id, pos.commission_rate);
+    const r = isInstant ? (pos.commission_rate_instant || parsed.rateInstant) : (pos.commission_rate_t1 || parsed.rateT1);
+    if (r !== undefined && r !== null && !isNaN(parseFloat(r)) && parseFloat(r) > 0) {
+      return parseFloat(r);
+    }
+  }
+  if (user) {
+    const uRate = isInstant ? user.commission_rate_instant : (user.commission_rate_t1 || user.commission_rate || user.margin_rate);
+    if (uRate !== undefined && uRate !== null && !isNaN(parseFloat(uRate)) && parseFloat(uRate) > 0) {
+      return parseFloat(uRate);
+    }
+  }
+  return isInstant ? 1.80 : 1.50;
+}
+
 export async function recordMerchantSale(saleData) {
   try {
     const { 
@@ -1530,6 +1574,12 @@ export async function recordMerchantSale(saleData) {
       specificTerminalId = provider === 'Payswiff' ? 'SWIFF-01' : (provider === 'Pine Labs' ? 'PL-01' : 'RONAV-UPI-HQ');
     }
 
+    // Resolve active wholesale percentage rate dynamically (Zero hardcoded percentages)
+    const isInstant = (settlement_type || '').toUpperCase() === 'INSTANT';
+    const merchantBuyRate = getUserBuyRate(merchant, pos, isInstant);
+    const compFee = parseFloat(((numAmount * merchantBuyRate) / 100).toFixed(2));
+    const netCreditAmount = parseFloat(Math.max(0, numAmount - compFee).toFixed(2));
+
     // Package extended metadata safely in notes
     const swipeMeta = {
       customer_name: customer_name ? customer_name.trim() : 'Counter Customer',
@@ -1537,7 +1587,9 @@ export async function recordMerchantSale(saleData) {
       rrn: finalRrn,
       settlement_type: settlement_type || 'T1',
       customer_charge: parseFloat(customer_charge) || 0,
-      company_fee: parseFloat(company_fee) || 0,
+      company_fee: compFee,
+      merchant_buy_rate: merchantBuyRate,
+      net_credited: netCreditAmount,
       merchant_commission: parseFloat(merchant_commission) || 0,
       terminal_id: specificTerminalId,
       pos_provider: provider,
@@ -1557,7 +1609,7 @@ export async function recordMerchantSale(saleData) {
       finalTxnType = 'POS_SWIPE';
     }
 
-    // 1. Insert Transaction into Supabase with PENDING status
+    // 1. Insert Transaction with APPROVED status (Instant Business Continuity 24/7)
     const { data: createdTxn, error: tErr } = await supabase
       .from('transactions')
       .insert({
@@ -1569,7 +1621,8 @@ export async function recordMerchantSale(saleData) {
         provider,
         ref_number: finalRrn,
         notes: notesPayload,
-        status: 'PENDING'
+        status: 'APPROVED',
+        verified_at: new Date().toISOString()
       })
       .select()
       .single();
@@ -1578,21 +1631,22 @@ export async function recordMerchantSale(saleData) {
       return { success: false, message: tErr.message };
     }
 
-    // 2. Update Merchant's Wallet: Locked in Pending Balance (Phase 1 Vault)
-    // ZERO profit is paid to Admin or Uplines while transaction is PENDING.
+    // 2. Instant Merchant Wallet Credit: Available Balance updated immediately
     const { data: merchantWallet } = await supabase
       .from('wallets')
       .select('*')
       .eq('user_id', merchant_id)
       .maybeSingle();
 
-    const currPending = parseFloat(merchantWallet?.pending_balance || 0);
+    const currAvail = parseFloat(merchantWallet?.available_balance || 0);
     const currTotal = parseFloat(merchantWallet?.total_sales || 0);
+    const currRec = parseFloat(merchantWallet?.received_sales || 0);
 
     const { data: updatedMerchantWallet } = await supabase
       .from('wallets')
       .update({
-        pending_balance: parseFloat((currPending + numAmount).toFixed(2)),
+        available_balance: parseFloat((currAvail + netCreditAmount).toFixed(2)),
+        received_sales: parseFloat((currRec + numAmount).toFixed(2)),
         total_sales: parseFloat((currTotal + numAmount).toFixed(2)),
         updated_at: new Date().toISOString()
       })
@@ -1600,9 +1654,96 @@ export async function recordMerchantSale(saleData) {
       .select()
       .single();
 
+    // 3. Dynamic Real-Time Margin-Difference Distribution to All Uplines
+    try {
+      const [allUsersRes, allPosRes] = await Promise.all([
+        supabase.from('users').select('*'),
+        supabase.from('merchant_pos').select('*')
+      ]);
+
+      const allUsers = allUsersRes?.data || [];
+      const allPos = allPosRes?.data || [];
+      const posMap = {};
+      allPos.forEach(p => { posMap[p.merchant_id] = p; });
+
+      let currentLevelRate = merchantBuyRate;
+
+      // Trace upline chain from direct sponsor up to Super Admin
+      const uplineChain = [];
+      let cur = merchant;
+      let safety = 0;
+      while (cur && cur.creator_id && cur.creator_id !== 'ADM001' && safety < 10) {
+        safety++;
+        const parentUser = allUsers.find(u => u.id === cur.creator_id);
+        if (!parentUser) break;
+        uplineChain.push(parentUser);
+        cur = parentUser;
+      }
+
+      let distributedUplineTotal = 0;
+
+      for (const uplineUser of uplineChain) {
+        const uPos = posMap[uplineUser.id];
+        const parentBuyRate = getUserBuyRate(uplineUser, uPos, isInstant);
+
+        // Exact margin difference: Child rate minus Parent buy rate
+        const marginDiff = Math.max(0, currentLevelRate - parentBuyRate);
+        const commissionEarned = parseFloat(((numAmount * marginDiff) / 100).toFixed(2));
+
+        if (commissionEarned > 0) {
+          distributedUplineTotal += commissionEarned;
+          const { data: pWallet } = await supabase
+            .from('wallets')
+            .select('*')
+            .eq('user_id', uplineUser.id)
+            .maybeSingle();
+
+          if (pWallet) {
+            const pBal = parseFloat(pWallet.available_balance || 0);
+            const pTotal = parseFloat(pWallet.total_sales || 0);
+            await supabase
+              .from('wallets')
+              .update({
+                available_balance: parseFloat((pBal + commissionEarned).toFixed(2)),
+                total_sales: parseFloat((pTotal + numAmount).toFixed(2)),
+                updated_at: new Date().toISOString()
+              })
+              .eq('user_id', uplineUser.id);
+          }
+        }
+
+        currentLevelRate = Math.min(currentLevelRate, parentBuyRate);
+      }
+
+      // Admin Master Wallet: Realized Admin Profit (Wholesale fee minus downline payouts)
+      const adminNetMargin = parseFloat(Math.max(0, compFee - distributedUplineTotal).toFixed(2));
+      if (adminNetMargin > 0) {
+        const { data: aWallet } = await supabase
+          .from('wallets')
+          .select('*')
+          .eq('user_id', 'ADM001')
+          .maybeSingle();
+
+        if (aWallet) {
+          const aBal = parseFloat(aWallet.available_balance || 0);
+          const aTotal = parseFloat(aWallet.total_sales || 0);
+          await supabase
+            .from('wallets')
+            .update({
+              available_balance: parseFloat((aBal + adminNetMargin).toFixed(2)),
+              total_sales: parseFloat((aTotal + numAmount).toFixed(2)),
+              updated_at: new Date().toISOString()
+            })
+            .eq('user_id', 'ADM001');
+        }
+      }
+    } catch (uplineErr) {
+      console.error('Upline margin split error:', uplineErr);
+    }
+
     return {
       success: true,
-      message: 'Transaction recorded successfully! Pending Admin verification.',
+      message: `✓ Sale of ₹${numAmount.toLocaleString('en-IN')} recorded! ₹${netCreditAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} credited instantly to wallet.`,
       transaction: createdTxn,
       wallet: updatedMerchantWallet
     };
@@ -1655,13 +1796,9 @@ export async function getDownstreamNetwork(creatorId) {
     const userMap = {};
     allUsers.forEach(u => { userMap[u.id] = u; });
 
-    // Determine viewing creator's default commission rate:
-    // Super Distributor: 0.15% override
-    // District Distributor: 0.08% override
-    // Area Distributor: 0.25% retail commission
-    const isSD = creatorId.startsWith('SD') || creator?.role === 'SUPER_DISTRIBUTOR';
-    const isDD = creatorId.startsWith('DD') || creatorId.startsWith('DF') || creator?.role === 'DIST_FRANCHISE' || creator?.role === 'DISTRICT_DISTRIBUTOR';
-    const commissionRatePct = isSD ? 0.15 : (isDD ? 0.08 : 0.25);
+    // Dynamic Viewer Buy Rate (Zero hardcoded percentages)
+    const creatorPos = posMap[creatorId] || null;
+    const creatorBuyRate = getUserBuyRate(creator, creatorPos, false);
 
     // Recursively gather all downstream users under creatorId
     const downstreamIds = new Set();
@@ -1703,6 +1840,19 @@ export async function getDownstreamNetwork(creatorId) {
       return mList;
     };
 
+    // Helper to find direct branch child of creator that leads to any downline user
+    const getDirectBranchChild = (targetUser) => {
+      if (!targetUser) return null;
+      if (targetUser.creator_id === creatorId) return targetUser;
+      let cur = targetUser;
+      let safety = 0;
+      while (cur && cur.creator_id && cur.creator_id !== creatorId && safety < 10) {
+        safety++;
+        cur = userMap[cur.creator_id];
+      }
+      return (cur && cur.creator_id === creatorId) ? cur : targetUser;
+    };
+
     const enrichedPartners = downstreamUsers.map(p => {
       const w = walletMap[p.id] || {};
       const pos = posMap[p.id] || {};
@@ -1717,23 +1867,13 @@ export async function getDownstreamNetwork(creatorId) {
         .filter(t => t.status === 'APPROVED')
         .reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
 
-      // Determine the exact commission percentage the viewer earns from this partner
-      let partnerCommRatePct = commissionRatePct;
-      if (p.role === 'MERCHANT' || p.id.startsWith('MID')) {
-        if (isDirect && !isSD && !isDD) {
-          partnerCommRatePct = 0.25; // Direct Area Distributor cut
-        } else if (isDirect && isSD) {
-          partnerCommRatePct = 0.40; // Direct Retail from SD
-        } else if (isDD) {
-          partnerCommRatePct = 0.08; // District Override
-        } else if (isSD) {
-          partnerCommRatePct = 0.15; // Super Dist Override
-        }
-      } else {
-        // Intermediary partner (DD or DIST): The viewer's override on that branch
-        if (isSD) partnerCommRatePct = 0.15;
-        else if (isDD) partnerCommRatePct = 0.08;
-      }
+      // Dynamic margin difference calculation:
+      // If direct partner: partnerBuyRate - creatorBuyRate
+      // If indirect partner: directBranchBuyRate - creatorBuyRate
+      const directBranch = getDirectBranchChild(p);
+      const branchRate = getUserBuyRate(directBranch, posMap[directBranch?.id], false);
+      const partnerRate = getUserBuyRate(p, pos, false);
+      const partnerCommRatePct = parseFloat(Math.max(0, isDirect ? (partnerRate - creatorBuyRate) : (branchRate - creatorBuyRate)).toFixed(2));
 
       const commissionEarned = parseFloat(((totalVolume * partnerCommRatePct) / 100).toFixed(2));
 
@@ -1765,27 +1905,42 @@ export async function getDownstreamNetwork(creatorId) {
       };
     });
 
-    // Calculate total unique downline merchant volume for true overall commission
+    // Calculate total unique downline merchant volume and exact commission
+    let totalCommissionAll = 0;
+    let todayProfitAll = 0;
+    let totalDownlineVolume = 0;
+    let todayDownlineVol = 0;
+
     const allUniqueDownlineMerchantIds = Array.from(new Set(
       downstreamUsers.filter(u => u.role === 'MERCHANT' || u.id.startsWith('MID')).map(u => u.id)
     ));
-    const uniqueMerchantTxns = allTxns.filter(t => allUniqueDownlineMerchantIds.includes(t.merchant_id) && t.status === 'APPROVED');
-    const totalDownlineVolume = uniqueMerchantTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-    const totalCommissionAll = parseFloat(((totalDownlineVolume * commissionRatePct) / 100).toFixed(2));
     
-    const todayUniqueTxns = uniqueMerchantTxns.filter(t => (t.created_at || '').slice(0, 10) === todayStr);
-    const todayDownlineVol = todayUniqueTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-    const todayProfitAll = parseFloat(((todayDownlineVol * commissionRatePct) / 100).toFixed(2));
+    allUniqueDownlineMerchantIds.forEach(mId => {
+      const mObj = userMap[mId];
+      const directBranch = getDirectBranchChild(mObj);
+      const branchRate = getUserBuyRate(directBranch, posMap[directBranch?.id], false);
+      const marginPct = Math.max(0, branchRate - creatorBuyRate);
+
+      const mTxns = allTxns.filter(t => t.merchant_id === mId && t.status === 'APPROVED');
+      const mVol = mTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+      totalDownlineVolume += mVol;
+      totalCommissionAll += (mVol * marginPct) / 100;
+
+      const mTodayTxns = mTxns.filter(t => (t.created_at || '').slice(0, 10) === todayStr);
+      const mTodayVol = mTodayTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+      todayDownlineVol += mTodayVol;
+      todayProfitAll += (mTodayVol * marginPct) / 100;
+    });
 
     return {
       success: true,
       creator,
-      creator_pos: posMap[creatorId] || null,
-      commission_rate_pct: commissionRatePct,
+      creator_pos: creatorPos,
+      commission_rate_pct: parseFloat(Math.max(0, 1.50 - creatorBuyRate).toFixed(2)),
       partners: enrichedPartners,
       total_partners: enrichedPartners.length,
-      total_commission_earned: totalCommissionAll,
-      today_network_profit: todayProfitAll
+      total_commission_earned: parseFloat(totalCommissionAll.toFixed(2)),
+      today_network_profit: parseFloat(todayProfitAll.toFixed(2))
     };
   } catch (err) {
     console.error('getDownstreamNetwork error:', err);
@@ -1795,21 +1950,27 @@ export async function getDownstreamNetwork(creatorId) {
 
 export async function getPartnerTransactions(creatorId, partnerId) {
   try {
-    const [allUsersRes, txnsRes] = await Promise.all([
+    const [allUsersRes, txnsRes, posRes] = await Promise.all([
       supabase.from('users').select('*'),
-      supabase.from('transactions').select('*').order('created_at', { ascending: false })
+      supabase.from('transactions').select('*').order('created_at', { ascending: false }),
+      supabase.from('merchant_pos').select('*')
     ]);
 
     const allUsers = allUsersRes.data || [];
     const allTxns = txnsRes.data || [];
+    const posList = posRes.data || [];
+
     const userMap = {};
     allUsers.forEach(u => { userMap[u.id] = u; });
 
+    const posMap = {};
+    posList.forEach(p => { posMap[p.merchant_id] = p; });
+
+    const creator = userMap[creatorId];
     const partner = userMap[partnerId];
-    const isSD = creatorId.startsWith('SD');
-    const isDD = creatorId.startsWith('DD') || creatorId.startsWith('DF');
-    const isDirect = partner?.creator_id === creatorId;
-    const commRate = isDirect && !isSD && !isDD ? 0.25 : (isDD ? 0.08 : (isSD ? 0.15 : 0.25));
+    const creatorBuyRate = getUserBuyRate(creator, posMap[creatorId], false);
+    const partnerBuyRate = getUserBuyRate(partner, posMap[partnerId], false);
+    const commRate = parseFloat(Math.max(0, partnerBuyRate - creatorBuyRate).toFixed(2));
 
     // Gather all merchant IDs under partnerId
     const getMerchantsUnderUser = (rootId) => {
@@ -2275,25 +2436,40 @@ export async function verifyTransaction(txnId, action, remark = '') {
 
       updatedWallet = wRes;
 
-      // Phase 2 Vault Distribution: Calculate dynamic upline commission pool and Admin profit upon APPROVAL
+      // Phase 2: Dynamic Margin-Difference Upline Distribution
       try {
-        const [posRes, allUsersRes] = await Promise.all([
+        const [posRes, allUsersRes, allPosRes] = await Promise.all([
           supabase.from('merchant_pos').select('*').eq('merchant_id', merchantId).maybeSingle(),
-          supabase.from('users').select('*')
+          supabase.from('users').select('*'),
+          supabase.from('merchant_pos').select('*')
         ]);
 
         const pos = posRes?.data;
         const allUsers = allUsersRes?.data || [];
+        const allPos = allPosRes?.data || [];
         const merchant = allUsers.find(u => u.id === merchantId);
 
-        const sellerTerminalRates = parsePosTerminalRates(pos?.terminal_id, pos?.commission_rate);
-        const uplineCutRate = typeof pos?.upline_override_rate === 'number' && pos.upline_override_rate > 0
-          ? pos.upline_override_rate
-          : (sellerTerminalRates.uplineCut || 0.20);
+        const posMap = {};
+        allPos.forEach(p => { posMap[p.merchant_id] = p; });
 
-        const totalUplinePool = parseFloat(((amount * uplineCutRate) / 100).toFixed(2));
+        // Determine this transaction's active percentage rate (e.g. 2.00%)
+        const isInstant = txn.settlement_type === 'INSTANT';
+        const getRateForUser = (u, p) => {
+          if (p) {
+            const parsed = parsePosTerminalRates(p.terminal_id, p.commission_rate);
+            const r = isInstant ? (p.commission_rate_instant || parsed.rateInstant) : (p.commission_rate_t1 || parsed.rateT1);
+            if (r && !isNaN(parseFloat(r)) && parseFloat(r) > 0) return parseFloat(r);
+          }
+          if (u) {
+            const uRate = isInstant ? u.commission_rate_instant : u.commission_rate_t1;
+            if (uRate && !isNaN(parseFloat(uRate)) && parseFloat(uRate) > 0) return parseFloat(uRate);
+          }
+          return isInstant ? 1.80 : 1.50;
+        };
 
-        // Build the full upstream hierarchy chain up to Admin
+        let currentLevelRate = getRateForUser(merchant, pos);
+
+        // Build upline chain from direct parent up to Admin
         const uplineChain = [];
         let cur = merchant;
         let safety = 0;
@@ -2306,54 +2482,42 @@ export async function verifyTransaction(txnId, action, remark = '') {
         }
 
         let distributedUplineTotal = 0;
-        if (uplineChain.length > 0 && totalUplinePool > 0) {
-          let weightShares = [];
-          if (uplineChain.length === 1) {
-            weightShares = [1.0];
-          } else if (uplineChain.length === 2) {
-            weightShares = [0.60, 0.40];
-          } else if (uplineChain.length === 3) {
-            weightShares = [0.50, 0.30, 0.20];
-          } else {
-            const sum = uplineChain.reduce((acc, _, idx) => acc + (uplineChain.length - idx), 0);
-            weightShares = uplineChain.map((_, idx) => (uplineChain.length - idx) / sum);
-          }
 
-          for (let i = 0; i < uplineChain.length; i++) {
-            const uplineUser = uplineChain[i];
-            let commissionEarned = 0;
-            if (i === uplineChain.length - 1) {
-              commissionEarned = parseFloat(Math.max(0, totalUplinePool - distributedUplineTotal).toFixed(2));
-            } else {
-              commissionEarned = parseFloat((totalUplinePool * weightShares[i]).toFixed(2));
-              distributedUplineTotal += commissionEarned;
-            }
+        for (const uplineUser of uplineChain) {
+          const uPos = posMap[uplineUser.id];
+          const parentBuyRate = getRateForUser(uplineUser, uPos);
 
-            if (commissionEarned > 0) {
-              const { data: pWallet } = await supabase
+          // Margin difference between child level rate and this upline's buy rate
+          const marginDiff = Math.max(0, currentLevelRate - parentBuyRate);
+          const commissionEarned = parseFloat(((amount * marginDiff) / 100).toFixed(2));
+
+          if (commissionEarned > 0) {
+            distributedUplineTotal += commissionEarned;
+            const { data: pWallet } = await supabase
+              .from('wallets')
+              .select('*')
+              .eq('user_id', uplineUser.id)
+              .maybeSingle();
+
+            if (pWallet) {
+              const pBal = parseFloat(pWallet.available_balance || 0);
+              const pTotal = parseFloat(pWallet.total_sales || 0);
+              await supabase
                 .from('wallets')
-                .select('*')
-                .eq('user_id', uplineUser.id)
-                .maybeSingle();
-
-              if (pWallet) {
-                const pBal = parseFloat(pWallet.available_balance || 0);
-                const pTotal = parseFloat(pWallet.total_sales || 0);
-
-                await supabase
-                  .from('wallets')
-                  .update({
-                    available_balance: parseFloat((pBal + commissionEarned).toFixed(2)),
-                    total_sales: parseFloat((pTotal + amount).toFixed(2)),
-                    updated_at: new Date().toISOString()
-                  })
-                  .eq('user_id', uplineUser.id);
-              }
+                .update({
+                  available_balance: parseFloat((pBal + commissionEarned).toFixed(2)),
+                  total_sales: parseFloat((pTotal + amount).toFixed(2)),
+                  updated_at: new Date().toISOString()
+                })
+                .eq('user_id', uplineUser.id);
             }
           }
+
+          // Advance currentLevelRate to this parent's buy rate for the next level
+          currentLevelRate = Math.min(currentLevelRate, parentBuyRate);
         }
 
-        // Admin Wallet Credit: Company Fee minus Uplines Paid (Net Realized Admin Profit)
+        // Admin Wallet Credit: Remainder of the company fee (Net Realized Admin Profit)
         const adminNetMargin = parseFloat(Math.max(0, compFee - distributedUplineTotal).toFixed(2));
         if (adminNetMargin > 0) {
           const { data: aWallet } = await supabase
@@ -2421,6 +2585,178 @@ export async function verifyTransaction(txnId, action, remark = '') {
   }
 }
 
+export async function clawbackTransaction(txnId, adminReason = 'Disputed / Fraudulent POS reference') {
+  try {
+    const { data: txn, error: tErr } = await supabase
+      .from('transactions')
+      .select('*')
+      .eq('id', txnId)
+      .single();
+
+    if (tErr || !txn) {
+      return { success: false, message: 'Transaction not found.' };
+    }
+
+    if (txn.status === 'REVERSED' || txn.status === 'REJECTED') {
+      return { success: false, message: `Transaction is already ${txn.status}.` };
+    }
+
+    const amount = parseFloat(txn.amount) || 0;
+    const merchantId = txn.merchant_id;
+
+    // Parse swipe metadata to find exact net credited
+    let netCredited = amount * 0.985;
+    let compFee = amount * 0.015;
+    let merchantBuyRate = 1.50;
+
+    if (txn.notes && typeof txn.notes === 'string') {
+      try {
+        const jsonPart = txn.notes.slice(txn.notes.indexOf('{'));
+        const meta = JSON.parse(jsonPart);
+        if (meta.net_credited) netCredited = parseFloat(meta.net_credited);
+        if (meta.company_fee) compFee = parseFloat(meta.company_fee);
+        if (meta.merchant_buy_rate) merchantBuyRate = parseFloat(meta.merchant_buy_rate);
+      } catch (_) {}
+    }
+
+    // 1. Mark transaction as REVERSED in database
+    await supabase
+      .from('transactions')
+      .update({
+        status: 'REVERSED',
+        admin_remark: `[CLAWBACK REVERSAL] ${adminReason}`,
+        verified_at: new Date().toISOString()
+      })
+      .eq('id', txnId);
+
+    // 2. Debit the merchant wallet
+    const { data: mWallet } = await supabase
+      .from('wallets')
+      .select('*')
+      .eq('user_id', merchantId)
+      .maybeSingle();
+
+    if (mWallet) {
+      const curAvail = parseFloat(mWallet.available_balance || 0);
+      const curTotal = parseFloat(mWallet.total_sales || 0);
+      const curRec = parseFloat(mWallet.received_sales || 0);
+      const newAvail = parseFloat((curAvail - netCredited).toFixed(2));
+
+      await supabase
+        .from('wallets')
+        .update({
+          available_balance: newAvail,
+          total_sales: Math.max(0, parseFloat((curTotal - amount).toFixed(2))),
+          received_sales: Math.max(0, parseFloat((curRec - amount).toFixed(2))),
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', merchantId);
+
+      // If wallet drops negative, automatically suspend user account
+      if (newAvail < 0) {
+        await supabase
+          .from('users')
+          .update({ status: 'SUSPENDED' })
+          .eq('id', merchantId);
+      }
+    }
+
+    // 3. Rollback Upline Commissions along dynamic tree
+    try {
+      const [allUsersRes, allPosRes] = await Promise.all([
+        supabase.from('users').select('*'),
+        supabase.from('merchant_pos').select('*')
+      ]);
+
+      const allUsers = allUsersRes?.data || [];
+      const allPos = allPosRes?.data || [];
+      const posMap = {};
+      allPos.forEach(p => { posMap[p.merchant_id] = p; });
+
+      const merchant = allUsers.find(u => u.id === merchantId);
+
+      const isInstant = txn.settlement_type === 'INSTANT';
+      let currentLevelRate = merchantBuyRate;
+
+      const uplineChain = [];
+      let cur = merchant;
+      let safety = 0;
+      while (cur && cur.creator_id && cur.creator_id !== 'ADM001' && safety < 10) {
+        safety++;
+        const parentUser = allUsers.find(u => u.id === cur.creator_id);
+        if (!parentUser) break;
+        uplineChain.push(parentUser);
+        cur = parentUser;
+      }
+
+      let distributedUplineTotal = 0;
+
+      for (const uplineUser of uplineChain) {
+        const uPos = posMap[uplineUser.id];
+        const parentBuyRate = getUserBuyRate(uplineUser, uPos, isInstant);
+        const marginDiff = Math.max(0, currentLevelRate - parentBuyRate);
+        const commissionEarned = parseFloat(((amount * marginDiff) / 100).toFixed(2));
+
+        if (commissionEarned > 0) {
+          distributedUplineTotal += commissionEarned;
+          const { data: pWallet } = await supabase
+            .from('wallets')
+            .select('*')
+            .eq('user_id', uplineUser.id)
+            .maybeSingle();
+
+          if (pWallet) {
+            const pBal = parseFloat(pWallet.available_balance || 0);
+            const pTotal = parseFloat(pWallet.total_sales || 0);
+            await supabase
+              .from('wallets')
+              .update({
+                available_balance: parseFloat((pBal - commissionEarned).toFixed(2)),
+                total_sales: Math.max(0, parseFloat((pTotal - amount).toFixed(2))),
+                updated_at: new Date().toISOString()
+              })
+              .eq('user_id', uplineUser.id);
+          }
+        }
+        currentLevelRate = Math.min(currentLevelRate, parentBuyRate);
+      }
+
+      // Rollback Admin Net Profit
+      const adminNetMargin = parseFloat(Math.max(0, compFee - distributedUplineTotal).toFixed(2));
+      if (adminNetMargin > 0) {
+        const { data: aWallet } = await supabase
+          .from('wallets')
+          .select('*')
+          .eq('user_id', 'ADM001')
+          .maybeSingle();
+
+        if (aWallet) {
+          const aBal = parseFloat(aWallet.available_balance || 0);
+          const aTotal = parseFloat(aWallet.total_sales || 0);
+          await supabase
+            .from('wallets')
+            .update({
+              available_balance: parseFloat((aBal - adminNetMargin).toFixed(2)),
+              total_sales: Math.max(0, parseFloat((aTotal - amount).toFixed(2))),
+              updated_at: new Date().toISOString()
+            })
+            .eq('user_id', 'ADM001');
+        }
+      }
+    } catch (rbErr) {
+      console.error('Upline rollback error:', rbErr);
+    }
+
+    return {
+      success: true,
+      message: `✓ Transaction ${txnId} reversed successfully. ₹${netCredited.toLocaleString('en-IN', { minimumFractionDigits: 2 })} clawed back from merchant and upline commissions rolled back.`
+    };
+  } catch (err) {
+    console.error('clawbackTransaction error:', err);
+    return { success: false, message: err.message };
+  }
+}
+
 // ----------------------------------------------------
 // 8. WITHDRAWALS (CUSTOMER DISBURSAL & MERCHANT SETTLEMENT)
 // ----------------------------------------------------
@@ -2448,20 +2784,28 @@ export async function requestWithdrawal(withdrawalData) {
       return { success: false, message: 'Missing required withdrawal details.' };
     }
 
+    // Sunday-Only Enforcement for Self-Commission Withdrawals
+    const isSelfWithdrawal = payout_type === 'MERCHANT_OWN' || payout_purpose === 'COMMISSION';
+    const currentDay = new Date().getDay(); // 0 is Sunday
+    if (isSelfWithdrawal && currentDay !== 0) {
+      return {
+        success: false,
+        message: 'Self-Commission Settlement Schedule: Profit & Commission withdrawals unlock strictly on Sundays (00:00 to 23:59) following weekly bank reconciliation audits.'
+      };
+    }
+
     const { data: wallet } = await supabase
       .from('wallets')
       .select('*')
       .eq('user_id', merchant_id)
       .single();
 
-    const MIN_RESERVE_HOLD = 500.0;
-    const currAvail = parseFloat(wallet.available_balance || 0);
-    const maxWithdrawable = Math.max(0, currAvail - MIN_RESERVE_HOLD);
+    const currAvail = parseFloat(wallet?.available_balance || 0);
 
-    if (numAmount > maxWithdrawable) {
+    if (numAmount > currAvail) {
       return {
         success: false,
-        message: `Withdrawal restricted: A minimum reserve of ₹500.00 must remain in your wallet to keep your account active. Maximum withdrawable amount is ₹${maxWithdrawable.toFixed(2)} (Available Balance: ₹${currAvail.toFixed(2)}).`
+        message: `Insufficient balance. Maximum withdrawable balance is ₹${currAvail.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`
       };
     }
 
@@ -2491,11 +2835,11 @@ export async function requestWithdrawal(withdrawalData) {
     const noteTag = cleanRemarks ? ` | Note: ${cleanRemarks}` : '';
 
     // Formulate descriptive remark header for clarity in DB
-    const headerTag = payout_purpose === 'COMMISSION' 
+    const headerTag = isSelfWithdrawal 
       ? '[COMMISSION_PAYOUT]' 
-      : (payout_type === 'CUSTOMER_DISBURSAL' ? '[CUSTOMER_PAYOUT]' : '[REGULAR_SETTLEMENT]');
+      : '[CUSTOMER_PAYOUT]';
 
-    const initialRemark = `${headerTag}${noteTag} | Name: ${customer_name ? customer_name.trim() : 'Beneficiary'} | Mob: ${customer_mobile ? customer_mobile.trim() : 'N/A'} | Mode: ${settlement_mode}${posTag}`;
+    const initialRemark = `${headerTag}${noteTag} | Name: ${customer_name ? customer_name.trim() : (isSelfWithdrawal ? 'Self Payout' : 'Customer Payout')} | Mob: ${customer_mobile ? customer_mobile.trim() : 'N/A'} | Mode: ${settlement_mode}${posTag}`;
 
     const { data: createdWth, error: wErr } = await supabase
       .from('withdrawals')

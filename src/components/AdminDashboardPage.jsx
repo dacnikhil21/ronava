@@ -33,7 +33,8 @@ import {
   serializeMerchantChannels,
   classifyTransactionChannel,
   getMonthlyRentalReport,
-  updatePosRentalStatus
+  updatePosRentalStatus,
+  clawbackTransaction
 } from '../services/api';
 import { subscribeToAdminFeed } from '../services/supabase';
 import RonavLogo from './RonavLogo';
@@ -453,9 +454,44 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     setIsCreateModalOpen(true);
   };
 
-  // Open Manage Terminals & QR Channel Portfolio for Existing Merchant
+  // Open Manage Terminals & QR Channel Portfolio for Existing Merchant / Partner
   const handleOpenManageChannels = (user) => {
-    const ch = user.channels || (user.pos_raw ? parseMerchantChannels(user.pos_raw) : parseMerchantChannels(null));
+    let ch = user.channels || (user.pos_raw ? parseMerchantChannels(user.pos_raw) : null);
+    
+    // If no channel is explicitly enabled, pre-fill with user's actual configured rates
+    if (!ch || (!ch.pine_labs?.enabled && !ch.payswiff?.enabled && !ch.qr?.enabled)) {
+      const baseT1 = parseFloat(user.commission_rate_t1 || user.margin_rate || 1.40);
+      const baseInstant = parseFloat(user.commission_rate_instant || (baseT1 + 0.30));
+      const tid = user.pos_terminal || `PL-${user.id || '01'}`;
+      
+      ch = {
+        pine_labs: {
+          enabled: true,
+          terminal_id: tid,
+          rate_t1: baseT1,
+          rate_instant: baseInstant,
+          vendor: 'Rose Navaneetham Enterprises',
+          plan: 'RENTAL',
+          rent: 499
+        },
+        payswiff: {
+          enabled: false,
+          terminal_id: `SWIFF-${user.id || '01'}`,
+          rate_t1: baseT1,
+          rate_instant: baseInstant,
+          vendor: 'RONAV Technologies',
+          plan: 'RENTAL',
+          rent: 499
+        },
+        qr: {
+          enabled: false,
+          rate_instant: baseInstant,
+          vendor: 'RONAV Technologies'
+        },
+        enabledList: ['pine_labs']
+      };
+    }
+    
     setManagingChannelsMerchant(user);
     setManagingChannelsData(JSON.parse(JSON.stringify(ch)));
   };
@@ -559,6 +595,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         pan: cleanPan,
         address: cleanAddress,
         role: onboardForm.role,
+        margin_rate: onboardForm.margin_rate || (onboardForm.role === 'MASTER' ? '0.50' : onboardForm.role === 'SUPER_DISTRIBUTOR' ? '0.40' : onboardForm.role === 'DISTRICT_DISTRIBUTOR' ? '0.30' : '0.25'),
         channels: onboardChannels,
         pos_provider: primaryProvider,
         pos_vendor: primaryVendor,
@@ -663,6 +700,25 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     } catch (err) {
       console.error(err);
       triggerToast('Connection error verifying transaction', 'error');
+    }
+  };
+
+  // Admin Fraud Clawback & Reversal Action
+  const handleClawbackTransaction = async (id, merchantName, amount, reason = '') => {
+    const confirmed = window.confirm(`🚨 Are you sure you want to REVERSE & CLAWBACK transaction ${id} (₹${parseFloat(amount).toLocaleString('en-IN')}) for ${merchantName}?\n\nThis will immediately debit the net amount from the merchant's wallet and rollback all upline commissions.`);
+    if (!confirmed) return;
+
+    try {
+      const res = await clawbackTransaction(id, reason || 'Fraudulent / Disputed POS slip');
+      if (res && res.success) {
+        triggerToast(res.message || `✓ Reversed transaction for ${merchantName}!`, 'success');
+        fetchAdminData();
+      } else {
+        triggerToast(res?.message || 'Failed to reverse transaction', 'error');
+      }
+    } catch (err) {
+      console.error('handleClawbackTransaction error:', err);
+      triggerToast('Connection error reversing transaction', 'error');
     }
   };
 
@@ -1737,22 +1793,26 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
       {/* TOP CHANNEL TABS: ONLY ON PAYOUTS TAB */}
       {activeTab === 'payouts' && (
-        <div className="admin-channel-bar-wrapper">
-          <div className="admin-channel-bar-inner">
-            {/* iOS Native Segmented Track */}
+        <div className="admin-channel-bar-wrapper" style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          <div className="admin-channel-bar-inner" style={{ minWidth: '100%' }}>
+            {/* iOS Native Segmented Track with Horizontal Touch Swipe */}
             <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
+              display: 'flex',
+              alignItems: 'center',
               background: '#ECEEF0',
               padding: '3px',
               borderRadius: '11px',
-              gap: '3px'
+              gap: '3px',
+              overflowX: 'auto',
+              scrollbarWidth: 'none',
+              WebkitOverflowScrolling: 'touch',
+              width: '100%'
             }}>
             {[
               { id: 'all', label: 'All Channels', icon: '🌐', count: channelPendingCounts.total },
               { id: 'pinelabs', label: 'Pine Labs', icon: '🌲', count: channelPendingCounts.pine },
               { id: 'payswiff', label: 'Payswiff', icon: '⚡', count: channelPendingCounts.swiffTotal },
-              { id: 'qr', label: 'QR', icon: '📱', count: channelPendingCounts.qr }
+              { id: 'qr', label: 'QR Channel', icon: '📱', count: channelPendingCounts.qr }
             ].map(ch => {
               const isActive = selectedChannel === ch.id;
               return (
@@ -1772,11 +1832,13 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     }
                   }}
                   style={{
+                    flex: '1 1 0',
+                    minWidth: 'fit-content',
                     background: isActive ? '#FFFFFF' : 'transparent',
                     color: isActive ? '#0F172A' : '#64748B',
                     border: 'none',
                     borderRadius: '9px',
-                    padding: '0.45rem 0.35rem',
+                    padding: '0.45rem 0.65rem',
                     fontSize: '0.78125rem',
                     fontWeight: isActive ? 700 : 500,
                     display: 'flex',
@@ -2157,50 +2219,48 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     );
                   })()}
 
-                  {/* Hardware & Channel Portfolio for Merchant */}
-                  {viewingUserDossier.dossierType === 'MERCHANT' && (
-                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                      {viewingUserDossier.channels?.pine_labs?.enabled && (
-                        <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '3px 8px', borderRadius: '6px', border: '1px solid #BFDBFE' }}>
-                          🌲 Pine Labs: {viewingUserDossier.channels.pine_labs.terminal_id || 'PL-01'} (Rose Navaneetham) • {viewingUserDossier.channels.pine_labs.rate_t1}% T+1 / {viewingUserDossier.channels.pine_labs.rate_instant}% Instant
-                        </span>
-                      )}
-                      {viewingUserDossier.channels?.payswiff?.enabled && (
-                        <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#FFFBEB', color: '#D97706', padding: '3px 8px', borderRadius: '6px', border: '1px solid #FDE68A' }}>
-                          ⚡ Payswiff: {viewingUserDossier.channels.payswiff.terminal_id || 'SWIFF-01'} ({viewingUserDossier.channels.payswiff.vendor}) • {viewingUserDossier.channels.payswiff.rate_t1}% T+1 / {viewingUserDossier.channels.payswiff.rate_instant}% Instant
-                        </span>
-                      )}
-                      {viewingUserDossier.channels?.qr?.enabled && (
-                        <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#F5F3FF', color: '#7C3AED', padding: '3px 8px', borderRadius: '6px', border: '1px solid #DDD6FE' }}>
-                          📱 QR Active: {viewingUserDossier.channels.qr.rate_instant}% Instant Settlement (RONAV Technologies)
-                        </span>
-                      )}
-                      {(!viewingUserDossier.channels || (!viewingUserDossier.channels.pine_labs?.enabled && !viewingUserDossier.channels.payswiff?.enabled && !viewingUserDossier.channels.qr?.enabled)) && (
-                        <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#F1F5F9', color: '#334155', padding: '3px 8px', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
-                          📟 Machine: {viewingUserDossier.pos_provider || 'Pine Labs'} ({(viewingUserDossier.pos_terminal || 'PL-TS').split('|')[0]})
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleOpenManageChannels(viewingUserDossier)}
-                        style={{
-                          background: '#0F52BA',
-                          color: '#FFFFFF',
-                          border: 'none',
-                          padding: '3px 9px',
-                          borderRadius: '6px',
-                          fontSize: '0.65625rem',
-                          fontWeight: 800,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                      >
-                        ⚙️ Manage Terminals & QR
-                      </button>
-                    </div>
-                  )}
+                  {/* Hardware, Channel Portfolio & Rate Architecture for All Partner Tiers */}
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                    {viewingUserDossier.channels?.pine_labs?.enabled && (
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '3px 8px', borderRadius: '6px', border: '1px solid #BFDBFE' }}>
+                        🌲 Pine Labs: {viewingUserDossier.channels.pine_labs.terminal_id || 'PL-01'} (Rose Navaneetham) • {viewingUserDossier.channels.pine_labs.rate_t1}% T+1 / {viewingUserDossier.channels.pine_labs.rate_instant}% Instant
+                      </span>
+                    )}
+                    {viewingUserDossier.channels?.payswiff?.enabled && (
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#FFFBEB', color: '#D97706', padding: '3px 8px', borderRadius: '6px', border: '1px solid #FDE68A' }}>
+                        ⚡ Payswiff: {viewingUserDossier.channels.payswiff.terminal_id || 'SWIFF-01'} ({viewingUserDossier.channels.payswiff.vendor}) • {viewingUserDossier.channels.payswiff.rate_t1}% T+1 / {viewingUserDossier.channels.payswiff.rate_instant}% Instant
+                      </span>
+                    )}
+                    {viewingUserDossier.channels?.qr?.enabled && (
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#F5F3FF', color: '#7C3AED', padding: '3px 8px', borderRadius: '6px', border: '1px solid #DDD6FE' }}>
+                        📱 QR Active: {viewingUserDossier.channels.qr.rate_instant}% Instant Settlement (RONAV Technologies)
+                      </span>
+                    )}
+                    {(!viewingUserDossier.channels || (!viewingUserDossier.channels.pine_labs?.enabled && !viewingUserDossier.channels.payswiff?.enabled && !viewingUserDossier.channels.qr?.enabled)) && (
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#F1F5F9', color: '#334155', padding: '3px 8px', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
+                        📟 Rates: T+1: {viewingUserDossier.commission_rate_t1 || viewingUserDossier.margin_rate || 1.50}% • Instant: {viewingUserDossier.commission_rate_instant || 1.80}% {viewingUserDossier.upline_override_rate ? `• Downline Cut: ${viewingUserDossier.upline_override_rate}%` : ''}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenManageChannels(viewingUserDossier)}
+                      style={{
+                        background: '#0F52BA',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        padding: '3px 9px',
+                        borderRadius: '6px',
+                        fontSize: '0.65625rem',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      ⚙️ Manage Terminals & Rates
+                    </button>
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
@@ -3931,9 +3991,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               </strong>
                             </div>
                             <div>
-                              <span style={{ fontSize: '0.55rem', color: '#7C3AED', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Master Cut (0.20%)</span>
+                              <span style={{ fontSize: '0.55rem', color: '#7C3AED', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Master Cut ({parseFloat(m.margin_rate || 0.50)}%)</span>
                               <strong style={{ fontSize: '0.8125rem', color: '#7C3AED', fontWeight: 900 }}>
-                                +₹{(mVol * 0.0020).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                +₹{(mVol * ((parseFloat(m.margin_rate || 0.50)) / 100)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                               </strong>
                             </div>
                             <div>
@@ -4073,7 +4133,54 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             </span>
                           </div>
 
-                          {/* 4 Metric Pills: [Turnover] [SD Commission 0.15%] [SD Wallet] [Admin Profit] */}
+                          {/* Multi-Channel Portfolio & Legal Vendor Badges for Super Distributor */}
+                          <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                            {sd.channels?.pine_labs?.enabled && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '2px 6px', borderRadius: '4px', border: '1px solid #BFDBFE' }}>
+                                🌲 Pine Labs: {sd.channels.pine_labs.terminal_id || 'PL-01'} (T+1: {sd.channels.pine_labs.rate_t1 || sd.commission_rate_t1 || 0.35}% • Instant: {sd.channels.pine_labs.rate_instant || sd.commission_rate_instant || 0.50}%)
+                              </span>
+                            )}
+                            {sd.channels?.payswiff?.enabled && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#FFFBEB', color: '#D97706', padding: '2px 6px', borderRadius: '4px', border: '1px solid #FDE68A' }}>
+                                ⚡ Payswiff: {sd.channels.payswiff.terminal_id || 'SWIFF-01'} (T+1: {sd.channels.payswiff.rate_t1 || sd.commission_rate_t1 || 0.35}% • Instant: {sd.channels.payswiff.rate_instant || sd.commission_rate_instant || 0.50}%)
+                              </span>
+                            )}
+                            {sd.channels?.qr?.enabled && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F5F3FF', color: '#7C3AED', padding: '2px 6px', borderRadius: '4px', border: '1px solid #DDD6FE' }}>
+                                📱 QR Active: {sd.channels.qr.rate_instant || sd.commission_rate_instant || 0.35}% Instant
+                              </span>
+                            )}
+                            {(!sd.channels || (!sd.channels.pine_labs?.enabled && !sd.channels.payswiff?.enabled && !sd.channels.qr?.enabled)) && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#64748B', padding: '2px 6px', borderRadius: '4px' }}>
+                                ⚡ Buy Rate: T+1: {sd.commission_rate_t1 || 0.35}% • Instant: {sd.commission_rate_instant || 0.50}% {sd.upline_override_rate ? `• Cut: ${sd.upline_override_rate}%` : ''}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenManageChannels(sd);
+                              }}
+                              style={{
+                                marginLeft: 'auto',
+                                background: '#F3E8FF',
+                                border: '1px solid #E9D5FF',
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                fontSize: '0.625rem',
+                                fontWeight: 800,
+                                color: '#7C3AED',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '3px'
+                              }}
+                            >
+                              ⚙️ Manage Terminals
+                            </button>
+                          </div>
+
+                          {/* 4 Metric Pills: [Turnover] [SD Commission] [SD Wallet] [Admin Profit] */}
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.375rem', marginTop: '0.625rem', background: '#F8FAFC', padding: '0.5rem 0.625rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
                             <div>
                               <span style={{ fontSize: '0.55rem', color: '#64748B', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Network Turnover</span>
@@ -4082,9 +4189,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               </strong>
                             </div>
                             <div>
-                              <span style={{ fontSize: '0.55rem', color: '#7C3AED', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>SD Cut (0.15%)</span>
+                              <span style={{ fontSize: '0.55rem', color: '#7C3AED', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>SD Cut ({parseFloat(sd.upline_override_rate || sd.commission_rate_t1 || sd.margin_rate || 0.40)}%)</span>
                               <strong style={{ fontSize: '0.8125rem', color: '#7C3AED', fontWeight: 900 }}>
-                                +₹{(sdVol * 0.0015).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                +₹{(sdVol * ((parseFloat(sd.upline_override_rate || sd.commission_rate_t1 || sd.margin_rate || 0.40)) / 100)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                               </strong>
                             </div>
                             <div>
@@ -4208,6 +4315,53 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             </span>
                           </div>
 
+                          {/* Multi-Channel Portfolio & Legal Vendor Badges for District Distributor */}
+                          <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                            {dd.channels?.pine_labs?.enabled && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '2px 6px', borderRadius: '4px', border: '1px solid #BFDBFE' }}>
+                                🌲 Pine Labs: {dd.channels.pine_labs.terminal_id || 'PL-01'} (T+1: {dd.channels.pine_labs.rate_t1 || dd.commission_rate_t1 || 0.35}% • Instant: {dd.channels.pine_labs.rate_instant || dd.commission_rate_instant || 0.50}%)
+                              </span>
+                            )}
+                            {dd.channels?.payswiff?.enabled && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#FFFBEB', color: '#D97706', padding: '2px 6px', borderRadius: '4px', border: '1px solid #FDE68A' }}>
+                                ⚡ Payswiff: {dd.channels.payswiff.terminal_id || 'SWIFF-01'} (T+1: {dd.channels.payswiff.rate_t1 || dd.commission_rate_t1 || 0.35}% • Instant: {dd.channels.payswiff.rate_instant || dd.commission_rate_instant || 0.50}%)
+                              </span>
+                            )}
+                            {dd.channels?.qr?.enabled && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F5F3FF', color: '#7C3AED', padding: '2px 6px', borderRadius: '4px', border: '1px solid #DDD6FE' }}>
+                                📱 QR Active: {dd.channels.qr.rate_instant || dd.commission_rate_instant || 0.35}% Instant
+                              </span>
+                            )}
+                            {(!dd.channels || (!dd.channels.pine_labs?.enabled && !dd.channels.payswiff?.enabled && !dd.channels.qr?.enabled)) && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#64748B', padding: '2px 6px', borderRadius: '4px' }}>
+                                ⚡ Buy Rate: T+1: {dd.commission_rate_t1 || 0.35}% • Instant: {dd.commission_rate_instant || 0.50}% {dd.upline_override_rate ? `• Cut: ${dd.upline_override_rate}%` : ''}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenManageChannels(dd);
+                              }}
+                              style={{
+                                marginLeft: 'auto',
+                                background: '#FFFBEB',
+                                border: '1px solid #FDE68A',
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                fontSize: '0.625rem',
+                                fontWeight: 800,
+                                color: '#D97706',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '3px'
+                              }}
+                            >
+                              ⚙️ Manage Terminals
+                            </button>
+                          </div>
+
                           {/* 4 Metric Pills for District Distributor */}
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.375rem', marginTop: '0.625rem', background: '#F8FAFC', padding: '0.5rem 0.625rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
                             <div>
@@ -4217,9 +4371,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               </strong>
                             </div>
                             <div>
-                              <span style={{ fontSize: '0.55rem', color: '#D97706', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>DD Cut (0.08%)</span>
+                              <span style={{ fontSize: '0.55rem', color: '#D97706', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>DD Cut ({parseFloat(dd.upline_override_rate || dd.commission_rate_t1 || dd.margin_rate || 0.30)}%)</span>
                               <strong style={{ fontSize: '0.8125rem', color: '#D97706', fontWeight: 900 }}>
-                                +₹{(ddVol * 0.0008).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                +₹{(ddVol * ((parseFloat(dd.upline_override_rate || dd.commission_rate_t1 || dd.margin_rate || 0.30)) / 100)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                               </strong>
                             </div>
                             <div>
@@ -4338,6 +4492,53 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             </span>
                           </div>
 
+                          {/* Multi-Channel Portfolio & Legal Vendor Badges for Area Distributor */}
+                          <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                            {d.channels?.pine_labs?.enabled && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '2px 6px', borderRadius: '4px', border: '1px solid #BFDBFE' }}>
+                                🌲 Pine Labs: {d.channels.pine_labs.terminal_id || 'PL-01'} (T+1: {d.channels.pine_labs.rate_t1 || d.commission_rate_t1 || 0.35}% • Instant: {d.channels.pine_labs.rate_instant || d.commission_rate_instant || 0.50}%)
+                              </span>
+                            )}
+                            {d.channels?.payswiff?.enabled && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#FFFBEB', color: '#D97706', padding: '2px 6px', borderRadius: '4px', border: '1px solid #FDE68A' }}>
+                                ⚡ Payswiff: {d.channels.payswiff.terminal_id || 'SWIFF-01'} (T+1: {d.channels.payswiff.rate_t1 || d.commission_rate_t1 || 0.35}% • Instant: {d.channels.payswiff.rate_instant || d.commission_rate_instant || 0.50}%)
+                              </span>
+                            )}
+                            {d.channels?.qr?.enabled && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F5F3FF', color: '#7C3AED', padding: '2px 6px', borderRadius: '4px', border: '1px solid #DDD6FE' }}>
+                                📱 QR Active: {d.channels.qr.rate_instant || d.commission_rate_instant || 0.35}% Instant
+                              </span>
+                            )}
+                            {(!d.channels || (!d.channels.pine_labs?.enabled && !d.channels.payswiff?.enabled && !d.channels.qr?.enabled)) && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#64748B', padding: '2px 6px', borderRadius: '4px' }}>
+                                ⚡ Buy Rate: T+1: {d.commission_rate_t1 || 0.35}% • Instant: {d.commission_rate_instant || 0.50}% {d.upline_override_rate ? `• Cut: ${d.upline_override_rate}%` : ''}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenManageChannels(d);
+                              }}
+                              style={{
+                                marginLeft: 'auto',
+                                background: '#EFF6FF',
+                                border: '1px solid #BFDBFE',
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                fontSize: '0.625rem',
+                                fontWeight: 800,
+                                color: '#0F52BA',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '3px'
+                              }}
+                            >
+                              ⚙️ Manage Terminals
+                            </button>
+                          </div>
+
                           {/* 4 Metric Pills for Distributor */}
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.375rem', marginTop: '0.625rem', background: '#F8FAFC', padding: '0.5rem 0.625rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
                             <div>
@@ -4347,9 +4548,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               </strong>
                             </div>
                             <div>
-                              <span style={{ fontSize: '0.55rem', color: '#0F52BA', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Dist Cut (0.25%)</span>
+                              <span style={{ fontSize: '0.55rem', color: '#0F52BA', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Dist Cut ({parseFloat(d.upline_override_rate || d.commission_rate_t1 || d.margin_rate || 0.25)}%)</span>
                               <strong style={{ fontSize: '0.8125rem', color: '#0F52BA', fontWeight: 900 }}>
-                                +₹{(distVol * 0.0025).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                +₹{(distVol * ((parseFloat(d.upline_override_rate || d.commission_rate_t1 || d.margin_rate || 0.25)) / 100)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                               </strong>
                             </div>
                             <div>
@@ -4489,16 +4690,16 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             </div>
                           </div>
 
-                          {/* Multi-Channel Portfolio & Legal Vendor Badges */}
+                          {/* Multi-Channel Portfolio & Legal Vendor Badges with Exact Rates */}
                           <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
                             {m.channels?.pine_labs?.enabled && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '2px 6px', borderRadius: '4px', border: '1px solid #BFDBFE' }}>
-                                🌲 Pine Labs: {m.channels.pine_labs.terminal_id || 'PL-01'} (Rose Navaneetham)
+                                🌲 Pine Labs: {m.channels.pine_labs.terminal_id || 'PL-01'} (T+1: {m.channels.pine_labs.rate_t1 || 1.50}% • Instant: {m.channels.pine_labs.rate_instant || 1.80}%)
                               </span>
                             )}
                             {m.channels?.payswiff?.enabled && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#FFFBEB', color: '#D97706', padding: '2px 6px', borderRadius: '4px', border: '1px solid #FDE68A' }}>
-                                ⚡ Payswiff: {m.channels.payswiff.terminal_id || 'SWIFF-01'} ({m.channels.payswiff.vendor || 'RONAV'})
+                                ⚡ Payswiff: {m.channels.payswiff.terminal_id || 'SWIFF-01'} (T+1: {m.channels.payswiff.rate_t1 || 1.50}% • Instant: {m.channels.payswiff.rate_instant || 1.80}%)
                               </span>
                             )}
                             {m.channels?.qr?.enabled && (
@@ -4508,7 +4709,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             )}
                             {(!m.channels || (!m.channels.pine_labs?.enabled && !m.channels.payswiff?.enabled && !m.channels.qr?.enabled)) && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#64748B', padding: '2px 6px', borderRadius: '4px' }}>
-                                📟 {m.pos_provider || 'Pine Labs'} ({(m.pos_terminal || 'PL-TS').split('|')[0]})
+                                📟 {m.pos_provider || 'Pine Labs'} (T+1: {m.commission_rate_t1 || 1.50}% • Instant: {m.commission_rate_instant || 1.80}%)
                               </span>
                             )}
                             <button
@@ -7923,15 +8124,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 </div>
               </div>
 
-              {/* Option 1: Assigned Payment Channels & Terminals (Multi-Channel Portfolio) */}
+              {/* Assigned Payment Channels, POS Terminals & Dynamic MDR Rates (Universal for ALL Roles) */}
               <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px', padding: '0.85rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <label style={{ fontSize: '0.75rem', fontWeight: 900, color: '#0F172A', display: 'block' }}>
-                      Assigned Payment Channels & Terminals
+                      Assigned Payment Channels &amp; Settlement MDR Rates
                     </label>
                     <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
-                      Add physical swipe machines and/or grant Company QR access to this merchant.
+                      Configure this partner&apos;s buy rates and optional POS swipe terminals / Company QR access.
                     </span>
                   </div>
                 </div>
@@ -8377,7 +8578,6 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     </div>
                   </div>
                 )}
-
               </div>
 
               {/* Agreement Copy & Confirmation Checkbox */}

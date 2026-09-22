@@ -96,10 +96,22 @@ export async function insertIntoTable(table, data) {
   const values = Object.values(data);
   const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
 
+  const primaryKeys = {
+    users: 'id',
+    wallets: 'user_id',
+    merchant_pos: 'merchant_id',
+    transactions: 'id',
+    withdrawals: 'id',
+    beneficiaries: 'id',
+    inquiries: 'id',
+    media_files: 'id',
+  };
+  const pk = primaryKeys[table] || 'id';
+
   const sql = `
     INSERT INTO ${table} (${keys.join(', ')})
     VALUES (${placeholders})
-    ON CONFLICT (id) DO UPDATE SET ${keys.map(k => `${k} = EXCLUDED.${k}`).join(', ')}
+    ON CONFLICT (${pk}) DO UPDATE SET ${keys.map(k => `${k} = EXCLUDED.${k}`).join(', ')}
     RETURNING *;
   `;
 
