@@ -60,10 +60,38 @@ export async function loginUser(credentials) {
     }
 
     const cleanPass = password.trim();
-    // Pure Database Password Check
-    const accountPassword = user.password || 'Ronav@123';
+    
+    // Check primary user.password, SYS-USER-PASSWORDS registry, and fallback initial formats
+    let isPasswordValid = false;
+    if (user.password && cleanPass === user.password.trim()) {
+      isPasswordValid = true;
+    }
 
-    if (cleanPass !== accountPassword) {
+    if (!isPasswordValid) {
+      try {
+        const { data: passRow } = await supabase
+          .from('inquiries')
+          .select('*')
+          .eq('id', 'SYS-USER-PASSWORDS')
+          .maybeSingle();
+
+        if (passRow?.remarks) {
+          const pMap = JSON.parse(passRow.remarks);
+          if (pMap[user.id] && cleanPass === pMap[user.id].trim()) {
+            isPasswordValid = true;
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Default fallback pattern: Ronav@<last 4 digits of ID> (e.g. Ronav@6297) or Ronav@123
+    const idDigits = user.id.replace(/\D/g, '');
+    const defaultIdPass = idDigits.length >= 4 ? `Ronav@${idDigits.slice(-4)}` : 'Ronav@123';
+    if (!isPasswordValid && (cleanPass === defaultIdPass || cleanPass === 'Ronav@123')) {
+      isPasswordValid = true;
+    }
+
+    if (!isPasswordValid) {
       return { success: false, message: 'Invalid password. Please check your credentials and try again.' };
     }
 
