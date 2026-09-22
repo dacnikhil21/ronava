@@ -2,7 +2,6 @@ import pg from 'pg';
 import { db as sqliteDb } from './db.js';
 
 const { Pool } = pg;
-
 const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL;
 
 let pool = null;
@@ -15,99 +14,142 @@ if (connectionString) {
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
   });
-  console.log('[PostgreSQL] Initialized connection pool with DATABASE_URL.');
+  console.log('[PostgreSQL] Connected to database pool.');
 } else {
-  console.log('[Database] No PostgreSQL DATABASE_URL detected. Running with SQLite + Supabase.');
+  console.log('[Database] No DATABASE_URL found. Operating in SQLite local mode.');
+}
+
+export function getPool() {
+  return pool;
 }
 
 /**
- * Initialize relational schema on PostgreSQL (including media_files table)
+ * Execute raw SQL parameterized query
  */
-export async function initPostgresSchema() {
-  if (!pool) return false;
-
-  const client = await pool.connect();
-  try {
-    console.log('[PostgreSQL] Initializing tables...');
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS media_files (
-        id VARCHAR(64) PRIMARY KEY,
-        merchant_id VARCHAR(50),
-        file_name VARCHAR(255) NOT NULL,
-        s3_key VARCHAR(500) NOT NULL,
-        s3_url TEXT NOT NULL,
-        cdn_url TEXT,
-        mime_type VARCHAR(100),
-        file_size_bytes BIGINT DEFAULT 0,
-        entity_type VARCHAR(50) DEFAULT 'GENERAL', -- 'KYC_AADHAAR', 'KYC_PAN', 'LOAN_DOC', 'RECEIPT', 'AVATAR'
-        entity_id VARCHAR(100),
-        status VARCHAR(20) DEFAULT 'ACTIVE',
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE IF NOT EXISTS merchants (
-        id VARCHAR(50) PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        business_name VARCHAR(255),
-        phone VARCHAR(20) NOT NULL,
-        email VARCHAR(255),
-        role VARCHAR(50) DEFAULT 'MERCHANT',
-        status VARCHAR(20) DEFAULT 'ACTIVE',
-        wallet_balance NUMERIC(15,2) DEFAULT 0.00,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE IF NOT EXISTS transactions (
-        id VARCHAR(64) PRIMARY KEY,
-        merchant_id VARCHAR(50),
-        type VARCHAR(50) NOT NULL,
-        amount NUMERIC(15,2) NOT NULL,
-        status VARCHAR(20) DEFAULT 'SUCCESS',
-        description TEXT,
-        customer_name VARCHAR(255),
-        customer_phone VARCHAR(20),
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE IF NOT EXISTS beneficiaries (
-        id VARCHAR(64) PRIMARY KEY,
-        merchant_id VARCHAR(50),
-        account_number VARCHAR(50) NOT NULL,
-        ifsc VARCHAR(20) NOT NULL,
-        beneficiary_name VARCHAR(255) NOT NULL,
-        bank_name VARCHAR(255),
-        is_primary BOOLEAN DEFAULT FALSE,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE IF NOT EXISTS inquiries (
-        id VARCHAR(64) PRIMARY KEY,
-        type VARCHAR(50) NOT NULL, -- 'LOAN', 'FRANCHISE', 'POS'
-        name VARCHAR(255) NOT NULL,
-        phone VARCHAR(20) NOT NULL,
-        merchant_id VARCHAR(50),
-        amount VARCHAR(50),
-        category VARCHAR(100),
-        location VARCHAR(255),
-        remarks TEXT,
-        status VARCHAR(20) DEFAULT 'NEW',
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_media_merchant ON media_files(merchant_id);
-      CREATE INDEX IF NOT EXISTS idx_media_entity ON media_files(entity_type, entity_id);
-      CREATE INDEX IF NOT EXISTS idx_txn_merchant ON transactions(merchant_id);
-    `);
-
-    console.log('[PostgreSQL] ✓ Schema and media_files table verified successfully.');
-    return true;
-  } catch (err) {
-    console.error('[PostgreSQL] Schema initialization error:', err.message);
-    return false;
-  } finally {
-    client.release();
+export async function query(sql, params = []) {
+  if (pool) {
+    const res = await pool.query(sql, params);
+    return res.rows;
   }
+  // SQLite fallback
+  try {
+    let sqliteSql = sql;
+    // Replace $1, $2 with ? for SQLite
+    let paramIndex = 1;
+    while (sqliteSql.includes(`$${paramIndex}`)) {
+      sqliteSql = sqliteSql.replace(`$${paramIndex}`, '?');
+      paramIndex++;
+    }
+    if (sqliteSql.trim().toUpperCase().startsWith('SELECT')) {
+      return sqliteDb.prepare(sqliteSql).all(...params);
+    } else {
+      const info = sqliteDb.prepare(sqliteSql).run(...params);
+      return [info];
+    }
+  } catch (err) {
+    console.error('[Database Query Error]:', err.message, sql);
+    throw err;
+  }
+}
+
+/**
+ * Generic Table Select with filter support
+ */
+export async function selectFromTable(table, filters = {}, options = {}) {
+  const allowedTables = ['users', 'wallets', 'merchant_pos', 'transactions', 'withdrawals', 'beneficiaries', 'inquiries', 'media_files'];
+  if (!allowedTables.includes(table)) {
+    throw new Error(`Table "${table}" is not allowed.`);
+  }
+
+  let sql = `SELECT * FROM ${table} WHERE 1=1`;
+  const params = [];
+
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== null) {
+      params.push(value);
+      sql += ` AND ${key} = $${params.length}`;
+    }
+  }
+
+  if (options.orderBy) {
+    sql += ` ORDER BY ${options.orderBy} ${options.orderDirection || 'DESC'}`;
+  }
+
+  if (options.limit) {
+    params.push(options.limit);
+    sql += ` LIMIT $${params.length}`;
+  }
+
+  return await query(sql, params);
+}
+
+/**
+ * Generic Insert into Table
+ */
+export async function insertIntoTable(table, data) {
+  const allowedTables = ['users', 'wallets', 'merchant_pos', 'transactions', 'withdrawals', 'beneficiaries', 'inquiries', 'media_files'];
+  if (!allowedTables.includes(table)) {
+    throw new Error(`Table "${table}" is not allowed.`);
+  }
+
+  const keys = Object.keys(data);
+  const values = Object.values(data);
+  const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
+
+  const sql = `
+    INSERT INTO ${table} (${keys.join(', ')})
+    VALUES (${placeholders})
+    ON CONFLICT (id) DO UPDATE SET ${keys.map(k => `${k} = EXCLUDED.${k}`).join(', ')}
+    RETURNING *;
+  `;
+
+  if (pool) {
+    const res = await pool.query(sql, values);
+    return res.rows[0];
+  }
+
+  // SQLite fallback
+  const sqliteSql = `
+    INSERT OR REPLACE INTO ${table} (${keys.join(', ')})
+    VALUES (${keys.map(() => '?').join(', ')});
+  `;
+  sqliteDb.prepare(sqliteSql).run(...values);
+  return data;
+}
+
+/**
+ * Generic Update in Table
+ */
+export async function updateTable(table, data, matchColumn, matchValue) {
+  const allowedTables = ['users', 'wallets', 'merchant_pos', 'transactions', 'withdrawals', 'beneficiaries', 'inquiries', 'media_files'];
+  if (!allowedTables.includes(table)) {
+    throw new Error(`Table "${table}" is not allowed.`);
+  }
+
+  const keys = Object.keys(data);
+  const values = Object.values(data);
+  values.push(matchValue);
+
+  const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
+  const matchIndex = values.length;
+
+  const sql = `
+    UPDATE ${table}
+    SET ${setClause}
+    WHERE ${matchColumn} = $${matchIndex}
+    RETURNING *;
+  `;
+
+  if (pool) {
+    const res = await pool.query(sql, values);
+    return res.rows;
+  }
+
+  // SQLite fallback
+  const sqliteSetClause = keys.map(k => `${k} = ?`).join(', ');
+  const sqliteSql = `UPDATE ${table} SET ${sqliteSetClause} WHERE ${matchColumn} = ?;`;
+  sqliteDb.prepare(sqliteSql).run(...values);
+  return [data];
 }
 
 /**
@@ -115,86 +157,42 @@ export async function initPostgresSchema() {
  */
 export async function recordMediaFile({ id, merchant_id, file_name, s3_key, s3_url, cdn_url, mime_type, file_size_bytes, entity_type, entity_id }) {
   const mediaId = id || `MED-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-  if (pool) {
-    try {
-      const res = await pool.query(`
-        INSERT INTO media_files (id, merchant_id, file_name, s3_key, s3_url, cdn_url, mime_type, file_size_bytes, entity_type, entity_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        RETURNING *;
-      `, [mediaId, merchant_id || null, file_name, s3_key, s3_url, cdn_url || s3_url, mime_type || 'application/octet-stream', file_size_bytes || 0, entity_type || 'GENERAL', entity_id || null]);
-      return res.rows[0];
-    } catch (err) {
-      console.error('[PostgreSQL] recordMediaFile error:', err.message);
-    }
-  }
-
-  // SQLite Fallback
-  try {
-    sqliteDb.prepare(`
-      CREATE TABLE IF NOT EXISTS media_files (
-        id TEXT PRIMARY KEY,
-        merchant_id TEXT,
-        file_name TEXT,
-        s3_key TEXT,
-        s3_url TEXT,
-        cdn_url TEXT,
-        mime_type TEXT,
-        file_size_bytes INTEGER DEFAULT 0,
-        entity_type TEXT DEFAULT 'GENERAL',
-        entity_id TEXT,
-        status TEXT DEFAULT 'ACTIVE',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `).run();
-
-    sqliteDb.prepare(`
-      INSERT OR REPLACE INTO media_files (id, merchant_id, file_name, s3_key, s3_url, cdn_url, mime_type, file_size_bytes, entity_type, entity_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(mediaId, merchant_id || null, file_name, s3_key, s3_url, cdn_url || s3_url, mime_type || 'application/octet-stream', file_size_bytes || 0, entity_type || 'GENERAL', entity_id || null);
-
-    return sqliteDb.prepare(`SELECT * FROM media_files WHERE id = ?`).get(mediaId);
-  } catch (err) {
-    console.error('[SQLite] recordMediaFile error:', err.message);
-    return null;
-  }
+  return await insertIntoTable('media_files', {
+    id: mediaId,
+    merchant_id: merchant_id || null,
+    file_name,
+    s3_key,
+    s3_url,
+    cdn_url: cdn_url || s3_url,
+    mime_type: mime_type || 'application/octet-stream',
+    file_size_bytes: file_size_bytes || 0,
+    entity_type: entity_type || 'GENERAL',
+    entity_id: entity_id || null,
+    status: 'ACTIVE',
+  });
 }
 
 /**
- * Query media files by merchant or entity
+ * Query media files
  */
 export async function getMediaFiles(merchant_id = null, entity_type = null) {
-  if (pool) {
-    let query = 'SELECT * FROM media_files WHERE 1=1';
-    const params = [];
-    if (merchant_id) {
-      params.push(merchant_id);
-      query += ` AND merchant_id = $${params.length}`;
-    }
-    if (entity_type) {
-      params.push(entity_type);
-      query += ` AND entity_type = $${params.length}`;
-    }
-    query += ' ORDER BY created_at DESC';
-    const res = await pool.query(query, params);
-    return res.rows;
-  }
+  const filters = {};
+  if (merchant_id) filters.merchant_id = merchant_id;
+  if (entity_type) filters.entity_type = entity_type;
+  return await selectFromTable('media_files', filters, { orderBy: 'created_at', orderDirection: 'DESC' });
+}
 
-  // SQLite fallback
+/**
+ * Auto-Initialize Schema if needed
+ */
+export async function initPostgresSchema() {
+  if (!pool) return false;
   try {
-    let query = 'SELECT * FROM media_files WHERE 1=1';
-    const params = [];
-    if (merchant_id) {
-      params.push(merchant_id);
-      query += ' AND merchant_id = ?';
-    }
-    if (entity_type) {
-      params.push(entity_type);
-      query += ' AND entity_type = ?';
-    }
-    query += ' ORDER BY created_at DESC';
-    return sqliteDb.prepare(query).all(...params);
+    const client = await pool.connect();
+    client.release();
+    return true;
   } catch (err) {
-    return [];
+    console.error('[PostgreSQL] Connection check failed:', err.message);
+    return false;
   }
 }

@@ -1,8 +1,8 @@
 import 'dotenv/config';
 import { db } from './db.js';
-import { syncToSupabase } from './supabase.js';
 import { verifyS3Connection, getPresignedUploadUrl, uploadBufferToS3, deleteS3Object } from './s3.js';
-import { initPostgresSchema, getMediaFiles } from './pg_db.js';
+import { initPostgresSchema, getMediaFiles, query as pgQuery, selectFromTable, insertIntoTable, updateTable } from './pg_db.js';
+
 
 // Auto-initialize PostgreSQL schema if DATABASE_URL is configured
 initPostgresSchema().catch(() => {});
@@ -1093,6 +1093,49 @@ export async function handleApiRequest(req, res) {
         return sendJson(res, 200, { success: true, ...result });
       } catch (err) {
         return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
+    // ----------------------------------------------------
+    // POSTGRESQL REST QUERY ENGINE (Independent from Supabase)
+    // ----------------------------------------------------
+    if (pathname === '/api/db/select' && method === 'POST') {
+      const { table, filters, options } = await parseJsonBody(req);
+      try {
+        const rows = await selectFromTable(table, filters || {}, options || {});
+        return sendJson(res, 200, { success: true, data: rows });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    if (pathname === '/api/db/insert' && method === 'POST') {
+      const { table, data } = await parseJsonBody(req);
+      try {
+        const inserted = await insertIntoTable(table, data);
+        return sendJson(res, 201, { success: true, data: inserted });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    if (pathname === '/api/db/update' && method === 'POST') {
+      const { table, data, matchColumn, matchValue } = await parseJsonBody(req);
+      try {
+        const updated = await updateTable(table, data, matchColumn, matchValue);
+        return sendJson(res, 200, { success: true, data: updated });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    if (pathname === '/api/db/query' && method === 'POST') {
+      const { sql, params } = await parseJsonBody(req);
+      try {
+        const rows = await pgQuery(sql, params || []);
+        return sendJson(res, 200, { success: true, data: rows });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
       }
     }
 

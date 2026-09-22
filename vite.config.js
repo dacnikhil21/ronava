@@ -6,8 +6,8 @@ function apiPlugin() {
     name: 'ronav-api-middleware',
     async configureServer(server) {
       const { handleApiRequest } = await import('./server/api.js');
-      const { checkSupabaseConnection } = await import('./server/supabase.js');
-      checkSupabaseConnection().catch(() => {});
+      const { initPostgresSchema } = await import('./server/pg_db.js');
+      initPostgresSchema().catch(() => {});
       server.middlewares.use(async (req, res, next) => {
         if (req.url && req.url.startsWith('/api/')) {
           await handleApiRequest(req, res);
