@@ -1643,7 +1643,6 @@ export async function recordMerchantSale(saleData) {
       .insert({
         id: txnId,
         merchant_id,
-        customer_mobile: customer_mobile || null,
         amount: numAmount,
         type: finalTxnType,
         provider,
@@ -2077,22 +2076,24 @@ export async function getBeneficiaries(merchantId) {
 
 export async function addBeneficiary(data) {
   try {
-    const { merchant_id, bank_name, account_number, ifsc, holder_name, is_primary } = data;
+    const { merchant_id, bank_name, account_number, ifsc, holder_name, beneficiary_name, is_primary } = data;
     if (!merchant_id || !bank_name || !account_number) {
       return { success: false, message: 'Missing required bank details.' };
     }
 
+    const benName = (holder_name || beneficiary_name || 'Account Holder').trim();
     const benId = `BEN-${Date.now().toString().slice(-6)}`;
     const { data: created, error } = await supabase
       .from('beneficiaries')
       .insert({
         id: benId,
         merchant_id,
-        bank_name,
-        account_number,
-        ifsc: ifsc || 'SBIN0001234',
-        holder_name: holder_name || 'Account Holder',
-        is_primary: is_primary ? 1 : 0
+        bank_name: bank_name.trim(),
+        account_number: account_number.trim(),
+        ifsc: (ifsc || 'SBIN0001234').trim().toUpperCase(),
+        beneficiary_name: benName,
+        holder_name: benName,
+        is_primary: Boolean(is_primary)
       })
       .select()
       .single();
@@ -2379,8 +2380,34 @@ export async function verifyTransaction(txnId, action, remark = '') {
       return { success: false, message: 'Transaction not found.' };
     }
 
-    if (txn.status !== 'PENDING') {
-      return { success: false, message: `Transaction already processed (${txn.status}).` };
+    if (txn.status === 'REVERSED' || txn.status === 'REJECTED') {
+      return { success: false, message: `Transaction is already ${txn.status}.` };
+    }
+
+    // 1. If transaction was already credited instantly (status === 'APPROVED'):
+    if (txn.status === 'APPROVED') {
+      if (action === 'APPROVE') {
+        const auditRemark = remark && remark.trim() ? remark.trim() : '[VERIFIED_BY_ADMIN] Audited & verified against POS settlement report';
+        const finalRemark = auditRemark.includes('[VERIFIED_BY_ADMIN]') ? auditRemark : `[VERIFIED_BY_ADMIN] ${auditRemark}`;
+        
+        await supabase
+          .from('transactions')
+          .update({
+            admin_remark: finalRemark,
+            verified_at: new Date().toISOString()
+          })
+          .eq('id', txnId);
+
+        const { data: updatedTxn } = await supabase.from('transactions').select('*').eq('id', txnId).single();
+        return {
+          success: true,
+          message: `✓ Transaction ${txnId} verified & audited against POS settlement report!`,
+          transaction: updatedTxn
+        };
+      } else {
+        // Rejecting an already-credited transaction -> Execute Clawback & Commission Rollback
+        return await clawbackTransaction(txnId, remark || 'Weekly POS reconciliation rejection');
+      }
     }
 
     const amount = parseFloat(txn.amount);
@@ -2418,7 +2445,7 @@ export async function verifyTransaction(txnId, action, remark = '') {
         .from('transactions')
         .update({
           status: 'APPROVED',
-          admin_remark: remark || 'Verified and approved against POS Machine back-office portal',
+          admin_remark: remark || '[VERIFIED_BY_ADMIN] Verified and approved against POS Machine back-office portal',
           verified_at: new Date().toISOString()
         })
         .eq('id', txnId);

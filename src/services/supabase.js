@@ -4,6 +4,14 @@
  * Zero external dependence, zero monthly fees, zero latency.
  */
 
+function getApiUrl(endpoint) {
+  if (typeof window !== 'undefined' && window.location && window.location.origin) {
+    return endpoint;
+  }
+  const base = (typeof process !== 'undefined' && (process.env?.API_BASE_URL || process.env?.VITE_API_BASE_URL)) || 'http://127.0.0.1:5000';
+  return `${base}${endpoint}`;
+}
+
 class TableQueryBuilder {
   constructor(table) {
     this.table = table;
@@ -108,7 +116,7 @@ class TableQueryBuilder {
         const results = [];
 
         for (const item of items) {
-          const res = await fetch('/api/db/insert', {
+          const res = await fetch(getApiUrl('/api/db/insert'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ table: this.table, data: item }),
@@ -128,7 +136,7 @@ class TableQueryBuilder {
         const matchCol = filterKeys[0] || 'id';
         const matchVal = this._filters[matchCol];
 
-        const res = await fetch('/api/db/update', {
+        const res = await fetch(getApiUrl('/api/db/update'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -145,7 +153,7 @@ class TableQueryBuilder {
       }
 
       // Default: select
-      const res = await fetch('/api/db/select', {
+      const res = await fetch(getApiUrl('/api/db/select'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -203,7 +211,7 @@ class SelfHostedDatabaseClient {
 
   async rpc(procedure, params = {}) {
     try {
-      const res = await fetch('/api/db/query', {
+      const res = await fetch(getApiUrl('/api/db/query'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sql: `SELECT * FROM ${procedure}($1)`, params: [params] }),

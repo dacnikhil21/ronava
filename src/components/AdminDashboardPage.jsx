@@ -120,6 +120,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   const [payoutPage, setPayoutPage] = useState(1);
   const [payoutSettlementFilter, setPayoutSettlementFilter] = useState('ALL'); // 'ALL' | 'T1' | 'INSTANT'
   const [batchDisbursalModal, setBatchDisbursalModal] = useState(null);
+  const [downloadConfirmModal, setDownloadConfirmModal] = useState(null); // Pre-download Scope Intimation Modal
   const [selectedChannel, setSelectedChannel] = useState('all'); // 'all' | 'pinelabs' | 'payswiff' | 'qr'
   const [selectedPayswiffVendor, setSelectedPayswiffVendor] = useState('ronav'); // 'ronav' | 'rp'
   const [companyQrImage, setCompanyQrImage] = useState(() => {
@@ -4892,8 +4893,18 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               // Tag records
               const allSwipes = dedupeById([
                 ...combinedPendingTxns.map(item => ({ ...item, _entityType: 'SWIPE', _subStatus: 'PENDING' })),
-                ...combinedLedger.filter(t => t.status === 'APPROVED').map(item => ({ ...item, _entityType: 'SWIPE', _subStatus: 'APPROVED' })),
-                ...combinedLedger.filter(t => t.status === 'REJECTED' || t.status === 'INVALID').map(item => ({ ...item, _entityType: 'SWIPE', _subStatus: 'INVALID' }))
+                ...combinedLedger.filter(t => t.status === 'APPROVED').map(item => {
+                  const isAudited = Boolean(
+                    item.admin_remark && 
+                    (item.admin_remark.includes('[VERIFIED_BY_ADMIN]') || item.admin_remark.includes('[AUDIT_OK]') || item.admin_remark.includes('Verified and approved against POS'))
+                  );
+                  return {
+                    ...item,
+                    _entityType: 'SWIPE',
+                    _subStatus: isAudited ? 'APPROVED' : 'PENDING'
+                  };
+                }),
+                ...combinedLedger.filter(t => t.status === 'REJECTED' || t.status === 'INVALID' || t.status === 'REVERSED').map(item => ({ ...item, _entityType: 'SWIPE', _subStatus: 'INVALID' }))
               ]);
 
               const allWithdrawals = dedupeById([
@@ -5134,9 +5145,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
               const channelTotalVol = channelAllItems.reduce((acc, i) => acc + (parseFloat(i.amount) || 0), 0);
 
-              const handleDownloadBankExcel = async () => {
+              const handleInitiateBankDownload = () => {
                 setIsExportMenuOpen(false);
                 const channelAllWithdrawals = dedupeById(filterByChannel(allWithdrawals));
+                const channelAllSwipes = dedupeById(filterByChannel(allSwipes));
+                
                 const channelSlug = selectedChannel === 'all'
                   ? 'All_Channels'
                   : (selectedChannel === 'pinelabs' 
@@ -5150,25 +5163,37 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 const now = new Date();
                 const today = now.toISOString().slice(0, 10);
 
-                // Normal Pending Payouts
-                const allPendingT1Withdrawals = channelAllWithdrawals.filter(item => 
+                // 1. Pending T+1 Withdrawals
+                let pendingT1Withdrawals = channelAllWithdrawals.filter(item => 
                   item._entityType === 'WITHDRAWAL' &&
                   !isItemInstant(item) &&
                   item._subStatus === 'PENDING'
                 );
 
-                if (allPendingT1Withdrawals.length === 0) {
-                  triggerToast(`No Pending T+1 withdrawals found for ${channelName}.`, 'info');
-                  return;
+                // 2. Pending Instant Withdrawals
+                let pendingInstantWithdrawals = channelAllWithdrawals.filter(item => 
+                  item._entityType === 'WITHDRAWAL' &&
+                  isItemInstant(item) &&
+                  item._subStatus === 'PENDING'
+                );
+
+                // 3. Pending Swipes
+                let pendingSwipes = channelAllSwipes.filter(item => 
+                  item._entityType === 'SWIPE' &&
+                  item._subStatus === 'PENDING'
+                );
+
+                // Check if specific checkboxes are selected
+                const isSpecificSelected = Boolean(selectedPendingIds && selectedPendingIds.size > 0);
+                if (isSpecificSelected) {
+                  pendingT1Withdrawals = pendingT1Withdrawals.filter(w => selectedPendingIds.has(w.id));
+                  pendingInstantWithdrawals = pendingInstantWithdrawals.filter(w => selectedPendingIds.has(w.id));
+                  pendingSwipes = pendingSwipes.filter(s => selectedPendingIds.has(s.id));
                 }
 
-                // If admin selected specific checkboxes, download only those selected items!
-                let itemsToBatch = allPendingT1Withdrawals;
-                if (selectedPendingIds && selectedPendingIds.size > 0) {
-                  const filtered = allPendingT1Withdrawals.filter(w => selectedPendingIds.has(w.id));
-                  if (filtered.length > 0) {
-                    itemsToBatch = filtered;
-                  }
+                if (pendingT1Withdrawals.length === 0 && pendingInstantWithdrawals.length === 0) {
+                  triggerToast(`No pending bank withdrawals found in current selection for ${channelName}.`, 'info');
+                  return;
                 }
 
                 // Calculate today's batch number
@@ -5188,23 +5213,44 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
                 const dateStr = now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
                 const batchName = `Today's Batch #${batchSeq} (${dayName} · ${timeStr})`;
-
-                // Name file with channel, batch, and date
                 const fileName = `RONAV_${channelSlug}_T1_Batch_${batchSeq}_${today}.csv`;
 
-                // Download 6-column bank CSV/Excel
-                const res = downloadBankBatchFile(itemsToBatch, { fileName });
+                setDownloadConfirmModal({
+                  isOpen: true,
+                  channelName,
+                  channelSlug,
+                  t1Withdrawals: pendingT1Withdrawals,
+                  instantWithdrawals: pendingInstantWithdrawals,
+                  swipes: pendingSwipes,
+                  isSpecificSelected,
+                  selectedCount: selectedPendingIds ? selectedPendingIds.size : 0,
+                  batchSeq,
+                  batchId,
+                  batchName,
+                  fileName,
+                  includeInstant: false
+                });
+              };
+
+              const executeConfirmedBankDownload = async (itemsToBatch, modalMeta) => {
+                if (!itemsToBatch || itemsToBatch.length === 0) {
+                  triggerToast('No withdrawal items to download.', 'error');
+                  return;
+                }
+                const now = new Date();
+                const res = downloadBankBatchFile(itemsToBatch, { fileName: modalMeta.fileName });
                 if (res && res.success) {
                   const downloadedIds = itemsToBatch.map(w => w.id);
                   await markWithdrawalsSubmittedToBank(downloadedIds, {
-                    batchId,
-                    batchName,
+                    batchId: modalMeta.batchId,
+                    batchName: modalMeta.batchName,
                     submittedAt: now.toISOString()
                   });
                   setSelectedPendingIds(new Set());
+                  setDownloadConfirmModal(null);
                   await fetchAdminData();
                   setPayoutStatusFilter('SUBMITTED_TO_BANK');
-                  triggerToast(`📥 Created ${batchName} with ${itemsToBatch.length} payout(s)! Transferred to Submitted tab.`, 'success');
+                  triggerToast(`📥 Created ${modalMeta.batchName} with ${itemsToBatch.length} payout(s)! Transferred to Submitted tab.`, 'success');
                 } else {
                   triggerToast(res?.error || 'Failed to download bank sheet.', 'error');
                 }
@@ -5947,7 +5993,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           {/* Right: Download Bank Sheet Button */}
                           <button
                             type="button"
-                            onClick={handleDownloadBankExcel}
+                            onClick={handleInitiateBankDownload}
                             style={{
                               background: '#0F52BA',
                               color: '#FFFFFF',
@@ -6482,14 +6528,59 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 </div>
 
                                 <div style={{
-                                  fontSize: '1rem',
-                                  fontWeight: 800,
-                                  color: isSwipe ? '#059669' : '#0F172A',
-                                  fontVariantNumeric: 'tabular-nums',
-                                  letterSpacing: '-0.02em',
-                                  whiteSpace: 'nowrap'
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px'
                                 }}>
-                                  {amountStr}
+                                  <div style={{
+                                    fontSize: '1rem',
+                                    fontWeight: 800,
+                                    color: isSwipe ? '#059669' : '#0F172A',
+                                    fontVariantNumeric: 'tabular-nums',
+                                    letterSpacing: '-0.02em',
+                                    whiteSpace: 'nowrap'
+                                  }}>
+                                    {amountStr}
+                                  </div>
+
+                                  {isSwipe && isPending && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} onClick={e => e.stopPropagation()}>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleTransactionAction(item.id, 'APPROVE', item.merchant_name, item.amount, '[VERIFIED_BY_ADMIN] Audited & verified against POS settlement report')}
+                                        title="Verify and audit this card swipe"
+                                        style={{
+                                          background: '#059669',
+                                          color: '#FFFFFF',
+                                          border: 'none',
+                                          padding: '4px 8px',
+                                          borderRadius: '6px',
+                                          fontSize: '0.7rem',
+                                          fontWeight: 700,
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        ✓ Verify
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleClawbackTransaction(item.id, item.merchant_name, item.amount, 'Weekly audit rejection')}
+                                        title="Reject and clawback this swipe from merchant"
+                                        style={{
+                                          background: '#FEF2F2',
+                                          color: '#DC2626',
+                                          border: '1px solid #FECACA',
+                                          padding: '4px 7px',
+                                          borderRadius: '6px',
+                                          fontSize: '0.7rem',
+                                          fontWeight: 700,
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        🚨 Clawback
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
 
@@ -6519,7 +6610,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 }}>
                                   {isPending ? (
                                     <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#D97706' }}>
-                                      ● Pending · {speedLabel}
+                                      {isSwipe ? `● Awaiting Audit · ${speedLabel}` : `● Pending · ${speedLabel}`}
                                     </span>
                                   ) : item._subStatus === 'SUBMITTED_TO_BANK' ? (
                                     <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#2563EB', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
@@ -6527,11 +6618,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                     </span>
                                   ) : isApproved ? (
                                     <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#059669' }}>
-                                      ✓ Settled · {speedLabel}
+                                      {isSwipe ? `✓ Audited & Verified · ${speedLabel}` : `✓ Settled · ${speedLabel}`}
                                     </span>
                                   ) : (
                                     <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#DC2626' }}>
-                                      ✕ Invalid
+                                      {isSwipe ? '✕ Reversed / Clawbacked' : '✕ Invalid'}
                                     </span>
                                   )}
                                   <ChevronDown style={{
@@ -6733,7 +6824,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                       padding: '0.65rem 0.85rem',
                                       fontSize: '0.78125rem'
                                     }}>
-                                      <span style={{ color: '#64748B', fontWeight: 600 }}>Submitted At</span>
+                                      <span style={{ color: '#64748B', fontWeight: 600 }}>Recorded At</span>
                                       <span style={{ color: '#0F172A', fontWeight: 600 }}>{displayDate}</span>
                                     </div>
                                   </div>
@@ -6954,73 +7045,94 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                   </strong>
                                 </div>
 
-                                {/* ADMIN ACTIONS FOR PENDING / SUBMITTED ITEMS */}
+                                {/* ADMIN ACTIONS FOR SWIPES */}
                                 {isSwipe ? (
-                                  (isPending || item._subStatus === 'SUBMITTED_TO_BANK') && (
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.4rem' }}>
+                                  isPending ? (
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          handleTransactionAction(item.id, 'APPROVE', item.merchant_name, item.amount, 'Slip Verified & Credited');
+                                          handleTransactionAction(item.id, 'APPROVE', item.merchant_name, item.amount, '[VERIFIED_BY_ADMIN] Audited & verified against POS settlement report');
                                           setExpandedPayoutId(null);
                                         }}
                                         style={{
                                           background: '#059669',
                                           color: '#FFFFFF',
                                           border: 'none',
-                                          padding: '0.55rem',
+                                          padding: '0.6rem',
                                           borderRadius: '8px',
-                                          fontSize: '0.75rem',
+                                          fontSize: '0.78rem',
                                           fontWeight: 700,
                                           cursor: 'pointer',
                                           display: 'flex',
                                           alignItems: 'center',
                                           justifyContent: 'center',
-                                          gap: '4px'
+                                          gap: '5px',
+                                          boxShadow: '0 1px 3px rgba(5,150,105,0.25)'
                                         }}
                                       >
-                                        ✓ Verify Slip
+                                        ✓ Mark Verified / Audit OK
                                       </button>
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          triggerToast('Kept in pending queue', 'info');
-                                          setExpandedPayoutId(null);
-                                        }}
-                                        style={{
-                                          background: '#FFFBEB',
-                                          color: '#D97706',
-                                          border: '1px solid #FCD34D',
-                                          padding: '0.55rem',
-                                          borderRadius: '8px',
-                                          fontSize: '0.75rem',
-                                          fontWeight: 700,
-                                          cursor: 'pointer'
-                                        }}
-                                      >
-                                        ⏳ Keep Pending
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          handleTransactionAction(item.id, 'REJECT', item.merchant_name, item.amount, 'Verification Failed');
+                                          handleClawbackTransaction(item.id, item.merchant_name, item.amount, 'Disputed / Unmatched POS slip during weekly audit');
                                           setExpandedPayoutId(null);
                                         }}
                                         style={{
                                           background: '#FEF2F2',
                                           color: '#DC2626',
                                           border: '1px solid #FECACA',
-                                          padding: '0.55rem',
+                                          padding: '0.6rem',
                                           borderRadius: '8px',
-                                          fontSize: '0.75rem',
+                                          fontSize: '0.78rem',
+                                          fontWeight: 700,
+                                          cursor: 'pointer',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          gap: '5px'
+                                        }}
+                                      >
+                                        🚨 Reject / Clawback
+                                      </button>
+                                    </div>
+                                  ) : isApproved ? (
+                                    <div style={{
+                                      background: '#ECFDF5',
+                                      border: '1px solid #A7F3D0',
+                                      borderRadius: '8px',
+                                      padding: '0.6rem 0.85rem',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      gap: '0.5rem',
+                                      flexWrap: 'wrap'
+                                    }}>
+                                      <span style={{ fontSize: '0.75rem', color: '#047857', fontWeight: 700 }}>
+                                        ✓ Audited &amp; Settled against Bank Settlement Report
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          handleClawbackTransaction(item.id, item.merchant_name, item.amount, 'Post-audit chargeback / bank dispute');
+                                          setExpandedPayoutId(null);
+                                        }}
+                                        style={{
+                                          background: '#FFFFFF',
+                                          color: '#DC2626',
+                                          border: '1px solid #FECACA',
+                                          padding: '4px 10px',
+                                          borderRadius: '6px',
+                                          fontSize: '0.72rem',
                                           fontWeight: 700,
                                           cursor: 'pointer'
                                         }}
                                       >
-                                        ✕ Reject
+                                        🚨 Clawback
                                       </button>
                                     </div>
-                                  )
+                                  ) : null
                                 ) : (
                                   /* WITHDRAWAL (BANK PAYOUT) ACTIONS */
                                   isPending ? (
@@ -10026,6 +10138,333 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* BANK PAYOUT BATCH SCOPE & PRE-DOWNLOAD CONFIRMATION MODAL */}
+      {downloadConfirmModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(10, 25, 47, 0.75)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '1rem',
+          overflowY: 'auto'
+        }}>
+          <div style={{
+            background: '#FFFFFF',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '560px',
+            maxHeight: '92vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.25)',
+            border: '1.5px solid #CBD5E1',
+            overflow: 'hidden',
+            animation: 'slideIn 0.2s ease-out'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              background: 'linear-gradient(135deg, #0A192F 0%, #0F52BA 100%)',
+              color: '#FFFFFF',
+              padding: '1.1rem 1.25rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexShrink: 0
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '10px',
+                  background: 'rgba(255,255,255,0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '1.1rem'
+                }}>
+                  🏦
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '0.9375rem', fontWeight: 900, margin: 0, letterSpacing: '-0.01em' }}>
+                    Bank Payout Batch Clearance
+                  </h3>
+                  <span style={{ fontSize: '0.7rem', opacity: 0.85, display: 'block', marginTop: '1px' }}>
+                    Channel: <strong>{downloadConfirmModal.channelName}</strong> • {downloadConfirmModal.batchName}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDownloadConfirmModal(null)}
+                style={{
+                  background: 'rgba(255,255,255,0.15)',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '28px',
+                  height: '28px',
+                  color: '#FFFFFF',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '0.85rem'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '1.25rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem'
+            }}>
+              {/* Informational Guidance Notice */}
+              <div style={{
+                background: '#EFF6FF',
+                border: '1px solid #BFDBFE',
+                borderRadius: '12px',
+                padding: '0.75rem 0.9rem',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '8px'
+              }}>
+                <span style={{ fontSize: '1rem', lineHeight: 1 }}>ℹ️</span>
+                <span style={{ fontSize: '0.75rem', color: '#1E40AF', lineHeight: 1.45 }}>
+                  Bank CMS batch sheets are generated strictly for <strong>Bank Payout Transfers</strong>. Customer card swipes remain safely in your <strong>Swipes</strong> audit queue for weekly POS reconciliation and are <strong>never</strong> exported to the bank.
+                </span>
+              </div>
+
+              {/* Scope Breakdown */}
+              <div style={{
+                background: '#F8FAFC',
+                border: '1.5px solid #E2E8F0',
+                borderRadius: '12px',
+                padding: '0.85rem 1rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.75rem'
+              }}>
+                <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Current Selection Breakdown ({downloadConfirmModal.channelName})
+                </span>
+
+                {/* 1. T+1 Bank Withdrawals (Primary) */}
+                {(() => {
+                  const t1Items = downloadConfirmModal.t1Withdrawals || [];
+                  const t1Total = t1Items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+
+                  return (
+                    <div style={{
+                      background: '#FFFFFF',
+                      border: '1.5px solid #A7F3D0',
+                      borderRadius: '10px',
+                      padding: '0.75rem 0.85rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '0.5rem'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#ECFDF5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#059669', fontWeight: 800 }}>
+                          ✓
+                        </div>
+                        <div>
+                          <strong style={{ fontSize: '0.84375rem', color: '#0F172A', display: 'block' }}>
+                            T+1 Bank Withdrawals ({t1Items.length})
+                          </strong>
+                          <span style={{ fontSize: '0.6875rem', color: '#059669', fontWeight: 700 }}>
+                            Included in this Bank Sheet · Move to Submitted
+                          </span>
+                        </div>
+                      </div>
+                      <strong style={{ fontSize: '0.9375rem', color: '#0F172A', fontVariantNumeric: 'tabular-nums' }}>
+                        ₹{t1Total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                  );
+                })()}
+
+                {/* 2. Instant Withdrawals (Option to include/exclude) */}
+                {(() => {
+                  const insItems = downloadConfirmModal.instantWithdrawals || [];
+                  const insTotal = insItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+                  if (insItems.length === 0) return null;
+
+                  return (
+                    <div style={{
+                      background: '#FFFFFF',
+                      border: downloadConfirmModal.includeInstant ? '1.5px solid #BFDBFE' : '1px solid #E2E8F0',
+                      borderRadius: '10px',
+                      padding: '0.75rem 0.85rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '0.5rem'
+                    }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', flex: 1 }}>
+                        <input
+                          type="checkbox"
+                          checked={downloadConfirmModal.includeInstant}
+                          onChange={(e) => setDownloadConfirmModal(prev => ({ ...prev, includeInstant: e.target.checked }))}
+                          style={{ width: '16px', height: '16px', accentColor: '#0F52BA', cursor: 'pointer' }}
+                        />
+                        <div>
+                          <strong style={{ fontSize: '0.84375rem', color: '#0F172A', display: 'block' }}>
+                            Instant / IMPS Withdrawals ({insItems.length})
+                          </strong>
+                          <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
+                            {downloadConfirmModal.includeInstant ? 'Included in this batch sheet' : 'Excluded (Settled directly via IMPS)'}
+                          </span>
+                        </div>
+                      </label>
+                      <strong style={{ fontSize: '0.9375rem', color: '#0F172A', fontVariantNumeric: 'tabular-nums' }}>
+                        ₹{insTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+                  );
+                })()}
+
+                {/* 3. Counter Card Swipes (Excluded from Bank Sheet) */}
+                {(() => {
+                  const sItems = downloadConfirmModal.swipes || [];
+                  const sTotal = sItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+                  if (sItems.length === 0) return null;
+
+                  return (
+                    <div style={{
+                      background: '#F1F5F9',
+                      border: '1px solid #CBD5E1',
+                      borderRadius: '10px',
+                      padding: '0.65rem 0.85rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '0.5rem'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ width: '28px', height: '28px', borderRadius: '7px', background: '#E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748B', fontSize: '0.8rem' }}>
+                          💳
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#475569', display: 'block' }}>
+                            Customer Swipes ({sItems.length})
+                          </span>
+                          <span style={{ fontSize: '0.65625rem', color: '#64748B', fontWeight: 600 }}>
+                            🛡️ Maintained in Swipes audit queue · Not sent to bank
+                          </span>
+                        </div>
+                      </div>
+                      <span style={{ fontSize: '0.84375rem', fontWeight: 700, color: '#64748B', fontVariantNumeric: 'tabular-nums' }}>
+                        ₹{sTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Batch Export Details */}
+              <div style={{
+                background: '#FFFFFF',
+                border: '1px solid #E2E8F0',
+                borderRadius: '12px',
+                padding: '0.75rem 0.9rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.4rem',
+                fontSize: '0.75rem'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748B' }}>Target Bank File:</span>
+                  <strong style={{ color: '#0F52BA', fontFamily: 'monospace' }}>{downloadConfirmModal.fileName}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748B' }}>Batch Sequence:</span>
+                  <strong style={{ color: '#0F172A' }}>{downloadConfirmModal.batchName}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748B' }}>Post-Download Action:</span>
+                  <span style={{ color: '#059669', fontWeight: 700 }}>Transfers automatically to Submitted tab</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer Actions */}
+            {(() => {
+              const activeBatchItems = [
+                ...(downloadConfirmModal.t1Withdrawals || []),
+                ...(downloadConfirmModal.includeInstant ? (downloadConfirmModal.instantWithdrawals || []) : [])
+              ];
+              const batchTotalAmount = activeBatchItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+
+              return (
+                <div style={{
+                  background: '#F8FAFC',
+                  borderTop: '1px solid #E2E8F0',
+                  padding: '0.875rem 1.25rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.75rem',
+                  flexWrap: 'wrap'
+                }}>
+                  <button
+                    type="button"
+                    onClick={() => setDownloadConfirmModal(null)}
+                    style={{
+                      background: '#FFFFFF',
+                      color: '#475569',
+                      border: '1px solid #CBD5E1',
+                      padding: '0.6rem 1rem',
+                      borderRadius: '8px',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ✕ Cancel / Adjust Filters
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={activeBatchItems.length === 0}
+                    onClick={() => executeConfirmedBankDownload(activeBatchItems, downloadConfirmModal)}
+                    style={{
+                      background: '#0F52BA',
+                      color: '#FFFFFF',
+                      border: 'none',
+                      padding: '0.6rem 1.25rem',
+                      borderRadius: '8px',
+                      fontSize: '0.78125rem',
+                      fontWeight: 800,
+                      cursor: activeBatchItems.length === 0 ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      boxShadow: '0 2px 6px rgba(15,82,186,0.25)'
+                    }}
+                  >
+                    <Download style={{ width: '14px', height: '14px' }} />
+                    <span>Download Bank Sheet ({activeBatchItems.length} Payouts · ₹{batchTotalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })})</span>
+                  </button>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
