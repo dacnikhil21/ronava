@@ -1,5 +1,6 @@
 import { db } from './db.js';
 import { syncToSupabase } from './supabase.js';
+import { verifyS3Connection, getPresignedUploadUrl, uploadBufferToS3, deleteS3Object } from './s3.js';
 
 // Helper to parse JSON body from incoming Node HTTP request
 export async function parseJsonBody(req) {
@@ -1030,6 +1031,57 @@ export async function handleApiRequest(req, res) {
         ORDER BY created_at DESC
       `).all();
       return sendJson(res, 200, { success: true, inquiries });
+    }
+
+    // ----------------------------------------------------
+    // AWS S3 STORAGE INTEGRATION
+    // ----------------------------------------------------
+    if (pathname === '/api/s3/status' && method === 'GET') {
+      const status = await verifyS3Connection();
+      return sendJson(res, status.success ? 200 : 500, status);
+    }
+
+    if (pathname === '/api/s3/presigned-url' && method === 'POST') {
+      const { fileName, contentType, folder } = await parseJsonBody(req);
+      if (!fileName) {
+        return sendJson(res, 400, { success: false, message: 'fileName is required.' });
+      }
+      try {
+        const presigned = await getPresignedUploadUrl(fileName, contentType, folder);
+        return sendJson(res, 200, { success: true, ...presigned });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
+    if (pathname === '/api/s3/upload-base64' && method === 'POST') {
+      const { base64Data, fileName, contentType, folder } = await parseJsonBody(req);
+      if (!base64Data || !fileName) {
+        return sendJson(res, 400, { success: false, message: 'base64Data and fileName are required.' });
+      }
+      try {
+        const cleanBase64 = base64Data.replace(/^data:([A-Za-z-+\/]+);base64,/, '');
+        const buffer = Buffer.from(cleanBase64, 'base64');
+        const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const key = `${folder || 'uploads'}/${Date.now()}-${safeName}`;
+        const result = await uploadBufferToS3(buffer, key, contentType || 'application/octet-stream');
+        return sendJson(res, 200, { success: true, ...result });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
+    if (pathname === '/api/s3/delete' && method === 'POST') {
+      const { key } = await parseJsonBody(req);
+      if (!key) {
+        return sendJson(res, 400, { success: false, message: 'Object key is required.' });
+      }
+      try {
+        const result = await deleteS3Object(key);
+        return sendJson(res, 200, { success: true, ...result });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
     }
 
     // 404 for unknown /api routes
