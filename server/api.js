@@ -905,10 +905,11 @@ export async function handleApiRequest(req, res) {
       }
 
       const wallet = db.prepare(`SELECT * FROM wallets WHERE user_id = ?`).get(merchant_id);
-      if (!wallet || wallet.available_balance < numAmount) {
+      const withdrawableBalance = wallet ? Math.max(0, wallet.available_balance - 500) : 0;
+      if (!wallet || withdrawableBalance < numAmount) {
         return sendJson(res, 400, { 
           success: false, 
-          message: `Insufficient balance! Available: ₹${wallet ? wallet.available_balance.toFixed(2) : '0.00'}` 
+          message: `Insufficient withdrawable balance! Active hold of ₹500.00 required to maintain account active. Withdrawable: ₹${withdrawableBalance.toFixed(2)} (Total Available: ₹${wallet ? wallet.available_balance.toFixed(2) : '0.00'})` 
         });
       }
 
@@ -945,17 +946,23 @@ export async function handleApiRequest(req, res) {
 
     // Admin verifies payout
     if (pathname === '/api/admin/verify-withdrawal' && method === 'POST') {
-      const { withdrawal_id, action, remark } = await parseJsonBody(req);
+      const { withdrawal_id, action, remark, utr } = await parseJsonBody(req);
 
       const wth = db.prepare(`SELECT * FROM withdrawals WHERE id = ?`).get(withdrawal_id);
       if (!wth) return sendJson(res, 404, { success: false, message: 'Withdrawal record not found.' });
 
       if (action === 'APPROVE') {
+        const cleanUtr = (utr || '').trim();
+        if (!cleanUtr && (!remark || !remark.toUpperCase().includes('UTR'))) {
+          return sendJson(res, 400, { success: false, message: 'Bank UTR number is strictly compulsory to approve and settle withdrawal payouts.' });
+        }
+
+        const finalRemark = cleanUtr ? `Disbursed via IMPS (UTR: ${cleanUtr})` : (remark || 'Bank payout cleared via IMPS/NEFT');
         db.prepare(`
           UPDATE withdrawals 
           SET status = 'APPROVED', admin_remark = ?, verified_at = CURRENT_TIMESTAMP 
           WHERE id = ?
-        `).run(remark || 'Bank payout cleared via IMPS/NEFT', withdrawal_id);
+        `).run(finalRemark, withdrawal_id);
 
         db.prepare(`
           UPDATE wallets 

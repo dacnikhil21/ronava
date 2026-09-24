@@ -6,7 +6,7 @@ import {
   Clock, AlertCircle, X, ChevronRight, Check, ArrowRight,
   Search, Calendar, ArrowLeft, RefreshCw, FileText, Filter, ShieldCheck, LayoutGrid, MoreHorizontal,
   Users, Share2, Copy, ExternalLink, UserPlus, ChevronDown, ChevronUp, TrendingUp, Building2, MessageCircle, QrCode,
-  Download, DollarSign
+  Download, DollarSign, Key, Edit3, Mail
 } from 'lucide-react';
 import { 
   getWallet, 
@@ -24,7 +24,8 @@ import {
   getPlatformQrConfig,
   classifyTransactionChannel,
   getMonthlyRentalReport,
-  updatePosRentalStatus
+  updatePosRentalStatus,
+  updateUserDetails
 } from '../services/api';
 import { downloadRentalReportFile } from '../utils/bankExportUtils';
 import { subscribeToWallet, subscribeToTransactions } from '../services/supabase';
@@ -383,10 +384,68 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     holder_name: ''
   });
   const [isSubmittingBank, setIsSubmittingBank] = useState(false);
-  const [bankSearchQuery, setBankSearchQuery] = useState('');
   const [isBankPickerOpen, setIsBankPickerOpen] = useState(false);
 
+  // Interactive Profile Contact Details Edit State (Requirement #8: Mobile Number & Gmail)
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [profileFormData, setProfileFormData] = useState({
+    mobile: user?.mobile || user?.phone || '',
+    email: user?.email || '',
+    name: user?.name || merchantName || ''
+  });
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileSuccessMsg, setProfileSuccessMsg] = useState('');
+
+  const handleSaveProfileDetails = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    setIsSavingProfile(true);
+    try {
+      const cleanMobile = (profileFormData.mobile || '').replace(/\D/g, '').trim();
+      const cleanEmail = (profileFormData.email || '').trim();
+      const cleanName = (profileFormData.name || '').trim();
+
+      if (!cleanMobile || cleanMobile.length !== 10) {
+        triggerToast('Please provide a valid 10-digit mobile number.', 'error');
+        setIsSavingProfile(false);
+        return;
+      }
+      if (!cleanEmail || !cleanEmail.includes('@')) {
+        triggerToast('Please provide a valid Gmail / Email address.', 'error');
+        setIsSavingProfile(false);
+        return;
+      }
+
+      const res = await updateUserDetails(merchantId, {
+        mobile: cleanMobile,
+        email: cleanEmail,
+        name: cleanName
+      });
+
+      if (res && res.success) {
+        if (user) {
+          user.mobile = cleanMobile;
+          user.email = cleanEmail;
+          user.name = cleanName;
+          localStorage.setItem('ronav_user', JSON.stringify(user));
+        }
+        setMerchantName(cleanName);
+        setProfileSuccessMsg('✓ Profile contact details updated successfully!');
+        setIsEditingProfile(false);
+        triggerToast('✓ Profile updated successfully!', 'success');
+        setTimeout(() => setProfileSuccessMsg(''), 4000);
+      } else {
+        triggerToast(res?.message || 'Failed to update profile details', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      triggerToast('Error saving profile details', 'error');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
   // Search filter for 40+ Indian banks
+  const [bankSearchQuery, setBankSearchQuery] = useState('');
   const filteredBanksList = useMemo(() => {
     if (!bankSearchQuery.trim()) return ALL_INDIAN_BANKS;
     const q = bankSearchQuery.toLowerCase().trim();
@@ -514,7 +573,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     });
   }, [withdrawals, selectedMachineKey]);
 
-  // Reactive machine-specific Wallet Computation (Segregated Pine Labs vs Payswiff)
+  // Reactive machine-specific Wallet Computation (Segregated Pine Labs vs Payswiff vs QR + Downline Commission)
   const activeMachineWallet = useMemo(() => {
     const txns = activeMachineTransactions;
     const withs = activeMachineWithdrawals;
@@ -544,16 +603,27 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     const pendingWiths = withs.filter(w => (w.status || '').toUpperCase() === 'PENDING');
     const pendingWithdrawn = pendingWiths.reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
 
-    const availableBalance = Math.max(0, parseFloat((receivedSales - withdrawnAmount - pendingWithdrawn).toFixed(2)));
+    // Downline commission earnings (today, yesterday & cumulative from network profit engine)
+    const earnedCommission = (userRole !== 'MERCHANT' && userRole !== 'Retailer') 
+      ? (parseFloat(networkData?.total_commission_earned) || 0) 
+      : 0;
+
+    const totalCredited = receivedSales + earnedCommission;
+    const availableBalance = Math.max(0, parseFloat((totalCredited - withdrawnAmount - pendingWithdrawn).toFixed(2)));
+    const activeHold = 500.0;
+    const withdrawableBalance = Math.max(0, parseFloat((availableBalance - activeHold).toFixed(2)));
 
     return {
       available_balance: availableBalance,
+      withdrawable_balance: withdrawableBalance,
+      active_hold: activeHold,
       total_sales: totalSales,
       received_sales: receivedSales,
+      commission_earned: earnedCommission,
       pending_balance: pendingBalance,
       withdrawn_amount: withdrawnAmount
     };
-  }, [activeMachineTransactions, activeMachineWithdrawals]);
+  }, [activeMachineTransactions, activeMachineWithdrawals, networkData, userRole]);
 
   // Dynamic Today's Stats filtered strictly for the active machine
   const todayStats = useMemo(() => {
@@ -720,23 +790,18 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   }, [userRole, merchantId]);
 
 
-  // Current user's tier margin for display based on active provider
+  // Current user's tier margin for display based on active partner role (Zero hardcoded 0.06%)
   const userTierMargin = useMemo(() => {
     const r = (userRole || '').toUpperCase();
-    const isPine = (onboardForm.pos_provider || 'Pine Labs') === 'Pine Labs';
-    if (isPine) {
-      if (r.includes('MASTER') || r.includes('ADMIN')) return '0.20';
-      if (r.includes('DISTRICT') || r.includes('FRANCHISE') || r === 'DD') return '0.06';
-      if (r.includes('DISTRIBUTOR') || r.includes('DIST')) return '0.06';
-      return '0.00';
-    } else {
-      if (r.includes('MASTER') || r.includes('ADMIN')) return '0.02';
-      if (r.includes('SUPER')) return '0.03';
-      if (r.includes('DISTRICT') || r.includes('FRANCHISE') || r === 'DD') return '0.03';
-      if (r.includes('DISTRIBUTOR') || r.includes('DIST')) return '0.05';
-      return '0.00';
+    if (networkData && networkData.commission_rate_pct && parseFloat(networkData.commission_rate_pct) > 0) {
+      return networkData.commission_rate_pct.toFixed(2);
     }
-  }, [userRole, onboardForm.pos_provider]);
+    if (r.includes('MASTER') || r.includes('ADMIN')) return '0.75';
+    if (r.includes('SUPER')) return '0.50';
+    if (r.includes('DISTRICT') || r.includes('FRANCHISE') || r === 'DD') return '0.35';
+    if (r.includes('DISTRIBUTOR') || r.includes('DIST')) return '0.25';
+    return '0.25';
+  }, [userRole, networkData]);
 
   useEffect(() => {
     if (allowedRolesForCreator.length > 0) {
@@ -1132,7 +1197,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       const actType = isComm ? 'COMMISSION' : (isQr ? 'QR_PAYOUT' : 'WITHDRAWAL');
 
       if (txnCategoryFilter === 'ALL' || 
-          (txnCategoryFilter === 'WITHDRAWALS' && actType === 'WITHDRAWAL') || 
+          (txnCategoryFilter === 'WITHDRAWALS' && (actType === 'WITHDRAWAL' || actType === 'COMMISSION' || actType === 'QR_PAYOUT')) || 
           (txnCategoryFilter === 'COMMISSIONS' && actType === 'COMMISSION') ||
           (txnCategoryFilter === 'QR' && actType === 'QR_PAYOUT')) {
         targetList.push(w);
@@ -1186,7 +1251,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       const actType = isComm ? 'COMMISSION' : (isQr ? 'QR_PAYOUT' : 'WITHDRAWAL');
 
       if (txnCategoryFilter === 'ALL' || 
-          (txnCategoryFilter === 'WITHDRAWALS' && actType === 'WITHDRAWAL') || 
+          (txnCategoryFilter === 'WITHDRAWALS' && (actType === 'WITHDRAWAL' || actType === 'COMMISSION' || actType === 'QR_PAYOUT')) || 
           (txnCategoryFilter === 'COMMISSIONS' && actType === 'COMMISSION') ||
           (txnCategoryFilter === 'QR' && actType === 'QR_PAYOUT')) {
         rawList.push({
@@ -1355,10 +1420,12 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       return;
     }
 
-    const maxWithdrawable = activeMachineWallet.available_balance;
+    const maxWithdrawable = activeMachineWallet.withdrawable_balance !== undefined 
+      ? activeMachineWallet.withdrawable_balance 
+      : Math.max(0, parseFloat((activeMachineWallet.available_balance - 500).toFixed(2)));
 
     if (amountNum > maxWithdrawable) {
-      showToast(`⚠️ Insufficient balance. Maximum withdrawable amount is ₹${maxWithdrawable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`);
+      showToast(`⚠️ Insufficient withdrawable balance. A minimum active account reserve of ₹500.00 must be retained in your wallet. Maximum withdrawable amount is ₹${maxWithdrawable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`);
       return;
     }
 
@@ -1370,6 +1437,10 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         return;
       }
     }
+
+    const isQrMode = selectedMachineKey === 'qr';
+    const finalChannel = isQrMode ? 'qr' : selectedMachineKey;
+    const finalProvider = isQrMode ? 'Company QR (UPI)' : activeMachine.provider;
 
     let payload;
     if (payoutTargetType === 'CUSTOMER') {
@@ -1406,8 +1477,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         customer_name: customerPayoutForm.customer_name.trim(),
         customer_mobile: (customerPayoutForm.customer_mobile || '').trim(),
         settlement_mode: customerPayoutForm.settlement_mode || 'INSTANT',
-        channel: selectedMachineKey,
-        provider: activeMachine.provider
+        channel: finalChannel,
+        provider: finalProvider
       };
     } else {
       const targetBank = beneficiaries.find(b => b.id === selectedBankId) || beneficiaries[0];
@@ -1426,8 +1497,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         payout_purpose: 'COMMISSION',
         remarks: (customerPayoutForm.remarks || '').trim(),
         settlement_mode: 'INSTANT',
-        channel: selectedMachineKey,
-        provider: activeMachine.provider
+        channel: finalChannel,
+        provider: finalProvider
       };
     }
 
@@ -2905,14 +2976,14 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                             </div>
                           </div>
 
-                          {/* 3. Settlement Speed Selector (Strictly using active machine rates) */}
+                          {/* 3. Settlement Speed Selector (T+1 or Instant without margin percentages) */}
                           <div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
                               <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A' }}>
                                 Settlement Speed &amp; Clearance Mode *
                               </label>
                               <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
-                                {selectedMachineKey === 'qr' ? 'UPI collections are instant IMPS credit' : '95% volume is standard T+1'}
+                                {selectedMachineKey === 'qr' ? 'UPI collections are instant IMPS credit' : 'Choose T+1 or Instant'}
                               </span>
                             </div>
                             {selectedMachineKey === 'qr' ? (
@@ -2929,15 +3000,12 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                               >
                                 <div>
                                   <strong style={{ fontSize: '0.78125rem', color: '#6D28D9', display: 'block' }}>
-                                    ⚡ 100% Instant IMPS Settlement
+                                    ⚡ Instant IMPS Settlement
                                   </strong>
                                   <span style={{ fontSize: '0.625rem', color: '#7C3AED', display: 'block', marginTop: '2px' }}>
                                     Immediate credit into your wallet upon customer UPI scan
                                   </span>
                                 </div>
-                                <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#EDE9FE', color: '#6D28D9', padding: '2px 7px', borderRadius: '5px' }}>
-                                  {activeMachine.rateStrInstant} Fee
-                                </span>
                               </div>
                             ) : (
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
@@ -2954,11 +3022,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                 >
                                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                     <strong style={{ fontSize: '0.75rem', color: !isInstant ? '#0F52BA' : '#0F172A' }}>
-                                      📅 T+1 Standard (95%)
+                                      📅 T+1 Standard
                                     </strong>
-                                    <span style={{ fontSize: '0.5625rem', fontWeight: 800, background: '#DBEAFE', color: '#1D4ED8', padding: '1px 5px', borderRadius: '4px' }}>
-                                      {activeMachine.rateStrT1 || '1.50%'}
-                                    </span>
                                   </div>
                                   <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
                                     Next Banking Day (Batched)
@@ -2978,11 +3043,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                 >
                                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                     <strong style={{ fontSize: '0.75rem', color: isInstant ? '#059669' : '#0F172A' }}>
-                                      ⚡ Instant IMPS (5%)
+                                      ⚡ Instant IMPS
                                     </strong>
-                                    <span style={{ fontSize: '0.5625rem', fontWeight: 800, background: '#DCFCE7', color: '#15803D', padding: '1px 5px', borderRadius: '4px' }}>
-                                      {activeMachine.rateStrInstant || '1.80%'}
-                                    </span>
                                   </div>
                                   <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
                                     Same-Day Immediate
@@ -3334,11 +3396,19 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                           <Landmark style={{ width: '15px', height: '15px', color: '#60A5FA', flexShrink: 0 }} />
                           <div>
-                            <span style={{ fontSize: '0.625rem', fontWeight: 700, color: 'rgba(255,255,255,0.75)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block' }}>
-                              Available Disbursal Balance
-                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontSize: '0.625rem', fontWeight: 700, color: 'rgba(255,255,255,0.75)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                Available to Withdraw
+                              </span>
+                              <span style={{ fontSize: '0.5625rem', background: 'rgba(255,255,255,0.15)', color: '#FEF08A', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>
+                                ₹500 Active Hold Applied
+                              </span>
+                            </div>
                             <span style={{ fontSize: '1.35rem', fontWeight: 900, letterSpacing: '-0.01em', color: '#FFFFFF', lineHeight: 1.1 }}>
-                              ₹{activeMachineWallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              ₹{(activeMachineWallet.withdrawable_balance !== undefined ? activeMachineWallet.withdrawable_balance : Math.max(0, activeMachineWallet.available_balance - 500)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </span>
+                            <span style={{ fontSize: '0.625rem', color: 'rgba(255,255,255,0.75)', display: 'block', marginTop: '1px' }}>
+                              Total Balance: ₹{activeMachineWallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })} • Active Reserve Hold: ₹500.00
                             </span>
                           </div>
                         </div>
@@ -3348,7 +3418,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                           </span>
                           <button
                             type="button"
-                            onClick={() => setWithdrawAmount(activeMachineWallet.available_balance.toString())}
+                            onClick={() => setWithdrawAmount((activeMachineWallet.withdrawable_balance !== undefined ? activeMachineWallet.withdrawable_balance : Math.max(0, activeMachineWallet.available_balance - 500)).toString())}
                             style={{
                               background: 'rgba(255,255,255,0.18)',
                               border: '1px solid rgba(255,255,255,0.3)',
@@ -3382,7 +3452,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
                           <div style={{
                             background: '#F8FAFC',
-                            border: parsedAmount > activeMachineWallet.available_balance ? '1.5px solid #EF4444' : '1.5px solid #CBD5E1',
+                            border: parsedAmount > (activeMachineWallet.withdrawable_balance !== undefined ? activeMachineWallet.withdrawable_balance : Math.max(0, activeMachineWallet.available_balance - 500)) ? '1.5px solid #EF4444' : '1.5px solid #CBD5E1',
                             borderRadius: '8px',
                             padding: '0.45rem 0.65rem',
                             display: 'flex',
@@ -3440,7 +3510,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                             ))}
                             <button
                               type="button"
-                              onClick={() => setWithdrawAmount(activeMachineWallet.available_balance.toString())}
+                              onClick={() => setWithdrawAmount((activeMachineWallet.withdrawable_balance !== undefined ? activeMachineWallet.withdrawable_balance : Math.max(0, activeMachineWallet.available_balance - 500)).toString())}
                               style={{
                                 background: '#ECFDF5',
                                 border: '1px solid #A7F3D0',
@@ -3534,9 +3604,6 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                 <strong style={{ fontSize: '0.75rem', color: customerPayoutForm.settlement_mode === 'INSTANT' ? '#059669' : '#0F172A' }}>
                                   ⚡ Instant IMPS
                                 </strong>
-                                <span style={{ fontSize: '0.5625rem', fontWeight: 800, background: '#DCFCE7', color: '#15803D', padding: '1px 5px', borderRadius: '4px' }}>
-                                  {activeMachine.rateStrInstant || '1.80%'}
-                                </span>
                               </div>
                               <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', marginTop: '1px' }}>
                                 Same day clearance
@@ -3558,9 +3625,6 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                 <strong style={{ fontSize: '0.75rem', color: customerPayoutForm.settlement_mode === 'T1' ? '#0F52BA' : '#0F172A' }}>
                                   📅 T+1 Standard
                                 </strong>
-                                <span style={{ fontSize: '0.5625rem', fontWeight: 800, background: '#DBEAFE', color: '#1D4ED8', padding: '1px 5px', borderRadius: '4px' }}>
-                                  {activeMachine.rateStrT1 || '1.50%'}
-                                </span>
                               </div>
                               <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block', marginTop: '1px' }}>
                                 Next business day
@@ -5662,8 +5726,99 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
                   {networkSubTab === 'members' ? (
                     <>
-                  {/* 2. TOP EXECUTIVE STATS (Strict 2x2 Grid) */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.625rem' }}>
+                      {/* Sponsor / Referral Partner Code Card (Requirement #9: Code visible in my people) */}
+                      <div style={{
+                        background: 'linear-gradient(135deg, #0F172A 0%, #1E3A8A 100%)',
+                        borderRadius: '12px',
+                        padding: '0.85rem 1rem',
+                        color: '#FFFFFF',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: '0.75rem',
+                        boxShadow: '0 2px 8px rgba(15,23,42,0.12)'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          <div style={{
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '10px',
+                            background: 'rgba(255,255,255,0.15)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#93C5FD'
+                          }}>
+                            <Key style={{ width: '18px', height: '18px' }} />
+                          </div>
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#93C5FD', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                My Sponsor / Partner Referral Code
+                              </span>
+                              <span style={{ fontSize: '0.5625rem', background: '#22C55E', color: '#FFFFFF', padding: '1px 5px', borderRadius: '4px', fontWeight: 800 }}>
+                                Active Partner
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+                              <span style={{ fontSize: '1.15rem', fontWeight: 900, fontFamily: 'monospace', letterSpacing: '0.04em', color: '#FFFFFF' }}>
+                                {merchantId || user?.id || 'PARTNER'}
+                              </span>
+                              <span style={{ fontSize: '0.6875rem', color: 'rgba(255,255,255,0.75)' }}>
+                                ({userRole || 'Distributor'})
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(merchantId || user?.id || '', 'sponsor_code')}
+                            style={{
+                              background: 'rgba(255,255,255,0.18)',
+                              border: '1px solid rgba(255,255,255,0.3)',
+                              color: '#FFFFFF',
+                              borderRadius: '7px',
+                              padding: '0.35rem 0.65rem',
+                              fontSize: '0.71875rem',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <Copy style={{ width: '12px', height: '12px' }} />
+                            <span>{copiedId['sponsor_code'] ? '✓ Copied' : 'Copy Code'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(`${typeof window !== 'undefined' ? window.location.origin : ''}/?sponsor=${merchantId || user?.id || ''}`, 'sponsor_link')}
+                            style={{
+                              background: '#22C55E',
+                              border: 'none',
+                              color: '#FFFFFF',
+                              borderRadius: '7px',
+                              padding: '0.35rem 0.65rem',
+                              fontSize: '0.71875rem',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <Share2 style={{ width: '12px', height: '12px' }} />
+                            <span>{copiedId['sponsor_link'] ? '✓ Copied' : 'Share Link'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* 2. TOP EXECUTIVE STATS (Strict 2x2 Grid) */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.625rem' }}>
                     
                     {/* Box 1: Total Downline Team */}
                     <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', padding: '0.75rem 0.875rem', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
@@ -7188,15 +7343,180 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                     padding: '1.25rem',
                     boxShadow: '0 2px 10px rgba(0,0,0,0.02)'
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.625rem' }}>
-                      <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#EFF6FF', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <User style={{ width: '18px', height: '18px' }} />
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.625rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#EFF6FF', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <User style={{ width: '18px', height: '18px' }} />
+                        </div>
+                        <div>
+                          <h3 style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>Business &amp; Contact Details</h3>
+                          <span style={{ fontSize: '0.65rem', color: '#64748B' }}>Registered merchant contact, mobile &amp; Gmail</span>
+                        </div>
                       </div>
-                      <div>
-                        <h3 style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>Business Information</h3>
-                        <span style={{ fontSize: '0.65rem', color: '#64748B' }}>Registered merchant contact &amp; operational entity</span>
-                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProfileFormData({
+                            mobile: user?.mobile || user?.phone || '',
+                            email: user?.email || '',
+                            name: merchantName || user?.name || ''
+                          });
+                          setIsEditingProfile(!isEditingProfile);
+                        }}
+                        style={{
+                          background: isEditingProfile ? '#F1F5F9' : '#EFF6FF',
+                          border: isEditingProfile ? '1px solid #CBD5E1' : '1px solid #BFDBFE',
+                          color: isEditingProfile ? '#475569' : '#0F52BA',
+                          borderRadius: '8px',
+                          padding: '0.35rem 0.75rem',
+                          fontSize: '0.75rem',
+                          fontWeight: 800,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        <Edit3 style={{ width: '13px', height: '13px' }} />
+                        <span>{isEditingProfile ? 'Cancel' : 'Edit Contact Details'}</span>
+                      </button>
                     </div>
+
+                    {profileSuccessMsg && (
+                      <div style={{
+                        background: '#ECFDF5',
+                        border: '1px solid #A7F3D0',
+                        borderRadius: '8px',
+                        padding: '0.5rem 0.75rem',
+                        marginBottom: '0.75rem',
+                        fontSize: '0.75rem',
+                        color: '#059669',
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}>
+                        <CheckCircle2 style={{ width: '14px', height: '14px' }} />
+                        <span>{profileSuccessMsg}</span>
+                      </div>
+                    )}
+
+                    {isEditingProfile ? (
+                      <form onSubmit={handleSaveProfileDetails} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem', background: '#F8FAFC', padding: '0.85rem', borderRadius: '12px', border: '1.5px solid #CBD5E1' }}>
+                        <div>
+                          <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '0.3rem' }}>
+                            <Phone style={{ width: '13px', height: '13px', color: '#0F52BA' }} />
+                            <span>Registered Mobile Number *</span>
+                          </label>
+                          <input
+                            type="tel"
+                            maxLength={10}
+                            required
+                            placeholder="10-digit mobile number"
+                            value={profileFormData.mobile}
+                            onChange={(e) => setProfileFormData(prev => ({ ...prev, mobile: e.target.value.replace(/\D/g, '') }))}
+                            style={{
+                              width: '100%',
+                              padding: '0.55rem 0.75rem',
+                              borderRadius: '7px',
+                              border: '1px solid #CBD5E1',
+                              fontSize: '0.875rem',
+                              fontFamily: 'monospace',
+                              fontWeight: 700,
+                              color: '#0F172A',
+                              outline: 'none',
+                              boxSizing: 'border-box'
+                            }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '0.3rem' }}>
+                            <Mail style={{ width: '13px', height: '13px', color: '#0F52BA' }} />
+                            <span>Registered Gmail / Email Address *</span>
+                          </label>
+                          <input
+                            type="email"
+                            required
+                            placeholder="e.g. yourname@gmail.com"
+                            value={profileFormData.email}
+                            onChange={(e) => setProfileFormData(prev => ({ ...prev, email: e.target.value }))}
+                            style={{
+                              width: '100%',
+                              padding: '0.55rem 0.75rem',
+                              borderRadius: '7px',
+                              border: '1px solid #CBD5E1',
+                              fontSize: '0.875rem',
+                              fontWeight: 600,
+                              color: '#0F172A',
+                              outline: 'none',
+                              boxSizing: 'border-box'
+                            }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '0.3rem' }}>
+                            <Store style={{ width: '13px', height: '13px', color: '#0F52BA' }} />
+                            <span>Outlet / Store Name</span>
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Store or Partner Name"
+                            value={profileFormData.name}
+                            onChange={(e) => setProfileFormData(prev => ({ ...prev, name: e.target.value }))}
+                            style={{
+                              width: '100%',
+                              padding: '0.55rem 0.75rem',
+                              borderRadius: '7px',
+                              border: '1px solid #CBD5E1',
+                              fontSize: '0.875rem',
+                              fontWeight: 600,
+                              color: '#0F172A',
+                              outline: 'none',
+                              boxSizing: 'border-box'
+                            }}
+                          />
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.25rem' }}>
+                          <button
+                            type="submit"
+                            disabled={isSavingProfile}
+                            style={{
+                              flex: 1,
+                              background: '#0F52BA',
+                              color: '#FFFFFF',
+                              border: 'none',
+                              borderRadius: '8px',
+                              padding: '0.55rem 1rem',
+                              fontSize: '0.78125rem',
+                              fontWeight: 800,
+                              cursor: isSavingProfile ? 'not-allowed' : 'pointer'
+                            }}
+                          >
+                            {isSavingProfile ? 'Saving Details...' : '✓ Save Contact Details'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsEditingProfile(false)}
+                            style={{
+                              background: '#FFFFFF',
+                              color: '#475569',
+                              border: '1px solid #CBD5E1',
+                              borderRadius: '8px',
+                              padding: '0.55rem 0.85rem',
+                              fontSize: '0.78125rem',
+                              fontWeight: 700,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    ) : null}
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0.75rem', borderRadius: '10px', background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
@@ -7207,7 +7527,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                       </div>
 
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0.75rem', borderRadius: '10px', background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
-                        <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>Registered Email:</span>
+                        <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>Registered Gmail / Email:</span>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0F172A' }}>
                           {user?.email || (user?.id ? `${user.id.toLowerCase()}@ronav.in` : 'partner@ronav.in')}
                         </span>

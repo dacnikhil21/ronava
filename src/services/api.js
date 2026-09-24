@@ -1550,11 +1550,22 @@ export async function recordMerchantSale(saleData) {
 
     const merchant = merchantRes.data;
     const pos = posRes.data;
-    const provider = bodyProvider || (pos ? pos.provider : (type === 'BBPS_BILL' ? 'BBPS' : 'Pine Labs'));
-    const txnId = `TXN-${provider === 'Payswiff' ? 'SW' : (provider === 'Pine Labs' ? 'PL' : 'GEN')}-${Date.now().toString().slice(-6)}`;
+    const isQRPayment = (type === 'QR_SCAN' || type === 'QR' || type === 'QR_PAYMENT' || (bodyProvider && bodyProvider.toLowerCase().includes('qr')) || (!bodyProvider && pos?.channels?.qr?.enabled && !pos?.channels?.pine_labs?.enabled && !pos?.channels?.payswiff?.enabled));
+    
+    let provider = bodyProvider;
+    if (isQRPayment) {
+      provider = 'Company QR (UPI)';
+    } else if (!provider) {
+      provider = pos ? pos.provider : (type === 'BBPS_BILL' ? 'BBPS' : 'Pine Labs');
+    }
+
+    const txnId = `TXN-${isQRPayment ? 'QR' : (provider === 'Payswiff' ? 'SW' : (provider === 'Pine Labs' ? 'PL' : 'GEN'))}-${Date.now().toString().slice(-6)}`;
+    
     // Strict vendor entity determination
     let finalVendor = 'Rose Navaneetham Enterprises';
-    if (provider === 'Payswiff') {
+    if (isQRPayment) {
+      finalVendor = 'RONAV Technologies';
+    } else if (provider === 'Payswiff') {
       finalVendor = (pos?.vendor_entity === 'R.P. Technologies' || pos?.pos_vendor === 'R.P. Technologies')
         ? 'R.P. Technologies' 
         : 'RONAV Technologies';
@@ -1587,7 +1598,9 @@ export async function recordMerchantSale(saleData) {
     if (!specificTerminalId && pos) {
       if (pos.terminal_id && pos.terminal_id.startsWith('[PORTFOLIO]')) {
         const channels = parseMerchantChannels(pos);
-        if (provider === 'Payswiff') {
+        if (isQRPayment) {
+          specificTerminalId = 'QR-UPI-HQ';
+        } else if (provider === 'Payswiff') {
           specificTerminalId = channels.payswiff?.terminal_id || 'SWIFF-01';
         } else if (provider === 'Pine Labs') {
           specificTerminalId = channels.pine_labs?.terminal_id || 'PL-01';
@@ -1595,16 +1608,22 @@ export async function recordMerchantSale(saleData) {
           specificTerminalId = 'RONAV-UPI-HQ';
         }
       } else {
-        specificTerminalId = pos.terminal_id || (provider === 'Payswiff' ? 'SWIFF-01' : 'PL-HYD-9941');
+        specificTerminalId = isQRPayment ? 'QR-UPI-HQ' : (pos.terminal_id || (provider === 'Payswiff' ? 'SWIFF-01' : 'PL-HYD-9941'));
       }
     }
     if (!specificTerminalId) {
-      specificTerminalId = provider === 'Payswiff' ? 'SWIFF-01' : (provider === 'Pine Labs' ? 'PL-01' : 'RONAV-UPI-HQ');
+      specificTerminalId = isQRPayment ? 'QR-UPI-HQ' : (provider === 'Payswiff' ? 'SWIFF-01' : (provider === 'Pine Labs' ? 'PL-01' : 'RONAV-UPI-HQ'));
     }
 
     // Resolve active wholesale percentage rate dynamically (Zero hardcoded percentages)
     const isInstant = (settlement_type || '').toUpperCase() === 'INSTANT';
-    const merchantBuyRate = getUserBuyRate(merchant, pos, isInstant);
+    let merchantBuyRate = getUserBuyRate(merchant, pos, isInstant);
+    if (isQRPayment && pos) {
+      const ch = parseMerchantChannels(pos);
+      if (ch.qr?.enabled && ch.qr.rate_instant) {
+        merchantBuyRate = parseFloat(ch.qr.rate_instant) || 1.50;
+      }
+    }
     const compFee = parseFloat(((numAmount * merchantBuyRate) / 100).toFixed(2));
     const netCreditAmount = parseFloat(Math.max(0, numAmount - compFee).toFixed(2));
 
@@ -1613,7 +1632,7 @@ export async function recordMerchantSale(saleData) {
       customer_name: customer_name ? customer_name.trim() : 'Counter Customer',
       customer_mobile: customer_mobile ? customer_mobile.trim() : '',
       rrn: finalRrn,
-      settlement_type: settlement_type || 'T1',
+      settlement_type: isQRPayment ? 'INSTANT' : (settlement_type || 'T1'),
       customer_charge: parseFloat(customer_charge) || 0,
       company_fee: compFee,
       merchant_buy_rate: merchantBuyRate,
@@ -1631,7 +1650,7 @@ export async function recordMerchantSale(saleData) {
     let finalTxnType = 'POS_SWIPE';
     if (type === 'BBPS_BILL' || provider === 'BBPS') {
       finalTxnType = 'BBPS_BILL';
-    } else if (type === 'QR_SCAN' || type === 'QR' || type === 'QR_PAYMENT' || provider === 'RONAV_QR' || provider === 'QR' || provider === 'Company QR (UPI)') {
+    } else if (isQRPayment || type === 'QR_SCAN' || type === 'QR' || type === 'QR_PAYMENT' || provider === 'RONAV_QR' || provider === 'QR' || provider === 'Company QR (UPI)') {
       finalTxnType = 'QR_SCAN';
     } else {
       finalTxnType = 'POS_SWIPE';
@@ -2856,11 +2875,13 @@ export async function requestWithdrawal(withdrawalData) {
       .single();
 
     const currAvail = parseFloat(wallet?.available_balance || 0);
+    const holdAmount = 500.0;
+    const maxWithdrawable = Math.max(0, currAvail - holdAmount);
 
-    if (numAmount > currAvail) {
+    if (numAmount > maxWithdrawable) {
       return {
         success: false,
-        message: `Insufficient balance. Maximum withdrawable balance is ₹${currAvail.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`
+        message: `Insufficient withdrawable balance. A minimum reserve balance of ₹500.00 must be maintained in your wallet to keep your account in active status. Maximum withdrawable amount is ₹${maxWithdrawable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`
       };
     }
 
@@ -2884,8 +2905,9 @@ export async function requestWithdrawal(withdrawalData) {
       .eq('merchant_id', merchant_id)
       .maybeSingle();
 
-    const targetProvider = provider || (channel === 'payswiff' ? 'Payswiff' : (channel === 'qr' ? 'Company QR (UPI)' : (posRec?.provider || 'Pine Labs')));
-    const posTag = ` | POS: ${targetProvider} | Channel: ${channel || 'default'} | Vendor: ${posRec?.vendor_entity || 'RONAV Technologies'}`;
+    const isQrPayout = channel === 'qr' || (provider && provider.toLowerCase().includes('qr'));
+    const targetProvider = isQrPayout ? 'Company QR (UPI)' : (provider || (channel === 'payswiff' ? 'Payswiff' : (posRec?.provider || 'Pine Labs')));
+    const posTag = ` | POS: ${targetProvider} | Channel: ${isQrPayout ? 'qr' : (channel || 'default')} | Vendor: ${posRec?.vendor_entity || 'RONAV Technologies'}`;
     const cleanRemarks = remarks ? remarks.trim() : '';
     const noteTag = cleanRemarks ? ` | Note: ${cleanRemarks}` : '';
 
@@ -2916,7 +2938,7 @@ export async function requestWithdrawal(withdrawalData) {
     const purposeLabel = payout_purpose === 'COMMISSION' ? 'Commission Disbursal' : 'Sales Settlement';
     return {
       success: true,
-      message: `✓ ${purposeLabel} request for ₹${numAmount.toLocaleString('en-IN')} submitted to ${bank_name}! Pending Admin disbursal clearance.`,
+      message: `✓ ${purposeLabel} request for ₹${numAmount.toLocaleString('en-IN')} submitted to ${bank_name}! Pending Admin disbursal clearance. (₹500 Active Account Reserve retained in wallet)`,
       withdrawal: createdWth,
       withdrawal_id: wId
     };
@@ -2974,29 +2996,35 @@ export async function verifyWithdrawal(withdrawalId, action, remark = '', utrNum
     } else if (action === 'APPROVE') {
       const cleanUtr = (utrNumber || '').trim();
 
+      // Compulsory Bank UTR validation on withdrawal completion
+      if (!cleanUtr) {
+        return {
+          success: false,
+          message: 'Bank UTR / Transaction Reference Number is compulsory to complete and approve a withdrawal.'
+        };
+      }
+
       // Item #7: Strict Unique Bank UTR validation on withdrawal approval
-      if (cleanUtr) {
-        const { data: dupWithdrawals } = await supabase
-          .from('withdrawals')
-          .select('id, amount, status, admin_remark')
-          .eq('status', 'APPROVED')
-          .neq('id', withdrawalId);
+      const { data: dupWithdrawals } = await supabase
+        .from('withdrawals')
+        .select('id, amount, status, admin_remark')
+        .eq('status', 'APPROVED')
+        .neq('id', withdrawalId);
 
-        const isDuplicate = dupWithdrawals?.some(w => {
-          const m = (w.admin_remark || '').match(/UTR:\s*([A-Za-z0-9_-]+)/i);
-          return m && m[1].trim().toLowerCase() === cleanUtr.toLowerCase();
-        });
+      const isDuplicate = dupWithdrawals?.some(w => {
+        const m = (w.admin_remark || '').match(/UTR:\s*([A-Za-z0-9_-]+)/i);
+        return m && m[1].trim().toLowerCase() === cleanUtr.toLowerCase();
+      });
 
-        if (isDuplicate) {
-          return {
-            success: false,
-            message: `Approval Blocked: Bank UTR "${cleanUtr}" has already been issued for another approved disbursal. Each payout requires a unique bank reference.`
-          };
-        }
+      if (isDuplicate) {
+        return {
+          success: false,
+          message: `Approval Blocked: Bank UTR "${cleanUtr}" has already been issued for another approved disbursal. Each payout requires a unique bank reference.`
+        };
       }
 
       const existingRemark = (wth.admin_remark || '').replace(/\[PENDING_TO_DISBURSE\][^•]*•/g, '').trim();
-      const utrPrefix = cleanUtr ? `UTR: ${cleanUtr}` : 'Cleared via IMPS/NEFT';
+      const utrPrefix = `UTR: ${cleanUtr}`;
       const finalRemark = `${utrPrefix} • ${remark || 'Disbursed by Admin'} • ${existingRemark}`;
 
       await supabase
@@ -3344,6 +3372,7 @@ export async function updateUserDetails(userId, updates) {
     const payload = {};
     if (updates.name) payload.name = updates.name.trim();
     if (updates.mobile) payload.mobile = updates.mobile.trim();
+    if (updates.email !== undefined) payload.email = (updates.email || '').trim() || null;
     payload.updated_at = new Date().toISOString();
 
     const { data, error } = await supabase
@@ -3363,7 +3392,7 @@ export async function updateUserDetails(userId, updates) {
     return { 
       success: true, 
       user: data || { id: userId, ...payload }, 
-      message: 'Partner details updated successfully.' 
+      message: 'Partner profile details updated successfully.' 
     };
   } catch (err) {
     console.error('updateUserDetails error:', err);
