@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { db } from './db.js';
 import { verifyS3Connection, getPresignedUploadUrl, uploadBufferToS3, deleteS3Object } from './s3.js';
-import { initPostgresSchema, getMediaFiles, query as pgQuery, selectFromTable, insertIntoTable, updateTable } from './pg_db.js';
+import { initPostgresSchema, getMediaFiles, query as pgQuery, selectFromTable, insertIntoTable, updateTable, deleteFromTable } from './pg_db.js';
 
 
 // Auto-initialize PostgreSQL schema if DATABASE_URL is configured
@@ -1156,11 +1156,88 @@ export async function handleApiRequest(req, res) {
       }
     }
 
-    if (pathname === '/api/db/query' && method === 'POST') {
-      const { sql, params } = await parseJsonBody(req);
+    if (pathname === '/api/db/delete' && method === 'POST') {
+      const { table, matchColumn, matchValue } = await parseJsonBody(req);
       try {
-        const rows = await pgQuery(sql, params || []);
-        return sendJson(res, 200, { success: true, data: rows });
+        const deleted = await deleteFromTable(table, matchColumn, matchValue);
+        return sendJson(res, 200, { success: true, data: deleted });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    // Purge all test cases and dummy downline from hierarchy
+    if (pathname === '/api/admin/users/purge-test-accounts' && method === 'POST') {
+      try {
+        // Find test users in SQLite & Postgres
+        const testUserIds = ['SD1003', 'SD1004', 'SD1005', 'SD1006', 'SD1008'];
+        const sqliteTestUsers = db.prepare(`
+          SELECT id FROM users 
+          WHERE LOWER(name) LIKE '%test%' 
+             OR LOWER(id) LIKE '%test%'
+             OR id IN ('SD1003', 'SD1004', 'SD1005', 'SD1006', 'SD1008')
+        `).all();
+
+        const allTestIds = Array.from(new Set([...testUserIds, ...sqliteTestUsers.map(u => u.id)]));
+
+        if (allTestIds.length > 0) {
+          const placeholders = allTestIds.map(() => '?').join(',');
+          db.prepare(`DELETE FROM transactions WHERE merchant_id IN (${placeholders})`).run(...allTestIds);
+          db.prepare(`DELETE FROM wallets WHERE user_id IN (${placeholders})`).run(...allTestIds);
+          db.prepare(`DELETE FROM merchant_pos WHERE merchant_id IN (${placeholders})`).run(...allTestIds);
+          db.prepare(`DELETE FROM withdrawals WHERE merchant_id IN (${placeholders})`).run(...allTestIds);
+          db.prepare(`DELETE FROM beneficiaries WHERE merchant_id IN (${placeholders})`).run(...allTestIds);
+          db.prepare(`DELETE FROM users WHERE id IN (${placeholders})`).run(...allTestIds);
+
+          // Also execute on PostgreSQL if pool active
+          try {
+            await pgQuery(`
+              DELETE FROM transactions WHERE merchant_id = ANY($1::text[]) OR notes ILIKE '%test%';
+              DELETE FROM wallets WHERE user_id = ANY($1::text[]);
+              DELETE FROM merchant_pos WHERE merchant_id = ANY($1::text[]);
+              DELETE FROM withdrawals WHERE merchant_id = ANY($1::text[]);
+              DELETE FROM beneficiaries WHERE merchant_id = ANY($1::text[]);
+              DELETE FROM users WHERE id = ANY($1::text[]) OR name ILIKE '%test%' OR id ILIKE '%test%';
+            `, [allTestIds]);
+          } catch (_) {}
+        }
+
+        return sendJson(res, 200, {
+          success: true,
+          message: `Successfully purged all test accounts and downlines from database!`,
+          purgedCount: allTestIds.length
+        });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    // Delete single user account
+    if (pathname === '/api/admin/users/delete' && method === 'POST') {
+      try {
+        const { userId } = await parseJsonBody(req);
+        if (!userId || userId === 'ADM001') {
+          return sendJson(res, 400, { success: false, message: 'Cannot delete Super Admin (ADM001).' });
+        }
+        db.prepare(`DELETE FROM transactions WHERE merchant_id = ?`).run(userId);
+        db.prepare(`DELETE FROM wallets WHERE user_id = ?`).run(userId);
+        db.prepare(`DELETE FROM merchant_pos WHERE merchant_id = ?`).run(userId);
+        db.prepare(`DELETE FROM withdrawals WHERE merchant_id = ?`).run(userId);
+        db.prepare(`DELETE FROM beneficiaries WHERE merchant_id = ?`).run(userId);
+        db.prepare(`DELETE FROM users WHERE id = ?`).run(userId);
+
+        try {
+          await pgQuery(`
+            DELETE FROM transactions WHERE merchant_id = $1;
+            DELETE FROM wallets WHERE user_id = $1;
+            DELETE FROM merchant_pos WHERE merchant_id = $1;
+            DELETE FROM withdrawals WHERE merchant_id = $1;
+            DELETE FROM beneficiaries WHERE merchant_id = $1;
+            DELETE FROM users WHERE id = $1;
+          `, [userId]);
+        } catch (_) {}
+
+        return sendJson(res, 200, { success: true, message: `Account ${userId} permanently removed.` });
       } catch (err) {
         return sendJson(res, 500, { success: false, error: err.message });
       }

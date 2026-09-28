@@ -165,6 +165,27 @@ export async function updateTable(table, data, matchColumn, matchValue) {
 }
 
 /**
+ * Generic Delete from Table
+ */
+export async function deleteFromTable(table, matchColumn, matchValue) {
+  const allowedTables = ['users', 'wallets', 'merchant_pos', 'transactions', 'withdrawals', 'beneficiaries', 'inquiries', 'media_files'];
+  if (!allowedTables.includes(table)) {
+    throw new Error(`Table "${table}" is not allowed.`);
+  }
+
+  const sql = `DELETE FROM ${table} WHERE ${matchColumn} = $1 RETURNING *;`;
+  if (pool) {
+    const res = await pool.query(sql, [matchValue]);
+    return res.rows;
+  }
+
+  // SQLite fallback
+  const sqliteSql = `DELETE FROM ${table} WHERE ${matchColumn} = ?;`;
+  sqliteDb.prepare(sqliteSql).run(matchValue);
+  return [{ [matchColumn]: matchValue }];
+}
+
+/**
  * Record media file in PostgreSQL or SQLite
  */
 export async function recordMediaFile({ id, merchant_id, file_name, s3_key, s3_url, cdn_url, mime_type, file_size_bytes, entity_type, entity_id }) {

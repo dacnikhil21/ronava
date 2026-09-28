@@ -3754,4 +3754,125 @@ export async function updatePosRentalStatus({ merchant_id, terminal_id, billing_
   }
 }
 
+// ----------------------------------------------------
+// PURGE TEST ACCOUNTS & SINGLE USER DELETION
+// ----------------------------------------------------
+export async function purgeAllTestAccounts() {
+  try {
+    // 1. Call backend API if available
+    try {
+      const res = await fetch('/api/admin/users/purge-test-accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json && json.success) {
+          cleanLocalTestStorage();
+          return { success: true, message: json.message, purgedCount: json.purgedCount };
+        }
+      }
+    } catch (_) {}
+
+    // 2. Direct Supabase / PostgreSQL Client Cleanup
+    const testIds = ['SD1003', 'SD1004', 'SD1005', 'SD1006', 'SD1008'];
+    const { data: allUsers } = await supabase.from('users').select('*');
+    const matchingTestUsers = (allUsers || []).filter(u => 
+      (u.name || '').toLowerCase().includes('test') || 
+      (u.id || '').toLowerCase().includes('test') ||
+      testIds.includes(u.id)
+    );
+
+    for (const u of matchingTestUsers) {
+      await supabase.from('users').eq('id', u.id).delete();
+      await supabase.from('wallets').eq('user_id', u.id).delete();
+      await supabase.from('merchant_pos').eq('merchant_id', u.id).delete();
+    }
+
+    cleanLocalTestStorage();
+    return { success: true, message: `Successfully purged ${matchingTestUsers.length} test accounts from system.` };
+  } catch (err) {
+    console.error('purgeAllTestAccounts error:', err);
+    return { success: false, message: err.message };
+  }
+}
+
+function cleanLocalTestStorage() {
+  if (typeof window === 'undefined') return;
+  const testIds = new Set(['SD1003', 'SD1004', 'SD1005', 'SD1006', 'SD1008']);
+  const tables = ['users', 'wallets', 'merchant_pos', 'transactions', 'withdrawals', 'beneficiaries'];
+  tables.forEach(tbl => {
+    const key = `ronav_db_${tbl}`;
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      try {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) {
+          const filtered = arr.filter(item => {
+            const name = (item.name || '').toLowerCase();
+            const id = (item.id || item.user_id || item.merchant_id || '');
+            if (name.includes('test') || id.toLowerCase().includes('test') || testIds.has(id)) {
+              return false;
+            }
+            return true;
+          });
+          localStorage.setItem(key, JSON.stringify(filtered));
+        }
+      } catch (_) {}
+    }
+  });
+}
+
+export async function deleteUserAccount(userId) {
+  if (!userId || userId === 'ADM001') {
+    return { success: false, message: 'Cannot delete Super Admin (ADM001).' };
+  }
+  try {
+    try {
+      const res = await fetch('/api/admin/users/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json && json.success) {
+          cleanSingleUserFromLocalStorage(userId);
+          return { success: true, message: json.message };
+        }
+      }
+    } catch (_) {}
+
+    await supabase.from('users').eq('id', userId).delete();
+    await supabase.from('wallets').eq('user_id', userId).delete();
+    await supabase.from('merchant_pos').eq('merchant_id', userId).delete();
+    cleanSingleUserFromLocalStorage(userId);
+    return { success: true, message: `Account ${userId} deleted.` };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
+}
+
+function cleanSingleUserFromLocalStorage(userId) {
+  if (typeof window === 'undefined') return;
+  const tables = ['users', 'wallets', 'merchant_pos', 'transactions', 'withdrawals', 'beneficiaries'];
+  tables.forEach(tbl => {
+    const key = `ronav_db_${tbl}`;
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      try {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) {
+          const filtered = arr.filter(item => {
+            const id = (item.id || item.user_id || item.merchant_id || '');
+            return id !== userId;
+          });
+          localStorage.setItem(key, JSON.stringify(filtered));
+        }
+      } catch (_) {}
+    }
+  });
+}
+
+
 

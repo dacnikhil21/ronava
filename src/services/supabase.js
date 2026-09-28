@@ -238,8 +238,52 @@ class TableQueryBuilder {
     return this;
   }
 
+  delete() {
+    this._action = 'delete';
+    return this;
+  }
+
   async execute() {
     try {
+      if (this._action === 'delete') {
+        const filterKeys = Object.keys(this._filters);
+        const matchCol = filterKeys[0] || 'id';
+        const matchVal = this._filters[matchCol];
+
+        // Try API endpoint first
+        try {
+          const res = await fetch(getApiUrl('/api/db/delete'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              table: this.table,
+              matchColumn: matchCol,
+              matchValue: matchVal,
+            }),
+          });
+          const ct = res.headers.get('content-type') || '';
+          if (res.ok && ct.includes('application/json')) {
+            const json = await res.json();
+            if (json && json.success) {
+              return { data: json.data, error: null };
+            }
+          }
+        } catch (_) {}
+
+        // Resilient Local Fallback
+        const rows = getLocalTable(this.table);
+        const newRows = rows.filter(r => {
+          for (const [k, v] of Object.entries(this._filters)) {
+            if (r[k] === v || String(r[k]) === String(v)) {
+              return false;
+            }
+          }
+          return true;
+        });
+        saveLocalTable(this.table, newRows);
+        return { data: true, error: null };
+      }
+
       if (this._action === 'insert') {
         const isArray = Array.isArray(this._data);
         const items = isArray ? this._data : [this._data];

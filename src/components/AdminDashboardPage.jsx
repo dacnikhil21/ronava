@@ -6,7 +6,8 @@ import {
   Shield, Activity, PlusCircle, RefreshCw, GitFork, Layers, 
   Store, Briefcase, ShieldCheck, ArrowRight, ArrowLeft,
   Check, Phone, DollarSign, ArrowUpRight, Zap, Crown, User,
-  Download, Edit3, UserCheck, UserX, FileText, MapPin, BadgeCheck, Key
+  Download, Edit3, UserCheck, UserX, FileText, MapPin, BadgeCheck, Key,
+  Trash2
 } from 'lucide-react';
 import { downloadBankBatchFile, downloadGstAuditFile, downloadRentalReportFile } from '../utils/bankExportUtils.js';
 import { 
@@ -34,7 +35,9 @@ import {
   classifyTransactionChannel,
   getMonthlyRentalReport,
   updatePosRentalStatus,
-  clawbackTransaction
+  clawbackTransaction,
+  purgeAllTestAccounts,
+  deleteUserAccount
 } from '../services/api';
 import { subscribeToAdminFeed } from '../services/supabase';
 import RonavLogo from './RonavLogo';
@@ -314,6 +317,50 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       setCompanyQrImage(null);
       await savePlatformQrConfig({ image: null, name: companyQrPayeeName });
       triggerToast('✓ Company QR reset to default across all devices', 'info');
+    }
+  };
+
+  const [isPurgingTests, setIsPurgingTests] = useState(false);
+
+  const handlePurgeAllTestAccounts = async () => {
+    if (!window.confirm('⚠️ Are you sure you want to permanently remove all test accounts, dummy merchants, and test transactions from the hierarchy? This will clean up all test cases while keeping real accounts safe.')) {
+      return;
+    }
+    setIsPurgingTests(true);
+    try {
+      const res = await purgeAllTestAccounts();
+      if (res.success) {
+        triggerToast(`✓ ${res.message || 'All test accounts purged successfully!'}`, 'success');
+        fetchAdminData();
+      } else {
+        triggerToast(res.message || 'Failed to purge test accounts', 'error');
+      }
+    } catch (err) {
+      triggerToast(err.message || 'Error purging test accounts', 'error');
+    } finally {
+      setIsPurgingTests(false);
+    }
+  };
+
+  const handleDeleteUser = async (userId, userName) => {
+    if (!userId || userId === 'ADM001') {
+      triggerToast('Cannot delete Super Admin account', 'error');
+      return;
+    }
+    if (!window.confirm(`⚠️ Permanently delete account ${userId} (${userName || 'User'}) and all its downstream records?`)) {
+      return;
+    }
+    try {
+      const res = await deleteUserAccount(userId);
+      if (res.success) {
+        triggerToast(`✓ Account ${userId} deleted successfully!`, 'success');
+        setViewingUserDossier(null);
+        fetchAdminData();
+      } else {
+        triggerToast(res.message || 'Failed to delete account', 'error');
+      }
+    } catch (err) {
+      triggerToast(err.message || 'Error deleting account', 'error');
     }
   };
 
@@ -2313,6 +2360,17 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     <Key style={{ width: '12px', height: '12px' }} />
                     <span>Reset Password</span>
                   </button>
+
+                  {viewingUserDossier.id !== 'ADM001' && (
+                    <button
+                      onClick={() => handleDeleteUser(viewingUserDossier.id, viewingUserDossier.name)}
+                      style={{ background: '#FFF1F2', color: '#E11D48', border: '1px solid #FECDD3', padding: '0.4rem 0.65rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      title="Permanently Delete This Account"
+                    >
+                      <Trash2 style={{ width: '12px', height: '12px' }} />
+                      <span>Delete</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -4037,30 +4095,54 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
                 
                 {/* Top Action Header: Title + Create SD Button beside it (Clean, No Wasted Subtitles) */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
                   <h2 style={{ fontSize: '1.0625rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
                     Super Distributors ({filteredSDs.length})
                   </h2>
-                  <button
-                    onClick={() => handleOpenCreateModal('SUPER_DISTRIBUTOR', 'ADM001')}
-                    style={{
-                      background: '#7C3AED',
-                      color: '#FFFFFF',
-                      border: 'none',
-                      padding: '0.375rem 0.75rem',
-                      borderRadius: '8px',
-                      fontSize: '0.6875rem',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      boxShadow: '0 2px 5px rgba(124, 58, 237, 0.25)'
-                    }}
-                  >
-                    <PlusCircle style={{ width: '13px', height: '13px' }} />
-                    <span>+ Create SD</span>
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <button
+                      onClick={handlePurgeAllTestAccounts}
+                      disabled={isPurgingTests}
+                      title="Permanently remove test cases from total flow hierarchy"
+                      style={{
+                        background: '#FFF1F2',
+                        color: '#E11D48',
+                        border: '1px solid #FECDD3',
+                        padding: '0.375rem 0.75rem',
+                        borderRadius: '8px',
+                        fontSize: '0.6875rem',
+                        fontWeight: 800,
+                        cursor: isPurgingTests ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        boxShadow: '0 1px 3px rgba(225, 29, 72, 0.08)'
+                      }}
+                    >
+                      <Trash2 style={{ width: '13px', height: '13px' }} />
+                      <span>{isPurgingTests ? 'Cleaning Tests...' : '🧹 Clean Test Accounts'}</span>
+                    </button>
+                    <button
+                      onClick={() => handleOpenCreateModal('SUPER_DISTRIBUTOR', 'ADM001')}
+                      style={{
+                        background: '#7C3AED',
+                        color: '#FFFFFF',
+                        border: 'none',
+                        padding: '0.375rem 0.75rem',
+                        borderRadius: '8px',
+                        fontSize: '0.6875rem',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        boxShadow: '0 2px 5px rgba(124, 58, 237, 0.25)'
+                      }}
+                    >
+                      <PlusCircle style={{ width: '13px', height: '13px' }} />
+                      <span>+ Create SD</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Search Bar */}
