@@ -28,8 +28,12 @@ export function getPool() {
  */
 export async function query(sql, params = []) {
   if (pool) {
-    const res = await pool.query(sql, params);
-    return res.rows;
+    try {
+      const res = await pool.query(sql, params);
+      return res.rows;
+    } catch (err) {
+      console.warn('[PostgreSQL Query Fallback to SQLite]:', err.message);
+    }
   }
   // SQLite fallback
   try {
@@ -116,8 +120,12 @@ export async function insertIntoTable(table, data) {
   `;
 
   if (pool) {
-    const res = await pool.query(sql, values);
-    return res.rows[0];
+    try {
+      const res = await pool.query(sql, values);
+      return res.rows[0];
+    } catch (err) {
+      console.warn('[PostgreSQL Insert Fallback to SQLite]:', err.message);
+    }
   }
 
   // SQLite fallback
@@ -153,8 +161,12 @@ export async function updateTable(table, data, matchColumn, matchValue) {
   `;
 
   if (pool) {
-    const res = await pool.query(sql, values);
-    return res.rows;
+    try {
+      const res = await pool.query(sql, values);
+      return res.rows;
+    } catch (err) {
+      console.warn('[PostgreSQL Update Fallback to SQLite]:', err.message);
+    }
   }
 
   // SQLite fallback
@@ -175,8 +187,12 @@ export async function deleteFromTable(table, matchColumn, matchValue) {
 
   const sql = `DELETE FROM ${table} WHERE ${matchColumn} = $1 RETURNING *;`;
   if (pool) {
-    const res = await pool.query(sql, [matchValue]);
-    return res.rows;
+    try {
+      const res = await pool.query(sql, [matchValue]);
+      return res.rows;
+    } catch (err) {
+      console.warn('[PostgreSQL Delete Fallback to SQLite]:', err.message);
+    }
   }
 
   // SQLite fallback

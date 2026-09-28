@@ -54,6 +54,64 @@ export async function handleApiRequest(req, res) {
 
   try {
     // ----------------------------------------------------
+    // 0. UNIVERSAL DATABASE ENDPOINTS (Self-Hosted PostgreSQL & SQLite Engine)
+    // ----------------------------------------------------
+    if (pathname === '/api/db/select' && method === 'POST') {
+      const { table, filters, options } = await parseJsonBody(req);
+      try {
+        const rows = await selectFromTable(table, filters || {}, options || {});
+        return sendJson(res, 200, { success: true, data: rows });
+      } catch (err) {
+        console.error(`[DB SELECT ERROR ${table}]:`, err.message);
+        return sendJson(res, 500, { success: false, message: err.message, data: [] });
+      }
+    }
+
+    if (pathname === '/api/db/insert' && method === 'POST') {
+      const { table, data } = await parseJsonBody(req);
+      try {
+        const result = await insertIntoTable(table, data);
+        return sendJson(res, 200, { success: true, data: result });
+      } catch (err) {
+        console.error(`[DB INSERT ERROR ${table}]:`, err.message);
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
+    if (pathname === '/api/db/update' && method === 'POST') {
+      const { table, data, matchColumn, matchValue } = await parseJsonBody(req);
+      try {
+        const result = await updateTable(table, data, matchColumn, matchValue);
+        return sendJson(res, 200, { success: true, data: result });
+      } catch (err) {
+        console.error(`[DB UPDATE ERROR ${table}]:`, err.message);
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
+    if (pathname === '/api/db/delete' && method === 'POST') {
+      const { table, matchColumn, matchValue } = await parseJsonBody(req);
+      try {
+        const result = await deleteFromTable(table, matchColumn, matchValue);
+        return sendJson(res, 200, { success: true, data: result });
+      } catch (err) {
+        console.error(`[DB DELETE ERROR ${table}]:`, err.message);
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
+    if (pathname === '/api/db/query' && method === 'POST') {
+      const { sql, params } = await parseJsonBody(req);
+      try {
+        const rows = await pgQuery(sql, params || []);
+        return sendJson(res, 200, { success: true, data: rows });
+      } catch (err) {
+        console.error(`[DB QUERY ERROR]:`, err.message);
+        return sendJson(res, 500, { success: false, message: err.message, data: [] });
+      }
+    }
+
+    // ----------------------------------------------------
     // 1. AUTH & USER PROFILES (Strict User ID & Standard Password)
     // ----------------------------------------------------
     if (pathname === '/api/auth/login' && method === 'POST') {
