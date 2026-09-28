@@ -113,26 +113,65 @@ export function downloadBankBatchFile(payoutsList, options = {}) {
   }
 
   const { csvContent, count } = generateBankBatchCSV(payoutsList, options);
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  
   const today = new Date().toISOString().slice(0, 10);
   const fileName = options.fileName || `RONAV_Bank_Payout_${today}.csv`;
 
-  const link = document.createElement('a');
-  link.setAttribute('href', url);
-  link.setAttribute('download', fileName);
-  link.style.display = 'none';
-  document.body.appendChild(link);
-  link.click();
-  setTimeout(() => {
+  try {
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = (window.URL || window.webkitURL).createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.setAttribute('download', fileName);
+    link.style.position = 'fixed';
+    link.style.top = '-9999px';
+    link.style.left = '-9999px';
+    link.style.opacity = '0';
+    document.body.appendChild(link);
+    
+    link.click();
+    
     try {
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      const clickEvent = new MouseEvent('click', {
+        view: window,
+        bubbles: true,
+        cancelable: true
+      });
+      link.dispatchEvent(clickEvent);
     } catch (_) {}
-  }, 3000);
-  
-  return { success: true, count, fileName };
+
+    setTimeout(() => {
+      try {
+        if (document.body.contains(link)) {
+          document.body.removeChild(link);
+        }
+        (window.URL || window.webkitURL).revokeObjectURL(url);
+      } catch (_) {}
+    }, 10000);
+
+    return { success: true, count, fileName };
+  } catch (blobErr) {
+    try {
+      const encodedUri = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        try {
+          if (document.body.contains(link)) {
+            document.body.removeChild(link);
+          }
+        } catch (_) {}
+      }, 5000);
+      return { success: true, count, fileName };
+    } catch (dataErr) {
+      console.error('Download error:', dataErr);
+      return { success: false, count: 0, error: dataErr.message };
+    }
+  }
 }
 
 /**
