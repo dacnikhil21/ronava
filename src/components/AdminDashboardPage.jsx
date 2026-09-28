@@ -10326,9 +10326,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 alignItems: 'flex-start',
                 gap: '8px'
               }}>
-                <span style={{ fontSize: '1rem', lineHeight: 1 }}>ℹ️</span>
+                <span style={{ fontSize: '1rem', lineHeight: 1 }}>🏦</span>
                 <span style={{ fontSize: '0.75rem', color: '#1E40AF', lineHeight: 1.45 }}>
-                  Bank CMS batch sheets are generated strictly for <strong>Bank Payout Transfers</strong>. Customer card swipes remain safely in your <strong>Swipes</strong> audit queue for weekly POS reconciliation and are <strong>never</strong> exported to the bank.
+                  Generating bank-ready batch CSV for selected <strong>Merchant Bank Payouts</strong>. Upload directly to corporate banking (HDFC / ICICI / SBI CMS) for bulk disbursement.
                 </span>
               </div>
 
@@ -10343,7 +10343,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 gap: '0.75rem'
               }}>
                 <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Current Selection Breakdown ({downloadConfirmModal.channelName})
+                  Payout Scope Summary ({downloadConfirmModal.channelName})
                 </span>
 
                 {/* 1. T+1 Bank Withdrawals (Primary) */}
@@ -10368,10 +10368,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         </div>
                         <div>
                           <strong style={{ fontSize: '0.84375rem', color: '#0F172A', display: 'block' }}>
-                            T+1 Bank Withdrawals ({t1Items.length})
+                            T+1 Bank Payouts ({t1Items.length})
                           </strong>
                           <span style={{ fontSize: '0.6875rem', color: '#059669', fontWeight: 700 }}>
-                            Included in this Bank Sheet · Move to Submitted
+                            Included in Bank Sheet · Moves to Submitted tab
                           </span>
                         </div>
                       </div>
@@ -10418,43 +10418,6 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       <strong style={{ fontSize: '0.9375rem', color: '#0F172A', fontVariantNumeric: 'tabular-nums' }}>
                         ₹{insTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </strong>
-                    </div>
-                  );
-                })()}
-
-                {/* 3. Counter Card Swipes (Excluded from Bank Sheet) */}
-                {(() => {
-                  const sItems = downloadConfirmModal.swipes || [];
-                  const sTotal = sItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
-                  if (sItems.length === 0) return null;
-
-                  return (
-                    <div style={{
-                      background: '#F1F5F9',
-                      border: '1px solid #CBD5E1',
-                      borderRadius: '10px',
-                      padding: '0.65rem 0.85rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '0.5rem'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <div style={{ width: '28px', height: '28px', borderRadius: '7px', background: '#E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748B', fontSize: '0.8rem' }}>
-                          💳
-                        </div>
-                        <div>
-                          <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#475569', display: 'block' }}>
-                            Customer Swipes ({sItems.length})
-                          </span>
-                          <span style={{ fontSize: '0.65625rem', color: '#64748B', fontWeight: 600 }}>
-                            🛡️ Maintained in Swipes audit queue · Not sent to bank
-                          </span>
-                        </div>
-                      </div>
-                      <span style={{ fontSize: '0.84375rem', fontWeight: 700, color: '#64748B', fontVariantNumeric: 'tabular-nums' }}>
-                        ₹{sTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </span>
                     </div>
                   );
                 })()}
