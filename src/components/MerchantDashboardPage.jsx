@@ -154,6 +154,10 @@ const isPineLabsTxn = (t) => classifyTransactionChannel(t) === 'pinelabs';
 
 
 export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
+  const merchantId = user?.id || (user?.mid ? user.mid.replace('MID: ', '').trim() : '');
+  const [merchantName, setMerchantName] = useState(() => user?.name || 'Partner Account');
+  const userRole = user?.role ? (user.role === 'MERCHANT' ? 'Retailer' : user.role) : 'Retailer';
+
   const [showBalance, setShowBalance] = useState(true);
   // Views: 'home' | 'record-sale' | 'withdraw' | 'bbps' | 'history'
   const [activeTab, setActiveTab] = useState(() => {
@@ -166,6 +170,12 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     return 'home';
   });
   const [toastMessage, setToastMessage] = useState('');
+
+  const showToast = (msg) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(''), 3500);
+  };
+
 
   // Persist active tab across page refreshes
   useEffect(() => {
@@ -405,12 +415,12 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       const cleanName = (profileFormData.name || '').trim();
 
       if (!cleanMobile || cleanMobile.length !== 10) {
-        triggerToast('Please provide a valid 10-digit mobile number.', 'error');
+        showToast('Please provide a valid 10-digit mobile number.');
         setIsSavingProfile(false);
         return;
       }
       if (!cleanEmail || !cleanEmail.includes('@')) {
-        triggerToast('Please provide a valid Gmail / Email address.', 'error');
+        showToast('Please provide a valid Gmail / Email address.');
         setIsSavingProfile(false);
         return;
       }
@@ -431,14 +441,14 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         setMerchantName(cleanName);
         setProfileSuccessMsg('✓ Profile contact details updated successfully!');
         setIsEditingProfile(false);
-        triggerToast('✓ Profile updated successfully!', 'success');
+        showToast('✓ Profile updated successfully!');
         setTimeout(() => setProfileSuccessMsg(''), 4000);
       } else {
-        triggerToast(res?.message || 'Failed to update profile details', 'error');
+        showToast(res?.message || 'Failed to update profile details');
       }
     } catch (err) {
       console.error(err);
-      triggerToast('Error saving profile details', 'error');
+      showToast('Error saving profile details');
     } finally {
       setIsSavingProfile(false);
     }
@@ -671,10 +681,6 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   const [networkSubTab, setNetworkSubTab] = useState('members'); // 'members' | 'rentals'
   const [rentalSearchQuery, setRentalSearchQuery] = useState('');
 
-  const merchantId = user?.id || (user?.mid ? user.mid.replace('MID: ', '').trim() : '');
-  const merchantName = user?.name || 'Partner Account';
-  const userRole = user?.role ? (user.role === 'MERCHANT' ? 'Retailer' : user.role) : 'Retailer';
-
   // Network & Referral Engine State
   const [networkData, setNetworkData] = useState({
     partners: [],
@@ -818,11 +824,6 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       }
     }
   }, [allowedRolesForCreator]);
-
-  const showToast = (msg) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(''), 3000);
-  };
 
   const fetchHierarchyRentalReport = async (targetMonth) => {
     setIsLoadingRentalReport(true);
