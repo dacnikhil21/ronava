@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { exec } from 'node:child_process';
 import { db } from './db.js';
 import { verifyS3Connection, getPresignedUploadUrl, uploadBufferToS3, deleteS3Object } from './s3.js';
 import { initPostgresSchema, getMediaFiles, query as pgQuery, selectFromTable, insertIntoTable, updateTable, deleteFromTable } from './pg_db.js';
@@ -1237,10 +1238,24 @@ export async function handleApiRequest(req, res) {
           `, [userId]);
         } catch (_) {}
 
-        return sendJson(res, 200, { success: true, message: `Account ${userId} permanently removed.` });
-      } catch (err) {
-        return sendJson(res, 500, { success: false, error: err.message });
-      }
+    // ----------------------------------------------------
+    // AUTOMATIC GITHUB AUTO-DEPLOY WEBHOOK (Vercel-style auto deployment)
+    // ----------------------------------------------------
+    if ((pathname === '/api/system/webhook-deploy' || pathname === '/api/webhook-deploy') && (method === 'POST' || method === 'GET')) {
+      console.log('⚡ Received GitHub Auto-Deploy trigger! Pulling latest code and building...');
+      exec('git pull origin main && npm run build && pm2 restart all', { cwd: '/var/www/ronava' }, (err, stdout, stderr) => {
+        if (err) {
+          console.error('❌ Auto-deploy build error:', err.message);
+          return;
+        }
+        console.log('✅ Auto-deploy completed successfully!\n', stdout);
+      });
+
+      return sendJson(res, 200, {
+        success: true,
+        message: 'Auto-deploy triggered! Server is pulling latest code and building in background.',
+        timestamp: new Date().toISOString()
+      });
     }
 
     // 404 for unknown /api routes
