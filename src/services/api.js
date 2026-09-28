@@ -2905,32 +2905,52 @@ export async function requestWithdrawal(withdrawalData) {
     const txns = txnsRes?.data || [];
     const wths = wthsRes?.data || [];
 
-    // Filter by channel if provided (segregated balance calculation)
-    const targetTxns = channel ? txns.filter(t => classifyTransactionChannel(t) === channel) : txns;
-    const targetWths = channel ? wths.filter(w => classifyTransactionChannel(w) === channel) : wths;
+    // Robust channel matching helper (normalizes 'pine_labs' / 'pinelabs' / 'payswiff' / 'qr')
+    const normChannel = (channel || '').toLowerCase().replace(/[^a-z]/g, '');
+    const isPineTarget = normChannel.includes('pine');
+    const isPayswiffTarget = normChannel.includes('swiff');
+    const isQrTarget = normChannel.includes('qr') || normChannel.includes('upi');
 
-    const approvedTxns = targetTxns.filter(t => (t.status || '').toUpperCase() === 'APPROVED');
-    const receivedSales = approvedTxns.reduce((sum, t) => {
-      const gross = parseFloat(t.amount) || 0;
-      let fee = 0;
-      if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
-        try {
-          const jsonPart = t.notes.slice(t.notes.indexOf('{'));
-          const meta = JSON.parse(jsonPart);
-          fee = parseFloat(meta.company_fee) || 0;
-        } catch (_) {}
-      }
-      return sum + Math.max(0, gross - fee);
-    }, 0);
+    const matchesChannel = (item) => {
+      if (!normChannel) return true;
+      const ch = classifyTransactionChannel(item);
+      if (isQrTarget) return ch === 'qr';
+      if (isPayswiffTarget) return ch === 'payswiff';
+      if (isPineTarget) return ch === 'pinelabs';
+      return ch === normChannel;
+    };
 
-    const approvedWiths = targetWths.filter(w => (w.status || '').toUpperCase() === 'APPROVED');
-    const withdrawnAmount = approvedWiths.reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
-    const pendingWiths = targetWths.filter(w => (w.status || '').toUpperCase() === 'PENDING');
-    const pendingWithdrawn = pendingWiths.reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
+    const targetTxns = normChannel ? txns.filter(matchesChannel) : txns;
+    const targetWths = normChannel ? wths.filter(matchesChannel) : wths;
 
-    const liveCalculatedAvail = Math.max(0, parseFloat((receivedSales - withdrawnAmount - pendingWithdrawn).toFixed(2)));
+    const calcNetSales = (txnList) => {
+      const approved = txnList.filter(t => (t.status || '').toUpperCase() === 'APPROVED');
+      return approved.reduce((sum, t) => {
+        const gross = parseFloat(t.amount) || 0;
+        let fee = 0;
+        if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
+          try {
+            const jsonPart = t.notes.slice(t.notes.indexOf('{'));
+            const meta = JSON.parse(jsonPart);
+            fee = parseFloat(meta.company_fee) || 0;
+          } catch (_) {}
+        }
+        return sum + Math.max(0, gross - fee);
+      }, 0);
+    };
+
+    const channelReceivedSales = calcNetSales(targetTxns);
+    const channelWithdrawn = targetWths.filter(w => (w.status || '').toUpperCase() === 'APPROVED').reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
+    const channelPendingWithdrawn = targetWths.filter(w => (w.status || '').toUpperCase() === 'PENDING').reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
+    const channelLiveAvail = Math.max(0, parseFloat((channelReceivedSales - channelWithdrawn - channelPendingWithdrawn).toFixed(2)));
+
+    const allReceivedSales = calcNetSales(txns);
+    const allWithdrawn = wths.filter(w => (w.status || '').toUpperCase() === 'APPROVED').reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
+    const allPendingWithdrawn = wths.filter(w => (w.status || '').toUpperCase() === 'PENDING').reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
+    const allLiveAvail = Math.max(0, parseFloat((allReceivedSales - allWithdrawn - allPendingWithdrawn).toFixed(2)));
+
     const staticWalletAvail = parseFloat(wallet?.available_balance || 0);
-    const currAvail = Math.max(liveCalculatedAvail, staticWalletAvail);
+    const currAvail = Math.max(channelLiveAvail, allLiveAvail, staticWalletAvail);
 
     const holdAmount = 500.0;
     const maxWithdrawable = Math.max(0, parseFloat((currAvail - holdAmount).toFixed(2)));

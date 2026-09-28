@@ -1440,7 +1440,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     }
 
     const isQrMode = selectedMachineKey === 'qr';
-    const finalChannel = isQrMode ? 'qr' : selectedMachineKey;
+    const finalChannel = isQrMode ? 'qr' : (selectedMachineKey === 'payswiff' ? 'payswiff' : 'pinelabs');
     const finalProvider = isQrMode ? 'Company QR (UPI)' : activeMachine.provider;
 
     let payload;
