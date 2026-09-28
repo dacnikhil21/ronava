@@ -174,3 +174,36 @@ Every single screen must instantly communicate:
 - Cards & Containers: Wallet Card, Metric Stat Widget, Service Action Card, Bank Card Surface
 - Form & Control Engines: Text/Currency Input, Password Eye Toggle, Native Select Dropdown, Date Range Filter, Search Bar, Tab Group
 - Feedback & Data Display: Data Table with Auto-Card Transformation, Status Badge Pills, Skeleton Loaders, Empty States, Action Dialog Modals
+
+---
+
+## Live Production Server & Deployment Architecture (Chapter 07)
+
+### 1. Live Server Infrastructure
+- **Public IP**: `13.201.4.145`
+- **Live URL**: `http://13.201.4.145`
+- **Cloud Provider**: AWS EC2 (Instance: `i-0157cf2449281e925 (RONAV-Production-Server)`)
+- **OS / User**: Ubuntu (`ubuntu@ip-172-31-15-19`)
+- **Application Directory**: `/var/www/ronava`
+- **Process Manager**: PM2 (`ronav-api`, ID 0, auto-restart on boot)
+- **Web Server / Reverse Proxy**: Nginx 1.24.0 on port 80 proxying to Node backend port 3000
+
+### 2. Version Control & GitHub Configuration
+- **Repository URL**: `https://github.com/dacnikhil21/ronava.git`
+- **Active Branch**: `main`
+- **Primary GitHub Account**: `neelhari` (`dacnikhil21@gmail.com`)
+- **Git Push Command**: Standard `git push origin main` authenticated via `neelhari`. (Note: `dsrithaja` was purged).
+
+### 3. Automated Deployment Workflow
+- **Local 1-Click Command**: `npm run deploy` (runs `git push origin main && node deploy_to_ec2.mjs`)
+- **Webhook Endpoint on EC2**: `POST http://13.201.4.145/api/system/webhook-deploy` (automatically runs `git pull origin main && npm run build && pm2 restart all`)
+- **Manual EC2 Fallback Command**:
+  ```bash
+  cd /var/www/ronava && git pull origin main && npm run build && pm2 restart all
+  ```
+
+### 4. Admin & Test Credentials Reference
+- **Super Admin ID**: `ADM001` (Password: `Ronav@123` or `admin`)
+- **Support Hotline**: `9966203053`
+- **Support Email**: `rosenavaneethamenterprises@gmail.com`
+
