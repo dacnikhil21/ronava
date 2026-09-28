@@ -36,24 +36,6 @@ export default function StatisticsSection() {
     return () => revealObserver.disconnect();
   }, []);
 
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && !hasTriggered) {
-          setHasTriggered(true);
-          startCountAnimation();
-        }
-      },
-      { threshold: 0.2 }
-    );
-
-    if (sectionRef.current) {
-      observer.observe(sectionRef.current);
-    }
-
-    return () => observer.disconnect();
-  }, [hasTriggered, targets]);
-
   const startCountAnimation = () => {
     let start = 0;
     const duration = 1600;
@@ -77,6 +59,24 @@ export default function StatisticsSection() {
       }
     }, intervalTime);
   };
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !hasTriggered) {
+          setHasTriggered(true);
+          startCountAnimation();
+        }
+      },
+      { threshold: 0.2 }
+    );
+
+    if (sectionRef.current) {
+      observer.observe(sectionRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, [hasTriggered, targets]);
 
   return (
     <section ref={sectionRef} className="section-padding section-cinematic" style={{ color: '#FFFFFF', width: '100%' }}>

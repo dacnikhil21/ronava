@@ -190,6 +190,83 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   const [merchantPayswiffVendor, setMerchantPayswiffVendor] = useState('ALL'); // 'ALL' | 'ronav' | 'rp'
   const [userPos, setUserPos] = useState(null);
 
+  // BBPS Customer Bill Pay Form
+  const [bbpsForm, setBbpsForm] = useState({
+    mobile: '',
+    operator: 'Jio Prepaid',
+    consumer_number: '',
+    biller_name: 'TSSPDCL - Southern Power (Telangana)',
+    amount: ''
+  });
+  const [isSubmittingBbps, setIsSubmittingBbps] = useState(false);
+
+  // History Filter Engine: 'TODAY' | 'YESTERDAY' | 'WEEK' | 'CUSTOM' | 'ALL'
+  const [dateFilter, setDateFilter] = useState('ALL');
+  const [customFromDate, setCustomFromDate] = useState('');
+  const [customToDate, setCustomToDate] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [txnCategoryFilter, setTxnCategoryFilter] = useState('ALL'); // 'ALL' | 'SWIPES' | 'QR' | 'COMMISSIONS' | 'WITHDRAWALS'
+  const [txnStatusFilter, setTxnStatusFilter] = useState('ALL'); // 'ALL' | 'APPROVED' | 'PENDING' | 'INVALID'
+
+  // Monthly POS Rental Tracking State for Downlines (Items #22 & #23)
+  const [hierarchyRentalData, setHierarchyRentalData] = useState({ list: [], summary: {} });
+  const [isLoadingRentalReport, setIsLoadingRentalReport] = useState(false);
+  const [rentalMonthFilter, setRentalMonthFilter] = useState(() => new Date().toISOString().slice(0, 7));
+  const [rentalStatusTab, setRentalStatusTab] = useState('ALL'); // 'ALL' | 'PENDING' | 'PAID'
+  const [networkSubTab, setNetworkSubTab] = useState('members'); // 'members' | 'rentals'
+  const [rentalSearchQuery, setRentalSearchQuery] = useState('');
+
+  // Network & Referral Engine State
+  const [networkData, setNetworkData] = useState({
+    partners: [],
+    total_commission_earned: 0,
+    today_network_profit: 0,
+    commission_rate_pct: 0.25
+  });
+  const [creatorPos, setCreatorPos] = useState(null);
+  const [isLoadingNetwork, setIsLoadingNetwork] = useState(false);
+  const [selectedPartner, setSelectedPartner] = useState(null);
+  const [partnerTxns, setPartnerTxns] = useState([]);
+  const [isLoadingPartnerTxns, setIsLoadingPartnerTxns] = useState(false);
+  const [showOnboardForm, setShowOnboardForm] = useState(false);
+  const [peopleSearch, setPeopleSearch] = useState('');
+  const [peopleRoleFilter, setPeopleRoleFilter] = useState('ALL');
+  const [onboardForm, setOnboardForm] = useState({
+    name: '',
+    mobile: '',
+    email: '',
+    aadhaar: '',
+    pan: '',
+    address: '',
+    agreement_accepted: false,
+    role: '',
+    shop_name: '',
+    pos_provider: 'Pine Labs',
+    pos_vendor: 'Rose Navaneetham Enterprises',
+    device_plan: 'RENTAL',
+    monthly_rent: '499',
+    settlement_type: 'T1',
+    commission_rate_t1: '1.48',
+    commission_rate_instant: '1.78',
+    pos_terminal_id: '',
+    password: ''
+  });
+  const [onboardChannels, setOnboardChannels] = useState({
+    pine_labs: {
+      enabled: true,
+      terminal_id: '',
+      vendor: 'Rose Navaneetham Enterprises',
+      plan: 'RENTAL',
+      rent: '499',
+      rate_t1: '1.48',
+      rate_instant: '1.78'
+    },
+    payswiff: null,
+    qr: null
+  });
+  const [isSubmittingOnboard, setIsSubmittingOnboard] = useState(false);
+  const [createdPartnerCreds, setCreatedPartnerCreds] = useState(null);
+
   // Safety Guard: If Admin account enters Merchant Dashboard, immediately redirect to Admin Command Center
   useEffect(() => {
     if (user?.role === 'ADMIN' || user?.id === 'ADM001' || user?.user?.role === 'ADMIN' || user?.id?.startsWith('ADM')) {
@@ -654,83 +731,6 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       count: todayTxns.length
     };
   }, [activeMachineTransactions]);
-
-  // BBPS Customer Bill Pay Form
-  const [bbpsForm, setBbpsForm] = useState({
-    mobile: '',
-    operator: 'Jio Prepaid',
-    consumer_number: '',
-    biller_name: 'TSSPDCL - Southern Power (Telangana)',
-    amount: ''
-  });
-  const [isSubmittingBbps, setIsSubmittingBbps] = useState(false);
-
-  // History Filter Engine: 'TODAY' | 'YESTERDAY' | 'WEEK' | 'CUSTOM' | 'ALL'
-  const [dateFilter, setDateFilter] = useState('ALL');
-  const [customFromDate, setCustomFromDate] = useState('');
-  const [customToDate, setCustomToDate] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [txnCategoryFilter, setTxnCategoryFilter] = useState('ALL'); // 'ALL' | 'SWIPES' | 'QR' | 'COMMISSIONS' | 'WITHDRAWALS'
-  const [txnStatusFilter, setTxnStatusFilter] = useState('ALL'); // 'ALL' | 'APPROVED' | 'PENDING' | 'INVALID'
-
-  // Monthly POS Rental Tracking State for Downlines (Items #22 & #23)
-  const [hierarchyRentalData, setHierarchyRentalData] = useState({ list: [], summary: {} });
-  const [isLoadingRentalReport, setIsLoadingRentalReport] = useState(false);
-  const [rentalMonthFilter, setRentalMonthFilter] = useState(() => new Date().toISOString().slice(0, 7));
-  const [rentalStatusTab, setRentalStatusTab] = useState('ALL'); // 'ALL' | 'PENDING' | 'PAID'
-  const [networkSubTab, setNetworkSubTab] = useState('members'); // 'members' | 'rentals'
-  const [rentalSearchQuery, setRentalSearchQuery] = useState('');
-
-  // Network & Referral Engine State
-  const [networkData, setNetworkData] = useState({
-    partners: [],
-    total_commission_earned: 0,
-    today_network_profit: 0,
-    commission_rate_pct: 0.25
-  });
-  const [creatorPos, setCreatorPos] = useState(null);
-  const [isLoadingNetwork, setIsLoadingNetwork] = useState(false);
-  const [selectedPartner, setSelectedPartner] = useState(null);
-  const [partnerTxns, setPartnerTxns] = useState([]);
-  const [isLoadingPartnerTxns, setIsLoadingPartnerTxns] = useState(false);
-  const [showOnboardForm, setShowOnboardForm] = useState(false);
-  const [peopleSearch, setPeopleSearch] = useState('');
-  const [peopleRoleFilter, setPeopleRoleFilter] = useState('ALL');
-  const [onboardForm, setOnboardForm] = useState({
-    name: '',
-    mobile: '',
-    email: '',
-    aadhaar: '',
-    pan: '',
-    address: '',
-    agreement_accepted: false,
-    role: '',
-    shop_name: '',
-    pos_provider: 'Pine Labs',
-    pos_vendor: 'Rose Navaneetham Enterprises',
-    device_plan: 'RENTAL',
-    monthly_rent: '499',
-    settlement_type: 'T1',
-    commission_rate_t1: '1.48',
-    commission_rate_instant: '1.78',
-    pos_terminal_id: '',
-    password: ''
-  });
-  const [onboardChannels, setOnboardChannels] = useState({
-    pine_labs: {
-      enabled: true,
-      terminal_id: '',
-      vendor: 'Rose Navaneetham Enterprises',
-      plan: 'RENTAL',
-      rent: '499',
-      rate_t1: '1.48',
-      rate_instant: '1.78'
-    },
-    payswiff: null,
-    qr: null
-  });
-  const [isSubmittingOnboard, setIsSubmittingOnboard] = useState(false);
-  const [createdPartnerCreds, setCreatedPartnerCreds] = useState(null);
 
   // Handle POS Provider Change in Onboarding Drawer
   const handleOnboardProviderChange = (provider) => {

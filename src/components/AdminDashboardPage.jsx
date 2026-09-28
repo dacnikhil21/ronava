@@ -227,6 +227,24 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   const [isLoadingRental, setIsLoadingRental] = useState(false);
   const [updatingRentalId, setUpdatingRentalId] = useState(null);
 
+  // Toast Helper
+  const triggerToast = (msg, type = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  // Clipboard Helper
+  const copyToClipboard = (text, id) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(prev => ({ ...prev, [id]: true }));
+      triggerToast(`Copied: ${text}`, 'info');
+      setTimeout(() => {
+        setCopiedId(prev => ({ ...prev, [id]: false }));
+      }, 1500);
+    });
+  };
+
   const fetchRentalReport = async (monthVal) => {
     setIsLoadingRental(true);
     try {
@@ -241,6 +259,63 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       console.error('Failed to load rental report:', e);
     } finally {
       setIsLoadingRental(false);
+    }
+  };
+
+  // Load Fresh Data from Backend
+  const fetchAdminData = async () => {
+    try {
+      // Sync platform QR from Supabase in background
+      getPlatformQrConfig().then(cfg => {
+        if (cfg) {
+          if (cfg.image) setCompanyQrImage(cfg.image);
+          if (cfg.name) setCompanyQrPayeeName(cfg.name);
+        }
+      }).catch(() => {});
+
+      const [pendingRes, usersRes, treeRes, inqRes] = await Promise.all([
+        getAdminPending().catch(() => ({ success: false })),
+        getAllUsers().catch(() => ({ success: false })),
+        getHierarchyTree().catch(() => ({ success: false })),
+        getInquiries().catch(() => ({ success: false, inquiries: [] }))
+      ]);
+
+      if (inqRes && inqRes.inquiries) {
+        setInquiriesList(inqRes.inquiries);
+      }
+
+      if (pendingRes && pendingRes.success) {
+        setPendingTxns(pendingRes.pendingTransactions || []);
+        setPendingPayouts(pendingRes.pendingWithdrawals || []);
+        setAllPayouts(pendingRes.allWithdrawals || []);
+        setTransactionsLedger(pendingRes.allTransactions || []);
+        if (pendingRes.stats) {
+          setMetrics(prev => ({
+            ...prev,
+            ...pendingRes.stats,
+            vendorSummary: {
+              ...prev.vendorSummary,
+              ...(pendingRes.stats.vendorSummary || {})
+            },
+            devicePlanSummary: {
+              ...prev.devicePlanSummary,
+              ...(pendingRes.stats.devicePlanSummary || {})
+            }
+          }));
+        }
+      }
+
+      if (usersRes && usersRes.success) {
+        setNetworkUsers(usersRes.users || []);
+      }
+
+      if (treeRes && treeRes.success) {
+        setHierarchyData(treeRes);
+      }
+
+      fetchRentalReport(rentalMonth);
+    } catch (err) {
+      console.error('Error fetching admin data:', err);
     }
   };
 
@@ -266,24 +341,6 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     } finally {
       setUpdatingRentalId(null);
     }
-  };
-
-  // Toast Helper
-  const triggerToast = (msg, type = 'success') => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3500);
-  };
-
-  // Clipboard Helper
-  const copyToClipboard = (text, id) => {
-    if (!text) return;
-    navigator.clipboard.writeText(text).then(() => {
-      setCopiedId(prev => ({ ...prev, [id]: true }));
-      triggerToast(`Copied: ${text}`, 'info');
-      setTimeout(() => {
-        setCopiedId(prev => ({ ...prev, [id]: false }));
-      }, 1500);
-    });
   };
 
   // QR Upload & Reset Handlers for Company Official QR (Direct Supabase Sync)
@@ -361,63 +418,6 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       }
     } catch (err) {
       triggerToast(err.message || 'Error deleting account', 'error');
-    }
-  };
-
-  // Load Fresh Data from Backend
-  const fetchAdminData = async () => {
-    try {
-      // Sync platform QR from Supabase in background
-      getPlatformQrConfig().then(cfg => {
-        if (cfg) {
-          if (cfg.image) setCompanyQrImage(cfg.image);
-          if (cfg.name) setCompanyQrPayeeName(cfg.name);
-        }
-      }).catch(() => {});
-
-      const [pendingRes, usersRes, treeRes, inqRes] = await Promise.all([
-        getAdminPending().catch(() => ({ success: false })),
-        getAllUsers().catch(() => ({ success: false })),
-        getHierarchyTree().catch(() => ({ success: false })),
-        getInquiries().catch(() => ({ success: false, inquiries: [] }))
-      ]);
-
-      if (inqRes && inqRes.inquiries) {
-        setInquiriesList(inqRes.inquiries);
-      }
-
-      if (pendingRes && pendingRes.success) {
-        setPendingTxns(pendingRes.pendingTransactions || []);
-        setPendingPayouts(pendingRes.pendingWithdrawals || []);
-        setAllPayouts(pendingRes.allWithdrawals || []);
-        setTransactionsLedger(pendingRes.allTransactions || []);
-        if (pendingRes.stats) {
-          setMetrics(prev => ({
-            ...prev,
-            ...pendingRes.stats,
-            vendorSummary: {
-              ...prev.vendorSummary,
-              ...(pendingRes.stats.vendorSummary || {})
-            },
-            devicePlanSummary: {
-              ...prev.devicePlanSummary,
-              ...(pendingRes.stats.devicePlanSummary || {})
-            }
-          }));
-        }
-      }
-
-      if (usersRes && usersRes.success) {
-        setNetworkUsers(usersRes.users || []);
-      }
-
-      if (treeRes && treeRes.success) {
-        setHierarchyData(treeRes);
-      }
-
-      fetchRentalReport(rentalMonth);
-    } catch (err) {
-      console.error('Error fetching admin data:', err);
     }
   };
 
