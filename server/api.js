@@ -1238,6 +1238,12 @@ export async function handleApiRequest(req, res) {
           `, [userId]);
         } catch (_) {}
 
+        return sendJson(res, 200, { success: true, message: `Account ${userId} permanently deleted.` });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
     // ----------------------------------------------------
     // AUTOMATIC GITHUB AUTO-DEPLOY WEBHOOK (Vercel-style auto deployment)
     // ----------------------------------------------------
