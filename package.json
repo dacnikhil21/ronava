@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server/server.js",
+    "deploy": "git push origin main && node deploy_to_ec2.mjs",
     "deploy:s3": "vite build && node deploy_to_s3.mjs"
   },
   "dependencies": {
