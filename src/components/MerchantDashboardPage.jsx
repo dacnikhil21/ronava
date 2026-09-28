@@ -1479,7 +1479,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         customer_mobile: (customerPayoutForm.customer_mobile || '').trim(),
         settlement_mode: customerPayoutForm.settlement_mode || 'INSTANT',
         channel: finalChannel,
-        provider: finalProvider
+        provider: finalProvider,
+        client_available_balance: activeMachineWallet.available_balance
       };
     } else {
       const targetBank = beneficiaries.find(b => b.id === selectedBankId) || beneficiaries[0];
@@ -1499,7 +1500,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         remarks: (customerPayoutForm.remarks || '').trim(),
         settlement_mode: 'INSTANT',
         channel: finalChannel,
-        provider: finalProvider
+        provider: finalProvider,
+        client_available_balance: activeMachineWallet.available_balance
       };
     }
 

@@ -2897,7 +2897,7 @@ export async function requestWithdrawal(withdrawalData) {
     // 1. Fetch live transactions, withdrawals, and wallet record for this merchant
     const [walletRes, txnsRes, wthsRes] = await Promise.all([
       supabase.from('wallets').select('*').eq('user_id', cleanMerchantId).maybeSingle(),
-      supabase.from('transactions').select('*').eq('user_id', cleanMerchantId),
+      supabase.from('transactions').select('*').eq('merchant_id', cleanMerchantId),
       supabase.from('withdrawals').select('*').eq('merchant_id', cleanMerchantId)
     ]);
 
@@ -2950,7 +2950,8 @@ export async function requestWithdrawal(withdrawalData) {
     const allLiveAvail = Math.max(0, parseFloat((allReceivedSales - allWithdrawn - allPendingWithdrawn).toFixed(2)));
 
     const staticWalletAvail = parseFloat(wallet?.available_balance || 0);
-    const currAvail = Math.max(channelLiveAvail, allLiveAvail, staticWalletAvail);
+    const clientAvail = parseFloat(withdrawalData.client_available_balance || 0);
+    const currAvail = Math.max(channelLiveAvail, allLiveAvail, staticWalletAvail, clientAvail);
 
     const holdAmount = 500.0;
     const maxWithdrawable = Math.max(0, parseFloat((currAvail - holdAmount).toFixed(2)));
