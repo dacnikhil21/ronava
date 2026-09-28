@@ -2986,9 +2986,9 @@ export async function requestWithdrawal(withdrawalData) {
           user_id: cleanMerchantId,
           available_balance: newAvail,
           pending_balance: newPend,
-          total_sales: receivedSales,
-          received_sales: receivedSales,
-          withdrawn_amount: withdrawnAmount,
+          total_sales: allReceivedSales,
+          received_sales: allReceivedSales,
+          withdrawn_amount: allWithdrawn,
           updated_at: new Date().toISOString()
         });
     }
