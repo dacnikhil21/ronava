@@ -122,10 +122,15 @@ export function downloadBankBatchFile(payoutsList, options = {}) {
   const link = document.createElement('a');
   link.setAttribute('href', url);
   link.setAttribute('download', fileName);
+  link.style.display = 'none';
   document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  setTimeout(() => {
+    try {
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (_) {}
+  }, 3000);
   
   return { success: true, count, fileName };
 }
@@ -224,10 +229,15 @@ export function downloadGstAuditFile(transactionsList, options = {}) {
   const link = document.createElement('a');
   link.setAttribute('href', url);
   link.setAttribute('download', fileName);
+  link.style.display = 'none';
   document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  setTimeout(() => {
+    try {
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (_) {}
+  }, 3000);
   
   return { success: true, count, fileName };
 }
@@ -313,10 +323,15 @@ export function downloadRentalReportFile(rentalList, options = {}) {
   const link = document.createElement('a');
   link.setAttribute('href', url);
   link.setAttribute('download', fileName);
+  link.style.display = 'none';
   document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  setTimeout(() => {
+    try {
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (_) {}
+  }, 3000);
   
   return { success: true, count, fileName };
 }
