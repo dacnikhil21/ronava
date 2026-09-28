@@ -2878,8 +2878,9 @@ export async function requestWithdrawal(withdrawalData) {
     } = withdrawalData;
     
     const numAmount = parseFloat(amount);
+    const cleanMerchantId = (merchant_id || '').replace(/^MID:\s*/i, '').trim();
 
-    if (!merchant_id || !numAmount || !bank_name || !account_number) {
+    if (!cleanMerchantId || !numAmount || !bank_name || !account_number) {
       return { success: false, message: 'Missing required withdrawal details.' };
     }
 
@@ -2893,41 +2894,88 @@ export async function requestWithdrawal(withdrawalData) {
       };
     }
 
-    const { data: wallet } = await supabase
-      .from('wallets')
-      .select('*')
-      .eq('user_id', merchant_id)
-      .single();
+    // 1. Fetch live transactions, withdrawals, and wallet record for this merchant
+    const [walletRes, txnsRes, wthsRes] = await Promise.all([
+      supabase.from('wallets').select('*').eq('user_id', cleanMerchantId).maybeSingle(),
+      supabase.from('transactions').select('*').eq('user_id', cleanMerchantId),
+      supabase.from('withdrawals').select('*').eq('merchant_id', cleanMerchantId)
+    ]);
 
-    const currAvail = parseFloat(wallet?.available_balance || 0);
+    const wallet = walletRes?.data;
+    const txns = txnsRes?.data || [];
+    const wths = wthsRes?.data || [];
+
+    // Filter by channel if provided (segregated balance calculation)
+    const targetTxns = channel ? txns.filter(t => classifyTransactionChannel(t) === channel) : txns;
+    const targetWths = channel ? wths.filter(w => classifyTransactionChannel(w) === channel) : wths;
+
+    const approvedTxns = targetTxns.filter(t => (t.status || '').toUpperCase() === 'APPROVED');
+    const receivedSales = approvedTxns.reduce((sum, t) => {
+      const gross = parseFloat(t.amount) || 0;
+      let fee = 0;
+      if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
+        try {
+          const jsonPart = t.notes.slice(t.notes.indexOf('{'));
+          const meta = JSON.parse(jsonPart);
+          fee = parseFloat(meta.company_fee) || 0;
+        } catch (_) {}
+      }
+      return sum + Math.max(0, gross - fee);
+    }, 0);
+
+    const approvedWiths = targetWths.filter(w => (w.status || '').toUpperCase() === 'APPROVED');
+    const withdrawnAmount = approvedWiths.reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
+    const pendingWiths = targetWths.filter(w => (w.status || '').toUpperCase() === 'PENDING');
+    const pendingWithdrawn = pendingWiths.reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
+
+    const liveCalculatedAvail = Math.max(0, parseFloat((receivedSales - withdrawnAmount - pendingWithdrawn).toFixed(2)));
+    const staticWalletAvail = parseFloat(wallet?.available_balance || 0);
+    const currAvail = Math.max(liveCalculatedAvail, staticWalletAvail);
+
     const holdAmount = 500.0;
-    const maxWithdrawable = Math.max(0, currAvail - holdAmount);
+    const maxWithdrawable = Math.max(0, parseFloat((currAvail - holdAmount).toFixed(2)));
 
     if (numAmount > maxWithdrawable) {
       return {
         success: false,
-        message: `Insufficient withdrawable balance. A minimum reserve balance of ₹500.00 must be maintained in your wallet to keep your account in active status. Maximum withdrawable amount is ₹${maxWithdrawable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`
+        message: `Insufficient withdrawable balance. Total Balance is ₹${currAvail.toLocaleString('en-IN', { minimumFractionDigits: 2 })}. A minimum reserve balance of ₹500.00 must be maintained in your wallet to keep your account active. Maximum withdrawable amount is ₹${maxWithdrawable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`
       };
     }
 
     const wId = `WTH-${Date.now().toString().slice(-6)}`;
 
     // Deduct from available balance and hold in pending
-    const currPend = parseFloat(wallet.pending_balance || 0);
+    const currPend = parseFloat(wallet?.pending_balance || 0);
+    const newAvail = Math.max(0, parseFloat((currAvail - numAmount).toFixed(2)));
+    const newPend = parseFloat((currPend + numAmount).toFixed(2));
 
-    await supabase
-      .from('wallets')
-      .update({
-        available_balance: currAvail - numAmount,
-        pending_balance: currPend + numAmount,
-        updated_at: new Date().toISOString()
-      })
-      .eq('user_id', merchant_id);
+    if (wallet) {
+      await supabase
+        .from('wallets')
+        .update({
+          available_balance: newAvail,
+          pending_balance: newPend,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', cleanMerchantId);
+    } else {
+      await supabase
+        .from('wallets')
+        .insert({
+          user_id: cleanMerchantId,
+          available_balance: newAvail,
+          pending_balance: newPend,
+          total_sales: receivedSales,
+          received_sales: receivedSales,
+          withdrawn_amount: withdrawnAmount,
+          updated_at: new Date().toISOString()
+        });
+    }
 
     const { data: posRec } = await supabase
       .from('merchant_pos')
       .select('provider, vendor_entity, terminal_id')
-      .eq('merchant_id', merchant_id)
+      .eq('merchant_id', cleanMerchantId)
       .maybeSingle();
 
     const isQrPayout = channel === 'qr' || (provider && provider.toLowerCase().includes('qr'));
@@ -2947,7 +2995,7 @@ export async function requestWithdrawal(withdrawalData) {
       .from('withdrawals')
       .insert({
         id: wId,
-        merchant_id,
+        merchant_id: cleanMerchantId,
         amount: numAmount,
         bank_name,
         account_number,
