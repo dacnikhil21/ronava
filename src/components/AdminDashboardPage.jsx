@@ -421,6 +421,30 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     }
   };
 
+  const executeConfirmedBankDownload = async (itemsToBatch, modalMeta) => {
+    if (!itemsToBatch || itemsToBatch.length === 0) {
+      triggerToast('No withdrawal items to download.', 'error');
+      return;
+    }
+    const now = new Date();
+    const res = downloadBankBatchFile(itemsToBatch, { fileName: modalMeta.fileName });
+    if (res && res.success) {
+      const downloadedIds = itemsToBatch.map(w => w.id);
+      await markWithdrawalsSubmittedToBank(downloadedIds, {
+        batchId: modalMeta.batchId,
+        batchName: modalMeta.batchName,
+        submittedAt: now.toISOString()
+      });
+      setSelectedPendingIds(new Set());
+      setDownloadConfirmModal(null);
+      await fetchAdminData();
+      setPayoutStatusFilter('SUBMITTED_TO_BANK');
+      triggerToast(`📥 Created ${modalMeta.batchName} with ${itemsToBatch.length} payout(s)! Transferred to Submitted tab.`, 'success');
+    } else {
+      triggerToast(res?.error || 'Failed to download bank sheet.', 'error');
+    }
+  };
+
   useEffect(() => {
     fetchAdminData();
     const unsubscribe = subscribeToAdminFeed(() => {
@@ -5312,30 +5336,6 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   fileName,
                   includeInstant: false
                 });
-              };
-
-              const executeConfirmedBankDownload = async (itemsToBatch, modalMeta) => {
-                if (!itemsToBatch || itemsToBatch.length === 0) {
-                  triggerToast('No withdrawal items to download.', 'error');
-                  return;
-                }
-                const now = new Date();
-                const res = downloadBankBatchFile(itemsToBatch, { fileName: modalMeta.fileName });
-                if (res && res.success) {
-                  const downloadedIds = itemsToBatch.map(w => w.id);
-                  await markWithdrawalsSubmittedToBank(downloadedIds, {
-                    batchId: modalMeta.batchId,
-                    batchName: modalMeta.batchName,
-                    submittedAt: now.toISOString()
-                  });
-                  setSelectedPendingIds(new Set());
-                  setDownloadConfirmModal(null);
-                  await fetchAdminData();
-                  setPayoutStatusFilter('SUBMITTED_TO_BANK');
-                  triggerToast(`📥 Created ${modalMeta.batchName} with ${itemsToBatch.length} payout(s)! Transferred to Submitted tab.`, 'success');
-                } else {
-                  triggerToast(res?.error || 'Failed to download bank sheet.', 'error');
-                }
               };
 
               const handleRedownloadSingleBatch = (batch) => {
