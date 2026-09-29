@@ -45,8 +45,9 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
     // 3. Merchant Name
     const merchantName = item.merchant_name || item.name || 'Merchant';
 
-    // 4. Merchant Mobile
-    const merchantMobile = item.merchant_mobile || item.mobile || 'N/A';
+    // 4. Merchant Mobile (Formatted as text formula ="..." so Excel never shows 5.75E+09 scientific notation)
+    const rawMob = String(item.merchant_mobile || item.mobile || '').replace(/[^0-9]/g, '').trim();
+    const formattedMob = rawMob ? `="${rawMob}"` : (item.merchant_mobile || item.mobile || '""');
 
     // 5. Beneficiary Name (Whom they want to send money to)
     let recipient = item.customer_name || item.holder_name || item.beneficiary_name || '';
@@ -88,7 +89,7 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
       slNo,
       escapeCSV(merchantId),
       escapeCSV(merchantName),
-      escapeCSV(merchantMobile),
+      formattedMob,
       escapeCSV(recipient),
       formattedAcc,
       escapeCSV(ifsc),
