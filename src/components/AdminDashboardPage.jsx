@@ -2943,83 +2943,6 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
             {activeTab === 'overview' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                 
-                {/* Dynamic Commission Withdrawal Master Switch (Compact Mobile Pill) */}
-                <div style={{
-                  background: '#FFFFFF',
-                  border: commissionPayoutActive ? '1.5px solid #86EFAC' : '1.5px solid #FECACA',
-                  borderRadius: '12px',
-                  padding: '0.65rem 0.85rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '0.75rem',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-                  flexWrap: 'wrap'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{
-                      width: '32px',
-                      height: '32px',
-                      borderRadius: '8px',
-                      background: commissionPayoutActive ? '#ECFDF5' : '#FEF2F2',
-                      color: commissionPayoutActive ? '#059669' : '#DC2626',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '1rem',
-                      flexShrink: 0
-                    }}>
-                      💎
-                    </div>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <strong style={{ fontSize: '0.8125rem', color: '#0F172A' }}>Commission Withdrawals</strong>
-                        <span style={{
-                          fontSize: '0.625rem',
-                          fontWeight: 800,
-                          padding: '1px 6px',
-                          borderRadius: '999px',
-                          background: commissionPayoutActive ? '#DCFCE7' : '#FEE2E2',
-                          color: commissionPayoutActive ? '#15803D' : '#DC2626',
-                          border: commissionPayoutActive ? '1px solid #BBF7D0' : '1px solid #FECACA'
-                        }}>
-                          {commissionPayoutActive ? '🟢 UNLOCKED / ACTIVE' : '🔴 LOCKED / INACTIVE'}
-                        </span>
-                      </div>
-                      <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', marginTop: '1px' }}>
-                        {commissionPayoutActive 
-                          ? 'All Super Distributors, Distributors, and Merchants can withdraw commission.' 
-                          : 'Commission payouts are currently locked across all hierarchy levels.'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Mobile-Shaped Toggle Button */}
-                  <button
-                    type="button"
-                    onClick={handleToggleCommissionPayout}
-                    disabled={isUpdatingCommissionToggle}
-                    style={{
-                      background: commissionPayoutActive ? '#059669' : '#0F172A',
-                      color: '#FFFFFF',
-                      border: 'none',
-                      borderRadius: '9999px',
-                      padding: '0.45rem 0.95rem',
-                      fontSize: '0.75rem',
-                      fontWeight: 800,
-                      cursor: isUpdatingCommissionToggle ? 'wait' : 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      boxShadow: commissionPayoutActive ? '0 2px 6px rgba(5,150,105,0.3)' : '0 1px 3px rgba(0,0,0,0.15)',
-                      transition: 'all 0.15s ease',
-                      flexShrink: 0
-                    }}
-                  >
-                    <span>{commissionPayoutActive ? 'Turn OFF 🔒' : 'Turn ON 🔓'}</span>
-                  </button>
-                </div>
-                
                 {/* 4 Core Financial & Ecosystem KPI Cards */}
                 <div className="admin-kpi-grid">
                   
@@ -3163,6 +3086,108 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     </span>
                   </div>
 
+                </div>
+
+                {/* Dynamic Commission Withdrawal Master Sliding Switch (Below Total Sales & KPI Cards) */}
+                <div style={{
+                  background: '#FFFFFF',
+                  border: commissionPayoutActive ? '1.5px solid #86EFAC' : '1.5px solid #FECACA',
+                  borderRadius: '12px',
+                  padding: '0.75rem 1rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.75rem',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+                  flexWrap: 'wrap',
+                  transition: 'all 0.2s ease'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '8px',
+                      background: commissionPayoutActive ? '#ECFDF5' : '#FEF2F2',
+                      color: commissionPayoutActive ? '#059669' : '#DC2626',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '1.15rem',
+                      flexShrink: 0
+                    }}>
+                      💎
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <strong style={{ fontSize: '0.875rem', color: '#0F172A', fontWeight: 800 }}>Commission Withdrawals</strong>
+                        <span style={{
+                          fontSize: '0.625rem',
+                          fontWeight: 800,
+                          padding: '2px 7px',
+                          borderRadius: '999px',
+                          background: commissionPayoutActive ? '#DCFCE7' : '#FEE2E2',
+                          color: commissionPayoutActive ? '#15803D' : '#DC2626',
+                          border: commissionPayoutActive ? '1px solid #BBF7D0' : '1px solid #FECACA'
+                        }}>
+                          {commissionPayoutActive ? '🟢 UNLOCKED / ACTIVE' : '🔴 LOCKED / INACTIVE'}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                        {commissionPayoutActive 
+                          ? 'All Super Distributors, Distributors, and Merchants can withdraw commission.' 
+                          : 'Commission payouts are currently locked across all hierarchy levels.'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Modern iOS-Style Sliding Toggle Switch */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: commissionPayoutActive ? '#059669' : '#64748B' }}>
+                      {commissionPayoutActive ? 'Active' : 'Locked'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleToggleCommissionPayout}
+                      disabled={isUpdatingCommissionToggle}
+                      role="switch"
+                      aria-checked={commissionPayoutActive}
+                      title={commissionPayoutActive ? 'Click to Lock Commission Withdrawals' : 'Click to Unlock Commission Withdrawals'}
+                      style={{
+                        width: '52px',
+                        height: '28px',
+                        borderRadius: '9999px',
+                        background: commissionPayoutActive ? '#059669' : '#CBD5E1',
+                        border: 'none',
+                        padding: '3px',
+                        cursor: isUpdatingCommissionToggle ? 'wait' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        position: 'relative',
+                        transition: 'background-color 0.25s ease',
+                        boxShadow: commissionPayoutActive ? '0 2px 6px rgba(5,150,105,0.35)' : 'none',
+                        outline: 'none',
+                        flexShrink: 0
+                      }}
+                    >
+                      <div style={{
+                        width: '22px',
+                        height: '22px',
+                        borderRadius: '50%',
+                        background: '#FFFFFF',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+                        transform: commissionPayoutActive ? 'translateX(24px)' : 'translateX(0px)',
+                        transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '0.625rem',
+                        fontWeight: 900,
+                        color: commissionPayoutActive ? '#059669' : '#94A3B8'
+                      }}>
+                        {commissionPayoutActive ? '✓' : '✕'}
+                      </div>
+                    </button>
+                  </div>
                 </div>
 
                 {/* 1. NETWORK DIRECTORY (5 TIERS) + QUICK ONBOARD BUTTON */}
