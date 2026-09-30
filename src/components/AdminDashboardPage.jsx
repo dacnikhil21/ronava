@@ -6352,6 +6352,14 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                                 <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{maskedAcc}</span>
                                                 <span style={{ margin: '0 4px' }}>•</span>
                                                 <span style={{ fontFamily: 'monospace' }}>IFSC: {item.ifsc_code || 'N/A'}</span>
+                                                {item.utr_number && (
+                                                  <>
+                                                    <span style={{ margin: '0 2px' }}>•</span>
+                                                    <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0F52BA', background: '#EFF6FF', padding: '1px 5px', borderRadius: '4px', border: '1px solid #DBEAFE' }}>
+                                                      UTR: {item.utr_number}
+                                                    </span>
+                                                  </>
+                                                )}
                                               </div>
                                             </div>
                                           </div>
@@ -6370,7 +6378,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                                 onClick={() => {
                                                   setDisbursingPayout({
                                                     payout: item,
-                                                    utr: '',
+                                                    utr: item.utr_number || '',
                                                     remark: '',
                                                     actionType: 'APPROVE',
                                                     isSubmitting: false

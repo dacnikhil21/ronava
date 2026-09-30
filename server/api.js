@@ -976,7 +976,7 @@ export async function handleApiRequest(req, res) {
     // ----------------------------------------------------
     // Merchant requests payout to bank
     if (pathname === '/api/withdrawals/request' && method === 'POST') {
-      const { merchant_id, amount, bank_name, account_number, ifsc } = await parseJsonBody(req);
+      const { merchant_id, amount, bank_name, account_number, ifsc, utr_number, ref_number, utr, remarks, admin_remark } = await parseJsonBody(req);
 
       const numAmount = parseFloat(amount);
       if (!merchant_id || !numAmount || !bank_name || !account_number) {
@@ -993,6 +993,8 @@ export async function handleApiRequest(req, res) {
       }
 
       const wId = `WTH-${Date.now().toString().slice(-6)}`;
+      const cleanUtr = (utr_number || ref_number || utr || '').trim().toUpperCase();
+      const finalRemark = admin_remark || (cleanUtr ? `[CUSTOMER_PAYOUT] | UTR: ${cleanUtr} | Note: ${remarks || ''}` : `[CUSTOMER_PAYOUT] | Note: ${remarks || ''}`);
 
       // Deduct from available balance immediately and place in pending
       db.prepare(`
@@ -1004,9 +1006,9 @@ export async function handleApiRequest(req, res) {
       `).run(numAmount, numAmount, merchant_id);
 
       db.prepare(`
-        INSERT INTO withdrawals (id, merchant_id, amount, bank_name, account_number, ifsc, status)
-        VALUES (?, ?, ?, ?, ?, ?, 'PENDING')
-      `).run(wId, merchant_id, numAmount, bank_name, account_number, ifsc || 'SBIN0001234');
+        INSERT INTO withdrawals (id, merchant_id, amount, bank_name, account_number, ifsc, admin_remark, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')
+      `).run(wId, merchant_id, numAmount, bank_name, account_number, ifsc || 'SBIN0001234', finalRemark);
 
       const createdWth = db.prepare(`SELECT * FROM withdrawals WHERE id = ?`).get(wId);
       const updatedWWallet = db.prepare(`SELECT * FROM wallets WHERE user_id = ?`).get(merchant_id);

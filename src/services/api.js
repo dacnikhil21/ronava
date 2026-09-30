@@ -3004,13 +3004,15 @@ export async function requestWithdrawal(withdrawalData) {
     const posTag = ` | POS: ${targetProvider} | Channel: ${isQrPayout ? 'qr' : (channel || 'default')} | Vendor: ${posRec?.vendor_entity || 'RONAV Technologies'}`;
     const cleanRemarks = remarks ? remarks.trim() : '';
     const noteTag = cleanRemarks ? ` | Note: ${cleanRemarks}` : '';
+    const cleanUtr = (withdrawalData.utr_number || withdrawalData.ref_number || withdrawalData.utr || '').trim().toUpperCase();
+    const utrTag = cleanUtr ? ` | UTR: ${cleanUtr}` : '';
 
     // Formulate descriptive remark header for clarity in DB
     const headerTag = isSelfWithdrawal 
       ? '[COMMISSION_PAYOUT]' 
       : '[CUSTOMER_PAYOUT]';
 
-    const initialRemark = `${headerTag}${noteTag} | Name: ${customer_name ? customer_name.trim() : (isSelfWithdrawal ? 'Self Payout' : 'Customer Payout')} | Mob: ${customer_mobile ? customer_mobile.trim() : 'N/A'} | Mode: ${settlement_mode}${posTag}`;
+    const initialRemark = `${headerTag}${utrTag}${noteTag} | Name: ${customer_name ? customer_name.trim() : (isSelfWithdrawal ? 'Self Payout' : 'Customer Payout')} | Mob: ${customer_mobile ? customer_mobile.trim() : 'N/A'} | Mode: ${settlement_mode}${posTag}`;
 
     const { data: createdWth, error: wErr } = await supabase
       .from('withdrawals')
