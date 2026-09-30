@@ -2884,14 +2884,16 @@ export async function requestWithdrawal(withdrawalData) {
       return { success: false, message: 'Missing required withdrawal details.' };
     }
 
-    // Sunday-Only Enforcement for Self-Commission Withdrawals
+    // Admin Dynamic Master Toggle Enforcement for Commission Withdrawals
     const isSelfWithdrawal = payout_type === 'MERCHANT_OWN' || payout_purpose === 'COMMISSION';
-    const currentDay = new Date().getDay(); // 0 is Sunday
-    if (isSelfWithdrawal && currentDay !== 0) {
-      return {
-        success: false,
-        message: 'Self-Commission Settlement Schedule: Profit & Commission withdrawals unlock strictly on Sundays (00:00 to 23:59) following weekly bank reconciliation audits.'
-      };
+    if (isSelfWithdrawal) {
+      const commissionConfig = await getCommissionPayoutConfig();
+      if (!commissionConfig.enabled) {
+        return {
+          success: false,
+          message: '⚠️ Commission & Profit Withdrawals are currently locked by Admin. Please check back when enabled by Administrator.'
+        };
+      }
     }
 
     // 1. Fetch live transactions, withdrawals, and wallet record for this merchant
@@ -3586,6 +3588,70 @@ export async function savePlatformQrConfig({ image, name }) {
   } catch (e) {}
 
   return { success: true, image, name: payeeName, syncedToSupabase: supabaseSuccess };
+}
+
+export async function getCommissionPayoutConfig() {
+  try {
+    // 1. Try fetching from Supabase system inquiries/settings table
+    const { data, error } = await supabase
+      .from('inquiries')
+      .select('*')
+      .eq('id', 'SYS-CONFIG-COMMISSION-PAYOUT')
+      .maybeSingle();
+
+    if (!error && data) {
+      const isEnabled = data.status === 'ACTIVE';
+      try {
+        localStorage.setItem('ronav_commission_payout_active', isEnabled ? 'true' : 'false');
+      } catch (e) {}
+      return { success: true, enabled: isEnabled };
+    }
+  } catch (err) {
+    console.warn('Supabase commission config fetch error:', err);
+  }
+
+  // 2. Fallback to localStorage (Default: true / active for seamless operational flow)
+  try {
+    const localVal = localStorage.getItem('ronav_commission_payout_active');
+    if (localVal !== null) {
+      return { success: true, enabled: localVal === 'true' };
+    }
+  } catch (e) {}
+
+  return { success: true, enabled: true };
+}
+
+export async function saveCommissionPayoutConfig(enabled) {
+  const isEnabled = Boolean(enabled);
+  let supabaseSuccess = false;
+
+  try {
+    const { error } = await supabase
+      .from('inquiries')
+      .upsert({
+        id: 'SYS-CONFIG-COMMISSION-PAYOUT',
+        type: 'COMMISSION_CONFIG',
+        name: 'COMMISSION_PAYOUT_SETTING',
+        phone: '9966203038',
+        category: 'PLATFORM_SETTINGS',
+        location: isEnabled ? 'GLOBAL_ACTIVE' : 'GLOBAL_LOCKED',
+        remarks: isEnabled ? 'Commission payouts enabled globally by Admin' : 'Commission payouts locked globally by Admin',
+        status: isEnabled ? 'ACTIVE' : 'INACTIVE'
+      });
+    if (!error) supabaseSuccess = true;
+    else console.warn('Supabase commission config save error:', error);
+  } catch (err) {
+    console.warn('Supabase commission config upsert exception:', err);
+  }
+
+  // Also update local storage on current machine
+  try {
+    localStorage.setItem('ronav_commission_payout_active', isEnabled ? 'true' : 'false');
+    // Dispatch cross-tab storage event
+    window.dispatchEvent(new Event('storage'));
+  } catch (e) {}
+
+  return { success: true, enabled: isEnabled, syncedToSupabase: supabaseSuccess };
 }
 
 // ----------------------------------------------------

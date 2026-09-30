@@ -457,6 +457,31 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [isSubmittingWithdraw, setIsSubmittingWithdraw] = useState(false);
   const [saveAsBeneficiaryOnTransfer, setSaveAsBeneficiaryOnTransfer] = useState(true);
+  const [isCommissionPayoutEnabled, setIsCommissionPayoutEnabled] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('ronav_commission_payout_active');
+      return saved !== null ? saved === 'true' : true;
+    }
+    return true;
+  });
+
+  useEffect(() => {
+    const checkCommissionConfig = () => {
+      getCommissionPayoutConfig().then(res => {
+        if (res && res.success) {
+          setIsCommissionPayoutEnabled(res.enabled);
+        }
+      }).catch(() => {});
+    };
+
+    checkCommissionConfig();
+    window.addEventListener('storage', checkCommissionConfig);
+    const interval = setInterval(checkCommissionConfig, 10000);
+    return () => {
+      window.removeEventListener('storage', checkCommissionConfig);
+      clearInterval(interval);
+    };
+  }, []);
   
   // Transaction & Payout Detail Modal State
   const [selectedTxnForDetails, setSelectedTxnForDetails] = useState(null);
@@ -3584,24 +3609,47 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                             </div>
 
                             <div
-                              onClick={() => setCustomerPayoutForm(prev => ({ ...prev, payout_purpose: 'COMMISSION' }))}
+                              onClick={() => {
+                                if (!isCommissionPayoutEnabled) {
+                                  showToast('🔒 Commission withdrawals are currently locked by Admin. Please check back later.');
+                                  return;
+                                }
+                                setCustomerPayoutForm(prev => ({ ...prev, payout_purpose: 'COMMISSION' }));
+                              }}
                               style={{
                                 padding: '0.45rem 0.6rem',
                                 borderRadius: '8px',
-                                border: customerPayoutForm.payout_purpose === 'COMMISSION' ? '1.5px solid #7C3AED' : '1px solid #CBD5E1',
-                                background: customerPayoutForm.payout_purpose === 'COMMISSION' ? '#F5F3FF' : '#FFFFFF',
-                                cursor: 'pointer',
+                                border: customerPayoutForm.payout_purpose === 'COMMISSION' 
+                                  ? '1.5px solid #7C3AED' 
+                                  : (!isCommissionPayoutEnabled ? '1px dashed #CBD5E1' : '1px solid #CBD5E1'),
+                                background: customerPayoutForm.payout_purpose === 'COMMISSION' 
+                                  ? '#F5F3FF' 
+                                  : (!isCommissionPayoutEnabled ? '#F8FAFC' : '#FFFFFF'),
+                                opacity: !isCommissionPayoutEnabled ? 0.75 : 1,
+                                cursor: isCommissionPayoutEnabled ? 'pointer' : 'not-allowed',
                                 transition: 'all 0.15s ease'
                               }}
                             >
                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <span style={{ fontSize: '0.9rem' }}>💎</span>
-                                <div>
-                                  <strong style={{ fontSize: '0.75rem', color: customerPayoutForm.payout_purpose === 'COMMISSION' ? '#7C3AED' : '#0F172A', display: 'block' }}>
-                                    Commission Payout
-                                  </strong>
+                                <span style={{ fontSize: '0.9rem' }}>{isCommissionPayoutEnabled ? '💎' : '🔒'}</span>
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px' }}>
+                                    <strong style={{ fontSize: '0.75rem', color: customerPayoutForm.payout_purpose === 'COMMISSION' ? '#7C3AED' : '#0F172A', display: 'block' }}>
+                                      Commission Payout
+                                    </strong>
+                                    <span style={{
+                                      fontSize: '0.5625rem',
+                                      fontWeight: 800,
+                                      padding: '1px 4px',
+                                      borderRadius: '4px',
+                                      background: isCommissionPayoutEnabled ? '#DCFCE7' : '#FEE2E2',
+                                      color: isCommissionPayoutEnabled ? '#15803D' : '#DC2626'
+                                    }}>
+                                      {isCommissionPayoutEnabled ? '🟢 Active' : '🔒 Locked'}
+                                    </span>
+                                  </div>
                                   <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
-                                    Upline partner earnings
+                                    {isCommissionPayoutEnabled ? 'Upline partner earnings' : 'Locked by Admin'}
                                   </span>
                                 </div>
                               </div>
