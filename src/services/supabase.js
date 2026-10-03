@@ -176,6 +176,9 @@ class TableQueryBuilder {
   }
 
   in(column, values) {
+    if (!this._inFilters) this._inFilters = {};
+    const arr = Array.isArray(values) ? values : [values];
+    this._inFilters[column] = new Set(arr.map(v => String(v).toUpperCase()));
     return this;
   }
 
@@ -398,6 +401,13 @@ class TableQueryBuilder {
         for (const [k, v] of Object.entries(this._filters)) {
           if (r[k] !== v && String(r[k]).toUpperCase() !== String(v).toUpperCase()) {
             return false;
+          }
+        }
+        if (this._inFilters) {
+          for (const [col, valSet] of Object.entries(this._inFilters)) {
+            if (!valSet.has(String(r[col] || '').toUpperCase())) {
+              return false;
+            }
           }
         }
         return true;

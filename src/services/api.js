@@ -3221,20 +3221,24 @@ export async function verifyWithdrawalsBatch(withdrawalIds, action, remark = '',
 export async function markWithdrawalsSubmittedToBank(withdrawalIds, batchMeta = {}) {
   try {
     if (!withdrawalIds || withdrawalIds.length === 0) return { success: true };
+    const idSet = new Set((withdrawalIds || []).map(id => String(id)));
     
     // Fetch records to preserve customer/merchant context in admin_remark
-    const { data: records, error: fetchErr } = await supabase
+    const { data: rawRecords, error: fetchErr } = await supabase
       .from('withdrawals')
       .select('id, admin_remark')
       .in('id', withdrawalIds);
 
     if (fetchErr) throw fetchErr;
 
+    // Strict safety check: only update IDs explicitly passed
+    const records = (rawRecords || []).filter(r => idSet.has(String(r.id)));
+
     const timestamp = batchMeta.submittedAt || new Date().toISOString();
     const batchTag = batchMeta.batchId ? `[BATCH:${batchMeta.batchId}]` : '';
     const batchNameTag = batchMeta.batchName ? `[BATCH_NAME:${batchMeta.batchName}]` : '';
 
-    for (const r of (records || [])) {
+    for (const r of records) {
       const existing = (r.admin_remark || '')
         .replace(/\[SUBMITTED_TO_BANK\]\s*/g, '')
         .replace(/\[BATCH:[^\]]+\]\s*/g, '')
@@ -3253,7 +3257,7 @@ export async function markWithdrawalsSubmittedToBank(withdrawalIds, batchMeta = 
 
     return { 
       success: true, 
-      message: `Successfully marked ${withdrawalIds.length} payout(s) as Submitted to Bank in live Supabase database!` 
+      message: `Successfully marked ${records.length} payout(s) as Submitted to Bank!` 
     };
   } catch (err) {
     console.error('markWithdrawalsSubmittedToBank error:', err);
@@ -3264,15 +3268,19 @@ export async function markWithdrawalsSubmittedToBank(withdrawalIds, batchMeta = 
 export async function revertWithdrawalsToPending(withdrawalIds) {
   try {
     if (!withdrawalIds || withdrawalIds.length === 0) return { success: true };
+    const idSet = new Set((withdrawalIds || []).map(id => String(id)));
 
-    const { data: records, error: fetchErr } = await supabase
+    const { data: rawRecords, error: fetchErr } = await supabase
       .from('withdrawals')
       .select('id, admin_remark')
       .in('id', withdrawalIds);
 
     if (fetchErr) throw fetchErr;
 
-    for (const r of (records || [])) {
+    // Strict safety check: only update IDs explicitly passed
+    const records = (rawRecords || []).filter(r => idSet.has(String(r.id)));
+
+    for (const r of records) {
       const cleanRemark = (r.admin_remark || '')
         .replace(/\[SUBMITTED_TO_BANK\]\s*/g, '')
         .replace(/\[BATCH:[^\]]+\]\s*/g, '')
@@ -3290,7 +3298,7 @@ export async function revertWithdrawalsToPending(withdrawalIds) {
 
     return { 
       success: true, 
-      message: `Successfully reverted ${withdrawalIds.length} payout(s) back to Pending in Supabase database!` 
+      message: `Successfully reverted ${records.length} payout(s) back to Pending!` 
     };
   } catch (err) {
     console.error('revertWithdrawalsToPending error:', err);
