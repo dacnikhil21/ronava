@@ -4185,7 +4185,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                         </div>
 
                         {/* Mandatory Bank UTR / Transaction Reference Number - ONLY FOR REGULAR SETTLEMENTS, REMOVED FOR COMMISSIONS */}
-                        {customerPayoutForm.payout_purpose !== 'COMMISSION' && payoutTargetType !== 'MERCHANT' ? (
+                        {customerPayoutForm.payout_purpose !== 'COMMISSION' && payoutTargetType !== 'MERCHANT' && (
                           <div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
                               <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -4234,14 +4234,6 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                             <p style={{ fontSize: '0.625rem', color: '#64748B', marginTop: '0.25rem', marginBottom: 0 }}>
                               Admin will verify this UTR against banking records before releasing funds.
                             </p>
-                          </div>
-                        ) : (
-                          <div style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: '8px', padding: '0.6rem 0.75rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontSize: '1.1rem' }}>💎</span>
-                            <div>
-                              <strong style={{ fontSize: '0.75rem', color: '#7C3AED', display: 'block' }}>Commission Payout Direct Transfer</strong>
-                              <span style={{ fontSize: '0.65rem', color: '#6D28D9' }}>No UTR required from you. Funds will be directly disbursed to your bank account by Admin.</span>
-                            </div>
                           </div>
                         )}
 
