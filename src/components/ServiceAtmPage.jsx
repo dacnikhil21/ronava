@@ -38,6 +38,8 @@ export default function ServiceAtmPage({ onOpenLogin, onBack, onShowToast }) {
   const estimatedGrossIncome = monthlyTransactions * 15;
   const estimatedRentPayout = 12000;
   const estimatedNetIncome = estimatedGrossIncome + estimatedRentPayout;
+  const estimatedMonthlyEarnings = estimatedNetIncome;
+  const estimatedAnnualEarnings = estimatedMonthlyEarnings * 12;
 
   const handleSubmit = async (e) => {
     e.preventDefault();

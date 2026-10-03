@@ -8,6 +8,15 @@ import { initPostgresSchema, getMediaFiles, query as pgQuery, selectFromTable, i
 // Auto-initialize PostgreSQL schema if DATABASE_URL is configured
 initPostgresSchema().catch(() => {});
 
+// Resilient background sync to PostgreSQL / Supabase
+async function syncToSupabase(table, record) {
+  try {
+    if (table && record) {
+      await insertIntoTable(table, record).catch(() => {});
+    }
+  } catch (_) {}
+}
+
 // Helper to parse JSON body from incoming Node HTTP request
 export async function parseJsonBody(req) {
   return new Promise((resolve, reject) => {
@@ -367,7 +376,8 @@ export async function handleApiRequest(req, res) {
         monthly_rent,
         settlement_type,
         commission_rate,
-        margin_rate
+        margin_rate,
+        password
       } = await parseJsonBody(req);
 
       if (!creator_id || !name || !mobile || !role) {

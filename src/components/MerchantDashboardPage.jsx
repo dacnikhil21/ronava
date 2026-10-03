@@ -6,7 +6,7 @@ import {
   Clock, AlertCircle, X, ChevronRight, Check, ArrowRight,
   Search, Calendar, ArrowLeft, RefreshCw, FileText, Filter, ShieldCheck, LayoutGrid, MoreHorizontal,
   Users, Share2, Copy, ExternalLink, UserPlus, ChevronDown, ChevronUp, TrendingUp, Building2, MessageCircle, QrCode,
-  Download, DollarSign, Key, Edit3, Mail
+  Download, DollarSign, Key, Edit3, Mail, Store
 } from 'lucide-react';
 import { 
   getCommissionPayoutConfig,
@@ -175,6 +175,43 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   const showToast = (msg) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(''), 3500);
+  };
+
+  const [copiedId, setCopiedId] = useState({});
+
+  const copyToClipboard = (text, id) => {
+    if (!text) return;
+    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        setCopiedId(prev => ({ ...prev, [id]: true }));
+        showToast('✓ Copied to clipboard!');
+        setTimeout(() => {
+          setCopiedId(prev => ({ ...prev, [id]: false }));
+        }, 2000);
+      }).catch(() => {
+        fallbackCopy(text, id);
+      });
+    } else {
+      fallbackCopy(text, id);
+    }
+  };
+
+  const fallbackCopy = (text, id) => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopiedId(prev => ({ ...prev, [id]: true }));
+      showToast('✓ Copied to clipboard!');
+      setTimeout(() => {
+        setCopiedId(prev => ({ ...prev, [id]: false }));
+      }, 2000);
+    } catch (_) {}
   };
 
 

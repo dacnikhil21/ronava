@@ -1627,8 +1627,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       const res = await adminResetUserPassword(resetPassModal.user.id, resetPassModal.newPassword.trim());
       if (res && res.success) {
         triggerToast(`✓ Password for ${resetPassModal.user.name} successfully reset!`, 'success');
-        if (typeof fetchDashboardData === 'function') {
-          fetchDashboardData();
+        if (typeof fetchAdminData === 'function') {
+          fetchAdminData();
         }
         setResetPassModal(prev => ({
           ...prev,
