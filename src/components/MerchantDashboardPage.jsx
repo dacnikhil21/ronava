@@ -228,6 +228,28 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   const [merchantPayswiffVendor, setMerchantPayswiffVendor] = useState('ALL'); // 'ALL' | 'ronav' | 'rp'
   const [userPos, setUserPos] = useState(null);
 
+  // Informative Workspace Switch Popup Modal (User understanding & channel segregation)
+  const [channelSwitchModal, setChannelSwitchModal] = useState({
+    isOpen: false,
+    channelKey: '',
+    channelTitle: '',
+    icon: '',
+    color: ''
+  });
+
+  const handleSwitchMachine = (key) => {
+    setSelectedMachineKey(key);
+    setTxnCategoryFilter('ALL');
+    const m = POS_MACHINES_DATA[key] || POS_MACHINES_DATA.pine_labs;
+    setChannelSwitchModal({
+      isOpen: true,
+      channelKey: key,
+      channelTitle: m?.title || key,
+      icon: m?.icon || '💳',
+      color: m?.themeColor || '#0F52BA'
+    });
+  };
+
   // BBPS Customer Bill Pay Form
   const [bbpsForm, setBbpsForm] = useState({
     mobile: '',
@@ -607,32 +629,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     );
   }, [bankSearchQuery]);
 
-  // Live bank withdrawals list from DB with Settlement Mode Filtering (T+1 ~95% vs Instant ~5%)
+  // Live bank withdrawals filter state for Withdraw tab
   const [withdrawSettlementFilter, setWithdrawSettlementFilter] = useState('ALL'); // 'ALL' | 'T1' | 'INSTANT'
-  const displayWithdrawals = useMemo(() => {
-    const list = withdrawals || [];
-    if (withdrawSettlementFilter === 'ALL') return list;
-    return list.filter(w => {
-      const mode = (w.settlement_mode || w.settlement_type || '').toUpperCase();
-      const remark = (w.admin_remark || '').toUpperCase();
-      const isInst = mode.includes('INSTANT') || remark.includes('IMPS') || remark.includes('INSTANT');
-      return withdrawSettlementFilter === 'INSTANT' ? isInst : !isInst;
-    });
-  }, [withdrawals, withdrawSettlementFilter]);
-
-  const withdrawalCounts = useMemo(() => {
-    const list = withdrawals || [];
-    let t1Count = 0;
-    let instantCount = 0;
-    list.forEach(w => {
-      const mode = (w.settlement_mode || w.settlement_type || '').toUpperCase();
-      const remark = (w.admin_remark || '').toUpperCase();
-      const isInst = mode.includes('INSTANT') || remark.includes('IMPS') || remark.includes('INSTANT');
-      if (isInst) instantCount++;
-      else t1Count++;
-    });
-    return { all: list.length, t1: t1Count, instant: instantCount };
-  }, [withdrawals]);
 
   // Helper to safely parse transaction metadata and format titles/UTRs without fake fields
   const parseTxnDisplay = (t) => {
@@ -723,6 +721,32 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       }
     });
   }, [withdrawals, selectedMachineKey]);
+
+  // Live bank withdrawals strictly filtered for active machine with settlement speed filter
+  const displayWithdrawals = useMemo(() => {
+    const list = activeMachineWithdrawals || [];
+    if (withdrawSettlementFilter === 'ALL') return list;
+    return list.filter(w => {
+      const mode = (w.settlement_mode || w.settlement_type || '').toUpperCase();
+      const remark = (w.admin_remark || '').toUpperCase();
+      const isInst = mode.includes('INSTANT') || remark.includes('IMPS') || remark.includes('INSTANT');
+      return withdrawSettlementFilter === 'INSTANT' ? isInst : !isInst;
+    });
+  }, [activeMachineWithdrawals, withdrawSettlementFilter]);
+
+  const withdrawalCounts = useMemo(() => {
+    const list = activeMachineWithdrawals || [];
+    let t1Count = 0;
+    let instantCount = 0;
+    list.forEach(w => {
+      const mode = (w.settlement_mode || w.settlement_type || '').toUpperCase();
+      const remark = (w.admin_remark || '').toUpperCase();
+      const isInst = mode.includes('INSTANT') || remark.includes('IMPS') || remark.includes('INSTANT');
+      if (isInst) instantCount++;
+      else t1Count++;
+    });
+    return { all: list.length, t1: t1Count, instant: instantCount };
+  }, [activeMachineWithdrawals]);
 
   // Reactive machine-specific Wallet Computation (Segregated Pine Labs vs Payswiff vs QR + Downline Commission)
   const activeMachineWallet = useMemo(() => {
@@ -1236,6 +1260,22 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     return Boolean(w.is_commission_payout || w.payout_purpose === 'COMMISSION' || (w.admin_remark && w.admin_remark.includes('[COMMISSION_PAYOUT]')));
   };
 
+  // Live relevant withdrawals for the active machine / channel
+  const activeMachineHistoryWithdrawals = useMemo(() => {
+    return (withdrawals || []).filter(w => {
+      const channel = classifyTransactionChannel(w);
+      const isComm = isCommissionWth(w);
+      if (selectedMachineKey === 'qr') {
+        return channel === 'qr' && !isComm;
+      } else if (selectedMachineKey === 'payswiff') {
+        return channel === 'payswiff' && !isComm;
+      } else {
+        // Pine Labs: include Pine Labs payouts + downline commission payouts
+        return channel === 'pinelabs' || isComm || (!channel && !isQrTxn(w));
+      }
+    });
+  }, [withdrawals, selectedMachineKey]);
+
   // Status breakdown counts for the Transactions tab quick filter buttons (Cards + QR + Commissions + Withdrawals)
   const txnStatusCounts = useMemo(() => {
     let pending = 0;
@@ -1244,7 +1284,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
     const targetList = [];
 
-    (transactions || []).forEach(t => {
+    (activeMachineTransactions || []).forEach(t => {
       const isQr = isQrTxn(t);
       const isBbps = t.type === 'BBPS_BILL';
       const actType = isQr ? 'QR' : (isBbps ? 'BBPS' : 'SWIPE');
@@ -1256,13 +1296,13 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       }
     });
 
-    (withdrawals || []).forEach(w => {
+    (activeMachineHistoryWithdrawals || []).forEach(w => {
       const isComm = isCommissionWth(w);
       const isQr = isQrTxn(w);
       const actType = isComm ? 'COMMISSION' : (isQr ? 'QR_PAYOUT' : 'WITHDRAWAL');
 
       if (txnCategoryFilter === 'ALL' || 
-          (txnCategoryFilter === 'WITHDRAWALS' && (actType === 'WITHDRAWAL' || actType === 'COMMISSION' || actType === 'QR_PAYOUT')) || 
+          (txnCategoryFilter === 'WITHDRAWALS' && (actType === 'WITHDRAWAL' || actType === 'QR_PAYOUT')) || 
           (txnCategoryFilter === 'COMMISSIONS' && actType === 'COMMISSION') ||
           (txnCategoryFilter === 'QR' && actType === 'QR_PAYOUT')) {
         targetList.push(w);
@@ -1286,14 +1326,14 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       completed,
       invalid
     };
-  }, [transactions, withdrawals, txnCategoryFilter]);
+  }, [activeMachineTransactions, activeMachineHistoryWithdrawals, txnCategoryFilter]);
 
-  // Unified Filtered Transactions & Bank Withdrawals with Dedicated QR, Commission, Swipe & Payout Separation
+  // Unified Filtered Transactions & Bank Withdrawals strictly for active machine workspace
   const filteredTransactions = useMemo(() => {
     const rawList = [];
 
-    // 1. Gather by Category
-    (transactions || []).forEach(t => {
+    // 1. Gather by Category strictly from activeMachineTransactions
+    (activeMachineTransactions || []).forEach(t => {
       const isQr = isQrTxn(t);
       const isBbps = t.type === 'BBPS_BILL';
       const actType = isQr ? 'QR' : (isBbps ? 'BBPS' : 'SWIPE');
@@ -1310,13 +1350,13 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       }
     });
 
-    (withdrawals || []).forEach(w => {
+    (activeMachineHistoryWithdrawals || []).forEach(w => {
       const isComm = isCommissionWth(w);
       const isQr = isQrTxn(w);
       const actType = isComm ? 'COMMISSION' : (isQr ? 'QR_PAYOUT' : 'WITHDRAWAL');
 
       if (txnCategoryFilter === 'ALL' || 
-          (txnCategoryFilter === 'WITHDRAWALS' && (actType === 'WITHDRAWAL' || actType === 'COMMISSION' || actType === 'QR_PAYOUT')) || 
+          (txnCategoryFilter === 'WITHDRAWALS' && (actType === 'WITHDRAWAL' || actType === 'QR_PAYOUT')) || 
           (txnCategoryFilter === 'COMMISSIONS' && actType === 'COMMISSION') ||
           (txnCategoryFilter === 'QR' && actType === 'QR_PAYOUT')) {
         rawList.push({
@@ -1976,10 +2016,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                 {availableMachineTabs.includes('pine_labs') && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setSelectedMachineKey('pine_labs');
-                      showToast('🌲 Switched to Pine Labs');
-                    }}
+                    onClick={() => handleSwitchMachine('pine_labs')}
                     style={{
                       width: '100%',
                       padding: '0.45rem 0.5rem',
@@ -2007,10 +2044,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                 {availableMachineTabs.includes('payswiff') && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setSelectedMachineKey('payswiff');
-                      showToast('⚡ Switched to Payswiff');
-                    }}
+                    onClick={() => handleSwitchMachine('payswiff')}
                     style={{
                       width: '100%',
                       padding: '0.45rem 0.5rem',
@@ -2038,10 +2072,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                 {availableMachineTabs.includes('qr') && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setSelectedMachineKey('qr');
-                      showToast('📱 Switched to QR');
-                    }}
+                    onClick={() => handleSwitchMachine('qr')}
                     style={{
                       width: '100%',
                       padding: '0.45rem 0.5rem',
@@ -5012,6 +5043,90 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           {activeTab === 'history' && (
             <div className="merchant-subpage-wrapper full-width" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}>
               
+              {/* CHANNEL WORKSPACE HEADER & FAST SWITCHER */}
+              <div style={{
+                background: selectedMachineKey === 'qr' ? '#F5F3FF' : (selectedMachineKey === 'payswiff' ? '#FFFBEB' : '#EFF6FF'),
+                border: selectedMachineKey === 'qr' ? '1px solid #DDD6FE' : (selectedMachineKey === 'payswiff' ? '1px solid #FDE68A' : '1px solid #BFDBFE'),
+                borderRadius: '12px',
+                padding: '0.65rem 0.85rem',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '0.5rem',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <div style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '8px',
+                    background: selectedMachineKey === 'qr' ? '#7C3AED' : (selectedMachineKey === 'payswiff' ? '#D97706' : '#0F52BA'),
+                    color: '#FFFFFF',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '1rem',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                  }}>
+                    {activeMachine.icon}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.8125rem', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span>{activeMachine.title} Ledger</span>
+                      <span style={{
+                        fontSize: '0.58rem',
+                        fontWeight: 800,
+                        padding: '1px 6px',
+                        borderRadius: '999px',
+                        background: selectedMachineKey === 'qr' ? '#EDE9FE' : (selectedMachineKey === 'payswiff' ? '#FEF3C7' : '#DBEAFE'),
+                        color: selectedMachineKey === 'qr' ? '#6D28D9' : (selectedMachineKey === 'payswiff' ? '#B45309' : '#1D4ED8')
+                      }}>
+                        Active Channel
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.65rem', color: '#64748B', fontWeight: 500 }}>
+                      Showing strictly {activeMachine.title} sales, collections &amp; payouts
+                    </div>
+                  </div>
+                </div>
+
+                {availableMachineTabs.length > 1 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#FFFFFF', padding: '3px', borderRadius: '9px', border: '1px solid #CBD5E1' }}>
+                    {availableMachineTabs.map(tabKey => {
+                      const m = POS_MACHINES_DATA[tabKey];
+                      if (!m) return null;
+                      const isActive = selectedMachineKey === tabKey;
+                      return (
+                        <button
+                          key={tabKey}
+                          type="button"
+                          onClick={() => handleSwitchMachine(tabKey)}
+                          style={{
+                            background: isActive ? (tabKey === 'qr' ? '#7C3AED' : (tabKey === 'payswiff' ? '#D97706' : '#0F52BA')) : 'transparent',
+                            color: isActive ? '#FFFFFF' : '#475569',
+                            border: 'none',
+                            borderRadius: '7px',
+                            padding: '0.28rem 0.55rem',
+                            fontSize: '0.7rem',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                            boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <span>{m.icon}</span>
+                          <span>{tabKey === 'pine_labs' ? 'Pine Labs' : (tabKey === 'payswiff' ? 'Payswiff' : 'QR')}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
               {/* 1. TOP CATEGORY SWITCHER (CLEAN & FIXED) */}
               <div style={{
                 background: '#F1F5F9',
@@ -5021,13 +5136,16 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                 gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))',
                 gap: '2px'
               }}>
-                {[
+                {(selectedMachineKey === 'qr' ? [
                   { id: 'ALL', label: 'All' },
-                  { id: 'SWIPES', label: '💳 Swipes' },
-                  { id: 'QR', label: '📱 QR' },
+                  { id: 'QR', label: '📱 QR Collections' },
+                  { id: 'WITHDRAWALS', label: '🏦 QR Payouts' }
+                ] : [
+                  { id: 'ALL', label: 'All' },
+                  { id: 'SWIPES', label: selectedMachineKey === 'payswiff' ? '💳 Payswiff Swipes' : '💳 Pine Labs Swipes' },
                   { id: 'COMMISSIONS', label: '💎 Commission' },
-                  { id: 'WITHDRAWALS', label: '🏦 Payouts' }
-                ].map(cat => (
+                  { id: 'WITHDRAWALS', label: '🏦 Bank Payouts' }
+                ]).map(cat => (
                   <button
                     key={cat.id}
                     type="button"
@@ -8791,6 +8909,137 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           </div>
         );
       })()}
+
+      {/* CHANNEL SWITCH INFORMATIVE POPUP MODAL */}
+      {channelSwitchModal.isOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(15, 23, 42, 0.65)',
+          backdropFilter: 'blur(5px)',
+          WebkitBackdropFilter: 'blur(5px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '1rem'
+        }}>
+          <div style={{
+            background: '#FFFFFF',
+            borderRadius: '20px',
+            border: '1px solid #E2E8F0',
+            boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.25)',
+            width: '100%',
+            maxWidth: '430px',
+            overflow: 'hidden'
+          }}>
+            {/* Header with vibrant gradient */}
+            <div style={{
+              background: channelSwitchModal.channelKey === 'qr'
+                ? 'linear-gradient(135deg, #3B0764 0%, #7C3AED 100%)'
+                : channelSwitchModal.channelKey === 'payswiff'
+                ? 'linear-gradient(135deg, #451A03 0%, #D97706 100%)'
+                : 'linear-gradient(135deg, #0A192F 0%, #0F52BA 100%)',
+              padding: '1.25rem 1.25rem 1.1rem',
+              color: '#FFFFFF'
+            }}>
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '46px',
+                height: '46px',
+                borderRadius: '12px',
+                background: 'rgba(255, 255, 255, 0.2)',
+                fontSize: '1.6rem',
+                marginBottom: '0.6rem',
+                border: '1px solid rgba(255, 255, 255, 0.35)'
+              }}>
+                {channelSwitchModal.icon}
+              </div>
+              <h3 style={{ margin: '0 0 0.25rem', fontSize: '1.2rem', fontWeight: 900, letterSpacing: '-0.01em', color: '#FFFFFF' }}>
+                Switched to {channelSwitchModal.channelTitle}
+              </h3>
+              <p style={{ margin: 0, fontSize: '0.8rem', color: 'rgba(255, 255, 255, 0.88)', lineHeight: 1.45 }}>
+                {channelSwitchModal.channelKey === 'qr'
+                  ? 'Your entire workspace is now dedicated strictly to Company QR (UPI) payments.'
+                  : `Your entire workspace is now dedicated strictly to ${channelSwitchModal.channelTitle}.`}
+              </p>
+            </div>
+
+            {/* Checklist of isolated elements */}
+            <div style={{ padding: '1.25rem' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>
+                Workspace Breakdown
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem', background: '#F8FAFC', padding: '0.65rem 0.75rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                  <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>💰</span>
+                  <div>
+                    <strong style={{ fontSize: '0.78rem', color: '#0F172A', display: 'block' }}>Wallet Balance</strong>
+                    <span style={{ fontSize: '0.72rem', color: '#64748B', lineHeight: 1.35 }}>
+                      Calculated only from {channelSwitchModal.channelTitle} collections &amp; payouts.
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem', background: '#F8FAFC', padding: '0.65rem 0.75rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                  <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>
+                    {channelSwitchModal.channelKey === 'qr' ? '📱' : '💳'}
+                  </span>
+                  <div>
+                    <strong style={{ fontSize: '0.78rem', color: '#0F172A', display: 'block' }}>
+                      {channelSwitchModal.channelKey === 'qr' ? 'Record QR Collection' : 'Record Card Swipe'}
+                    </strong>
+                    <span style={{ fontSize: '0.72rem', color: '#64748B', lineHeight: 1.35 }}>
+                      {channelSwitchModal.channelKey === 'qr'
+                        ? 'Instant QR UPI payment form with dynamic customer QR.'
+                        : `Configured for ${channelSwitchModal.channelTitle} rates and slips.`}
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem', background: '#F8FAFC', padding: '0.65rem 0.75rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                  <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>📜</span>
+                  <div>
+                    <strong style={{ fontSize: '0.78rem', color: '#0F172A', display: 'block' }}>Transaction History</strong>
+                    <span style={{ fontSize: '0.72rem', color: '#64748B', lineHeight: 1.35 }}>
+                      Strictly isolated for {channelSwitchModal.channelTitle} — zero mixing from other channels.
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Button */}
+              <button
+                type="button"
+                onClick={() => setChannelSwitchModal(prev => ({ ...prev, isOpen: false }))}
+                style={{
+                  width: '100%',
+                  marginTop: '1.25rem',
+                  padding: '0.75rem',
+                  borderRadius: '12px',
+                  border: 'none',
+                  background: channelSwitchModal.channelKey === 'qr' ? '#7C3AED' : (channelSwitchModal.channelKey === 'payswiff' ? '#D97706' : '#0F52BA'),
+                  color: '#FFFFFF',
+                  fontSize: '0.875rem',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  boxShadow: '0 4px 12px rgba(15, 82, 186, 0.25)',
+                  transition: 'transform 0.1s ease'
+                }}
+              >
+                <span>Got it, Continue →</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Responsive Styles (Dual-Experience Engine) */}
       <style>{`
