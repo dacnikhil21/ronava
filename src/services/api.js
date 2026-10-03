@@ -2456,12 +2456,12 @@ export async function verifyTransaction(txnId, action, remark = '') {
         const { data: updatedTxn } = await supabase.from('transactions').select('*').eq('id', txnId).single();
         return {
           success: true,
-          message: `✓ Transaction ${txnId} verified & audited against POS settlement report!`,
+          message: `✓ Transaction ${txnId} verified successfully!`,
           transaction: updatedTxn
         };
       } else {
-        // Rejecting an already-credited transaction -> Execute Clawback & Commission Rollback
-        return await clawbackTransaction(txnId, remark || 'Weekly POS reconciliation rejection');
+        // Rejecting an already-credited transaction -> Execute Reversal & Commission Rollback
+        return await clawbackTransaction(txnId, remark || 'Cancelled by Admin');
       }
     }
 
@@ -2695,7 +2695,7 @@ export async function verifyTransaction(txnId, action, remark = '') {
   }
 }
 
-export async function clawbackTransaction(txnId, adminReason = 'Disputed / Fraudulent POS reference') {
+export async function clawbackTransaction(txnId, adminReason = 'Payment Cancelled by Admin') {
   try {
     const { data: txn, error: tErr } = await supabase
       .from('transactions')
@@ -2734,7 +2734,7 @@ export async function clawbackTransaction(txnId, adminReason = 'Disputed / Fraud
       .from('transactions')
       .update({
         status: 'REVERSED',
-        admin_remark: `[CLAWBACK REVERSAL] ${adminReason}`,
+        admin_remark: `[REVERSED_BY_ADMIN] ${adminReason}`,
         verified_at: new Date().toISOString()
       })
       .eq('id', txnId);
@@ -2859,7 +2859,7 @@ export async function clawbackTransaction(txnId, adminReason = 'Disputed / Fraud
 
     return {
       success: true,
-      message: `✓ Transaction ${txnId} reversed successfully. ₹${netCredited.toLocaleString('en-IN', { minimumFractionDigits: 2 })} clawed back from merchant and upline commissions rolled back.`
+      message: `✓ Transaction ${txnId} cancelled & reversed successfully. ₹${netCredited.toLocaleString('en-IN', { minimumFractionDigits: 2 })} deducted from merchant wallet.`
     };
   } catch (err) {
     console.error('clawbackTransaction error:', err);

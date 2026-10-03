@@ -811,22 +811,22 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     }
   };
 
-  // Admin Fraud Clawback & Reversal Action
+  // Admin Transaction Cancellation & Reversal Action
   const handleClawbackTransaction = async (id, merchantName, amount, reason = '') => {
-    const confirmed = window.confirm(`🚨 Are you sure you want to REVERSE & CLAWBACK transaction ${id} (₹${parseFloat(amount).toLocaleString('en-IN')}) for ${merchantName}?\n\nThis will immediately debit the net amount from the merchant's wallet and rollback all upline commissions.`);
+    const confirmed = window.confirm(`Are you sure you want to cancel transaction ${id} (₹${parseFloat(amount).toLocaleString('en-IN')}) for ${merchantName}?\n\nThis will deduct the amount back from the merchant's wallet and cancel commissions.`);
     if (!confirmed) return;
 
     try {
-      const res = await clawbackTransaction(id, reason || 'Fraudulent / Disputed POS slip');
+      const res = await clawbackTransaction(id, reason || 'Cancelled by Admin');
       if (res && res.success) {
-        triggerToast(res.message || `✓ Reversed transaction for ${merchantName}!`, 'success');
+        triggerToast(res.message || `✓ Cancelled transaction for ${merchantName}!`, 'success');
         fetchAdminData();
       } else {
-        triggerToast(res?.message || 'Failed to reverse transaction', 'error');
+        triggerToast(res?.message || 'Failed to cancel transaction', 'error');
       }
     } catch (err) {
       console.error('handleClawbackTransaction error:', err);
-      triggerToast('Connection error reversing transaction', 'error');
+      triggerToast('Connection error cancelling transaction', 'error');
     }
   };
 
@@ -6783,8 +6783,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} onClick={e => e.stopPropagation()}>
                                       <button
                                         type="button"
-                                        onClick={() => handleTransactionAction(item.id, 'APPROVE', item.merchant_name, item.amount, '[VERIFIED_BY_ADMIN] Audited & verified against POS settlement report')}
-                                        title="Verify and audit this card swipe"
+                                        onClick={() => handleTransactionAction(item.id, 'APPROVE', item.merchant_name, item.amount, '[VERIFIED_BY_ADMIN] Verified by Admin')}
+                                        title="Verify this card swipe"
                                         style={{
                                           background: '#059669',
                                           color: '#FFFFFF',
@@ -6800,8 +6800,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                       </button>
                                       <button
                                         type="button"
-                                        onClick={() => handleClawbackTransaction(item.id, item.merchant_name, item.amount, 'Weekly audit rejection')}
-                                        title="Reject and clawback this swipe from merchant"
+                                        onClick={() => handleClawbackTransaction(item.id, item.merchant_name, item.amount, 'Rejected by Admin')}
+                                        title="Reject this payment"
                                         style={{
                                           background: '#FEF2F2',
                                           color: '#DC2626',
@@ -6813,7 +6813,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                           cursor: 'pointer'
                                         }}
                                       >
-                                        🚨 Clawback
+                                        ✕ Reject
                                       </button>
                                     </div>
                                   )}
@@ -6846,7 +6846,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 }}>
                                   {isPending ? (
                                     <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#D97706' }}>
-                                      {isSwipe ? `● Awaiting Audit · ${speedLabel}` : `● Pending · ${speedLabel}`}
+                                      {isSwipe ? `● Pending Review · ${speedLabel}` : `● Pending · ${speedLabel}`}
                                     </span>
                                   ) : item._subStatus === 'SUBMITTED_TO_BANK' ? (
                                     <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#2563EB', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
@@ -6854,11 +6854,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                     </span>
                                   ) : isApproved ? (
                                     <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#059669' }}>
-                                      {isSwipe ? `✓ Audited & Verified · ${speedLabel}` : `✓ Settled · ${speedLabel}`}
+                                      {isSwipe ? `✓ Verified & Settled · ${speedLabel}` : `✓ Settled · ${speedLabel}`}
                                     </span>
                                   ) : (
                                     <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#DC2626' }}>
-                                      {isSwipe ? '✕ Reversed / Clawbacked' : '✕ Invalid'}
+                                      {isSwipe ? '✕ Cancelled & Reversed' : '✕ Rejected'}
                                     </span>
                                   )}
                                   <ChevronDown style={{
@@ -7288,7 +7288,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          handleTransactionAction(item.id, 'APPROVE', item.merchant_name, item.amount, '[VERIFIED_BY_ADMIN] Audited & verified against POS settlement report');
+                                          handleTransactionAction(item.id, 'APPROVE', item.merchant_name, item.amount, '[VERIFIED_BY_ADMIN] Verified by Admin');
                                           setExpandedPayoutId(null);
                                         }}
                                         style={{
@@ -7307,12 +7307,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                           boxShadow: '0 1px 3px rgba(5,150,105,0.25)'
                                         }}
                                       >
-                                        ✓ Mark Verified / Audit OK
+                                        ✓ Mark as Verified
                                       </button>
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          handleClawbackTransaction(item.id, item.merchant_name, item.amount, 'Disputed / Unmatched POS slip during weekly audit');
+                                          handleClawbackTransaction(item.id, item.merchant_name, item.amount, 'Payment Cancelled by Admin');
                                           setExpandedPayoutId(null);
                                         }}
                                         style={{
@@ -7330,7 +7330,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                           gap: '5px'
                                         }}
                                       >
-                                        🚨 Reject / Clawback
+                                        ✕ Reject & Cancel
                                       </button>
                                     </div>
                                   ) : isApproved ? (
@@ -7346,12 +7346,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                       flexWrap: 'wrap'
                                     }}>
                                       <span style={{ fontSize: '0.75rem', color: '#047857', fontWeight: 700 }}>
-                                        ✓ Audited &amp; Settled against Bank Settlement Report
+                                        ✓ Verified &amp; Settled
                                       </span>
                                       <button
                                         type="button"
                                         onClick={() => {
-                                          handleClawbackTransaction(item.id, item.merchant_name, item.amount, 'Post-audit chargeback / bank dispute');
+                                          handleClawbackTransaction(item.id, item.merchant_name, item.amount, 'Payment Cancelled & Reversed');
                                           setExpandedPayoutId(null);
                                         }}
                                         style={{
@@ -7364,8 +7364,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                           fontWeight: 700,
                                           cursor: 'pointer'
                                         }}
+                                        title="Cancel and reverse this payment"
                                       >
-                                        🚨 Clawback
+                                        ✕ Reverse & Refund
                                       </button>
                                     </div>
                                   ) : null
