@@ -228,26 +228,11 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   const [merchantPayswiffVendor, setMerchantPayswiffVendor] = useState('ALL'); // 'ALL' | 'ronav' | 'rp'
   const [userPos, setUserPos] = useState(null);
 
-  // Informative Workspace Switch Popup Modal (User understanding & channel segregation)
-  const [channelSwitchModal, setChannelSwitchModal] = useState({
-    isOpen: false,
-    channelKey: '',
-    channelTitle: '',
-    icon: '',
-    color: ''
-  });
-
   const handleSwitchMachine = (key) => {
     setSelectedMachineKey(key);
     setTxnCategoryFilter('ALL');
     const m = POS_MACHINES_DATA[key] || POS_MACHINES_DATA.pine_labs;
-    setChannelSwitchModal({
-      isOpen: true,
-      channelKey: key,
-      channelTitle: m?.title || key,
-      icon: m?.icon || '💳',
-      color: m?.themeColor || '#0F52BA'
-    });
+    showToast(`${m?.icon || '💳'} Switched to ${m?.title || key}`);
   };
 
   // BBPS Customer Bill Pay Form
@@ -5036,97 +5021,9 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           {/* VIEW 5: DEDICATED "TRANSACTION HISTORY" PAGE               */}
           {/* (SIMPLIFIED DATE FILTER AT TOP & NO NESTED INNER BOX)      */}
           {/* ========================================================= */}
-          {/* ========================================================= */}
-          {/* VIEW 5: DEDICATED "TRANSACTION & PAYOUT HISTORY" PAGE     */}
-          {/* (UNIFIED RECORD SALE & BANK WITHDRAWAL STREAM)            */}
-          {/* ========================================================= */}
           {activeTab === 'history' && (
             <div className="merchant-subpage-wrapper full-width" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}>
               
-              {/* CHANNEL WORKSPACE HEADER & FAST SWITCHER */}
-              <div style={{
-                background: selectedMachineKey === 'qr' ? '#F5F3FF' : (selectedMachineKey === 'payswiff' ? '#FFFBEB' : '#EFF6FF'),
-                border: selectedMachineKey === 'qr' ? '1px solid #DDD6FE' : (selectedMachineKey === 'payswiff' ? '1px solid #FDE68A' : '1px solid #BFDBFE'),
-                borderRadius: '12px',
-                padding: '0.65rem 0.85rem',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: '0.5rem',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                  <div style={{
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '8px',
-                    background: selectedMachineKey === 'qr' ? '#7C3AED' : (selectedMachineKey === 'payswiff' ? '#D97706' : '#0F52BA'),
-                    color: '#FFFFFF',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '1rem',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                  }}>
-                    {activeMachine.icon}
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '0.8125rem', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span>{activeMachine.title} Ledger</span>
-                      <span style={{
-                        fontSize: '0.58rem',
-                        fontWeight: 800,
-                        padding: '1px 6px',
-                        borderRadius: '999px',
-                        background: selectedMachineKey === 'qr' ? '#EDE9FE' : (selectedMachineKey === 'payswiff' ? '#FEF3C7' : '#DBEAFE'),
-                        color: selectedMachineKey === 'qr' ? '#6D28D9' : (selectedMachineKey === 'payswiff' ? '#B45309' : '#1D4ED8')
-                      }}>
-                        Active Channel
-                      </span>
-                    </div>
-                    <div style={{ fontSize: '0.65rem', color: '#64748B', fontWeight: 500 }}>
-                      Showing strictly {activeMachine.title} sales, collections &amp; payouts
-                    </div>
-                  </div>
-                </div>
-
-                {availableMachineTabs.length > 1 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#FFFFFF', padding: '3px', borderRadius: '9px', border: '1px solid #CBD5E1' }}>
-                    {availableMachineTabs.map(tabKey => {
-                      const m = POS_MACHINES_DATA[tabKey];
-                      if (!m) return null;
-                      const isActive = selectedMachineKey === tabKey;
-                      return (
-                        <button
-                          key={tabKey}
-                          type="button"
-                          onClick={() => handleSwitchMachine(tabKey)}
-                          style={{
-                            background: isActive ? (tabKey === 'qr' ? '#7C3AED' : (tabKey === 'payswiff' ? '#D97706' : '#0F52BA')) : 'transparent',
-                            color: isActive ? '#FFFFFF' : '#475569',
-                            border: 'none',
-                            borderRadius: '7px',
-                            padding: '0.28rem 0.55rem',
-                            fontSize: '0.7rem',
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '3px',
-                            boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                            transition: 'all 0.15s ease'
-                          }}
-                        >
-                          <span>{m.icon}</span>
-                          <span>{tabKey === 'pine_labs' ? 'Pine Labs' : (tabKey === 'payswiff' ? 'Payswiff' : 'QR')}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
               {/* 1. TOP CATEGORY SWITCHER (CLEAN & FIXED) */}
               <div style={{
                 background: '#F1F5F9',
@@ -5136,16 +5033,17 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                 gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))',
                 gap: '2px'
               }}>
-                {(selectedMachineKey === 'qr' ? [
+                {[
                   { id: 'ALL', label: 'All' },
-                  { id: 'QR', label: '📱 QR Collections' },
-                  { id: 'WITHDRAWALS', label: '🏦 QR Payouts' }
-                ] : [
-                  { id: 'ALL', label: 'All' },
-                  { id: 'SWIPES', label: selectedMachineKey === 'payswiff' ? '💳 Payswiff Swipes' : '💳 Pine Labs Swipes' },
+                  { 
+                    id: selectedMachineKey === 'qr' ? 'QR' : 'SWIPES', 
+                    label: selectedMachineKey === 'qr' 
+                      ? '📱 QR Swipes' 
+                      : (selectedMachineKey === 'payswiff' ? '💳 Payswiff Swipes' : '💳 Pine Labs Swipes') 
+                  },
                   { id: 'COMMISSIONS', label: '💎 Commission' },
                   { id: 'WITHDRAWALS', label: '🏦 Bank Payouts' }
-                ]).map(cat => (
+                ].map(cat => (
                   <button
                     key={cat.id}
                     type="button"
@@ -8909,137 +8807,6 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           </div>
         );
       })()}
-
-      {/* CHANNEL SWITCH INFORMATIVE POPUP MODAL */}
-      {channelSwitchModal.isOpen && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(15, 23, 42, 0.65)',
-          backdropFilter: 'blur(5px)',
-          WebkitBackdropFilter: 'blur(5px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-          padding: '1rem'
-        }}>
-          <div style={{
-            background: '#FFFFFF',
-            borderRadius: '20px',
-            border: '1px solid #E2E8F0',
-            boxShadow: '0 25px 50px -12px rgba(15, 23, 42, 0.25)',
-            width: '100%',
-            maxWidth: '430px',
-            overflow: 'hidden'
-          }}>
-            {/* Header with vibrant gradient */}
-            <div style={{
-              background: channelSwitchModal.channelKey === 'qr'
-                ? 'linear-gradient(135deg, #3B0764 0%, #7C3AED 100%)'
-                : channelSwitchModal.channelKey === 'payswiff'
-                ? 'linear-gradient(135deg, #451A03 0%, #D97706 100%)'
-                : 'linear-gradient(135deg, #0A192F 0%, #0F52BA 100%)',
-              padding: '1.25rem 1.25rem 1.1rem',
-              color: '#FFFFFF'
-            }}>
-              <div style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '46px',
-                height: '46px',
-                borderRadius: '12px',
-                background: 'rgba(255, 255, 255, 0.2)',
-                fontSize: '1.6rem',
-                marginBottom: '0.6rem',
-                border: '1px solid rgba(255, 255, 255, 0.35)'
-              }}>
-                {channelSwitchModal.icon}
-              </div>
-              <h3 style={{ margin: '0 0 0.25rem', fontSize: '1.2rem', fontWeight: 900, letterSpacing: '-0.01em', color: '#FFFFFF' }}>
-                Switched to {channelSwitchModal.channelTitle}
-              </h3>
-              <p style={{ margin: 0, fontSize: '0.8rem', color: 'rgba(255, 255, 255, 0.88)', lineHeight: 1.45 }}>
-                {channelSwitchModal.channelKey === 'qr'
-                  ? 'Your entire workspace is now dedicated strictly to Company QR (UPI) payments.'
-                  : `Your entire workspace is now dedicated strictly to ${channelSwitchModal.channelTitle}.`}
-              </p>
-            </div>
-
-            {/* Checklist of isolated elements */}
-            <div style={{ padding: '1.25rem' }}>
-              <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>
-                Workspace Breakdown
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem', background: '#F8FAFC', padding: '0.65rem 0.75rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
-                  <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>💰</span>
-                  <div>
-                    <strong style={{ fontSize: '0.78rem', color: '#0F172A', display: 'block' }}>Wallet Balance</strong>
-                    <span style={{ fontSize: '0.72rem', color: '#64748B', lineHeight: 1.35 }}>
-                      Calculated only from {channelSwitchModal.channelTitle} collections &amp; payouts.
-                    </span>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem', background: '#F8FAFC', padding: '0.65rem 0.75rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
-                  <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>
-                    {channelSwitchModal.channelKey === 'qr' ? '📱' : '💳'}
-                  </span>
-                  <div>
-                    <strong style={{ fontSize: '0.78rem', color: '#0F172A', display: 'block' }}>
-                      {channelSwitchModal.channelKey === 'qr' ? 'Record QR Collection' : 'Record Card Swipe'}
-                    </strong>
-                    <span style={{ fontSize: '0.72rem', color: '#64748B', lineHeight: 1.35 }}>
-                      {channelSwitchModal.channelKey === 'qr'
-                        ? 'Instant QR UPI payment form with dynamic customer QR.'
-                        : `Configured for ${channelSwitchModal.channelTitle} rates and slips.`}
-                    </span>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem', background: '#F8FAFC', padding: '0.65rem 0.75rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
-                  <span style={{ fontSize: '1.1rem', flexShrink: 0 }}>📜</span>
-                  <div>
-                    <strong style={{ fontSize: '0.78rem', color: '#0F172A', display: 'block' }}>Transaction History</strong>
-                    <span style={{ fontSize: '0.72rem', color: '#64748B', lineHeight: 1.35 }}>
-                      Strictly isolated for {channelSwitchModal.channelTitle} — zero mixing from other channels.
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Button */}
-              <button
-                type="button"
-                onClick={() => setChannelSwitchModal(prev => ({ ...prev, isOpen: false }))}
-                style={{
-                  width: '100%',
-                  marginTop: '1.25rem',
-                  padding: '0.75rem',
-                  borderRadius: '12px',
-                  border: 'none',
-                  background: channelSwitchModal.channelKey === 'qr' ? '#7C3AED' : (channelSwitchModal.channelKey === 'payswiff' ? '#D97706' : '#0F52BA'),
-                  color: '#FFFFFF',
-                  fontSize: '0.875rem',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px',
-                  boxShadow: '0 4px 12px rgba(15, 82, 186, 0.25)',
-                  transition: 'transform 0.1s ease'
-                }}
-              >
-                <span>Got it, Continue →</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Responsive Styles (Dual-Experience Engine) */}
       <style>{`
