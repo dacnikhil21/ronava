@@ -5455,13 +5455,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   if (m) todayBatchIds.add(m[1]);
                 });
                 const batchSeq = todayBatchIds.size + 1;
-                const batchId = `BATCH_${today.replace(/-/g, '')}_${batchSeq}`;
                 const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
                 const dayName = daysOfWeek[now.getDay()];
                 const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
                 const dateStr = now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-                const batchName = `Today's Batch #${batchSeq} (${dayName} · ${timeStr})`;
-                const fileName = `RONAV_${channelSlug}_T1_Batch_${batchSeq}_${today}.csv`;
+
+                // Choose smart initial speed based on active filter or available items (neither is forced/hardcoded)
+                const initialSpeed = (payoutSettlementFilter === 'INSTANT' || (pendingT1Withdrawals.length === 0 && pendingInstantWithdrawals.length > 0))
+                  ? 'INSTANT'
+                  : 'T1';
 
                 setDownloadConfirmModal({
                   isOpen: true,
@@ -5473,10 +5475,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   isSpecificSelected,
                   selectedCount: selectedPendingIds ? selectedPendingIds.size : 0,
                   batchSeq,
-                  batchId,
-                  batchName,
-                  fileName,
-                  includeInstant: false
+                  dayName,
+                  timeStr,
+                  today,
+                  selectedSpeed: initialSpeed
                 });
               };
 
@@ -7370,10 +7372,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 ) : (
                                   /* WITHDRAWAL (BANK PAYOUT) ACTIONS */
                                   isPending ? (
-                                    /* IN PENDING: STRICTLY ONLY REJECT BUTTON! NO COMPLETE BUTTON */
                                     <div style={{
-                                      background: '#EFF6FF',
-                                      border: '1px solid #BFDBFE',
+                                      background: isItemInstant(item) ? '#F5F3FF' : '#EFF6FF',
+                                      border: isItemInstant(item) ? '1px solid #DDD6FE' : '1px solid #BFDBFE',
                                       borderRadius: '8px',
                                       padding: '0.6rem 0.85rem',
                                       display: 'flex',
@@ -7383,12 +7384,49 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                       flexWrap: 'wrap'
                                     }}>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                        <Clock style={{ width: '15px', height: '15px', color: '#1D4ED8', flexShrink: 0 }} />
-                                        <span style={{ fontSize: '0.75rem', color: '#1E40AF', fontWeight: 600 }}>
-                                          Queued for Bank Batch · Select checkbox &amp; download sheet above to process
+                                        {isItemInstant(item) ? (
+                                          <Zap style={{ width: '15px', height: '15px', color: '#7C3AED', flexShrink: 0 }} />
+                                        ) : (
+                                          <Clock style={{ width: '15px', height: '15px', color: '#1D4ED8', flexShrink: 0 }} />
+                                        )}
+                                        <span style={{ fontSize: '0.75rem', color: isItemInstant(item) ? '#6D28D9' : '#1E40AF', fontWeight: 600 }}>
+                                          {isItemInstant(item)
+                                            ? '⚡ Instant Payout Request · Settle directly via IMPS or export via Instant Batch'
+                                            : '📅 T+1 Standard Batch · Queued for T+1 Bank Batch Sheet Export'}
                                         </span>
                                       </div>
-                                      <div>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        {isItemInstant(item) && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setDisbursingPayout({
+                                                payout: item,
+                                                utr: '',
+                                                remark: '',
+                                                actionType: 'APPROVE',
+                                                isSubmitting: false
+                                              });
+                                              setExpandedPayoutId(null);
+                                            }}
+                                            style={{
+                                              background: '#7C3AED',
+                                              color: '#FFFFFF',
+                                              border: 'none',
+                                              padding: '0.45rem 0.85rem',
+                                              borderRadius: '6px',
+                                              fontSize: '0.72rem',
+                                              fontWeight: 700,
+                                              cursor: 'pointer',
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              gap: '4px',
+                                              boxShadow: '0 1px 3px rgba(124,58,237,0.3)'
+                                            }}
+                                          >
+                                            ⚡ Disburse IMPS &amp; Enter UTR
+                                          </button>
+                                        )}
                                         <button
                                           type="button"
                                           onClick={() => {
@@ -10494,80 +10532,125 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 flexDirection: 'column',
                 gap: '0.75rem'
               }}>
-                <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Payout Scope Summary ({downloadConfirmModal.channelName})
-                </span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Select Payout Batch to Export ({downloadConfirmModal.channelName})
+                  </span>
+                  <span style={{ fontSize: '0.65rem', color: '#64748B', fontWeight: 600 }}>
+                    Strict Single-Type Export · Never Mixed
+                  </span>
+                </div>
 
-                {/* 1. T+1 Bank Withdrawals (Primary) */}
+                {/* 1. T+1 Bank Withdrawals (Selectable Option - NOT Hardcoded) */}
                 {(() => {
                   const t1Items = downloadConfirmModal.t1Withdrawals || [];
                   const t1Total = t1Items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+                  const isSelected = downloadConfirmModal.selectedSpeed === 'T1';
+                  const isDisabled = t1Items.length === 0;
 
                   return (
-                    <div style={{
-                      background: '#FFFFFF',
-                      border: '1.5px solid #A7F3D0',
-                      borderRadius: '10px',
-                      padding: '0.75rem 0.85rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '0.5rem'
-                    }}>
+                    <div 
+                      onClick={() => {
+                        if (!isDisabled) {
+                          setDownloadConfirmModal(prev => ({ ...prev, selectedSpeed: 'T1' }));
+                        }
+                      }}
+                      style={{
+                        background: '#FFFFFF',
+                        border: isSelected ? '2px solid #0F52BA' : '1.5px solid #E2E8F0',
+                        borderRadius: '10px',
+                        padding: '0.75rem 0.85rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '0.5rem',
+                        cursor: isDisabled ? 'not-allowed' : 'pointer',
+                        opacity: isDisabled ? 0.5 : 1,
+                        boxShadow: isSelected ? '0 2px 6px rgba(15,82,186,0.12)' : 'none',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#ECFDF5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#059669', fontWeight: 800 }}>
-                          ✓
-                        </div>
+                        <div style={{
+                          width: '20px',
+                          height: '20px',
+                          borderRadius: '50%',
+                          border: isSelected ? '6px solid #0F52BA' : '2px solid #CBD5E1',
+                          background: '#FFFFFF',
+                          flexShrink: 0
+                        }} />
                         <div>
-                          <strong style={{ fontSize: '0.84375rem', color: '#0F172A', display: 'block' }}>
-                            T+1 Bank Payouts ({t1Items.length})
+                          <strong style={{ fontSize: '0.84375rem', color: isSelected ? '#0F52BA' : '#0F172A', display: 'block' }}>
+                            📅 T+1 Bank Payouts ({t1Items.length})
                           </strong>
-                          <span style={{ fontSize: '0.6875rem', color: '#059669', fontWeight: 700 }}>
-                            Included in Bank Sheet · Moves to Submitted tab
+                          <span style={{ fontSize: '0.6875rem', color: isSelected ? '#059669' : '#64748B', fontWeight: isSelected ? 700 : 500 }}>
+                            {isDisabled 
+                              ? 'No pending T+1 payouts in selection' 
+                              : isSelected 
+                                ? '✓ Selected · Exports pure T+1 Bank Sheet (Moves to Submitted)' 
+                                : 'Click to select T+1 batch export'}
                           </span>
                         </div>
                       </div>
-                      <strong style={{ fontSize: '0.9375rem', color: '#0F172A', fontVariantNumeric: 'tabular-nums' }}>
+                      <strong style={{ fontSize: '0.9375rem', color: isSelected ? '#0F52BA' : '#0F172A', fontVariantNumeric: 'tabular-nums' }}>
                         ₹{t1Total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </strong>
                     </div>
                   );
                 })()}
 
-                {/* 2. Instant Withdrawals (Option to include/exclude) */}
+                {/* 2. Instant Withdrawals (Selectable Option - NOT Merged) */}
                 {(() => {
                   const insItems = downloadConfirmModal.instantWithdrawals || [];
                   const insTotal = insItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
-                  if (insItems.length === 0) return null;
+                  const isSelected = downloadConfirmModal.selectedSpeed === 'INSTANT';
+                  const isDisabled = insItems.length === 0;
 
                   return (
-                    <div style={{
-                      background: '#FFFFFF',
-                      border: downloadConfirmModal.includeInstant ? '1.5px solid #BFDBFE' : '1px solid #E2E8F0',
-                      borderRadius: '10px',
-                      padding: '0.75rem 0.85rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: '0.5rem'
-                    }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', flex: 1 }}>
-                        <input
-                          type="checkbox"
-                          checked={downloadConfirmModal.includeInstant}
-                          onChange={(e) => setDownloadConfirmModal(prev => ({ ...prev, includeInstant: e.target.checked }))}
-                          style={{ width: '16px', height: '16px', accentColor: '#0F52BA', cursor: 'pointer' }}
-                        />
+                    <div 
+                      onClick={() => {
+                        if (!isDisabled) {
+                          setDownloadConfirmModal(prev => ({ ...prev, selectedSpeed: 'INSTANT' }));
+                        }
+                      }}
+                      style={{
+                        background: '#FFFFFF',
+                        border: isSelected ? '2px solid #7C3AED' : '1.5px solid #E2E8F0',
+                        borderRadius: '10px',
+                        padding: '0.75rem 0.85rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '0.5rem',
+                        cursor: isDisabled ? 'not-allowed' : 'pointer',
+                        opacity: isDisabled ? 0.5 : 1,
+                        boxShadow: isSelected ? '0 2px 6px rgba(124,58,237,0.12)' : 'none',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{
+                          width: '20px',
+                          height: '20px',
+                          borderRadius: '50%',
+                          border: isSelected ? '6px solid #7C3AED' : '2px solid #CBD5E1',
+                          background: '#FFFFFF',
+                          flexShrink: 0
+                        }} />
                         <div>
-                          <strong style={{ fontSize: '0.84375rem', color: '#0F172A', display: 'block' }}>
-                            Instant / IMPS Withdrawals ({insItems.length})
+                          <strong style={{ fontSize: '0.84375rem', color: isSelected ? '#7C3AED' : '#0F172A', display: 'block' }}>
+                            ⚡ Instant / IMPS Withdrawals ({insItems.length})
                           </strong>
-                          <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
-                            {downloadConfirmModal.includeInstant ? 'Included in this batch sheet' : 'Excluded (Settled directly via IMPS)'}
+                          <span style={{ fontSize: '0.6875rem', color: isSelected ? '#7C3AED' : '#64748B', fontWeight: isSelected ? 700 : 500 }}>
+                            {isDisabled 
+                              ? 'No pending Instant payouts in selection' 
+                              : isSelected 
+                                ? '✓ Selected · Exports pure Instant Batch Sheet (Moves to Submitted)' 
+                                : 'Click to select Instant batch export'}
                           </span>
                         </div>
-                      </label>
-                      <strong style={{ fontSize: '0.9375rem', color: '#0F172A', fontVariantNumeric: 'tabular-nums' }}>
+                      </div>
+                      <strong style={{ fontSize: '0.9375rem', color: isSelected ? '#7C3AED' : '#0F172A', fontVariantNumeric: 'tabular-nums' }}>
                         ₹{insTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </strong>
                     </div>
@@ -10575,39 +10658,70 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 })()}
               </div>
 
-              {/* Batch Export Details */}
-              <div style={{
-                background: '#FFFFFF',
-                border: '1px solid #E2E8F0',
-                borderRadius: '12px',
-                padding: '0.75rem 0.9rem',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.4rem',
-                fontSize: '0.75rem'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#64748B' }}>Target Bank File:</span>
-                  <strong style={{ color: '#0F52BA', fontFamily: 'monospace' }}>{downloadConfirmModal.fileName}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#64748B' }}>Batch Sequence:</span>
-                  <strong style={{ color: '#0F172A' }}>{downloadConfirmModal.batchName}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: '#64748B' }}>Post-Download Action:</span>
-                  <span style={{ color: '#059669', fontWeight: 700 }}>Transfers automatically to Submitted tab</span>
-                </div>
-              </div>
+              {/* Batch Export Details (Dynamic strictly for selected type) */}
+              {(() => {
+                const isInstant = downloadConfirmModal.selectedSpeed === 'INSTANT';
+                const currentFileName = isInstant
+                  ? `RONAV_${downloadConfirmModal.channelSlug}_Instant_Batch_${downloadConfirmModal.batchSeq}_${downloadConfirmModal.today}.csv`
+                  : `RONAV_${downloadConfirmModal.channelSlug}_T1_Batch_${downloadConfirmModal.batchSeq}_${downloadConfirmModal.today}.csv`;
+                const currentBatchName = isInstant
+                  ? `Today's Instant Batch #${downloadConfirmModal.batchSeq} (${downloadConfirmModal.dayName} · ${downloadConfirmModal.timeStr})`
+                  : `Today's T+1 Batch #${downloadConfirmModal.batchSeq} (${downloadConfirmModal.dayName} · ${downloadConfirmModal.timeStr})`;
+                const currentBatchId = isInstant
+                  ? `BATCH_INSTANT_${(downloadConfirmModal.today || '').replace(/-/g, '')}_${downloadConfirmModal.batchSeq}`
+                  : `BATCH_T1_${(downloadConfirmModal.today || '').replace(/-/g, '')}_${downloadConfirmModal.batchSeq}`;
+
+                return (
+                  <div style={{
+                    background: '#FFFFFF',
+                    border: '1px solid #E2E8F0',
+                    borderRadius: '12px',
+                    padding: '0.75rem 0.9rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.4rem',
+                    fontSize: '0.75rem'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#64748B' }}>Target Bank File:</span>
+                      <strong style={{ color: isInstant ? '#7C3AED' : '#0F52BA', fontFamily: 'monospace' }}>{currentFileName}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#64748B' }}>Batch Sequence:</span>
+                      <strong style={{ color: '#0F172A' }}>{currentBatchName}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#64748B' }}>Export Filter Scope:</span>
+                      <strong style={{ color: isInstant ? '#7C3AED' : '#0F52BA' }}>
+                        {isInstant ? '⚡ Strictly Instant Withdrawals Only' : '📅 Strictly T+1 Withdrawals Only'}
+                      </strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: '#64748B' }}>Post-Download Action:</span>
+                      <span style={{ color: '#059669', fontWeight: 700 }}>Transfers automatically to Submitted tab</span>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Modal Footer Actions */}
             {(() => {
-              const activeBatchItems = [
-                ...(downloadConfirmModal.t1Withdrawals || []),
-                ...(downloadConfirmModal.includeInstant ? (downloadConfirmModal.instantWithdrawals || []) : [])
-              ];
+              const isInstant = downloadConfirmModal.selectedSpeed === 'INSTANT';
+              const activeBatchItems = isInstant
+                ? (downloadConfirmModal.instantWithdrawals || [])
+                : (downloadConfirmModal.t1Withdrawals || []);
               const batchTotalAmount = activeBatchItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+
+              const currentFileName = isInstant
+                ? `RONAV_${downloadConfirmModal.channelSlug}_Instant_Batch_${downloadConfirmModal.batchSeq}_${downloadConfirmModal.today}.csv`
+                : `RONAV_${downloadConfirmModal.channelSlug}_T1_Batch_${downloadConfirmModal.batchSeq}_${downloadConfirmModal.today}.csv`;
+              const currentBatchName = isInstant
+                ? `Today's Instant Batch #${downloadConfirmModal.batchSeq} (${downloadConfirmModal.dayName} · ${downloadConfirmModal.timeStr})`
+                : `Today's T+1 Batch #${downloadConfirmModal.batchSeq} (${downloadConfirmModal.dayName} · ${downloadConfirmModal.timeStr})`;
+              const currentBatchId = isInstant
+                ? `BATCH_INSTANT_${(downloadConfirmModal.today || '').replace(/-/g, '')}_${downloadConfirmModal.batchSeq}`
+                : `BATCH_T1_${(downloadConfirmModal.today || '').replace(/-/g, '')}_${downloadConfirmModal.batchSeq}`;
 
               return (
                 <div style={{
@@ -10640,9 +10754,14 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   <button
                     type="button"
                     disabled={activeBatchItems.length === 0}
-                    onClick={() => executeConfirmedBankDownload(activeBatchItems, downloadConfirmModal)}
+                    onClick={() => executeConfirmedBankDownload(activeBatchItems, {
+                      ...downloadConfirmModal,
+                      fileName: currentFileName,
+                      batchName: currentBatchName,
+                      batchId: currentBatchId
+                    })}
                     style={{
-                      background: '#0F52BA',
+                      background: isInstant ? '#7C3AED' : '#0F52BA',
                       color: '#FFFFFF',
                       border: 'none',
                       padding: '0.6rem 1.25rem',
@@ -10653,11 +10772,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       display: 'flex',
                       alignItems: 'center',
                       gap: '6px',
-                      boxShadow: '0 2px 6px rgba(15,82,186,0.25)'
+                      boxShadow: isInstant ? '0 2px 6px rgba(124,58,237,0.25)' : '0 2px 6px rgba(15,82,186,0.25)'
                     }}
                   >
                     <Download style={{ width: '14px', height: '14px' }} />
-                    <span>Download Bank Sheet ({activeBatchItems.length} Payouts · ₹{batchTotalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })})</span>
+                    <span>Download {isInstant ? 'Instant' : 'T+1'} Bank Sheet ({activeBatchItems.length} Payouts · ₹{batchTotalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })})</span>
                   </button>
                 </div>
               );
