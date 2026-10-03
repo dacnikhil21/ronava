@@ -70,8 +70,24 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
     // 9. Payout Amount
     const amt = parseFloat(item.amount || 0).toFixed(2);
 
-    // 10. Channel / Provider
-    const channel = item.channel || item.pos_provider || (item.is_customer_payout ? 'Customer Payout' : 'Bank Transfer');
+    // 10. Channel / Provider (Accurate determination for QR, Payswiff, and Pine Labs)
+    let channel = 'Pine Labs';
+    const rawRemark = (item.admin_remark || item.notes || '').toLowerCase();
+    const rawProv = (item.channel || item.pos_provider || item.provider || '').toLowerCase();
+    const rawType = (item.type || '').toLowerCase();
+
+    if (rawProv.includes('qr') || rawType.includes('qr') || rawRemark.includes('channel: qr') || rawRemark.includes('pos: company qr') || rawRemark.includes('pos: qr') || rawRemark.includes('upi')) {
+      channel = 'Company QR (UPI)';
+    } else if (rawProv.includes('swiff') || rawRemark.includes('payswiff') || rawRemark.includes('channel: payswiff')) {
+      const isRp = rawRemark.includes('rp tech') || rawRemark.includes('r.p.') || rawRemark.includes('vendor: r.p.') || (item.pos_vendor || '').toLowerCase().includes('rp');
+      channel = isRp ? 'Payswiff (RP Tech)' : 'Payswiff (RONAV Tech)';
+    } else if (item.channel && item.channel !== 'default') {
+      channel = item.channel === 'pinelabs' ? 'Pine Labs' : item.channel;
+    } else if (item.pos_provider) {
+      channel = item.pos_provider;
+    } else {
+      channel = 'Pine Labs';
+    }
 
     // 11. Settlement Speed
     const speed = (item.settlement_mode || item.settlement_type || 'T1').toUpperCase();

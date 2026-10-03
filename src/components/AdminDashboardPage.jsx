@@ -684,9 +684,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       primaryRateT1 = onboardChannels.payswiff.rate_t1 || '1.50';
       primaryRateInstant = onboardChannels.payswiff.rate_instant || '1.80';
     } else if (onboardChannels.qr) {
-      primaryProvider = 'QR';
+      primaryProvider = 'Company QR (UPI)';
       primaryVendor = 'RONAV Technologies';
-      primaryTid = 'QR-CHANNEL';
+      primaryTid = 'RONAV-UPI-HQ';
       primaryRateT1 = onboardChannels.qr.rate_instant || '1.50';
       primaryRateInstant = onboardChannels.qr.rate_instant || '1.50';
     }
@@ -708,9 +708,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         pos_provider: primaryProvider,
         pos_vendor: primaryVendor,
         pos_terminal_id: primaryTid,
-        device_plan: onboardChannels.pine_labs?.plan || onboardChannels.payswiff?.plan || 'RENTAL',
-        monthly_rent: onboardChannels.pine_labs?.rent || onboardChannels.payswiff?.rent || '499',
-        settlement_type: 'INSTANT',
+        device_plan: onboardChannels.pine_labs?.plan || onboardChannels.payswiff?.plan || (onboardChannels.qr ? 'DIRECT' : 'NONE'),
+        monthly_rent: onboardChannels.pine_labs?.rent || onboardChannels.payswiff?.rent || '0',
+        settlement_type: (onboardChannels.qr && !onboardChannels.pine_labs && !onboardChannels.payswiff) ? 'INSTANT' : 'T1',
         commission_rate_t1: primaryRateT1,
         commission_rate_instant: primaryRateInstant
       };
@@ -5396,14 +5396,18 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 
                 const channelSlug = selectedChannel === 'all'
                   ? 'All_Channels'
-                  : (selectedChannel === 'pinelabs' 
-                      ? 'PineLabs' 
-                      : (selectedPayswiffVendor === 'rp' ? 'Payswiff_RP' : 'Payswiff_RONAV'));
+                  : (selectedChannel === 'qr'
+                      ? 'Company_QR'
+                      : (selectedChannel === 'pinelabs' 
+                          ? 'PineLabs' 
+                          : (selectedPayswiffVendor === 'rp' ? 'Payswiff_RP' : 'Payswiff_RONAV')));
                 const channelName = selectedChannel === 'all'
                   ? 'All Channels'
-                  : (selectedChannel === 'pinelabs' 
-                      ? 'Pine Labs' 
-                      : (selectedPayswiffVendor === 'rp' ? 'Payswiff (RP Tech)' : 'Payswiff (RONAV Tech)'));
+                  : (selectedChannel === 'qr'
+                      ? 'Company QR (UPI)'
+                      : (selectedChannel === 'pinelabs' 
+                          ? 'Pine Labs' 
+                          : (selectedPayswiffVendor === 'rp' ? 'Payswiff (RP Tech)' : 'Payswiff (RONAV Tech)')));
                 const now = new Date();
                 const today = now.toISOString().slice(0, 10);
 
@@ -5479,9 +5483,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               const handleRedownloadSingleBatch = (batch) => {
                 const channelSlug = selectedChannel === 'all'
                   ? 'All_Channels'
-                  : (selectedChannel === 'pinelabs' 
-                      ? 'PineLabs' 
-                      : (selectedPayswiffVendor === 'rp' ? 'Payswiff_RP' : 'Payswiff_RONAV'));
+                  : (selectedChannel === 'qr'
+                      ? 'Company_QR'
+                      : (selectedChannel === 'pinelabs' 
+                          ? 'PineLabs' 
+                          : (selectedPayswiffVendor === 'rp' ? 'Payswiff_RP' : 'Payswiff_RONAV')));
                 const today = new Date().toISOString().slice(0, 10);
                 const fileName = `RONAV_${channelSlug}_${batch.batchId || 'Batch'}_${today}.csv`;
                 const res = downloadBankBatchFile(batch.items, { fileName });

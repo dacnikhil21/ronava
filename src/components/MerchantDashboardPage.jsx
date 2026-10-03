@@ -1032,14 +1032,14 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         address: cleanAddress,
         role: onboardForm.role,
         channels: onboardChannels,
-        pos_provider: onboardChannels.pine_labs ? 'Pine Labs' : (onboardChannels.payswiff ? 'Payswiff' : 'QR'),
-        pos_vendor: onboardChannels.pine_labs ? 'Rose Navaneetham Enterprises' : (onboardChannels.payswiff?.vendor || 'RONAV Technologies'),
-        pos_terminal_id: onboardChannels.pine_labs?.terminal_id || onboardChannels.payswiff?.terminal_id || '',
-        device_plan: onboardChannels.pine_labs?.plan || onboardChannels.payswiff?.plan || 'RENTAL',
-        monthly_rent: onboardChannels.pine_labs?.rent || onboardChannels.payswiff?.rent || '499',
-        settlement_type: 'T1',
-        commission_rate_t1: onboardChannels.pine_labs?.rate_t1 || onboardChannels.payswiff?.rate_t1 || onboardForm.commission_rate_t1 || '1.48',
-        commission_rate_instant: onboardChannels.pine_labs?.rate_instant || onboardChannels.payswiff?.rate_instant || onboardForm.commission_rate_instant || '1.78'
+        pos_provider: onboardChannels.pine_labs ? 'Pine Labs' : (onboardChannels.payswiff ? 'Payswiff' : (onboardChannels.qr ? 'Company QR (UPI)' : 'NONE')),
+        pos_vendor: onboardChannels.pine_labs ? 'Rose Navaneetham Enterprises' : (onboardChannels.payswiff ? (onboardChannels.payswiff?.vendor || 'RONAV Technologies') : 'RONAV Technologies'),
+        pos_terminal_id: onboardChannels.pine_labs?.terminal_id || onboardChannels.payswiff?.terminal_id || (onboardChannels.qr ? 'RONAV-UPI-HQ' : ''),
+        device_plan: onboardChannels.pine_labs?.plan || onboardChannels.payswiff?.plan || (onboardChannels.qr ? 'DIRECT' : 'NONE'),
+        monthly_rent: onboardChannels.pine_labs?.rent || onboardChannels.payswiff?.rent || '0',
+        settlement_type: (onboardChannels.qr && !onboardChannels.pine_labs && !onboardChannels.payswiff) ? 'INSTANT' : 'T1',
+        commission_rate_t1: onboardChannels.pine_labs?.rate_t1 || onboardChannels.payswiff?.rate_t1 || onboardChannels.qr?.rate_instant || onboardForm.commission_rate_t1 || '1.50',
+        commission_rate_instant: onboardChannels.qr?.rate_instant || onboardChannels.pine_labs?.rate_instant || onboardChannels.payswiff?.rate_instant || onboardForm.commission_rate_instant || '1.80'
       });
 
       if (res.success && res.credentials) {

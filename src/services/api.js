@@ -1070,11 +1070,15 @@ export async function createDownstreamUser(userData) {
         primaryRateT1 = parseFloat(swiff.rate_t1) || 1.50;
         primaryRateInstant = parseFloat(swiff.rate_instant) || 1.80;
       } else if (qr && qr.enabled) {
-        primaryProvider = 'QR';
+        primaryProvider = 'Company QR (UPI)';
         primaryVendor = 'RONAV Technologies';
         primaryRateT1 = parseFloat(qr.rate_instant) || 1.50;
         primaryRateInstant = parseFloat(qr.rate_instant) || 1.50;
       }
+
+      const isQrOnly = Boolean(qr?.enabled && !pine?.enabled && !swiff?.enabled);
+      const chosenPlan = isQrOnly ? 'DIRECT' : (pine?.plan || swiff?.plan || 'RENTAL');
+      const chosenRent = isQrOnly ? 0.0 : (pine?.rent !== undefined ? (parseFloat(pine.rent) || 0.0) : (swiff?.rent !== undefined ? (parseFloat(swiff.rent) || 0.0) : 0.0));
 
       const { data: posData, error: posErr } = await supabase
         .from('merchant_pos')
@@ -1085,9 +1089,9 @@ export async function createDownstreamUser(userData) {
           commission_rate: primaryRateT1,
           assigned_by: assignedCreatorId,
           vendor_entity: primaryVendor,
-          device_plan: pine?.plan || swiff?.plan || 'RENTAL',
-          monthly_rent: pine?.rent || swiff?.rent || 499.0,
-          settlement_type: 'INSTANT',
+          device_plan: chosenPlan,
+          monthly_rent: chosenRent,
+          settlement_type: isQrOnly ? 'INSTANT' : 'T1',
           commission_rate_t1: primaryRateT1,
           commission_rate_instant: primaryRateInstant,
           admin_cut_rate: 1.20,
@@ -1105,14 +1109,21 @@ export async function createDownstreamUser(userData) {
       const shouldAssignPOS = pos_provider && pos_provider !== 'NONE';
 
       if (shouldAssignPOS) {
-        const provider = pos_provider === 'Payswiff' ? 'Payswiff' : 'Pine Labs';
-        const settlement = settlement_type === 'INSTANT' ? 'INSTANT' : 'T1';
-        const plan = (device_plan === 'CUSTOM' || device_plan === 'LIFETIME') ? device_plan : 'RENTAL';
-        const rentFee = (plan === 'RENTAL' || plan === 'CUSTOM') ? (parseFloat(monthly_rent) || 499.0) : 0.0;
-
+        let provider = 'Pine Labs';
         let vendorEntity = 'Rose Navaneetham Enterprises';
-        if (provider === 'Payswiff') {
+        let plan = (device_plan === 'CUSTOM' || device_plan === 'LIFETIME' || device_plan === 'DIRECT') ? device_plan : 'RENTAL';
+        let rentFee = (plan === 'RENTAL' || plan === 'CUSTOM') ? (parseFloat(monthly_rent) || 0.0) : 0.0;
+        let settlement = settlement_type === 'INSTANT' ? 'INSTANT' : 'T1';
+
+        if (pos_provider === 'Payswiff') {
+          provider = 'Payswiff';
           vendorEntity = pos_vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
+        } else if (pos_provider === 'QR' || pos_provider === 'Company QR' || pos_provider === 'Company QR (UPI)') {
+          provider = 'Company QR (UPI)';
+          vendorEntity = 'RONAV Technologies';
+          plan = 'DIRECT';
+          rentFee = 0.0;
+          settlement = 'INSTANT';
         }
 
         // Dynamic Commission Rates configured by Admin (No hardcoded values)
@@ -1248,9 +1259,9 @@ export function parseMerchantChannels(posRecord) {
   // Legacy single machine parsing
   const rates = parsePosTerminalRates(tid, posRecord.commission_rate || 1.50);
   const prov = (posRecord.provider || '').toLowerCase();
+  const isQR = prov.includes('qr') || prov.includes('upi');
   const isSwiff = prov.includes('swiff');
-  const isPine = prov.includes('pine') || (!isSwiff && prov !== 'qr');
-  const isQR = prov.includes('qr');
+  const isPine = prov.includes('pine') || (!isSwiff && !isQR);
 
   const enabledList = [];
   if (isPine) enabledList.push('pine_labs');
@@ -1337,7 +1348,7 @@ export async function updateMerchantChannels(merchantId, channels) {
       primaryRateT1 = parseFloat(swiff.rate_t1) || 1.50;
       primaryRateInstant = parseFloat(swiff.rate_instant) || 1.80;
     } else if (qr && qr.enabled) {
-      primaryProvider = 'QR';
+      primaryProvider = 'Company QR (UPI)';
       primaryVendor = 'RONAV Technologies';
       primaryRateT1 = parseFloat(qr.rate_instant) || 1.50;
       primaryRateInstant = parseFloat(qr.rate_instant) || 1.50;
@@ -1372,7 +1383,7 @@ export async function updateMerchantChannels(merchantId, channels) {
       commission_rate_t1: primaryRateT1,
       commission_rate_instant: primaryRateInstant,
       pos_provider: primaryProvider,
-      pos_terminal: (pine?.enabled ? pine.terminal_id : (swiff?.enabled ? swiff.terminal_id : 'QR')) || `PL-${merchantId}`
+      pos_terminal: (pine?.enabled ? pine.terminal_id : (swiff?.enabled ? swiff.terminal_id : 'RONAV-UPI-HQ')) || 'RONAV-UPI-HQ'
     }).eq('id', merchantId);
 
     return { success: true, message: 'Channels updated successfully!' };
@@ -3003,7 +3014,12 @@ export async function requestWithdrawal(withdrawalData) {
 
     const isQrPayout = channel === 'qr' || (provider && provider.toLowerCase().includes('qr'));
     const targetProvider = isQrPayout ? 'Company QR (UPI)' : (provider || (channel === 'payswiff' ? 'Payswiff' : (posRec?.provider || 'Pine Labs')));
-    const posTag = ` | POS: ${targetProvider} | Channel: ${isQrPayout ? 'qr' : (channel || 'default')} | Vendor: ${posRec?.vendor_entity || 'RONAV Technologies'}`;
+    const targetVendor = isQrPayout 
+      ? 'RONAV Technologies' 
+      : ((targetProvider.toLowerCase().includes('swiff') && (posRec?.vendor_entity === 'R.P. Technologies' || posRec?.vendor_entity?.includes('RP'))) 
+          ? 'R.P. Technologies' 
+          : (targetProvider.toLowerCase().includes('swiff') ? 'RONAV Technologies' : (posRec?.vendor_entity || 'Rose Navaneetham Enterprises')));
+    const posTag = ` | POS: ${targetProvider} | Channel: ${isQrPayout ? 'qr' : (channel || 'default')} | Vendor: ${targetVendor}`;
     const cleanRemarks = remarks ? remarks.trim() : '';
     const noteTag = cleanRemarks ? ` | Note: ${cleanRemarks}` : '';
     const cleanUtr = (withdrawalData.utr_number || withdrawalData.ref_number || withdrawalData.utr || '').trim().toUpperCase();

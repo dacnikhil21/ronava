@@ -376,8 +376,12 @@ export async function handleApiRequest(req, res) {
         monthly_rent,
         settlement_type,
         commission_rate,
+        commission_rate_t1,
+        commission_rate_instant,
+        pos_terminal_id,
         margin_rate,
-        password
+        password,
+        channels
       } = await parseJsonBody(req);
 
       if (!creator_id || !name || !mobile || !role) {
@@ -470,34 +474,41 @@ export async function handleApiRequest(req, res) {
           VALUES (?, 0.0, 0.0, 0.0, 0.0, 0.0)
         `).run(newUserId);
 
-        // If Merchant, configure Swipe Machine Provider (Pine Labs vs Payswiff) with official MDR & Vendor rules
+        // If Merchant, configure Swipe Machine Provider (Pine Labs vs Payswiff vs Company QR)
         let createdPOS = null;
         if (role === 'MERCHANT') {
-          const provider = pos_provider === 'Payswiff' ? 'Payswiff' : 'Pine Labs';
-          const settlement = settlement_type === 'INSTANT' ? 'INSTANT' : 'T1';
-          const plan = device_plan === 'LIFETIME' ? 'LIFETIME' : 'RENTAL';
-          const rentFee = plan === 'RENTAL' ? (parseFloat(monthly_rent) || 499.0) : 0.0;
-
-          // Official Vendor Entity according to client rule
+          let provider = 'Pine Labs';
           let vendorEntity = 'Rose Navaneetham Enterprises';
-          if (provider === 'Payswiff') {
-            vendorEntity = pos_vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
-          }
-
-          // Exact client spreadsheet MDR rate
-          let rate = 1.53;
+          let settlement = settlement_type === 'INSTANT' ? 'INSTANT' : 'T1';
+          let plan = (device_plan === 'LIFETIME' || device_plan === 'DIRECT') ? device_plan : 'RENTAL';
+          let rentFee = plan === 'RENTAL' ? (parseFloat(monthly_rent) || 0.0) : 0.0;
+          let rate = parseFloat(commission_rate || commission_rate_t1) || 1.50;
           let instantFee = 0.0;
-          if (provider === 'Pine Labs') {
-            rate = settlement === 'INSTANT' ? 1.83 : 1.53;
+          let terminalPrefix = 'PL';
+
+          if (pos_provider === 'Payswiff') {
+            provider = 'Payswiff';
+            vendorEntity = pos_vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
+            terminalPrefix = 'SWIFF';
+            if (settlement === 'INSTANT') instantFee = 0.30;
+          } else if (pos_provider === 'QR' || pos_provider === 'Company QR' || pos_provider === 'Company QR (UPI)') {
+            provider = 'Company QR (UPI)';
+            vendorEntity = 'RONAV Technologies';
+            terminalPrefix = 'QR';
+            settlement = 'INSTANT';
+            plan = 'DIRECT';
+            rentFee = 0.0;
+            rate = parseFloat(commission_rate_instant || commission_rate) || 1.50;
           } else {
-            rate = 1.53;
-            if (settlement === 'INSTANT') {
-              instantFee = 0.30; // 30 paise to chosen vendor
-            }
+            provider = 'Pine Labs';
+            vendorEntity = 'Rose Navaneetham Enterprises';
+            terminalPrefix = 'PL';
+            if (settlement === 'INSTANT') rate = parseFloat(commission_rate_instant) || 1.80;
           }
 
-          const terminalPrefix = provider === 'Payswiff' ? 'SWIFF' : 'PL';
-          const terminalId = `${terminalPrefix}-${Math.floor(1000 + Math.random() * 9000)}`;
+          const terminalId = (pos_terminal_id && pos_terminal_id.trim())
+            ? pos_terminal_id.trim()
+            : `${terminalPrefix}-${Math.floor(1000 + Math.random() * 9000)}`;
 
           db.prepare(`
             INSERT INTO merchant_pos (
