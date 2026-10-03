@@ -1529,13 +1529,17 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         showToast('⚠️ Please enter bank name.');
         return;
       }
-      if (!customerPayoutForm.utr || !customerPayoutForm.utr.trim()) {
-        showToast('⚠️ Bank UTR / Reference Number is required for verification.');
-        return;
-      }
-      if (customerPayoutForm.utr.trim().length < 6) {
-        showToast('⚠️ Please enter a valid Bank UTR / Ref Number (min 6 characters).');
-        return;
+      const isCommission = customerPayoutForm.payout_purpose === 'COMMISSION' || payoutTargetType === 'MERCHANT';
+
+      if (!isCommission) {
+        if (!customerPayoutForm.utr || !customerPayoutForm.utr.trim()) {
+          showToast('⚠️ Bank UTR / Reference Number is required for verification.');
+          return;
+        }
+        if (customerPayoutForm.utr.trim().length < 6) {
+          showToast('⚠️ Please enter a valid Bank UTR / Ref Number (min 6 characters).');
+          return;
+        }
       }
 
       payload = {
@@ -1544,10 +1548,10 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         bank_name: customerPayoutForm.bank_name || 'Customer Bank',
         account_number: customerPayoutForm.account_number.trim(),
         ifsc: customerPayoutForm.ifsc.trim().toUpperCase(),
-        utr_number: customerPayoutForm.utr.trim().toUpperCase(),
-        ref_number: customerPayoutForm.utr.trim().toUpperCase(),
-        payout_type: 'CUSTOMER_DISBURSAL',
-        payout_purpose: 'REGULAR',
+        utr_number: isCommission ? '' : (customerPayoutForm.utr || '').trim().toUpperCase(),
+        ref_number: isCommission ? '' : (customerPayoutForm.utr || '').trim().toUpperCase(),
+        payout_type: isCommission ? 'MERCHANT_OWN' : 'CUSTOMER_DISBURSAL',
+        payout_purpose: isCommission ? 'COMMISSION' : 'REGULAR',
         remarks: (customerPayoutForm.remarks || '').trim(),
         customer_name: customerPayoutForm.customer_name.trim(),
         customer_mobile: (customerPayoutForm.customer_mobile || '').trim(),
@@ -1563,19 +1567,14 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         return;
       }
 
-      if (!customerPayoutForm.utr || !customerPayoutForm.utr.trim()) {
-        showToast('⚠️ Bank UTR / Reference Number is required for verification.');
-        return;
-      }
-
       payload = {
         merchant_id: merchantId,
         amount: amountNum,
         bank_name: targetBank.bank_name || targetBank.bank,
         account_number: targetBank.account_number || targetBank.account,
         ifsc: targetBank.ifsc || 'SBIN0001234',
-        utr_number: customerPayoutForm.utr.trim().toUpperCase(),
-        ref_number: customerPayoutForm.utr.trim().toUpperCase(),
+        utr_number: (customerPayoutForm.utr || '').trim().toUpperCase(),
+        ref_number: (customerPayoutForm.utr || '').trim().toUpperCase(),
         payout_type: 'MERCHANT_OWN',
         payout_purpose: 'COMMISSION',
         remarks: (customerPayoutForm.remarks || '').trim(),
@@ -1590,9 +1589,10 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     try {
       const res = await requestWithdrawal(payload);
       if (res.success) {
-        showToast(payoutTargetType === 'CUSTOMER'
-          ? `✓ Disbursal Request of ₹${amountNum.toLocaleString('en-IN')} Sent to Admin with UTR ${customerPayoutForm.utr.trim().toUpperCase()}!`
-          : '✓ Withdrawal request submitted! Admin will verify UTR and transfer funds.'
+        const isComm = payload.payout_purpose === 'COMMISSION' || payload.payout_type === 'MERCHANT_OWN';
+        showToast(isComm
+          ? `✓ Commission withdrawal request of ₹${amountNum.toLocaleString('en-IN')} submitted to Admin!`
+          : `✓ Disbursal Request of ₹${amountNum.toLocaleString('en-IN')} Sent to Admin with UTR ${customerPayoutForm.utr.trim().toUpperCase()}!`
         );
         setWithdrawAmount('');
         if (payoutTargetType === 'CUSTOMER') {
@@ -4184,56 +4184,66 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                           )}
                         </div>
 
-                        {/* Mandatory Bank UTR / Transaction Reference Number */}
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
-                            <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              Bank UTR / Transaction Reference Number <span style={{ color: '#DC2626' }}>*</span>
-                            </label>
-                            <span style={{ fontSize: '0.625rem', fontWeight: 700, color: '#0F52BA', background: '#EFF6FF', border: '1px solid #BFDBFE', padding: '1px 6px', borderRadius: '4px' }}>
-                              Required for Admin Verification
-                            </span>
+                        {/* Mandatory Bank UTR / Transaction Reference Number - ONLY FOR REGULAR SETTLEMENTS, REMOVED FOR COMMISSIONS */}
+                        {customerPayoutForm.payout_purpose !== 'COMMISSION' && payoutTargetType !== 'MERCHANT' ? (
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.3rem' }}>
+                              <label style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                Bank UTR / Transaction Reference Number <span style={{ color: '#DC2626' }}>*</span>
+                              </label>
+                              <span style={{ fontSize: '0.625rem', fontWeight: 700, color: '#0F52BA', background: '#EFF6FF', border: '1px solid #BFDBFE', padding: '1px 6px', borderRadius: '4px' }}>
+                                Required for Admin Verification
+                              </span>
+                            </div>
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.5rem',
+                              background: '#FFFFFF',
+                              border: !customerPayoutForm.utr && parsedAmount > 0 ? '1.5px solid #F87171' : '1px solid #CBD5E1',
+                              borderRadius: '8px',
+                              padding: '0.5rem 0.75rem',
+                              boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+                            }}>
+                              <FileText style={{ width: '15px', height: '15px', color: '#0F52BA', flexShrink: 0 }} />
+                              <input 
+                                type="text"
+                                required
+                                placeholder="12-digit UTR / RRN (e.g. 423812345678)"
+                                value={customerPayoutForm.utr || ''}
+                                onChange={(e) => setCustomerPayoutForm(prev => ({ 
+                                  ...prev, 
+                                  utr: e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '') 
+                                }))}
+                                style={{
+                                  width: '100%',
+                                  background: 'transparent',
+                                  border: 'none',
+                                  outline: 'none',
+                                  fontSize: '0.8125rem',
+                                  fontWeight: customerPayoutForm.utr ? 700 : 500,
+                                  fontFamily: 'monospace',
+                                  color: '#0F172A',
+                                  letterSpacing: '0.5px'
+                                }}
+                              />
+                              {customerPayoutForm.utr && customerPayoutForm.utr.length >= 6 && (
+                                <CheckCircle2 style={{ width: '15px', height: '15px', color: '#16A34A', flexShrink: 0 }} />
+                              )}
+                            </div>
+                            <p style={{ fontSize: '0.625rem', color: '#64748B', marginTop: '0.25rem', marginBottom: 0 }}>
+                              Admin will verify this UTR against banking records before releasing funds.
+                            </p>
                           </div>
-                          <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            background: '#FFFFFF',
-                            border: !customerPayoutForm.utr && parsedAmount > 0 ? '1.5px solid #F87171' : '1px solid #CBD5E1',
-                            borderRadius: '8px',
-                            padding: '0.5rem 0.75rem',
-                            boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
-                          }}>
-                            <FileText style={{ width: '15px', height: '15px', color: '#0F52BA', flexShrink: 0 }} />
-                            <input 
-                              type="text"
-                              required
-                              placeholder="12-digit UTR / RRN (e.g. 423812345678)"
-                              value={customerPayoutForm.utr || ''}
-                              onChange={(e) => setCustomerPayoutForm(prev => ({ 
-                                ...prev, 
-                                utr: e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, '') 
-                              }))}
-                              style={{
-                                width: '100%',
-                                background: 'transparent',
-                                border: 'none',
-                                outline: 'none',
-                                fontSize: '0.8125rem',
-                                fontWeight: customerPayoutForm.utr ? 700 : 500,
-                                fontFamily: 'monospace',
-                                color: '#0F172A',
-                                letterSpacing: '0.5px'
-                              }}
-                            />
-                            {customerPayoutForm.utr && customerPayoutForm.utr.length >= 6 && (
-                              <CheckCircle2 style={{ width: '15px', height: '15px', color: '#16A34A', flexShrink: 0 }} />
-                            )}
+                        ) : (
+                          <div style={{ background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: '8px', padding: '0.6rem 0.75rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '1.1rem' }}>💎</span>
+                            <div>
+                              <strong style={{ fontSize: '0.75rem', color: '#7C3AED', display: 'block' }}>Commission Payout Direct Transfer</strong>
+                              <span style={{ fontSize: '0.65rem', color: '#6D28D9' }}>No UTR required from you. Funds will be directly disbursed to your bank account by Admin.</span>
+                            </div>
                           </div>
-                          <p style={{ fontSize: '0.625rem', color: '#64748B', marginTop: '0.25rem', marginBottom: 0 }}>
-                            Admin will verify this UTR against banking records before releasing funds.
-                          </p>
-                        </div>
+                        )}
 
                         {/* Payout Remarks / Notes Input */}
                         <div>
