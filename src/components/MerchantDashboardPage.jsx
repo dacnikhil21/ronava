@@ -547,12 +547,51 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   // Interactive Profile Contact Details Edit State (Requirement #8: Mobile Number & Gmail)
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [profileFormData, setProfileFormData] = useState({
-    mobile: user?.mobile || user?.phone || '',
-    email: user?.email || '',
-    name: user?.name || merchantName || ''
+    mobile: user?.mobile || user?.user?.mobile || user?.phone || '',
+    email: user?.email || user?.user?.email || '',
+    name: user?.name || user?.user?.name || merchantName || ''
   });
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileSuccessMsg, setProfileSuccessMsg] = useState('');
+
+  // Dynamic User Profile Sync: Fetch fresh registered details (Mobile, Gmail, KYC) from database on mount
+  useEffect(() => {
+    if (!merchantId) return;
+    import('../services/supabase').then(({ supabase }) => {
+      supabase
+        .from('users')
+        .select('*')
+        .eq('id', merchantId)
+        .maybeSingle()
+        .then(({ data: freshUser }) => {
+          if (freshUser) {
+            if (freshUser.name) setMerchantName(freshUser.name);
+            setProfileFormData(prev => ({
+              ...prev,
+              mobile: freshUser.mobile || prev.mobile || '',
+              email: freshUser.email || prev.email || '',
+              name: freshUser.name || prev.name || ''
+            }));
+          }
+        })
+        .catch(() => {});
+    });
+  }, [merchantId]);
+
+  // Real-time mobile wake-up sync: Re-fetches fresh data when app returns from background / lockscreen
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && merchantId) {
+        fetchLiveData();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
+    };
+  }, [merchantId]);
 
   const handleSaveProfileDetails = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
@@ -584,9 +623,15 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           user.mobile = cleanMobile;
           user.email = cleanEmail;
           user.name = cleanName;
+          sessionStorage.setItem('ronav_merchant_user', JSON.stringify(user));
           localStorage.setItem('ronav_user', JSON.stringify(user));
         }
         setMerchantName(cleanName);
+        setProfileFormData({
+          mobile: cleanMobile,
+          email: cleanEmail,
+          name: cleanName
+        });
         setProfileSuccessMsg('✓ Profile contact details updated successfully!');
         setIsEditingProfile(false);
         showToast('✓ Profile updated successfully!');
@@ -763,10 +808,22 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     const pendingWiths = withs.filter(w => (w.status || '').toUpperCase() === 'PENDING');
     const pendingWithdrawn = pendingWiths.reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
 
-    // Downline commission earnings (today, yesterday & cumulative from network profit engine)
-    const earnedCommission = (userRole !== 'MERCHANT' && userRole !== 'Retailer') 
-      ? (parseFloat(networkData?.total_commission_earned) || 0) 
-      : 0;
+    // Downline commission earnings strictly segregated by the active machine channel (Pine Labs in Pine Labs ONLY, Payswiff in Payswiff ONLY, QR in QR ONLY)
+    let earnedCommission = 0;
+    if (userRole !== 'MERCHANT' && userRole !== 'Retailer') {
+      const chComms = networkData?.channel_commissions;
+      if (chComms) {
+        if (selectedMachineKey === 'qr') {
+          earnedCommission = chComms.qr || 0;
+        } else if (selectedMachineKey === 'payswiff') {
+          earnedCommission = chComms.payswiff || 0;
+        } else {
+          earnedCommission = chComms.pinelabs || 0;
+        }
+      } else {
+        earnedCommission = parseFloat(networkData?.total_commission_earned) || 0;
+      }
+    }
 
     const totalCredited = receivedSales + earnedCommission;
     const availableBalance = Math.max(0, parseFloat((totalCredited - withdrawnAmount - pendingWithdrawn).toFixed(2)));
@@ -783,7 +840,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       pending_balance: pendingBalance,
       withdrawn_amount: withdrawnAmount
     };
-  }, [activeMachineTransactions, activeMachineWithdrawals, networkData, userRole]);
+  }, [activeMachineTransactions, activeMachineWithdrawals, networkData, userRole, selectedMachineKey]);
 
   // Dynamic Today's Stats filtered strictly for the active machine
   const todayStats = useMemo(() => {
@@ -1737,6 +1794,11 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       return;
     }
 
+    if (activeMachineWallet.available_balance < amountNum) {
+      showToast(`⚠️ Insufficient balance! Available: ₹${activeMachineWallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+      return;
+    }
+
     setIsSubmittingBbps(true);
     try {
       const res = await recordMerchantSale({
@@ -1752,10 +1814,12 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
             : `DTH Recharge - ${bbpsForm.operator}`)
       });
 
-      if (res.success) {
+      if (res && res.success) {
         showToast('✓ Bill Payment Successful! Receipt generated.');
         setBbpsForm({ mobile: '', operator: 'Jio Prepaid', consumer_number: '', biller_name: 'TSSPDCL - Southern Power (Telangana)', amount: '' });
         fetchLiveData();
+      } else {
+        showToast(res?.message || 'Error completing bill payment');
       }
     } catch (err) {
       showToast('Error completing bill payment');
@@ -7612,14 +7676,14 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0.75rem', borderRadius: '10px', background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
                         <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>Registered Mobile:</span>
                         <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: '#0F172A', fontFamily: 'monospace' }}>
-                          {user?.mobile || user?.phone || 'Not Registered'}
+                          {profileFormData.mobile || user?.mobile || user?.user?.mobile || user?.phone || 'Not Registered'}
                         </span>
                       </div>
 
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0.75rem', borderRadius: '10px', background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
                         <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>Registered Gmail / Email:</span>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0F172A' }}>
-                          {user?.email || (user?.id ? `${user.id.toLowerCase()}@ronav.in` : 'partner@ronav.in')}
+                          {profileFormData.email || user?.email || user?.user?.email || 'Not Registered'}
                         </span>
                       </div>
 

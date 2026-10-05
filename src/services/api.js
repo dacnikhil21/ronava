@@ -1545,6 +1545,68 @@ export function getUserBuyRate(user, pos, isInstant = false) {
   return isInstant ? 1.80 : 1.50;
 }
 
+export async function validateUtrUniqueness(utr, excludeTxnId = null, excludeWithdrawalId = null) {
+  if (!utr) return { isUnique: true };
+  const clean = String(utr).trim().toUpperCase();
+  if (clean.length < 5 || clean.startsWith('RRN') || clean.startsWith('TXN-') || clean.startsWith('BBPS-') || clean.startsWith('CMS-') || clean.startsWith('CMS_') || clean.startsWith('BATCH-')) {
+    return { isUnique: true };
+  }
+
+  try {
+    // 1. Check in transactions table (ref_number and notes)
+    const { data: txns } = await supabase
+      .from('transactions')
+      .select('id, ref_number, notes, amount, status, created_at');
+
+    if (txns && txns.length > 0) {
+      const dupTxn = txns.find(t => {
+        if (excludeTxnId && t.id === excludeTxnId) return false;
+        const ref = (t.ref_number || '').trim().toUpperCase();
+        if (ref === clean) return true;
+        const notes = (t.notes || '').toUpperCase();
+        if (notes.includes(`UTR: ${clean}`) || notes.includes(`UTR:${clean}`) || notes.includes(`SLIP: ${clean}`)) {
+          return true;
+        }
+        return false;
+      });
+
+      if (dupTxn) {
+        return {
+          isUnique: false,
+          message: `Duplicate UTR / Ref Number: "${clean}" has already been used in transaction ${dupTxn.id} (Status: ${dupTxn.status}, Amount: ₹${dupTxn.amount}). Each transaction requires a strictly unique UTR.`
+        };
+      }
+    }
+
+    // 2. Check in withdrawals table (admin_remark containing UTR)
+    const { data: withs } = await supabase
+      .from('withdrawals')
+      .select('id, amount, status, admin_remark, created_at');
+
+    if (withs && withs.length > 0) {
+      const dupWith = withs.find(w => {
+        if (excludeWithdrawalId && w.id === excludeWithdrawalId) return false;
+        const remark = (w.admin_remark || '').toUpperCase();
+        if (remark.includes(`UTR: ${clean}`) || remark.includes(`UTR:${clean}`)) return true;
+        const m = remark.match(/(?:UTR:?\s*)+([A-Za-z0-9_-]+)/i);
+        if (m && m[1].toUpperCase() === clean) return true;
+        return false;
+      });
+
+      if (dupWith) {
+        return {
+          isUnique: false,
+          message: `Duplicate UTR: "${clean}" has already been submitted for payout ${dupWith.id} (Status: ${dupWith.status}, Amount: ₹${dupWith.amount}). UTR must be strictly unique.`
+        };
+      }
+    }
+  } catch (err) {
+    console.error('validateUtrUniqueness notice:', err);
+  }
+
+  return { isUnique: true };
+}
+
 export async function recordMerchantSale(saleData) {
   try {
     const { 
@@ -1613,18 +1675,13 @@ export async function recordMerchantSale(saleData) {
 
     const finalRrn = (rrn_number || ref_number || '').trim().toUpperCase() || `RRN${Date.now().toString().slice(-8)}`;
 
-    // Item #7: Strict Unique UTR / RRN Validation (Prevent double entry / duplicate submissions)
-    if (finalRrn && !finalRrn.startsWith('RRN') && finalRrn.length >= 6) {
-      const { data: existingTxn } = await supabase
-        .from('transactions')
-        .select('id, ref_number, status, amount, created_at')
-        .eq('ref_number', finalRrn)
-        .maybeSingle();
-
-      if (existingTxn) {
+    // Item #7: Strict Global Unique UTR Validation (Cross-system check across sales and payouts)
+    if (finalRrn && !finalRrn.startsWith('RRN') && finalRrn.length >= 5) {
+      const utrValidation = await validateUtrUniqueness(finalRrn);
+      if (!utrValidation.isUnique) {
         return {
           success: false,
-          message: `Duplicate UTR / RRN: Reference number "${finalRrn}" has already been submitted under ${existingTxn.id} (Status: ${existingTxn.status}, Amount: ₹${existingTxn.amount}).`
+          message: utrValidation.message
         };
       }
     }
@@ -1713,7 +1770,7 @@ export async function recordMerchantSale(saleData) {
       return { success: false, message: tErr.message };
     }
 
-    // 2. Instant Merchant Wallet Credit: Available Balance updated immediately
+    // 2. Merchant Wallet Balance Update
     const { data: merchantWallet } = await supabase
       .from('wallets')
       .select('*')
@@ -1723,6 +1780,37 @@ export async function recordMerchantSale(saleData) {
     const currAvail = parseFloat(merchantWallet?.available_balance || 0);
     const currTotal = parseFloat(merchantWallet?.total_sales || 0);
     const currRec = parseFloat(merchantWallet?.received_sales || 0);
+
+    const isBbpsBill = (finalTxnType === 'BBPS_BILL');
+
+    // For BBPS Utility & Recharge Payments: Debit merchant wallet
+    if (isBbpsBill) {
+      if (currAvail < numAmount) {
+        // Rollback transaction if insufficient balance
+        await supabase.from('transactions').delete().eq('id', txnId);
+        return {
+          success: false,
+          message: `Insufficient wallet balance for bill payment. Available Balance: ₹${currAvail.toLocaleString('en-IN', { minimumFractionDigits: 2 })}, Bill Amount: ₹${numAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`
+        };
+      }
+
+      const { data: updatedMerchantWallet } = await supabase
+        .from('wallets')
+        .update({
+          available_balance: parseFloat(Math.max(0, currAvail - numAmount).toFixed(2)),
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', merchant_id)
+        .select()
+        .single();
+
+      return {
+        success: true,
+        message: `✓ Bill Payment of ₹${numAmount.toLocaleString('en-IN')} Successful! Deducted from wallet balance.`,
+        transaction: createdTxn,
+        wallet: updatedMerchantWallet
+      };
+    }
 
     const { data: updatedMerchantWallet } = await supabase
       .from('wallets')
@@ -1987,11 +2075,18 @@ export async function getDownstreamNetwork(creatorId) {
       };
     });
 
-    // Calculate total unique downline merchant volume and exact commission
+    // Calculate total unique downline merchant volume and exact commission segregated by channel
     let totalCommissionAll = 0;
     let todayProfitAll = 0;
     let totalDownlineVolume = 0;
     let todayDownlineVol = 0;
+
+    let totalCommissionPinelabs = 0;
+    let totalCommissionPayswiff = 0;
+    let totalCommissionQr = 0;
+    let todayProfitPinelabs = 0;
+    let todayProfitPayswiff = 0;
+    let todayProfitQr = 0;
 
     const allUniqueDownlineMerchantIds = Array.from(new Set(
       downstreamUsers.filter(u => u.role === 'MERCHANT' || u.id.startsWith('MID')).map(u => u.id)
@@ -2004,14 +2099,25 @@ export async function getDownstreamNetwork(creatorId) {
       const marginPct = Math.max(0, branchRate - creatorBuyRate);
 
       const mTxns = allTxns.filter(t => t.merchant_id === mId && t.status === 'APPROVED');
-      const mVol = mTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-      totalDownlineVolume += mVol;
-      totalCommissionAll += (mVol * marginPct) / 100;
+      mTxns.forEach(t => {
+        const amt = parseFloat(t.amount) || 0;
+        const comm = (amt * marginPct) / 100;
+        totalDownlineVolume += amt;
+        totalCommissionAll += comm;
 
-      const mTodayTxns = mTxns.filter(t => (t.created_at || '').slice(0, 10) === todayStr);
-      const mTodayVol = mTodayTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-      todayDownlineVol += mTodayVol;
-      todayProfitAll += (mTodayVol * marginPct) / 100;
+        const ch = classifyTransactionChannel(t);
+        if (ch === 'pinelabs') totalCommissionPinelabs += comm;
+        else if (ch === 'payswiff') totalCommissionPayswiff += comm;
+        else if (ch === 'qr') totalCommissionQr += comm;
+
+        if ((t.created_at || '').slice(0, 10) === todayStr) {
+          todayDownlineVol += amt;
+          todayProfitAll += comm;
+          if (ch === 'pinelabs') todayProfitPinelabs += comm;
+          else if (ch === 'payswiff') todayProfitPayswiff += comm;
+          else if (ch === 'qr') todayProfitQr += comm;
+        }
+      });
     });
 
     return {
@@ -2022,7 +2128,15 @@ export async function getDownstreamNetwork(creatorId) {
       partners: enrichedPartners,
       total_partners: enrichedPartners.length,
       total_commission_earned: parseFloat(totalCommissionAll.toFixed(2)),
-      today_network_profit: parseFloat(todayProfitAll.toFixed(2))
+      today_network_profit: parseFloat(todayProfitAll.toFixed(2)),
+      channel_commissions: {
+        pinelabs: parseFloat(totalCommissionPinelabs.toFixed(2)),
+        payswiff: parseFloat(totalCommissionPayswiff.toFixed(2)),
+        qr: parseFloat(totalCommissionQr.toFixed(2)),
+        today_pinelabs: parseFloat(todayProfitPinelabs.toFixed(2)),
+        today_payswiff: parseFloat(todayProfitPayswiff.toFixed(2)),
+        today_qr: parseFloat(todayProfitQr.toFixed(2))
+      }
     };
   } catch (err) {
     console.error('getDownstreamNetwork error:', err);
@@ -3023,6 +3137,18 @@ export async function requestWithdrawal(withdrawalData) {
     const cleanRemarks = remarks ? remarks.trim() : '';
     const noteTag = cleanRemarks ? ` | Note: ${cleanRemarks}` : '';
     const cleanUtr = (withdrawalData.utr_number || withdrawalData.ref_number || withdrawalData.utr || '').trim().toUpperCase();
+    
+    // Strict Global Unique UTR Validation on Payout / Disbursal Request
+    if (cleanUtr && !cleanUtr.startsWith('RRN') && cleanUtr.length >= 5) {
+      const utrValidation = await validateUtrUniqueness(cleanUtr);
+      if (!utrValidation.isUnique) {
+        return {
+          success: false,
+          message: utrValidation.message
+        };
+      }
+    }
+
     const utrTag = cleanUtr ? ` | UTR: ${cleanUtr}` : '';
 
     // Formulate descriptive remark header for clarity in DB

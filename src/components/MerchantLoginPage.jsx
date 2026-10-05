@@ -102,9 +102,15 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
 
       if (res && res.success && res.user) {
         onLoginSuccess({
+          ...res.user,
           id: res.user.id,
           name: res.user.name,
           mid: res.user.id,
+          mobile: res.user.mobile,
+          email: res.user.email,
+          aadhaar: res.user.aadhaar,
+          pan: res.user.pan,
+          address: res.user.address,
           role: res.user.role === 'MERCHANT' ? 'Retailer' : res.user.role,
           user: res.user,
           pos: res.pos || null
