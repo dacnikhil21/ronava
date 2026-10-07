@@ -48,7 +48,11 @@ export async function selectFromTable(table, filters = {}, options = {}) {
   for (const [key, value] of Object.entries(filters)) {
     if (value !== undefined && value !== null) {
       params.push(value);
-      sql += ` AND ${key} = $${params.length}`;
+      if (key === 'id' || key === 'merchant_id' || key === 'user_id') {
+        sql += ` AND UPPER(${key}) = UPPER($${params.length})`;
+      } else {
+        sql += ` AND ${key} = $${params.length}`;
+      }
     }
   }
 

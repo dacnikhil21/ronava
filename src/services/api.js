@@ -12,13 +12,13 @@ import { supabase } from './supabase.js';
 export async function loginUser(credentials) {
   try {
     const { id, role, password } = credentials || {};
-    let cleanId = (id || '').trim();
+    let cleanId = (id || '').trim().toUpperCase();
     if (!cleanId) {
       return { success: false, message: 'Please enter your User ID.' };
     }
 
     // Normalize admin ID
-    if (cleanId.toLowerCase() === 'admin' || cleanId.toUpperCase() === 'ADM001') {
+    if (cleanId === 'ADMIN' || cleanId === 'ADM001') {
       cleanId = 'ADM001';
     }
 
