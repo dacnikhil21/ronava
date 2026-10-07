@@ -1,22 +1,21 @@
 import pg from 'pg';
-import { db as sqliteDb } from './db.js';
 
 const { Pool } = pg;
-const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL || 'postgres://ronav_admin:RonavSecure2026!Fintech@localhost:5432/ronav_db';
 
 let pool = null;
 
-if (connectionString) {
+try {
   pool = new Pool({
     connectionString,
-    ssl: process.env.PG_SSL === 'false' ? false : { rejectUnauthorized: false },
+    ssl: process.env.PG_SSL === 'false' ? false : (process.env.PG_SSL === 'true' ? { rejectUnauthorized: false } : false),
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
   });
-  console.log('[PostgreSQL] Connected to database pool.');
-} else {
-  console.log('[Database] No DATABASE_URL found. Operating in SQLite local mode.');
+  console.log('[PostgreSQL] Connected to live enterprise database pool.');
+} catch (err) {
+  console.error('[PostgreSQL] Database pool initialization error:', err.message);
 }
 
 export function getPool() {
@@ -24,36 +23,14 @@ export function getPool() {
 }
 
 /**
- * Execute raw SQL parameterized query
+ * Execute raw SQL parameterized query strictly against PostgreSQL
  */
 export async function query(sql, params = []) {
-  if (pool) {
-    try {
-      const res = await pool.query(sql, params);
-      return res.rows;
-    } catch (err) {
-      console.warn('[PostgreSQL Query Fallback to SQLite]:', err.message);
-    }
+  if (!pool) {
+    throw new Error('[Database Error] PostgreSQL pool is not initialized.');
   }
-  // SQLite fallback
-  try {
-    let sqliteSql = sql;
-    // Replace $1, $2 with ? for SQLite
-    let paramIndex = 1;
-    while (sqliteSql.includes(`$${paramIndex}`)) {
-      sqliteSql = sqliteSql.replace(`$${paramIndex}`, '?');
-      paramIndex++;
-    }
-    if (sqliteSql.trim().toUpperCase().startsWith('SELECT')) {
-      return sqliteDb.prepare(sqliteSql).all(...params);
-    } else {
-      const info = sqliteDb.prepare(sqliteSql).run(...params);
-      return [info];
-    }
-  } catch (err) {
-    console.error('[Database Query Error]:', err.message, sql);
-    throw err;
-  }
+  const res = await pool.query(sql, params);
+  return res.rows;
 }
 
 /**
@@ -88,7 +65,7 @@ export async function selectFromTable(table, filters = {}, options = {}) {
 }
 
 /**
- * Generic Insert into Table
+ * Generic Insert into Table with atomic Conflict Resolution
  */
 export async function insertIntoTable(table, data) {
   const allowedTables = ['users', 'wallets', 'merchant_pos', 'transactions', 'withdrawals', 'beneficiaries', 'inquiries', 'media_files'];
@@ -119,22 +96,8 @@ export async function insertIntoTable(table, data) {
     RETURNING *;
   `;
 
-  if (pool) {
-    try {
-      const res = await pool.query(sql, values);
-      return res.rows[0];
-    } catch (err) {
-      console.warn('[PostgreSQL Insert Fallback to SQLite]:', err.message);
-    }
-  }
-
-  // SQLite fallback
-  const sqliteSql = `
-    INSERT OR REPLACE INTO ${table} (${keys.join(', ')})
-    VALUES (${keys.map(() => '?').join(', ')});
-  `;
-  sqliteDb.prepare(sqliteSql).run(...values);
-  return data;
+  const rows = await query(sql, values);
+  return rows[0] || data;
 }
 
 /**
@@ -160,20 +123,7 @@ export async function updateTable(table, data, matchColumn, matchValue) {
     RETURNING *;
   `;
 
-  if (pool) {
-    try {
-      const res = await pool.query(sql, values);
-      return res.rows;
-    } catch (err) {
-      console.warn('[PostgreSQL Update Fallback to SQLite]:', err.message);
-    }
-  }
-
-  // SQLite fallback
-  const sqliteSetClause = keys.map(k => `${k} = ?`).join(', ');
-  const sqliteSql = `UPDATE ${table} SET ${sqliteSetClause} WHERE ${matchColumn} = ?;`;
-  sqliteDb.prepare(sqliteSql).run(...values);
-  return [data];
+  return await query(sql, values);
 }
 
 /**
@@ -186,23 +136,11 @@ export async function deleteFromTable(table, matchColumn, matchValue) {
   }
 
   const sql = `DELETE FROM ${table} WHERE ${matchColumn} = $1 RETURNING *;`;
-  if (pool) {
-    try {
-      const res = await pool.query(sql, [matchValue]);
-      return res.rows;
-    } catch (err) {
-      console.warn('[PostgreSQL Delete Fallback to SQLite]:', err.message);
-    }
-  }
-
-  // SQLite fallback
-  const sqliteSql = `DELETE FROM ${table} WHERE ${matchColumn} = ?;`;
-  sqliteDb.prepare(sqliteSql).run(matchValue);
-  return [{ [matchColumn]: matchValue }];
+  return await query(sql, [matchValue]);
 }
 
 /**
- * Record media file in PostgreSQL or SQLite
+ * Record media file in PostgreSQL
  */
 export async function recordMediaFile({ id, merchant_id, file_name, s3_key, s3_url, cdn_url, mime_type, file_size_bytes, entity_type, entity_id }) {
   const mediaId = id || `MED-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -232,7 +170,7 @@ export async function getMediaFiles(merchant_id = null, entity_type = null) {
 }
 
 /**
- * Auto-Initialize Schema if needed
+ * Auto-Initialize & Verify PostgreSQL Connection
  */
 export async function initPostgresSchema() {
   if (!pool) return false;

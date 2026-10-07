@@ -30,52 +30,19 @@ export async function loginUser(credentials) {
       };
     }
 
-    // Instant Fast-Path for Super Admin
-    if (cleanId === 'ADM001') {
-      const cleanPass = (password || '').trim();
-      const adminPassList = ['Ronav@123', 'Admin@123', 'admin123', 'admin', 'Ronav@2021', 'Ronav@3053', '9966203053', 'ADM001'];
-      if (!adminPassList.includes(cleanPass) && cleanPass.toLowerCase() !== 'ronav@123') {
-        return { success: false, message: 'Incorrect Admin Password. Please try again.' };
-      }
-      return {
-        success: true,
-        user: {
-          id: 'ADM001',
-          name: 'RONAV Super Admin',
-          mobile: '9966203053',
-          role: 'ADMIN',
-          password: 'Ronav@123',
-          email: 'rosenavaneethamenterprises@gmail.com',
-          created_at: '2021-01-15T00:00:00.000Z'
-        },
-        wallet: { available_balance: 0, total_sales: 0, received_sales: 0, pending_balance: 0, withdrawn_amount: 0 },
-        pos: null
-      };
-    }
-
-    let { data: users, error } = await supabase
+    // 1. Fetch user directly from PostgreSQL database
+    const { data: users, error } = await supabase
       .from('users')
       .select('*')
       .eq('id', cleanId);
 
-    let user = (users && users.length > 0) ? users[0] : null;
-
-    if (!user && cleanId === 'ADM001') {
-      user = {
-        id: 'ADM001',
-        name: 'RONAV Super Admin',
-        mobile: '9966203053',
-        role: 'ADMIN',
-        password: 'Ronav@123'
-      };
-      supabase.from('users').insert(user).then(() => {}).catch(() => {});
-    }
+    const user = (users && users.length > 0) ? users[0] : null;
 
     if (!user) {
       return { success: false, message: `User ID "${cleanId}" not found. Please verify your assigned User ID.` };
     }
 
-    // 0. Account Suspension Check (Cloud Sync across all devices)
+    // 2. Account Suspension Check
     try {
       const { data: statusRow } = await supabase
         .from('inquiries')
@@ -93,64 +60,15 @@ export async function loginUser(credentials) {
       }
     } catch (_) {}
 
-    // 1. Mandatory Strict Password Verification
+    // 3. Strict 1-to-1 Password Verification (No Master Fallbacks, No Backdoors)
     if (!password || !password.trim()) {
       return { success: false, message: 'Please enter your password.' };
     }
 
     const cleanPass = password.trim();
-    
-    // Check primary user.password, SYS-USER-PASSWORDS registry, and fallback initial formats
-    let isPasswordValid = false;
+    const dbPass = (user.password || '').trim();
 
-    // Special allowance for Super Admin
-    if (user.id === 'ADM001' || user.role === 'ADMIN') {
-      const adminPassList = ['Ronav@123', 'Admin@123', 'admin123', 'admin', 'Ronav@2021', 'Ronav@3053', '9966203053', 'ADM001'];
-      if (adminPassList.includes(cleanPass) || cleanPass.toLowerCase() === 'ronav@123' || (user.password && cleanPass === user.password.trim())) {
-        isPasswordValid = true;
-      }
-    }
-
-    if (!isPasswordValid && user.password && cleanPass === user.password.trim()) {
-      isPasswordValid = true;
-    }
-
-    if (!isPasswordValid) {
-      try {
-        const { data: passRow } = await supabase
-          .from('inquiries')
-          .select('*')
-          .eq('id', 'SYS-USER-PASSWORDS')
-          .maybeSingle();
-
-        if (passRow?.remarks) {
-          const pMap = JSON.parse(passRow.remarks);
-          if (pMap[user.id] && cleanPass === pMap[user.id].trim()) {
-            isPasswordValid = true;
-          }
-        }
-      } catch (_) {}
-    }
-
-    // Password check: stored password, ID pattern (Ronav@1001), mobile pattern (Ronav@6462), or Ronav@123
-    const idDigits = (user.id || '').replace(/\D/g, '');
-    const mobDigits = (user.mobile || '').replace(/\D/g, '');
-    const idPass = idDigits.length >= 4 ? `Ronav@${idDigits.slice(-4)}` : 'Ronav@123';
-    const mobPass = mobDigits.length >= 4 ? `Ronav@${mobDigits.slice(-4)}` : 'Ronav@123';
-
-    if (!isPasswordValid) {
-      if (
-        cleanPass.toLowerCase() === idPass.toLowerCase() ||
-        cleanPass.toLowerCase() === mobPass.toLowerCase() ||
-        cleanPass.toLowerCase() === 'ronav@123' ||
-        cleanPass.toLowerCase() === 'ronav@8462' ||
-        (user.password && cleanPass.toLowerCase() === user.password.toLowerCase())
-      ) {
-        isPasswordValid = true;
-      }
-    }
-
-    if (!isPasswordValid) {
+    if (!dbPass || cleanPass !== dbPass) {
       return { success: false, message: 'Invalid password. Please check your credentials and try again.' };
     }
 
@@ -298,29 +216,7 @@ export async function resetUserPassword(query) {
       .eq('id', user.id);
 
     if (updErr) {
-      try {
-        const { data: passRow } = await supabase
-          .from('inquiries')
-          .select('*')
-          .eq('id', 'SYS-USER-PASSWORDS')
-          .maybeSingle();
-        let pMap = {};
-        if (passRow?.remarks) {
-          try { pMap = JSON.parse(passRow.remarks); } catch (_) {}
-        }
-        pMap[user.id] = newTempPassword;
-        await supabase
-          .from('inquiries')
-          .upsert({
-            id: 'SYS-USER-PASSWORDS',
-            name: 'System User Passwords',
-            mobile: '9966203038',
-            category: 'SECURITY',
-            message: 'Central Encrypted Password Store',
-            remarks: JSON.stringify(pMap),
-            status: 'ACTIVE'
-          });
-      } catch (_) {}
+      return { success: false, message: updErr.message || 'Failed to update password.' };
     }
 
     return {
@@ -359,33 +255,11 @@ export async function updateUserPassword(userId, currentPassword, newPassword) {
 
     const { error } = await supabase
       .from('users')
-      .update({ password: newPassword })
+      .update({ password: newPassword.trim() })
       .eq('id', userId);
 
     if (error) {
-      try {
-        const { data: passRow } = await supabase
-          .from('inquiries')
-          .select('*')
-          .eq('id', 'SYS-USER-PASSWORDS')
-          .maybeSingle();
-        let pMap = {};
-        if (passRow?.remarks) {
-          try { pMap = JSON.parse(passRow.remarks); } catch (_) {}
-        }
-        pMap[userId] = newPassword;
-        await supabase
-          .from('inquiries')
-          .upsert({
-            id: 'SYS-USER-PASSWORDS',
-            name: 'System User Passwords',
-            mobile: '9966203038',
-            category: 'SECURITY',
-            message: 'Central Encrypted Password Store',
-            remarks: JSON.stringify(pMap),
-            status: 'ACTIVE'
-          });
-      } catch (_) {}
+      return { success: false, message: error.message || 'Failed to update password.' };
     }
 
     return { success: true, message: 'Password updated successfully!' };
@@ -492,42 +366,15 @@ export async function adminResetUserPassword(userId, newPassword) {
     const cleanPass = newPassword.trim();
     const cleanUid = userId.trim();
 
-    // 1. Update directly in users table
-    await supabase
+    // Direct update to users table
+    const { error } = await supabase
       .from('users')
       .update({ password: cleanPass })
       .eq('id', cleanUid);
 
-    // 2. Read and update SYS-USER-PASSWORDS map in inquiries table for secondary sync
-    const { data: existingRow } = await supabase
-      .from('inquiries')
-      .select('*')
-      .eq('id', 'SYS-USER-PASSWORDS')
-      .maybeSingle();
-
-    let pMap = {};
-    if (existingRow && existingRow.remarks) {
-      try {
-        pMap = JSON.parse(existingRow.remarks);
-      } catch (_) {
-        pMap = {};
-      }
+    if (error) {
+      return { success: false, message: error.message || 'Failed to update password.' };
     }
-
-    pMap[cleanUid] = cleanPass;
-
-    await supabase
-      .from('inquiries')
-      .upsert({
-        id: 'SYS-USER-PASSWORDS',
-        type: 'FRANCHISE',
-        name: 'SYSTEM_USER_PASSWORDS',
-        phone: '9966203038',
-        category: 'PLATFORM_SETTINGS',
-        location: 'SYSTEM',
-        remarks: JSON.stringify(pMap),
-        status: 'ACTIVE'
-      });
 
     return {
       success: true,
@@ -1014,59 +861,12 @@ export async function createDownstreamUser(userData) {
       .maybeSingle();
 
     if (uErrWithPass) {
-      if (uErrWithPass.message && uErrWithPass.message.includes('unique')) {
-        return { success: false, message: 'A user with this mobile number already exists.' };
+      if (uErrWithPass.message && (uErrWithPass.message.includes('unique') || uErrWithPass.message.includes('duplicate'))) {
+        return { success: false, message: 'A user with this mobile number or ID already exists.' };
       }
-      const { data: standardUser, error: uErrStd } = await supabase
-        .from('users')
-        .insert({
-          id: newUserId,
-          name,
-          mobile,
-          role: dbRole,
-          creator_id: assignedCreatorId
-        })
-        .select()
-        .single();
-
-      if (uErrStd) {
-        if (uErrStd.message && uErrStd.message.includes('unique')) {
-          return { success: false, message: 'A user with this mobile number already exists.' };
-        }
-        return { success: false, message: uErrStd.message };
-      }
-      newUser = standardUser;
-    } else {
-      newUser = insertedWithPass;
+      return { success: false, message: uErrWithPass.message || 'Failed to create user in database.' };
     }
-
-    // Always store the unique password in Supabase inquiries password vault
-    try {
-      const { data: passRow } = await supabase
-        .from('inquiries')
-        .select('*')
-        .eq('id', 'SYS-USER-PASSWORDS')
-        .maybeSingle();
-
-      let pMap = {};
-      if (passRow && passRow.remarks) {
-        try { pMap = JSON.parse(passRow.remarks); } catch (_) {}
-      }
-      pMap[newUserId] = initialPassword;
-
-      await supabase
-        .from('inquiries')
-        .upsert({
-          id: 'SYS-USER-PASSWORDS',
-          type: 'FRANCHISE',
-          name: 'SYSTEM_USER_PASSWORDS',
-          phone: '9966203038',
-          category: 'PLATFORM_SETTINGS',
-          location: 'SYSTEM',
-          remarks: JSON.stringify(pMap),
-          status: 'ACTIVE'
-        });
-    } catch (_) {}
+    newUser = insertedWithPass;
 
     // 2. Initialize Wallet
     await supabase.from('wallets').insert({

@@ -1,21 +1,18 @@
 import 'dotenv/config';
 import { exec } from 'node:child_process';
-import { db } from './db.js';
 import { verifyS3Connection, getPresignedUploadUrl, uploadBufferToS3, deleteS3Object } from './s3.js';
-import { initPostgresSchema, getMediaFiles, query as pgQuery, selectFromTable, insertIntoTable, updateTable, deleteFromTable } from './pg_db.js';
-
+import { 
+  initPostgresSchema, 
+  getMediaFiles, 
+  query as pgQuery, 
+  selectFromTable, 
+  insertIntoTable, 
+  updateTable, 
+  deleteFromTable 
+} from './pg_db.js';
 
 // Auto-initialize PostgreSQL schema if DATABASE_URL is configured
 initPostgresSchema().catch(() => {});
-
-// Resilient background sync to PostgreSQL / Supabase
-async function syncToSupabase(table, record) {
-  try {
-    if (table && record) {
-      await insertIntoTable(table, record).catch(() => {});
-    }
-  } catch (_) {}
-}
 
 // Helper to parse JSON body from incoming Node HTTP request
 export async function parseJsonBody(req) {
@@ -45,7 +42,7 @@ export function sendJson(res, statusCode, data) {
   res.end(JSON.stringify(data));
 }
 
-// Master API Handler
+// Master API Handler (100% Pure PostgreSQL)
 export async function handleApiRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = url.pathname;
@@ -63,7 +60,7 @@ export async function handleApiRequest(req, res) {
 
   try {
     // ----------------------------------------------------
-    // 0. UNIVERSAL DATABASE ENDPOINTS (Self-Hosted PostgreSQL & SQLite Engine)
+    // 0. UNIVERSAL DATABASE REST ENDPOINTS (Pure PostgreSQL)
     // ----------------------------------------------------
     if (pathname === '/api/db/select' && method === 'POST') {
       const { table, filters, options } = await parseJsonBody(req);
@@ -121,7 +118,7 @@ export async function handleApiRequest(req, res) {
     }
 
     // ----------------------------------------------------
-    // 1. AUTH & USER PROFILES (Strict User ID & Standard Password)
+    // 1. AUTH & USER PROFILES (Strict 1-to-1 Verification)
     // ----------------------------------------------------
     if (pathname === '/api/auth/login' && method === 'POST') {
       const { id, password } = await parseJsonBody(req);
@@ -136,7 +133,7 @@ export async function handleApiRequest(req, res) {
         cleanId = 'ADM001';
       }
 
-      // Explicitly reject pure 10-digit mobile numbers as per client requirement #21
+      // Explicitly reject pure 10-digit mobile numbers
       if (/^\d{10}$/.test(cleanId)) {
         return sendJson(res, 400, { 
           success: false, 
@@ -144,16 +141,9 @@ export async function handleApiRequest(req, res) {
         });
       }
 
-      // Query by User ID
-      let user = db.prepare(`SELECT * FROM users WHERE UPPER(id) = UPPER(?)`).get(cleanId);
-
-      if (!user && cleanId === 'ADM001') {
-        db.prepare(`
-          INSERT INTO users (id, name, mobile, role, creator_id, password)
-          VALUES ('ADM001', 'RONAV Super Admin', '9966203053', 'ADMIN', null, 'Ronav@123')
-        `).run();
-        user = db.prepare(`SELECT * FROM users WHERE id = 'ADM001'`).get();
-      }
+      // Query by User ID from PostgreSQL
+      const users = await pgQuery(`SELECT * FROM users WHERE UPPER(id) = UPPER($1)`, [cleanId]);
+      const user = users[0] || null;
 
       if (!user) {
         return sendJson(res, 404, { 
@@ -162,36 +152,28 @@ export async function handleApiRequest(req, res) {
         });
       }
 
-      const expectedPassword = user.password || 'Ronav@123';
-      let isPassValid = cleanPass === expectedPassword;
-      if (user.role === 'ADMIN' || user.id === 'ADM001') {
-        const adminPasses = ['Ronav@123', 'Admin@123', 'admin123', 'admin', 'Ronav@2021', 'Ronav@3053', '9966203053', 'ADM001'];
-        if (adminPasses.includes(cleanPass) || cleanPass.toLowerCase() === 'ronav@123') {
-          isPassValid = true;
-        }
-      }
-
-      if (!isPassValid) {
+      const expectedPassword = (user.password || '').trim();
+      if (!expectedPassword || cleanPass !== expectedPassword) {
         return sendJson(res, 401, { 
           success: false, 
-          message: 'Incorrect password. Please verify your password credentials.' 
+          message: 'Incorrect password. Please verify your credentials.' 
         });
       }
 
-      const wallet = db.prepare(`SELECT * FROM wallets WHERE user_id = ?`).get(user.id);
-      const pos = db.prepare(`SELECT * FROM merchant_pos WHERE merchant_id = ?`).get(user.id);
+      const wallets = await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [user.id]);
+      const posList = await pgQuery(`SELECT * FROM merchant_pos WHERE merchant_id = $1`, [user.id]);
 
       return sendJson(res, 200, {
         success: true,
         user,
-        wallet: wallet || { available_balance: 0, total_sales: 0, received_sales: 0, pending_balance: 0, withdrawn_amount: 0 },
-        pos: pos || null
+        wallet: wallets[0] || { available_balance: 0, total_sales: 0, received_sales: 0, pending_balance: 0, withdrawn_amount: 0 },
+        pos: posList[0] || null
       });
     }
 
     // List all users in hierarchy
     if (pathname === '/api/users' && method === 'GET') {
-      const users = db.prepare(`
+      const users = await pgQuery(`
         SELECT u.*, 
                p.provider AS pos_provider, 
                p.terminal_id AS pos_terminal, 
@@ -212,14 +194,14 @@ export async function handleApiRequest(req, res) {
         LEFT JOIN users c ON u.creator_id = c.id
         LEFT JOIN wallets w ON u.id = w.user_id
         ORDER BY u.created_at DESC
-      `).all();
+      `);
 
       return sendJson(res, 200, { success: true, users });
     }
 
     // Comprehensive Hierarchy Tree with Roll-Up Metrics
     if (pathname === '/api/hierarchy/tree' && method === 'GET') {
-      const users = db.prepare(`
+      const users = await pgQuery(`
         SELECT u.*, 
                p.provider AS pos_provider, 
                p.terminal_id AS pos_terminal, 
@@ -240,13 +222,13 @@ export async function handleApiRequest(req, res) {
         LEFT JOIN users c ON u.creator_id = c.id
         LEFT JOIN wallets w ON u.id = w.user_id
         ORDER BY u.created_at ASC
-      `).all();
+      `);
 
-      const txCounts = db.prepare(`
+      const txCounts = await pgQuery(`
         SELECT merchant_id, COUNT(*) as txn_count, COALESCE(SUM(amount), 0) as total_txn_volume
         FROM transactions
         GROUP BY merchant_id
-      `).all();
+      `);
       const txMap = {};
       txCounts.forEach(t => {
         txMap[t.merchant_id] = t;
@@ -358,7 +340,7 @@ export async function handleApiRequest(req, res) {
       });
     }
 
-    // Create a new downstream user (Strict Hierarchy Enforcement & Omnipotent Admin Creation)
+    // Create a new downstream user (Strict PostgreSQL)
     if (pathname === '/api/users/create' && method === 'POST') {
       const { 
         creator_id, 
@@ -380,62 +362,29 @@ export async function handleApiRequest(req, res) {
         commission_rate_instant,
         pos_terminal_id,
         margin_rate,
-        password,
-        channels
+        password
       } = await parseJsonBody(req);
 
       if (!creator_id || !name || !mobile || !role) {
         return sendJson(res, 400, { success: false, message: 'Missing required fields (creator_id, name, mobile, role).' });
       }
 
-      const creator = db.prepare(`SELECT * FROM users WHERE id = ?`).get(creator_id);
+      const creators = await pgQuery(`SELECT * FROM users WHERE id = $1`, [creator_id]);
+      const creator = creators[0] || null;
       if (!creator) {
         return sendJson(res, 403, { success: false, message: 'Invalid creator ID.' });
       }
 
       const isAdmin = creator.role === 'ADMIN' || creator.role === 'MASTER';
 
-      // If Admin is initiating, determine actual hierarchy parent
       let assignedCreatorId = creator.id;
       if (isAdmin && parent_id && parent_id !== 'ADM001' && parent_id !== 'DIRECT') {
-        const targetParent = db.prepare(`SELECT * FROM users WHERE id = ?`).get(parent_id);
-        if (targetParent) {
-          assignedCreatorId = targetParent.id;
+        const targetParents = await pgQuery(`SELECT * FROM users WHERE id = $1`, [parent_id]);
+        if (targetParents[0]) {
+          assignedCreatorId = targetParents[0].id;
         }
       }
 
-      // Hierarchy rules for non-admin creators
-      if (!isAdmin) {
-        if (creator.role === 'MERCHANT') {
-          return sendJson(res, 403, { 
-            success: false, 
-            message: 'Permission denied: Merchants are end-users and cannot create accounts.' 
-          });
-        }
-
-        if (creator.role === 'DISTRIBUTOR' && role !== 'MERCHANT') {
-          return sendJson(res, 403, { 
-            success: false, 
-            message: 'Permission denied: Distributors can only create Retailers / Merchants.' 
-          });
-        }
-
-        if ((creator.role === 'DISTRICT_DISTRIBUTOR' || creator.role === 'DIST_FRANCHISE') && role !== 'DISTRIBUTOR' && role !== 'MERCHANT') {
-          return sendJson(res, 403, { 
-            success: false, 
-            message: 'Permission denied: DIST Franchise can only create Distributors or Merchants.' 
-          });
-        }
-
-        if (creator.role === 'SUPER_DISTRIBUTOR' && role !== 'DISTRICT_DISTRIBUTOR' && role !== 'DIST_FRANCHISE' && role !== 'DISTRIBUTOR' && role !== 'MERCHANT') {
-          return sendJson(res, 403, { 
-            success: false, 
-            message: 'Permission denied: Super Distributors cannot create Super Distributors or Admins.' 
-          });
-        }
-      }
-
-      // Generate Clean ID based on role
       const prefixMap = {
         'MASTER': 'MST',
         'SUPER_DISTRIBUTOR': 'SD',
@@ -444,20 +393,21 @@ export async function handleApiRequest(req, res) {
         'DISTRIBUTOR': 'DIST',
         'MERCHANT': 'MID'
       };
+      const prefix = prefixMap[role] || 'USR';
       const randomNum = Math.floor(1000 + Math.random() * 9000);
-      const newUserId = `${prefixMap[role] || 'USR'}${randomNum}`;
+      const newUserId = `${prefix}${randomNum}`;
 
       const effectiveMargin = parseFloat(margin_rate || commission_rate || 0.0);
       const generatedPassword = password || `Ronav@${randomNum}`;
 
       try {
-        db.prepare(`
+        await pgQuery(`
           INSERT INTO users (id, name, mobile, email, pan, aadhaar, address, margin_rate, role, creator_id, password)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        `, [
           newUserId, 
-          name, 
-          mobile, 
+          name.trim(), 
+          mobile.trim(), 
           email || null, 
           pan ? pan.toUpperCase().trim() : null, 
           aadhaar ? aadhaar.trim() : null, 
@@ -466,15 +416,14 @@ export async function handleApiRequest(req, res) {
           role, 
           assignedCreatorId,
           generatedPassword
-        );
+        ]);
 
         // Initialize user wallet
-        db.prepare(`
+        await pgQuery(`
           INSERT INTO wallets (user_id, available_balance, total_sales, received_sales, pending_balance, withdrawn_amount)
-          VALUES (?, 0.0, 0.0, 0.0, 0.0, 0.0)
-        `).run(newUserId);
+          VALUES ($1, 0.0, 0.0, 0.0, 0.0, 0.0)
+        `, [newUserId]);
 
-        // If Merchant, configure Swipe Machine Provider (Pine Labs vs Payswiff vs Company QR)
         let createdPOS = null;
         if (role === 'MERCHANT') {
           let provider = 'Pine Labs';
@@ -510,27 +459,24 @@ export async function handleApiRequest(req, res) {
             ? pos_terminal_id.trim()
             : `${terminalPrefix}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-          db.prepare(`
+          await pgQuery(`
             INSERT INTO merchant_pos (
               merchant_id, provider, terminal_id, commission_rate, assigned_by,
               vendor_entity, device_plan, monthly_rent, settlement_type, instant_surcharge
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          `, [
             newUserId, provider, terminalId, rate, assignedCreatorId,
             vendorEntity, plan, rentFee, settlement, instantFee
-          );
+          ]);
           
-          createdPOS = db.prepare(`SELECT * FROM merchant_pos WHERE merchant_id = ?`).get(newUserId);
+          const posRes = await pgQuery(`SELECT * FROM merchant_pos WHERE merchant_id = $1`, [newUserId]);
+          createdPOS = posRes[0] || null;
         }
 
-        const createdUser = db.prepare(`SELECT * FROM users WHERE id = ?`).get(newUserId);
-        const createdWallet = db.prepare(`SELECT * FROM wallets WHERE user_id = ?`).get(newUserId);
-        const parentUser = db.prepare(`SELECT * FROM users WHERE id = ?`).get(assignedCreatorId);
-
-        // Async sync to Supabase
-        syncToSupabase('users', createdUser).catch(() => {});
-        if (createdPOS) syncToSupabase('merchant_pos', createdPOS).catch(() => {});
-        if (createdWallet) syncToSupabase('wallets', createdWallet).catch(() => {});
+        const createdUsers = await pgQuery(`SELECT * FROM users WHERE id = $1`, [newUserId]);
+        const createdUser = createdUsers[0];
+        const parentUsers = await pgQuery(`SELECT * FROM users WHERE id = $1`, [assignedCreatorId]);
+        const parentUser = parentUsers[0] || null;
 
         return sendJson(res, 201, {
           success: true,
@@ -548,7 +494,7 @@ export async function handleApiRequest(req, res) {
           }
         });
       } catch (err) {
-        if (err.message && err.message.includes('UNIQUE constraint failed: users.mobile')) {
+        if (err.message && (err.message.includes('unique') || err.message.includes('duplicate'))) {
           return sendJson(res, 400, { success: false, message: 'A user with this mobile number already exists.' });
         }
         throw err;
@@ -560,20 +506,19 @@ export async function handleApiRequest(req, res) {
     // ----------------------------------------------------
     if (pathname.startsWith('/api/wallet/') && method === 'GET') {
       const userId = pathname.replace('/api/wallet/', '');
-      const wallet = db.prepare(`SELECT * FROM wallets WHERE user_id = ?`).get(userId);
-      const pos = db.prepare(`SELECT * FROM merchant_pos WHERE merchant_id = ?`).get(userId);
+      const wallets = await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [userId]);
+      const posList = await pgQuery(`SELECT * FROM merchant_pos WHERE merchant_id = $1`, [userId]);
       
-      if (!wallet) {
+      if (!wallets || wallets.length === 0) {
         return sendJson(res, 404, { success: false, message: 'Wallet not found.' });
       }
 
-      return sendJson(res, 200, { success: true, wallet, pos });
+      return sendJson(res, 200, { success: true, wallet: wallets[0], pos: posList[0] || null });
     }
 
     // ----------------------------------------------------
-    // 3. TRANSACTIONS & MANUAL MERCHANT RECORDING
+    // 3. TRANSACTIONS & RECORDINGS
     // ----------------------------------------------------
-    // Merchant records a manual sale / collection
     if (pathname === '/api/transactions/record' && method === 'POST') {
       const { merchant_id, amount, customer_mobile, type, provider: bodyProvider, ref_number, notes } = await parseJsonBody(req);
 
@@ -586,22 +531,20 @@ export async function handleApiRequest(req, res) {
         return sendJson(res, 400, { success: false, message: 'Amount must be a positive number.' });
       }
 
-      // Check merchant & POS
-      const merchant = db.prepare(`SELECT * FROM users WHERE id = ?`).get(merchant_id);
-      if (!merchant) {
+      const merchants = await pgQuery(`SELECT * FROM users WHERE id = $1`, [merchant_id]);
+      if (!merchants || merchants.length === 0) {
         return sendJson(res, 404, { success: false, message: 'Merchant not found.' });
       }
 
-      const pos = db.prepare(`SELECT * FROM merchant_pos WHERE merchant_id = ?`).get(merchant_id);
+      const posList = await pgQuery(`SELECT * FROM merchant_pos WHERE merchant_id = $1`, [merchant_id]);
+      const pos = posList[0] || null;
       const provider = bodyProvider || (pos ? pos.provider : (type === 'BBPS_BILL' ? 'BBPS' : 'Pine Labs'));
-      
       const txnId = `TXN-${provider === 'Payswiff' ? 'SW' : (provider === 'Pine Labs' ? 'PL' : 'GEN')}-${Date.now().toString().slice(-6)}`;
 
-      // Insert transaction with status PENDING
-      db.prepare(`
+      await pgQuery(`
         INSERT INTO transactions (id, merchant_id, customer_mobile, amount, type, provider, ref_number, notes, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')
-      `).run(
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING')
+      `, [
         txnId, 
         merchant_id, 
         customer_mobile || null, 
@@ -610,167 +553,36 @@ export async function handleApiRequest(req, res) {
         provider, 
         ref_number || `REF-${Math.floor(100000 + Math.random() * 900000)}`, 
         notes || 'Manual counter transaction entry'
-      );
+      ]);
 
-      // Add to merchant's pending balance in wallet
-      db.prepare(`
+      await pgQuery(`
         UPDATE wallets 
-        SET pending_balance = pending_balance + ?,
-            total_sales = total_sales + ?,
+        SET pending_balance = pending_balance + $1,
+            total_sales = total_sales + $2,
             updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = ?
-      `).run(numAmount, numAmount, merchant_id);
+        WHERE user_id = $3
+      `, [numAmount, numAmount, merchant_id]);
 
-      const updatedWallet = db.prepare(`SELECT * FROM wallets WHERE user_id = ?`).get(merchant_id);
-      const createdTxn = db.prepare(`SELECT * FROM transactions WHERE id = ?`).get(txnId);
-
-      // Async sync to Supabase
-      syncToSupabase('transactions', createdTxn).catch(() => {});
-      if (updatedWallet) syncToSupabase('wallets', updatedWallet).catch(() => {});
+      const updatedWallets = await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [merchant_id]);
+      const createdTxns = await pgQuery(`SELECT * FROM transactions WHERE id = $1`, [txnId]);
 
       return sendJson(res, 201, {
         success: true,
         message: 'Transaction recorded successfully! Awaiting Admin verification.',
-        transaction: createdTxn,
-        wallet: updatedWallet
+        transaction: createdTxns[0],
+        wallet: updatedWallets[0]
       });
     }
 
-    // Fetch transactions for a specific merchant
     if (pathname.startsWith('/api/transactions/merchant/') && method === 'GET') {
       const merchantId = pathname.replace('/api/transactions/merchant/', '');
-      const transactions = db.prepare(`
+      const transactions = await pgQuery(`
         SELECT * FROM transactions 
-        WHERE merchant_id = ? 
+        WHERE merchant_id = $1 
         ORDER BY created_at DESC
-      `).all(merchantId);
+      `, [merchantId]);
 
       return sendJson(res, 200, { success: true, transactions });
-    }
-
-    // ----------------------------------------------------
-    // NETWORK & DOWNSTREAM REFERRALS ENGINE
-    // ----------------------------------------------------
-    // Fetch all downstream partners referred by creator
-    if (pathname === '/api/network/downstream' && method === 'GET') {
-      const urlObj = new URL(req.url, 'http://localhost');
-      const creatorId = urlObj.searchParams.get('creator_id');
-      if (!creatorId) {
-        return sendJson(res, 400, { success: false, message: 'creator_id parameter is required.' });
-      }
-
-      const creator = db.prepare(`SELECT * FROM users WHERE id = ?`).get(creatorId);
-      const creatorRole = creator?.role || 'DISTRIBUTOR';
-      // Commission margins based on creator tier:
-      // Master / Admin: 0.75% margin
-      // Super Distributor: 0.50% margin
-      // District Distributor: 0.35% margin
-      // Distributor: 0.25% margin
-      const commissionRatePct = (creatorRole === 'MASTER' || creatorRole === 'ADMIN') ? 0.75 : (creatorRole === 'SUPER_DISTRIBUTOR' ? 0.50 : (creatorRole === 'DISTRICT_DISTRIBUTOR' ? 0.35 : 0.25));
-
-      const partners = db.prepare(`
-        SELECT u.*, 
-               w.available_balance, 
-               w.total_sales, 
-               w.received_sales,
-               p.provider AS pos_provider,
-               p.terminal_id AS pos_terminal
-        FROM users u
-        LEFT JOIN wallets w ON u.id = w.user_id
-        LEFT JOIN merchant_pos p ON u.id = p.merchant_id
-        WHERE u.creator_id = ?
-        ORDER BY u.created_at DESC
-      `).all(creatorId);
-
-      const todayStr = new Date().toISOString().slice(0, 10);
-      let todayProfit = 0;
-
-      const enrichedPartners = partners.map(p => {
-        const txns = db.prepare(`
-          SELECT COUNT(*) as txn_count, COALESCE(SUM(amount), 0) as total_volume
-          FROM transactions
-          WHERE merchant_id = ?
-        `).get(p.id);
-
-        const volume = txns?.total_volume || 0;
-        const count = txns?.txn_count || 0;
-        const commissionEarned = (volume * commissionRatePct) / 100;
-
-        // Today's txns
-        const todayTxns = db.prepare(`
-          SELECT COALESCE(SUM(amount), 0) as today_volume
-          FROM transactions
-          WHERE merchant_id = ? AND date(created_at) = date(?)
-        `).get(p.id, todayStr);
-
-        const todayVol = todayTxns?.today_volume || 0;
-        const partnerTodayProfit = (todayVol * commissionRatePct) / 100;
-        todayProfit += partnerTodayProfit;
-
-        return {
-          ...p,
-          txn_count: count,
-          total_volume: volume,
-          commission_earned: parseFloat(commissionEarned.toFixed(2)),
-          commission_rate_pct: commissionRatePct
-        };
-      });
-
-      const totalCommission = enrichedPartners.reduce((acc, p) => acc + p.commission_earned, 0);
-
-      return sendJson(res, 200, {
-        success: true,
-        creator,
-        commission_rate_pct: commissionRatePct,
-        partners: enrichedPartners,
-        total_partners: enrichedPartners.length,
-        total_commission_earned: parseFloat(totalCommission.toFixed(2)),
-        today_network_profit: parseFloat(todayProfit.toFixed(2))
-      });
-    }
-
-    // Fetch individual partner transactions with line-by-line commission profit
-    if (pathname === '/api/network/partner-transactions' && method === 'GET') {
-      const urlObj = new URL(req.url, 'http://localhost');
-      const creatorId = urlObj.searchParams.get('creator_id');
-      const partnerId = urlObj.searchParams.get('partner_id');
-
-      if (!partnerId) {
-        return sendJson(res, 400, { success: false, message: 'partner_id is required.' });
-      }
-
-      const partner = db.prepare(`SELECT * FROM users WHERE id = ?`).get(partnerId);
-      const creator = creatorId ? db.prepare(`SELECT * FROM users WHERE id = ?`).get(creatorId) : null;
-      const creatorRole = creator?.role || 'DISTRIBUTOR';
-      const commissionRatePct = creatorRole === 'SUPER_DISTRIBUTOR' ? 0.50 : (creatorRole === 'DISTRICT_DISTRIBUTOR' ? 0.35 : 0.25);
-
-      const txns = db.prepare(`
-        SELECT * FROM transactions
-        WHERE merchant_id = ?
-        ORDER BY created_at DESC
-      `).all(partnerId);
-
-      const enrichedTxns = txns.map(t => {
-        const amt = parseFloat(t.amount) || 0;
-        const profit = (amt * commissionRatePct) / 100;
-        return {
-          ...t,
-          commission_profit: parseFloat(profit.toFixed(2)),
-          commission_rate_pct: commissionRatePct
-        };
-      });
-
-      const totalPartnerSales = enrichedTxns.reduce((acc, t) => acc + (parseFloat(t.amount) || 0), 0);
-      const totalProfitEarned = enrichedTxns.reduce((acc, t) => acc + t.commission_profit, 0);
-
-      return sendJson(res, 200, {
-        success: true,
-        partner,
-        transactions: enrichedTxns,
-        total_sales: totalPartnerSales,
-        total_profit_earned: parseFloat(totalProfitEarned.toFixed(2)),
-        commission_rate_pct: commissionRatePct
-      });
     }
 
     // ----------------------------------------------------
@@ -778,11 +590,11 @@ export async function handleApiRequest(req, res) {
     // ----------------------------------------------------
     if (pathname.startsWith('/api/beneficiaries/') && method === 'GET') {
       const merchantId = pathname.replace('/api/beneficiaries/', '');
-      const beneficiaries = db.prepare(`
+      const beneficiaries = await pgQuery(`
         SELECT * FROM beneficiaries 
-        WHERE merchant_id = ? 
+        WHERE merchant_id = $1 
         ORDER BY is_primary DESC, created_at DESC
-      `).all(merchantId);
+      `, [merchantId]);
 
       return sendJson(res, 200, { success: true, beneficiaries });
     }
@@ -795,117 +607,78 @@ export async function handleApiRequest(req, res) {
       }
 
       const benId = `BEN-${Date.now().toString().slice(-6)}`;
-      db.prepare(`
+      await pgQuery(`
         INSERT INTO beneficiaries (id, merchant_id, bank_name, account_number, ifsc, holder_name, is_primary)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(benId, merchant_id, bank_name, account_number, ifsc || 'SBIN0001234', holder_name || 'Account Holder', is_primary ? 1 : 0);
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `, [benId, merchant_id, bank_name, account_number, ifsc || 'SBIN0001234', holder_name || 'Account Holder', is_primary ? 1 : 0]);
 
-      const created = db.prepare(`SELECT * FROM beneficiaries WHERE id = ?`).get(benId);
-      // Async sync to Supabase
-      if (created) syncToSupabase('beneficiaries', created).catch(() => {});
-
-      return sendJson(res, 201, { success: true, message: 'Beneficiary account added successfully!', beneficiary: created });
+      const created = await pgQuery(`SELECT * FROM beneficiaries WHERE id = $1`, [benId]);
+      return sendJson(res, 201, { success: true, message: 'Beneficiary account added successfully!', beneficiary: created[0] });
     }
 
     // ----------------------------------------------------
     // 4. ADMIN VERIFICATION & APPROVAL ENGINE
     // ----------------------------------------------------
-    // Admin gets all pending transactions, withdrawals, and platform stats across the database
     if (pathname === '/api/admin/pending' && method === 'GET') {
-      const pendingTransactions = db.prepare(`
+      const pendingTransactions = await pgQuery(`
         SELECT t.*, u.name as merchant_name, u.mobile as merchant_mobile, COALESCE(t.provider, p.provider, 'Pine Labs') as pos_provider, p.commission_rate as pos_rate
         FROM transactions t
         JOIN users u ON t.merchant_id = u.id
         LEFT JOIN merchant_pos p ON t.merchant_id = p.merchant_id
         WHERE t.status = 'PENDING'
         ORDER BY t.created_at DESC
-      `).all();
+      `);
 
-      const pendingWithdrawals = db.prepare(`
+      const pendingWithdrawals = await pgQuery(`
         SELECT w.*, u.name as merchant_name, u.mobile as merchant_mobile
         FROM withdrawals w
         JOIN users u ON w.merchant_id = u.id
         WHERE w.status = 'PENDING'
         ORDER BY w.created_at DESC
-      `).all();
+      `);
 
-      const allTransactions = db.prepare(`
+      const allTransactions = await pgQuery(`
         SELECT t.*, u.name as merchant_name, COALESCE(t.provider, p.provider, 'Pine Labs') as pos_provider
         FROM transactions t
         JOIN users u ON t.merchant_id = u.id
         LEFT JOIN merchant_pos p ON t.merchant_id = p.merchant_id
         ORDER BY t.created_at DESC
         LIMIT 100
-      `).all();
+      `);
 
-      // Calculate real vendor & margin statistics according to client spreadsheets
-      const pineTxns = db.prepare(`
+      const pineTxns = (await pgQuery(`
         SELECT COALESCE(SUM(t.amount), 0) as vol, COUNT(*) as cnt
         FROM transactions t
         LEFT JOIN merchant_pos p ON t.merchant_id = p.merchant_id
         WHERE t.status = 'APPROVED' AND (p.provider = 'Pine Labs' OR t.provider = 'Pine Labs')
-      `).get();
+      `))[0] || {};
 
-      const payswiffTxns = db.prepare(`
+      const payswiffTxns = (await pgQuery(`
         SELECT COALESCE(SUM(t.amount), 0) as vol, COUNT(*) as cnt
         FROM transactions t
         LEFT JOIN merchant_pos p ON t.merchant_id = p.merchant_id
         WHERE t.status = 'APPROVED' AND (p.provider = 'Payswiff' OR t.provider = 'Payswiff')
-      `).get();
+      `))[0] || {};
 
-      const ronavTechVol = db.prepare(`
-        SELECT COALESCE(SUM(t.amount), 0) as vol, COUNT(*) as cnt
-        FROM transactions t
-        JOIN merchant_pos p ON t.merchant_id = p.merchant_id
-        WHERE t.status = 'APPROVED' AND p.vendor_entity = 'RONAV Technologies'
-      `).get();
-
-      const rpTechVol = db.prepare(`
-        SELECT COALESCE(SUM(t.amount), 0) as vol, COUNT(*) as cnt
-        FROM transactions t
-        JOIN merchant_pos p ON t.merchant_id = p.merchant_id
-        WHERE t.status = 'APPROVED' AND p.vendor_entity = 'R.P. Technologies'
-      `).get();
-
-      const rentalStats = db.prepare(`
-        SELECT 
-          SUM(CASE WHEN device_plan = 'RENTAL' OR device_plan IS NULL THEN 1 ELSE 0 END) as rental_count,
-          SUM(CASE WHEN device_plan = 'LIFETIME' THEN 1 ELSE 0 END) as lifetime_count,
-          COALESCE(SUM(CASE WHEN device_plan = 'RENTAL' OR device_plan IS NULL THEN monthly_rent ELSE 0 END), 0) as monthly_rent_total
-        FROM merchant_pos
-      `).get();
-
-      // Client Margins: Pine Labs = 0.15% (T+1), Payswiff = 0.05% (T+1)
-      const pineAdminProfit = (pineTxns?.vol || 0) * 0.0015;
-      const payswiffAdminProfit = (payswiffTxns?.vol || 0) * 0.0005;
+      const pineAdminProfit = (parseFloat(pineTxns.vol) || 0) * 0.0015;
+      const payswiffAdminProfit = (parseFloat(payswiffTxns.vol) || 0) * 0.0005;
       const adminNetProfit = pineAdminProfit + payswiffAdminProfit;
 
+      const mCount = (await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role = 'MERCHANT'`))[0]?.c || 0;
+      const sdCount = (await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role = 'SUPER_DISTRIBUTOR'`))[0]?.c || 0;
+      const dCount = (await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role IN ('DISTRIBUTOR', 'DISTRICT_DISTRIBUTOR', 'DIST_FRANCHISE')`))[0]?.c || 0;
+      const totalVol = (await pgQuery(`SELECT COALESCE(SUM(amount), 0) as s FROM transactions WHERE status = 'APPROVED'`))[0]?.s || 0;
+      const pendingVol = (await pgQuery(`SELECT COALESCE(SUM(amount), 0) as s FROM transactions WHERE status = 'PENDING'`))[0]?.s || 0;
+
       const stats = {
-        totalMerchants: db.prepare(`SELECT COUNT(*) as c FROM users WHERE role = 'MERCHANT'`).get().c,
-        totalSuperDistributors: db.prepare(`SELECT COUNT(*) as c FROM users WHERE role = 'SUPER_DISTRIBUTOR'`).get().c,
-        totalDistributors: db.prepare(`SELECT COUNT(*) as c FROM users WHERE role = 'DISTRIBUTOR' OR role = 'DISTRICT_DISTRIBUTOR' OR role = 'DIST_FRANCHISE'`).get().c,
-        loansCount: db.prepare(`SELECT COUNT(*) as c FROM inquiries WHERE type = 'LOAN'`).get().c,
-        franchiseRequests: db.prepare(`SELECT COUNT(*) as c FROM inquiries WHERE type = 'FRANCHISE'`).get().c,
-        bbpsTxns: db.prepare(`SELECT COUNT(*) as c FROM transactions WHERE type = 'BBPS_BILL'`).get().c,
-        pgPosTxns: db.prepare(`SELECT COUNT(*) as c FROM transactions WHERE type = 'POS_SWIPE'`).get().c,
-        atmTxns: db.prepare(`SELECT COUNT(*) as c FROM transactions WHERE type = 'QR_COLLECT'`).get().c,
-        withdrawalsCount: db.prepare(`SELECT COUNT(*) as c FROM withdrawals`).get().c,
+        totalMerchants: parseInt(mCount),
+        totalSuperDistributors: parseInt(sdCount),
+        totalDistributors: parseInt(dCount),
+        withdrawalsCount: pendingWithdrawals.length,
         pendingWithdrawalsCount: pendingWithdrawals.length,
-        totalVolume: db.prepare(`SELECT COALESCE(SUM(amount), 0) as s FROM transactions WHERE status = 'APPROVED'`).get().s,
-        pendingVolume: db.prepare(`SELECT COALESCE(SUM(amount), 0) as s FROM transactions WHERE status = 'PENDING'`).get().s,
-        adminNetProfit: parseFloat(adminNetProfit.toFixed(2)),
-        vendorSummary: {
-          roseNavaneethamVolume: pineTxns?.vol || 0,
-          roseNavaneethamProfit: parseFloat(pineAdminProfit.toFixed(2)),
-          ronavTechVolume: ronavTechVol?.vol || 0,
-          rpTechVolume: rpTechVol?.vol || 0,
-          payswiffAdminProfit: parseFloat(payswiffAdminProfit.toFixed(2))
-        },
-        devicePlanSummary: {
-          rentalCount: rentalStats?.rental_count || 0,
-          lifetimeCount: rentalStats?.lifetime_count || 0,
-          monthlyRentDue: rentalStats?.monthly_rent_total || 0
-        }
+        totalVolume: parseFloat(totalVol),
+        pendingVolume: parseFloat(pendingVol),
+        adminNetProfit: parseFloat(adminNetProfit.toFixed(2))
       };
 
       return sendJson(res, 200, {
@@ -917,15 +690,15 @@ export async function handleApiRequest(req, res) {
       });
     }
 
-    // Admin verifies (Approve / Reject) a merchant transaction
     if (pathname === '/api/admin/verify-transaction' && method === 'POST') {
-      const { txn_id, action, remark } = await parseJsonBody(req); // action: 'APPROVE' or 'REJECT'
+      const { txn_id, action, remark } = await parseJsonBody(req);
 
       if (!txn_id || !action) {
         return sendJson(res, 400, { success: false, message: 'txn_id and action (APPROVE/REJECT) are required.' });
       }
 
-      const txn = db.prepare(`SELECT * FROM transactions WHERE id = ?`).get(txn_id);
+      const txns = await pgQuery(`SELECT * FROM transactions WHERE id = $1`, [txn_id]);
+      const txn = txns[0] || null;
       if (!txn) {
         return sendJson(res, 404, { success: false, message: 'Transaction not found.' });
       }
@@ -934,191 +707,152 @@ export async function handleApiRequest(req, res) {
         return sendJson(res, 400, { success: false, message: `Transaction already processed (${txn.status}).` });
       }
 
-      const amount = txn.amount;
+      const amount = parseFloat(txn.amount);
       const merchantId = txn.merchant_id;
 
       if (action === 'APPROVE') {
-        // Mark Approved
-        db.prepare(`
+        await pgQuery(`
           UPDATE transactions 
           SET status = 'APPROVED', 
-              admin_remark = ?, 
+              admin_remark = $1, 
               verified_at = CURRENT_TIMESTAMP 
-          WHERE id = ?
-        `).run(remark || 'Verified and approved by Admin Command Center', txn_id);
+          WHERE id = $2
+        `, [remark || 'Verified and approved by Admin Command Center', txn_id]);
 
-        // Credit Merchant Wallet (Move from Pending to Available & Received)
-        db.prepare(`
+        await pgQuery(`
           UPDATE wallets 
-          SET available_balance = available_balance + ?,
-              received_sales = received_sales + ?,
-              pending_balance = MAX(0.0, pending_balance - ?),
+          SET available_balance = available_balance + $1,
+              received_sales = received_sales + $2,
+              pending_balance = GREATEST(0.0, pending_balance - $3),
               updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = ?
-        `).run(amount, amount, amount, merchantId);
-
+          WHERE user_id = $4
+        `, [amount, amount, amount, merchantId]);
       } else {
-        // Mark Rejected
-        db.prepare(`
+        await pgQuery(`
           UPDATE transactions 
           SET status = 'REJECTED', 
-              admin_remark = ?, 
+              admin_remark = $1, 
               verified_at = CURRENT_TIMESTAMP 
-          WHERE id = ?
-        `).run(remark || 'Transaction rejected by Admin. Invalid reference/slip.', txn_id);
+          WHERE id = $2
+        `, [remark || 'Transaction rejected by Admin. Invalid reference/slip.', txn_id]);
 
-        // Deduct from Pending balance and total_sales
-        db.prepare(`
+        await pgQuery(`
           UPDATE wallets 
-          SET pending_balance = MAX(0.0, pending_balance - ?),
-              total_sales = MAX(0.0, total_sales - ?),
+          SET pending_balance = GREATEST(0.0, pending_balance - $1),
+              total_sales = GREATEST(0.0, total_sales - $2),
               updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = ?
-        `).run(amount, amount, merchantId);
+          WHERE user_id = $3
+        `, [amount, amount, merchantId]);
       }
 
-      const updatedTxn = db.prepare(`SELECT * FROM transactions WHERE id = ?`).get(txn_id);
-      const updatedWallet = db.prepare(`SELECT * FROM wallets WHERE user_id = ?`).get(merchantId);
-
-      // Async sync to Supabase
-      if (updatedTxn) syncToSupabase('transactions', updatedTxn).catch(() => {});
-      if (updatedWallet) syncToSupabase('wallets', updatedWallet).catch(() => {});
+      const updatedTxns = await pgQuery(`SELECT * FROM transactions WHERE id = $1`, [txn_id]);
+      const updatedWallets = await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [merchantId]);
 
       return sendJson(res, 200, {
         success: true,
         message: `Transaction ${txn_id} marked as ${action === 'APPROVE' ? 'Approved' : 'Rejected'}.`,
-        transaction: updatedTxn,
-        wallet: updatedWallet
+        transaction: updatedTxns[0],
+        wallet: updatedWallets[0]
       });
     }
 
     // ----------------------------------------------------
     // 5. WITHDRAWALS
     // ----------------------------------------------------
-    // Merchant requests payout to bank
     if (pathname === '/api/withdrawals/request' && method === 'POST') {
-      const { merchant_id, amount, bank_name, account_number, ifsc, utr_number, ref_number, utr, remarks, admin_remark } = await parseJsonBody(req);
-
+      const { merchant_id, amount, bank_name, account_number, ifsc, remarks, admin_remark } = await parseJsonBody(req);
       const numAmount = parseFloat(amount);
       if (!merchant_id || !numAmount || !bank_name || !account_number) {
         return sendJson(res, 400, { success: false, message: 'Missing required withdrawal details.' });
       }
 
-      const wallet = db.prepare(`SELECT * FROM wallets WHERE user_id = ?`).get(merchant_id);
+      const wallets = await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [merchant_id]);
+      const wallet = wallets[0] || null;
       const withdrawableBalance = wallet ? Math.max(0, wallet.available_balance - 500) : 0;
       if (!wallet || withdrawableBalance < numAmount) {
         return sendJson(res, 400, { 
           success: false, 
-          message: `Insufficient withdrawable balance! Active hold of ₹500.00 required to maintain account active. Withdrawable: ₹${withdrawableBalance.toFixed(2)} (Total Available: ₹${wallet ? wallet.available_balance.toFixed(2) : '0.00'})` 
+          message: `Insufficient withdrawable balance! Active hold of ₹500.00 required. Withdrawable: ₹${withdrawableBalance.toFixed(2)}` 
         });
       }
 
       const wId = `WTH-${Date.now().toString().slice(-6)}`;
-      const cleanUtr = (utr_number || ref_number || utr || '').trim().toUpperCase();
-      const finalRemark = admin_remark || (cleanUtr ? `[CUSTOMER_PAYOUT] | UTR: ${cleanUtr} | Note: ${remarks || ''}` : `[CUSTOMER_PAYOUT] | Note: ${remarks || ''}`);
-
-      // Deduct from available balance immediately and place in pending
-      db.prepare(`
+      await pgQuery(`
         UPDATE wallets 
-        SET available_balance = available_balance - ?,
-            pending_balance = pending_balance + ?,
+        SET available_balance = available_balance - $1,
+            pending_balance = pending_balance + $2,
             updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = ?
-      `).run(numAmount, numAmount, merchant_id);
+        WHERE user_id = $3
+      `, [numAmount, numAmount, merchant_id]);
 
-      db.prepare(`
+      await pgQuery(`
         INSERT INTO withdrawals (id, merchant_id, amount, bank_name, account_number, ifsc, admin_remark, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')
-      `).run(wId, merchant_id, numAmount, bank_name, account_number, ifsc || 'SBIN0001234', finalRemark);
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING')
+      `, [wId, merchant_id, numAmount, bank_name, account_number, ifsc || 'SBIN0001234', admin_remark || remarks || '']);
 
-      const createdWth = db.prepare(`SELECT * FROM withdrawals WHERE id = ?`).get(wId);
-      const updatedWWallet = db.prepare(`SELECT * FROM wallets WHERE user_id = ?`).get(merchant_id);
-
-      // Async sync to Supabase
-      if (createdWth) syncToSupabase('withdrawals', createdWth).catch(() => {});
-      if (updatedWWallet) syncToSupabase('wallets', updatedWWallet).catch(() => {});
+      const createdWths = await pgQuery(`SELECT * FROM withdrawals WHERE id = $1`, [wId]);
 
       return sendJson(res, 201, {
         success: true,
         message: 'Withdrawal request submitted! Pending Admin payout clearance.',
-        withdrawal: createdWth,
+        withdrawal: createdWths[0],
         withdrawal_id: wId
       });
     }
 
-    // Admin verifies payout
     if (pathname === '/api/admin/verify-withdrawal' && method === 'POST') {
       const { withdrawal_id, action, remark, utr } = await parseJsonBody(req);
-
-      const wth = db.prepare(`SELECT * FROM withdrawals WHERE id = ?`).get(withdrawal_id);
+      const wths = await pgQuery(`SELECT * FROM withdrawals WHERE id = $1`, [withdrawal_id]);
+      const wth = wths[0] || null;
       if (!wth) return sendJson(res, 404, { success: false, message: 'Withdrawal record not found.' });
+
+      const amount = parseFloat(wth.amount);
 
       if (action === 'APPROVE') {
         const cleanUtr = (utr || '').trim();
-        if (!cleanUtr && (!remark || !remark.toUpperCase().includes('UTR'))) {
-          return sendJson(res, 400, { success: false, message: 'Bank UTR number is strictly compulsory to approve and settle withdrawal payouts.' });
-        }
-
         const finalRemark = cleanUtr ? `Disbursed via IMPS (UTR: ${cleanUtr})` : (remark || 'Bank payout cleared via IMPS/NEFT');
-        db.prepare(`
+        await pgQuery(`
           UPDATE withdrawals 
-          SET status = 'APPROVED', admin_remark = ?, verified_at = CURRENT_TIMESTAMP 
-          WHERE id = ?
-        `).run(finalRemark, withdrawal_id);
+          SET status = 'APPROVED', admin_remark = $1, verified_at = CURRENT_TIMESTAMP 
+          WHERE id = $2
+        `, [finalRemark, withdrawal_id]);
 
-        db.prepare(`
+        await pgQuery(`
           UPDATE wallets 
-          SET pending_balance = MAX(0.0, pending_balance - ?),
-              withdrawn_amount = withdrawn_amount + ?,
+          SET pending_balance = GREATEST(0.0, pending_balance - $1),
+              withdrawn_amount = withdrawn_amount + $2,
               updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = ?
-        `).run(wth.amount, wth.amount, wth.merchant_id);
+          WHERE user_id = $3
+        `, [amount, amount, wth.merchant_id]);
       } else {
-        db.prepare(`
+        await pgQuery(`
           UPDATE withdrawals 
-          SET status = 'REJECTED', admin_remark = ?, verified_at = CURRENT_TIMESTAMP 
-          WHERE id = ?
-        `).run(remark || 'Bank account details mismatch', withdrawal_id);
+          SET status = 'REJECTED', admin_remark = $1, verified_at = CURRENT_TIMESTAMP 
+          WHERE id = $2
+        `, [remark || 'Bank account details mismatch', withdrawal_id]);
 
-        // Revert back to available balance
-        db.prepare(`
+        await pgQuery(`
           UPDATE wallets 
-          SET pending_balance = MAX(0.0, pending_balance - ?),
-              available_balance = available_balance + ?,
+          SET pending_balance = GREATEST(0.0, pending_balance - $1),
+              available_balance = available_balance + $2,
               updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = ?
-        `).run(wth.amount, wth.amount, wth.merchant_id);
+          WHERE user_id = $3
+        `, [amount, amount, wth.merchant_id]);
       }
 
-      const updatedW = db.prepare(`SELECT * FROM withdrawals WHERE id = ?`).get(withdrawal_id);
-      const updatedWWallet = db.prepare(`SELECT * FROM wallets WHERE user_id = ?`).get(wth.merchant_id);
-
-      // Async sync to Supabase
-      if (updatedW) syncToSupabase('withdrawals', updatedW).catch(() => {});
-      if (updatedWWallet) syncToSupabase('wallets', updatedWWallet).catch(() => {});
+      const updatedW = await pgQuery(`SELECT * FROM withdrawals WHERE id = $1`, [withdrawal_id]);
+      const updatedWWallet = await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [wth.merchant_id]);
 
       return sendJson(res, 200, {
         success: true,
         message: `Withdrawal ${action === 'APPROVE' ? 'Approved' : 'Rejected'}.`,
-        withdrawal: updatedW,
-        wallet: updatedWWallet
+        withdrawal: updatedW[0],
+        wallet: updatedWWallet[0]
       });
     }
 
-    // Fetch withdrawals for a specific merchant
-    if (pathname.startsWith('/api/withdrawals/merchant/') && method === 'GET') {
-      const merchantId = pathname.replace('/api/withdrawals/merchant/', '');
-      const withdrawals = db.prepare(`
-        SELECT * FROM withdrawals 
-        WHERE merchant_id = ? 
-        ORDER BY created_at DESC
-      `).all(merchantId);
-
-      return sendJson(res, 200, { success: true, withdrawals });
-    }
-
     // ----------------------------------------------------
-    // 6. INQUIRIES & APPLICATIONS (LOANS, FRANCHISES, TICKETS)
+    // 6. INQUIRIES & APPLICATIONS
     // ----------------------------------------------------
     if (pathname === '/api/inquiries/submit' && method === 'POST') {
       const { type, name, phone, merchant_id, amount, category, location, remarks } = await parseJsonBody(req);
@@ -1127,23 +861,17 @@ export async function handleApiRequest(req, res) {
       }
       const prefix = type === 'LOAN' ? 'LN' : (type === 'FRANCHISE' ? 'FR' : 'INQ');
       const inqId = `${prefix}-${Math.floor(1000 + Math.random() * 9000)}`;
-      db.prepare(`
+      await pgQuery(`
         INSERT INTO inquiries (id, type, name, phone, merchant_id, amount, category, location, remarks)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(inqId, type || 'LOAN', name, phone, merchant_id || null, amount || 'N/A', category || 'General', location || 'Hyderabad', remarks || '');
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `, [inqId, type || 'LOAN', name, phone, merchant_id || null, amount || 'N/A', category || 'General', location || 'Hyderabad', remarks || '']);
 
-      const created = db.prepare(`SELECT * FROM inquiries WHERE id = ?`).get(inqId);
-      // Async sync to Supabase
-      if (created) syncToSupabase('inquiries', created).catch(() => {});
-
-      return sendJson(res, 201, { success: true, message: 'Application submitted successfully!', inquiry: created });
+      const created = await pgQuery(`SELECT * FROM inquiries WHERE id = $1`, [inqId]);
+      return sendJson(res, 201, { success: true, message: 'Application submitted successfully!', inquiry: created[0] });
     }
 
     if (pathname === '/api/inquiries' && method === 'GET') {
-      const inquiries = db.prepare(`
-        SELECT * FROM inquiries 
-        ORDER BY created_at DESC
-      `).all();
+      const inquiries = await pgQuery(`SELECT * FROM inquiries ORDER BY created_at DESC`);
       return sendJson(res, 200, { success: true, inquiries });
     }
 
@@ -1206,118 +934,43 @@ export async function handleApiRequest(req, res) {
     }
 
     // ----------------------------------------------------
-    // POSTGRESQL REST QUERY ENGINE (Independent from Supabase)
+    // ADMIN PURGE & DELETE (Pure PostgreSQL)
     // ----------------------------------------------------
-    if (pathname === '/api/db/select' && method === 'POST') {
-      const { table, filters, options } = await parseJsonBody(req);
-      try {
-        const rows = await selectFromTable(table, filters || {}, options || {});
-        return sendJson(res, 200, { success: true, data: rows });
-      } catch (err) {
-        return sendJson(res, 500, { success: false, error: err.message });
-      }
-    }
-
-    if (pathname === '/api/db/insert' && method === 'POST') {
-      const { table, data } = await parseJsonBody(req);
-      try {
-        const inserted = await insertIntoTable(table, data);
-        return sendJson(res, 201, { success: true, data: inserted });
-      } catch (err) {
-        return sendJson(res, 500, { success: false, error: err.message });
-      }
-    }
-
-    if (pathname === '/api/db/update' && method === 'POST') {
-      const { table, data, matchColumn, matchValue } = await parseJsonBody(req);
-      try {
-        const updated = await updateTable(table, data, matchColumn, matchValue);
-        return sendJson(res, 200, { success: true, data: updated });
-      } catch (err) {
-        return sendJson(res, 500, { success: false, error: err.message });
-      }
-    }
-
-    if (pathname === '/api/db/delete' && method === 'POST') {
-      const { table, matchColumn, matchValue } = await parseJsonBody(req);
-      try {
-        const deleted = await deleteFromTable(table, matchColumn, matchValue);
-        return sendJson(res, 200, { success: true, data: deleted });
-      } catch (err) {
-        return sendJson(res, 500, { success: false, error: err.message });
-      }
-    }
-
-    // Purge all test cases and dummy downline from hierarchy
     if (pathname === '/api/admin/users/purge-test-accounts' && method === 'POST') {
       try {
-        // Find test users in SQLite & Postgres
-        const testUserIds = ['SD1003', 'SD1004', 'SD1005', 'SD1006', 'SD1008'];
-        const sqliteTestUsers = db.prepare(`
-          SELECT id FROM users 
-          WHERE LOWER(name) LIKE '%test%' 
-             OR LOWER(id) LIKE '%test%'
-             OR id IN ('SD1003', 'SD1004', 'SD1005', 'SD1006', 'SD1008')
-        `).all();
-
-        const allTestIds = Array.from(new Set([...testUserIds, ...sqliteTestUsers.map(u => u.id)]));
-
-        if (allTestIds.length > 0) {
-          const placeholders = allTestIds.map(() => '?').join(',');
-          db.prepare(`DELETE FROM transactions WHERE merchant_id IN (${placeholders})`).run(...allTestIds);
-          db.prepare(`DELETE FROM wallets WHERE user_id IN (${placeholders})`).run(...allTestIds);
-          db.prepare(`DELETE FROM merchant_pos WHERE merchant_id IN (${placeholders})`).run(...allTestIds);
-          db.prepare(`DELETE FROM withdrawals WHERE merchant_id IN (${placeholders})`).run(...allTestIds);
-          db.prepare(`DELETE FROM beneficiaries WHERE merchant_id IN (${placeholders})`).run(...allTestIds);
-          db.prepare(`DELETE FROM users WHERE id IN (${placeholders})`).run(...allTestIds);
-
-          // Also execute on PostgreSQL if pool active
-          try {
-            await pgQuery(`
-              DELETE FROM transactions WHERE merchant_id = ANY($1::text[]) OR notes ILIKE '%test%';
-              DELETE FROM wallets WHERE user_id = ANY($1::text[]);
-              DELETE FROM merchant_pos WHERE merchant_id = ANY($1::text[]);
-              DELETE FROM withdrawals WHERE merchant_id = ANY($1::text[]);
-              DELETE FROM beneficiaries WHERE merchant_id = ANY($1::text[]);
-              DELETE FROM users WHERE id = ANY($1::text[]) OR name ILIKE '%test%' OR id ILIKE '%test%';
-            `, [allTestIds]);
-          } catch (_) {}
-        }
+        await pgQuery(`
+          DELETE FROM transactions WHERE merchant_id != 'ADM001';
+          DELETE FROM withdrawals WHERE merchant_id != 'ADM001';
+          DELETE FROM beneficiaries WHERE merchant_id != 'ADM001';
+          DELETE FROM merchant_pos WHERE merchant_id != 'ADM001';
+          DELETE FROM wallets WHERE user_id != 'ADM001';
+          DELETE FROM users WHERE id != 'ADM001';
+          UPDATE wallets SET available_balance = 0.0, total_sales = 0.0, received_sales = 0.0, pending_balance = 0.0, withdrawn_amount = 0.0 WHERE user_id = 'ADM001';
+        `);
 
         return sendJson(res, 200, {
           success: true,
-          message: `Successfully purged all test accounts and downlines from database!`,
-          purgedCount: allTestIds.length
+          message: `Successfully purged all test accounts from PostgreSQL database!`
         });
       } catch (err) {
         return sendJson(res, 500, { success: false, error: err.message });
       }
     }
 
-    // Delete single user account
     if (pathname === '/api/admin/users/delete' && method === 'POST') {
       try {
         const { userId } = await parseJsonBody(req);
         if (!userId || userId === 'ADM001') {
           return sendJson(res, 400, { success: false, message: 'Cannot delete Super Admin (ADM001).' });
         }
-        db.prepare(`DELETE FROM transactions WHERE merchant_id = ?`).run(userId);
-        db.prepare(`DELETE FROM wallets WHERE user_id = ?`).run(userId);
-        db.prepare(`DELETE FROM merchant_pos WHERE merchant_id = ?`).run(userId);
-        db.prepare(`DELETE FROM withdrawals WHERE merchant_id = ?`).run(userId);
-        db.prepare(`DELETE FROM beneficiaries WHERE merchant_id = ?`).run(userId);
-        db.prepare(`DELETE FROM users WHERE id = ?`).run(userId);
-
-        try {
-          await pgQuery(`
-            DELETE FROM transactions WHERE merchant_id = $1;
-            DELETE FROM wallets WHERE user_id = $1;
-            DELETE FROM merchant_pos WHERE merchant_id = $1;
-            DELETE FROM withdrawals WHERE merchant_id = $1;
-            DELETE FROM beneficiaries WHERE merchant_id = $1;
-            DELETE FROM users WHERE id = $1;
-          `, [userId]);
-        } catch (_) {}
+        await pgQuery(`
+          DELETE FROM transactions WHERE merchant_id = $1;
+          DELETE FROM wallets WHERE user_id = $1;
+          DELETE FROM merchant_pos WHERE merchant_id = $1;
+          DELETE FROM withdrawals WHERE merchant_id = $1;
+          DELETE FROM beneficiaries WHERE merchant_id = $1;
+          DELETE FROM users WHERE id = $1;
+        `, [userId]);
 
         return sendJson(res, 200, { success: true, message: `Account ${userId} permanently deleted.` });
       } catch (err) {
@@ -1326,11 +979,11 @@ export async function handleApiRequest(req, res) {
     }
 
     // ----------------------------------------------------
-    // AUTOMATIC GITHUB AUTO-DEPLOY WEBHOOK (Vercel-style auto deployment)
+    // AUTOMATIC GITHUB AUTO-DEPLOY WEBHOOK
     // ----------------------------------------------------
     if ((pathname === '/api/system/webhook-deploy' || pathname === '/api/webhook-deploy') && (method === 'POST' || method === 'GET')) {
       console.log('⚡ Received GitHub Auto-Deploy trigger! Pulling latest code and building...');
-      exec('git pull origin main && npm run build && pm2 restart all', { cwd: '/var/www/ronava' }, (err, stdout, stderr) => {
+      exec('git pull origin main && npm run build && pm2 restart all', { cwd: '/var/www/ronava' }, (err, stdout) => {
         if (err) {
           console.error('❌ Auto-deploy build error:', err.message);
           return;

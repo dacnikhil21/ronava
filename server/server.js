@@ -1,15 +1,17 @@
 import 'dotenv/config';
 import http from 'node:http';
 import { handleApiRequest } from './api.js';
-import { initDatabase } from './db.js';
+import { initPostgresSchema } from './pg_db.js';
 
-// Initialize SQLite database tables
-try {
-  initDatabase();
-  console.log('Database initialized successfully.');
-} catch (err) {
-  console.error('Database initialization error:', err);
-}
+// Initialize PostgreSQL connection
+initPostgresSchema()
+  .then((ok) => {
+    if (ok) console.log('[Server] Connected to live PostgreSQL database.');
+    else console.warn('[Server] PostgreSQL connection check returned false.');
+  })
+  .catch((err) => {
+    console.error('[Server] PostgreSQL initialization error:', err);
+  });
 
 const server = http.createServer(async (req, res) => {
   if (req.url && req.url.startsWith('/api/')) {
