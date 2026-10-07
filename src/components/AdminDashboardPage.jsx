@@ -4263,28 +4263,6 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   </h2>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <button
-                      onClick={handlePurgeAllTestAccounts}
-                      disabled={isPurgingTests}
-                      title="Permanently remove test cases from total flow hierarchy"
-                      style={{
-                        background: '#FFF1F2',
-                        color: '#E11D48',
-                        border: '1px solid #FECDD3',
-                        padding: '0.375rem 0.75rem',
-                        borderRadius: '8px',
-                        fontSize: '0.6875rem',
-                        fontWeight: 800,
-                        cursor: isPurgingTests ? 'not-allowed' : 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        boxShadow: '0 1px 3px rgba(225, 29, 72, 0.08)'
-                      }}
-                    >
-                      <Trash2 style={{ width: '13px', height: '13px' }} />
-                      <span>{isPurgingTests ? 'Cleaning Tests...' : '🧹 Clean Test Accounts'}</span>
-                    </button>
-                    <button
                       onClick={() => handleOpenCreateModal('SUPER_DISTRIBUTOR', 'ADM001')}
                       style={{
                         background: '#7C3AED',
