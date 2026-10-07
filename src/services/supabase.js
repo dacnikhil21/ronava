@@ -14,74 +14,12 @@ const DEFAULT_INITIAL_DATA = {
       password: 'Ronav@123',
       email: 'rosenavaneethamenterprises@gmail.com',
       created_at: '2021-01-15T00:00:00.000Z'
-    },
-    {
-      id: 'MST1001',
-      name: 'Apex Master Distributor',
-      mobile: '9966203050',
-      role: 'MASTER',
-      password: 'Ronav@123',
-      creator_id: 'ADM001',
-      created_at: '2021-02-01T00:00:00.000Z'
-    },
-    {
-      id: 'SD1001',
-      name: 'Ronav Super Distributor',
-      mobile: '9966203038',
-      role: 'SUPER_DISTRIBUTOR',
-      password: 'Ronav@123',
-      creator_id: 'ADM001',
-      created_at: '2021-03-01T00:00:00.000Z'
-    },
-    {
-      id: 'DD1001',
-      name: 'Hyderabad District Franchise',
-      mobile: '9966203037',
-      role: 'DIST_FRANCHISE',
-      password: 'Ronav@123',
-      creator_id: 'SD1001',
-      created_at: '2021-04-01T00:00:00.000Z'
-    },
-    {
-      id: 'DIST1001',
-      name: 'Secunderabad Area Distributor',
-      mobile: '9966203036',
-      role: 'DISTRIBUTOR',
-      password: 'Ronav@123',
-      creator_id: 'DD1001',
-      created_at: '2021-05-01T00:00:00.000Z'
-    },
-    {
-      id: 'MID6925',
-      name: 'Rose Navaneetham Store',
-      mobile: '9966203053',
-      role: 'MERCHANT',
-      password: 'Ronav@123',
-      creator_id: 'DIST1001',
-      created_at: '2021-06-01T00:00:00.000Z'
     }
   ],
   wallets: [
-    { user_id: 'ADM001', available_balance: 154200.0, total_sales: 3345000.0, received_sales: 3345000.0, pending_balance: 0.0, withdrawn_amount: 0.0 },
-    { user_id: 'MST1001', available_balance: 45000.0, total_sales: 850000.0, received_sales: 850000.0, pending_balance: 0.0, withdrawn_amount: 0.0 },
-    { user_id: 'SD1001', available_balance: 28500.0, total_sales: 520000.0, received_sales: 520000.0, pending_balance: 0.0, withdrawn_amount: 0.0 },
-    { user_id: 'DD1001', available_balance: 14200.0, total_sales: 240000.0, received_sales: 240000.0, pending_balance: 0.0, withdrawn_amount: 0.0 },
-    { user_id: 'DIST1001', available_balance: 8900.0, total_sales: 150000.0, received_sales: 150000.0, pending_balance: 0.0, withdrawn_amount: 0.0 },
-    { user_id: 'MID6925', available_balance: 24500.0, total_sales: 125000.0, received_sales: 100500.0, pending_balance: 0.0, withdrawn_amount: 0.0 }
+    { user_id: 'ADM001', available_balance: 0.0, total_sales: 0.0, received_sales: 0.0, pending_balance: 0.0, withdrawn_amount: 0.0 }
   ],
-  merchant_pos: [
-    {
-      merchant_id: 'MID6925',
-      provider: 'Pine Labs',
-      terminal_id: 'PL-9421',
-      commission_rate: 1.50,
-      vendor_entity: 'Rose Navaneetham Enterprises',
-      device_plan: 'RENTAL',
-      monthly_rent: 499.0,
-      settlement_type: 'INSTANT',
-      instant_surcharge: 0.30
-    }
-  ],
+  merchant_pos: [],
   transactions: [],
   withdrawals: [],
   beneficiaries: [],
@@ -109,13 +47,26 @@ function getLocalTable(table) {
     return initial;
   }
   try {
-    const parsed = JSON.parse(raw);
+    let parsed = JSON.parse(raw);
+    const legacyMockIds = ['MST1001', 'SD1001', 'DD1001', 'DIST1001', 'MID6925', 'SD1003', 'SD1004', 'SD1005', 'SD1006', 'SD1008', 'MID3826', 'SD4935', 'DD4729', 'DIST2001'];
+    
+    // Purge legacy mock data
+    if (Array.isArray(parsed)) {
+      if (table === 'users') {
+        parsed = parsed.filter(u => !legacyMockIds.includes(u.id) && !u.id?.toLowerCase().includes('test'));
+      } else if (table === 'wallets') {
+        parsed = parsed.filter(w => !legacyMockIds.includes(w.user_id) && !w.user_id?.toLowerCase().includes('test'));
+      } else if (table === 'merchant_pos' || table === 'transactions' || table === 'withdrawals' || table === 'beneficiaries') {
+        parsed = parsed.filter(item => !legacyMockIds.includes(item.merchant_id) && !item.merchant_id?.toLowerCase().includes('test'));
+      }
+    }
+
     // Ensure ADM001 exists in users table
     if (table === 'users' && Array.isArray(parsed)) {
       if (!parsed.some(u => u.id === 'ADM001')) {
         parsed.unshift(DEFAULT_INITIAL_DATA.users[0]);
-        localStorage.setItem(key, JSON.stringify(parsed));
       }
+      localStorage.setItem(key, JSON.stringify(parsed));
     }
     return Array.isArray(parsed) ? parsed : [];
   } catch (_) {
