@@ -235,7 +235,16 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     return 'pine_labs';
   });
   const [merchantPayswiffVendor, setMerchantPayswiffVendor] = useState('ALL'); // 'ALL' | 'ronav' | 'rp'
-  const [userPos, setUserPos] = useState(null);
+  const [userPos, setUserPos] = useState(() => {
+    if (user?.pos) return user.pos;
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = sessionStorage.getItem('ronav_user_pos');
+        if (cached) return JSON.parse(cached);
+      } catch (_) {}
+    }
+    return null;
+  });
 
   const handleSwitchMachine = (key) => {
     setSelectedMachineKey(key);
@@ -370,10 +379,10 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   }, [merchantChannels, userPos]);
 
   useEffect(() => {
-    if (availableMachineTabs.length > 0 && !availableMachineTabs.includes(selectedMachineKey)) {
+    if (userPos && availableMachineTabs.length > 0 && !availableMachineTabs.includes(selectedMachineKey)) {
       setSelectedMachineKey(availableMachineTabs[0]);
     }
-  }, [availableMachineTabs, selectedMachineKey]);
+  }, [userPos, availableMachineTabs, selectedMachineKey]);
 
   const activeMachine = useMemo(() => {
     const effectiveKey = availableMachineTabs.includes(selectedMachineKey) 
@@ -1186,6 +1195,11 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         setWallet(walletRes.wallet);
         if (walletRes.pos) {
           setUserPos(walletRes.pos);
+          if (typeof window !== 'undefined') {
+            try {
+              sessionStorage.setItem('ronav_user_pos', JSON.stringify(walletRes.pos));
+            } catch (_) {}
+          }
         }
       }
 
