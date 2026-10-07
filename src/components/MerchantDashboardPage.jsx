@@ -294,6 +294,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   const [isLoadingNetwork, setIsLoadingNetwork] = useState(false);
   const [selectedPartner, setSelectedPartner] = useState(null);
   const [partnerTxns, setPartnerTxns] = useState([]);
+  const [partnerTxnChannelFilter, setPartnerTxnChannelFilter] = useState('ALL');
   const [isLoadingPartnerTxns, setIsLoadingPartnerTxns] = useState(false);
   const [showOnboardForm, setShowOnboardForm] = useState(false);
   const [peopleSearch, setPeopleSearch] = useState('');
@@ -7014,11 +7015,19 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                           </div>
                         </div>
 
-                        {/* 2. GLANCEABLE SUMMARY PILLS STRIP (Per-Machine Breakdown) */}
+                        {/* 2. GLANCEABLE SUMMARY PILLS STRIP (Per-Machine Breakdown with 1-Click Filter) */}
                         <div style={{ padding: '0.45rem 0.875rem', background: '#F8FAFC', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', borderBottom: '1px solid #F1F5F9' }}>
                           {/* Pine Labs breakdown badge */}
                           {(p.channel_volumes?.pinelabs > 0 || p.channels?.pine_labs?.enabled) && (
-                            <span style={{ fontSize: '0.625rem', background: p.channel_volumes?.pinelabs > 0 ? '#EFF6FF' : '#FFFFFF', border: p.channel_volumes?.pinelabs > 0 ? '1px solid #BFDBFE' : '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#0F52BA', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                            <span 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (!isExpanded) togglePartnerExpand(p);
+                                setPartnerTxnChannelFilter('pinelabs');
+                              }}
+                              style={{ fontSize: '0.625rem', background: p.channel_volumes?.pinelabs > 0 ? '#EFF6FF' : '#FFFFFF', border: p.channel_volumes?.pinelabs > 0 ? '1px solid #BFDBFE' : '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#0F52BA', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}
+                              title="Click to view Pine Labs swipes"
+                            >
                               <span>🌲</span>
                               <span>Pine Labs: ₹{(p.channel_volumes?.pinelabs || 0).toLocaleString('en-IN')}{p.channel_txn_counts?.pinelabs > 0 ? ` (${p.channel_txn_counts.pinelabs} Txns)` : ''}</span>
                             </span>
@@ -7026,7 +7035,15 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
                           {/* Payswiff breakdown badge */}
                           {(p.channel_volumes?.payswiff > 0 || p.channels?.payswiff?.enabled) && (
-                            <span style={{ fontSize: '0.625rem', background: p.channel_volumes?.payswiff > 0 ? '#FFFBEB' : '#FFFFFF', border: p.channel_volumes?.payswiff > 0 ? '1px solid #FDE68A' : '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#D97706', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                            <span 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (!isExpanded) togglePartnerExpand(p);
+                                setPartnerTxnChannelFilter('payswiff');
+                              }}
+                              style={{ fontSize: '0.625rem', background: p.channel_volumes?.payswiff > 0 ? '#FFFBEB' : '#FFFFFF', border: p.channel_volumes?.payswiff > 0 ? '1px solid #FDE68A' : '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#D97706', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}
+                              title="Click to view Payswiff swipes"
+                            >
                               <span>⚡</span>
                               <span>Payswiff: ₹{(p.channel_volumes?.payswiff || 0).toLocaleString('en-IN')}{p.channel_txn_counts?.payswiff > 0 ? ` (${p.channel_txn_counts.payswiff} Txns)` : ''}</span>
                             </span>
@@ -7034,7 +7051,15 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
                           {/* QR breakdown badge */}
                           {(p.channel_volumes?.qr > 0 || p.channels?.qr?.enabled) && (
-                            <span style={{ fontSize: '0.625rem', background: p.channel_volumes?.qr > 0 ? '#F5F3FF' : '#FFFFFF', border: p.channel_volumes?.qr > 0 ? '1px solid #DDD6FE' : '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#7C3AED', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                            <span 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (!isExpanded) togglePartnerExpand(p);
+                                setPartnerTxnChannelFilter('qr');
+                              }}
+                              style={{ fontSize: '0.625rem', background: p.channel_volumes?.qr > 0 ? '#F5F3FF' : '#FFFFFF', border: p.channel_volumes?.qr > 0 ? '1px solid #DDD6FE' : '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#7C3AED', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}
+                              title="Click to view QR scans"
+                            >
                               <span>📱</span>
                               <span>QR: ₹{(p.channel_volumes?.qr || 0).toLocaleString('en-IN')}{p.channel_txn_counts?.qr > 0 ? ` (${p.channel_txn_counts.qr} Txns)` : ''}</span>
                             </span>
@@ -7049,7 +7074,14 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                           )}
 
                           {/* Total Sales Badge */}
-                          <span style={{ fontSize: '0.625rem', background: '#FFFFFF', border: '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#0F52BA', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <span 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!isExpanded) togglePartnerExpand(p);
+                              setPartnerTxnChannelFilter('ALL');
+                            }}
+                            style={{ fontSize: '0.625rem', background: '#FFFFFF', border: '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#0F52BA', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}
+                          >
                             <span>💳</span>
                             <span>₹{(p.total_volume || 0).toLocaleString('en-IN')} Total</span>
                           </span>
@@ -7117,81 +7149,192 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                           </div>
                         )}
 
-                        {/* EXPANDED LIVE TRANSACTIONS LEDGER */}
-                        {isExpanded && (
-                          <div style={{ padding: '0.875rem 1rem', background: '#FFFFFF', borderTop: '1px solid #DBEAFE' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.625rem', paddingBottom: '0.5rem', borderBottom: '1px solid #F1F5F9' }}>
-                              <span style={{ fontSize: '0.71875rem', fontWeight: 800, color: '#334155' }}>
-                                Customer Swipes &amp; Your Profit Ledger
-                              </span>
-                              <span style={{ fontSize: '0.65rem', color: '#64748B' }}>
-                                Your Profit Rate: <strong style={{ color: '#059669' }}>{p.commission_rate_pct}% margin</strong>
-                              </span>
+                        {/* EXPANDED LIVE TRANSACTIONS LEDGER WITH MACHINE FILTER */}
+                        {isExpanded && (() => {
+                          const pineCount = partnerTxns.filter(t => classifyTransactionChannel(t) === 'pinelabs').length;
+                          const payswiffCount = partnerTxns.filter(t => classifyTransactionChannel(t) === 'payswiff').length;
+                          const qrCount = partnerTxns.filter(t => classifyTransactionChannel(t) === 'qr').length;
+
+                          const filteredPartnerTxns = partnerTxns.filter(t => {
+                            if (partnerTxnChannelFilter === 'ALL') return true;
+                            return classifyTransactionChannel(t) === partnerTxnChannelFilter;
+                          });
+
+                          return (
+                            <div style={{ padding: '0.875rem 1rem', background: '#FFFFFF', borderTop: '1px solid #DBEAFE' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.625rem', paddingBottom: '0.5rem', borderBottom: '1px solid #F1F5F9', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                <div>
+                                  <span style={{ fontSize: '0.71875rem', fontWeight: 800, color: '#334155', display: 'block' }}>
+                                    Customer Swipes &amp; Your Profit Ledger
+                                  </span>
+                                  <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
+                                    Filter by hardware terminal to audit per-machine swipes
+                                  </span>
+                                </div>
+                                <span style={{ fontSize: '0.65rem', color: '#64748B' }}>
+                                  Your Profit Rate: <strong style={{ color: '#059669' }}>{p.commission_rate_pct}% margin</strong>
+                                </span>
+                              </div>
+
+                              {/* SEGMENTED MACHINE FILTER TABS */}
+                              <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))',
+                                gap: '4px',
+                                background: '#F1F5F9',
+                                padding: '3px',
+                                borderRadius: '8px',
+                                marginBottom: '0.75rem'
+                              }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setPartnerTxnChannelFilter('ALL')}
+                                  style={{
+                                    padding: '0.35rem 0.5rem',
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    background: partnerTxnChannelFilter === 'ALL' ? '#0F172A' : 'transparent',
+                                    color: partnerTxnChannelFilter === 'ALL' ? '#FFFFFF' : '#475569',
+                                    fontWeight: 800,
+                                    fontSize: '0.6875rem',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  💳 All ({partnerTxns.length})
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPartnerTxnChannelFilter('pinelabs')}
+                                  style={{
+                                    padding: '0.35rem 0.5rem',
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    background: partnerTxnChannelFilter === 'pinelabs' ? '#0F52BA' : 'transparent',
+                                    color: partnerTxnChannelFilter === 'pinelabs' ? '#FFFFFF' : '#475569',
+                                    fontWeight: 800,
+                                    fontSize: '0.6875rem',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  🌲 Pine Labs ({pineCount})
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPartnerTxnChannelFilter('payswiff')}
+                                  style={{
+                                    padding: '0.35rem 0.5rem',
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    background: partnerTxnChannelFilter === 'payswiff' ? '#D97706' : 'transparent',
+                                    color: partnerTxnChannelFilter === 'payswiff' ? '#FFFFFF' : '#475569',
+                                    fontWeight: 800,
+                                    fontSize: '0.6875rem',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  ⚡ Payswiff ({payswiffCount})
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPartnerTxnChannelFilter('qr')}
+                                  style={{
+                                    padding: '0.35rem 0.5rem',
+                                    borderRadius: '6px',
+                                    border: 'none',
+                                    background: partnerTxnChannelFilter === 'qr' ? '#7C3AED' : 'transparent',
+                                    color: partnerTxnChannelFilter === 'qr' ? '#FFFFFF' : '#475569',
+                                    fontWeight: 800,
+                                    fontSize: '0.6875rem',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  📱 QR ({qrCount})
+                                </button>
+                              </div>
+
+                              {isLoadingPartnerTxns ? (
+                                <div style={{ textAlign: 'center', padding: '1.5rem 0', color: '#64748B' }}>
+                                  <RefreshCw style={{ width: '18px', height: '18px', animation: 'spin 1s linear infinite', margin: '0 auto 0.35rem' }} />
+                                  <p style={{ margin: 0, fontSize: '0.75rem' }}>Loading live transactions...</p>
+                                </div>
+                              ) : filteredPartnerTxns.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '1.5rem 0.5rem', color: '#94A3B8' }}>
+                                  <CreditCard style={{ width: '28px', height: '28px', margin: '0 auto 0.35rem', opacity: 0.5 }} />
+                                  <p style={{ margin: 0, fontSize: '0.78125rem', fontWeight: 600, color: '#475569' }}>
+                                    {partnerTxnChannelFilter === 'ALL' 
+                                      ? 'No card swipes or bill payments recorded yet.' 
+                                      : `No swipes recorded on ${partnerTxnChannelFilter.toUpperCase()} terminal yet.`}
+                                  </p>
+                                  <span style={{ fontSize: '0.65rem', color: '#64748B' }}>
+                                    When this member swipes a customer card, your profit cut will appear right here in real time!
+                                  </span>
+                                </div>
+                              ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                  {filteredPartnerTxns.map((t) => {
+                                    const channel = classifyTransactionChannel(t);
+                                    const isSwiff = channel === 'payswiff';
+                                    const isQR = channel === 'qr';
+                                    return (
+                                      <div 
+                                        key={t.id}
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'space-between',
+                                          padding: '0.625rem 0.75rem',
+                                          background: '#F8FAFC',
+                                          borderRadius: '10px',
+                                          border: '1px solid #E2E8F0',
+                                          flexWrap: 'wrap',
+                                          gap: '0.5rem'
+                                        }}
+                                      >
+                                        <div>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '2px' }}>
+                                            <span style={{ fontSize: '0.78125rem', fontWeight: 800, color: '#0F172A' }}>
+                                              {t.type === 'BBPS_BILL' ? '⚡ Utility Bill' : (isQR ? '📱 QR Collection' : '💳 POS Card Swipe')}
+                                            </span>
+                                            <span style={{
+                                              fontSize: '0.59rem',
+                                              color: isQR ? '#7C3AED' : (isSwiff ? '#D97706' : '#0F52BA'),
+                                              background: isQR ? '#F5F3FF' : (isSwiff ? '#FFFBEB' : '#EFF6FF'),
+                                              border: isQR ? '1px solid #DDD6FE' : (isSwiff ? '1px solid #FDE68A' : '1px solid #BFDBFE'),
+                                              padding: '1px 5px',
+                                              borderRadius: '4px',
+                                              fontWeight: 700
+                                            }}>
+                                              {isQR ? 'Company QR' : (isSwiff ? 'Payswiff' : 'Pine Labs')}
+                                            </span>
+                                            <span style={{ fontSize: '0.59rem', color: '#15803D', background: '#ECFDF5', padding: '1px 5px', borderRadius: '4px', fontWeight: 800 }}>
+                                              ✓ Settled (T+1)
+                                            </span>
+                                          </div>
+
+                                          <div style={{ fontSize: '0.65rem', color: '#64748B' }}>
+                                            <strong style={{ fontFamily: 'monospace', color: '#475569' }}>{t.id}</strong> • Customer: <strong>{t.customer_mobile || 'Walk-in'}</strong> • {new Date(t.created_at || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}, {new Date(t.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                          </div>
+                                        </div>
+
+                                        <div style={{ textAlign: 'right' }}>
+                                          <div style={{ fontSize: '0.71875rem', color: '#475569' }}>
+                                            Swipe Amount: <strong>₹{parseFloat(t.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                                          </div>
+                                          <div style={{ fontSize: '0.875rem', fontWeight: 900, color: '#059669' }}>
+                                            +₹{(t.commission_profit || ((parseFloat(t.amount || 0) * (p.commission_rate_pct || 0.1)) / 100)).toFixed(2)} Profit
+                                          </div>
+                                          <span style={{ fontSize: '0.5625rem', color: '#64748B' }}>
+                                            (₹{parseFloat(t.amount).toLocaleString('en-IN')} × {p.commission_rate_pct || 0.1}% margin)
+                                          </span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
-
-                            {isLoadingPartnerTxns ? (
-                              <div style={{ textAlign: 'center', padding: '1.5rem 0', color: '#64748B' }}>
-                                <RefreshCw style={{ width: '18px', height: '18px', animation: 'spin 1s linear infinite', margin: '0 auto 0.35rem' }} />
-                                <p style={{ margin: 0, fontSize: '0.75rem' }}>Loading live transactions...</p>
-                              </div>
-                            ) : partnerTxns.length === 0 ? (
-                              <div style={{ textAlign: 'center', padding: '1.5rem 0.5rem', color: '#94A3B8' }}>
-                                <CreditCard style={{ width: '28px', height: '28px', margin: '0 auto 0.35rem', opacity: 0.5 }} />
-                                <p style={{ margin: 0, fontSize: '0.78125rem', fontWeight: 600, color: '#475569' }}>No card swipes or bill payments recorded yet.</p>
-                                <span style={{ fontSize: '0.65rem', color: '#64748B' }}>When this member swipes a customer card, your profit cut will appear right here in real time!</span>
-                              </div>
-                            ) : (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                {partnerTxns.map((t) => (
-                                  <div 
-                                    key={t.id}
-                                    style={{
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'space-between',
-                                      padding: '0.625rem 0.75rem',
-                                      background: '#F8FAFC',
-                                      borderRadius: '10px',
-                                      border: '1px solid #E2E8F0',
-                                      flexWrap: 'wrap',
-                                      gap: '0.5rem'
-                                    }}
-                                  >
-                                    <div>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '2px' }}>
-                                        <span style={{ fontSize: '0.78125rem', fontWeight: 800, color: '#0F172A' }}>
-                                          {t.type === 'BBPS_BILL' ? '⚡ Utility Bill' : '💳 POS Card Swipe'}
-                                        </span>
-                                        <span style={{ fontSize: '0.59rem', color: '#0F52BA', background: '#EFF6FF', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>
-                                          {t.provider || 'Pine Labs'}
-                                        </span>
-                                        <span style={{ fontSize: '0.59rem', color: '#15803D', background: '#ECFDF5', padding: '1px 5px', borderRadius: '4px', fontWeight: 800 }}>
-                                          ✓ Settled (T+1)
-                                        </span>
-                                      </div>
-
-                                      <div style={{ fontSize: '0.65rem', color: '#64748B' }}>
-                                        <strong style={{ fontFamily: 'monospace', color: '#475569' }}>{t.id}</strong> • Customer: <strong>{t.customer_mobile || 'Walk-in'}</strong> • {new Date(t.created_at || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}, {new Date(t.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                      </div>
-                                    </div>
-
-                                    <div style={{ textAlign: 'right' }}>
-                                      <div style={{ fontSize: '0.71875rem', color: '#475569' }}>
-                                        Swipe Amount: <strong>₹{parseFloat(t.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
-                                      </div>
-                                      <div style={{ fontSize: '0.875rem', fontWeight: 900, color: '#059669' }}>
-                                        +₹{t.commission_profit.toFixed(2)} Profit
-                                      </div>
-                                      <span style={{ fontSize: '0.5625rem', color: '#64748B' }}>
-                                        (₹{parseFloat(t.amount).toLocaleString('en-IN')} × {t.commission_rate_pct}% margin)
-                                      </span>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
+                          );
+                        })()}
 
                       </div>
                     );
