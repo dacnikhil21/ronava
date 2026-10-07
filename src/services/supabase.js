@@ -48,19 +48,6 @@ function getLocalTable(table) {
   }
   try {
     let parsed = JSON.parse(raw);
-    const legacyMockIds = ['MST1001', 'SD1001', 'DD1001', 'DIST1001', 'MID6925', 'SD1003', 'SD1004', 'SD1005', 'SD1006', 'SD1008', 'MID3826', 'SD4935', 'DD4729', 'DIST2001'];
-    
-    // Purge legacy mock data
-    if (Array.isArray(parsed)) {
-      if (table === 'users') {
-        parsed = parsed.filter(u => !legacyMockIds.includes(u.id) && !u.id?.toLowerCase().includes('test'));
-      } else if (table === 'wallets') {
-        parsed = parsed.filter(w => !legacyMockIds.includes(w.user_id) && !w.user_id?.toLowerCase().includes('test'));
-      } else if (table === 'merchant_pos' || table === 'transactions' || table === 'withdrawals' || table === 'beneficiaries') {
-        parsed = parsed.filter(item => !legacyMockIds.includes(item.merchant_id) && !item.merchant_id?.toLowerCase().includes('test'));
-      }
-    }
-
     // Ensure ADM001 exists in users table
     if (table === 'users' && Array.isArray(parsed)) {
       if (!parsed.some(u => u.id === 'ADM001')) {
