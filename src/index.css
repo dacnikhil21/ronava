@@ -89,6 +89,23 @@
   scrollbar-width: none !important;
 }
 
+/* Shimmer / Skeleton Buffering Animation (Stripe/Razorpay style) */
+@keyframes shimmer-sweep {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(90deg, #F1F5F9 25%, #E2E8F0 50%, #F1F5F9 75%) !important;
+  background-size: 200% 100% !important;
+  animation: shimmer-sweep 1.4s infinite ease-in-out !important;
+}
+
+
 @media (min-width: 768px) {
   :root {
     --section-pad-top: 3.75rem;

@@ -245,6 +245,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     }
     return null;
   });
+  const [isLoadingPos, setIsLoadingPos] = useState(() => !user?.pos);
 
   const handleSwitchMachine = (key) => {
     setSelectedMachineKey(key);
@@ -1225,6 +1226,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       }
     } catch (err) {
       console.error(err);
+    } finally {
+      setIsLoadingPos(false);
     }
   };
 
@@ -2080,104 +2083,123 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
               
               {/* ========================================================= */}
-              {/* SWIPE MACHINE (POS) & QR SELECTOR - FULL WIDTH 3 TABS     */}
+              {/* SWIPE MACHINE (POS) & QR SELECTOR - WITH SHIMMER BUFFER  */}
               {/* ========================================================= */}
-              <div style={{
-                width: '100%',
-                display: 'grid',
-                gridTemplateColumns: 'repeat(3, 1fr)',
-                background: '#F1F5F9',
-                padding: '4px',
-                borderRadius: '12px',
-                gap: '4px',
-                border: '1px solid #E2E8F0',
-                marginBottom: '0.625rem',
-                boxSizing: 'border-box'
-              }}>
-                {availableMachineTabs.includes('pine_labs') && (
-                  <button
-                    type="button"
-                    onClick={() => handleSwitchMachine('pine_labs')}
-                    style={{
-                      width: '100%',
-                      padding: '0.45rem 0.5rem',
-                      borderRadius: '8px',
-                      fontSize: '0.75rem',
-                      fontWeight: 800,
-                      border: 'none',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '0.35rem',
-                      whiteSpace: 'nowrap',
-                      background: selectedMachineKey === 'pine_labs' ? '#0F52BA' : 'transparent',
-                      color: selectedMachineKey === 'pine_labs' ? '#FFFFFF' : '#64748B',
-                      boxShadow: selectedMachineKey === 'pine_labs' ? '0 2px 6px rgba(15,82,186,0.25)' : 'none',
-                      transition: 'all 0.15s ease'
-                    }}
-                  >
-                    <span>🌲</span>
-                    <span>Pine Labs</span>
-                  </button>
-                )}
+              {isLoadingPos ? (
+                <div style={{
+                  width: '100%',
+                  height: '38px',
+                  borderRadius: '12px',
+                  marginBottom: '0.625rem',
+                  border: '1px solid #E2E8F0',
+                  display: 'flex',
+                  gap: '6px',
+                  padding: '4px',
+                  boxSizing: 'border-box',
+                  background: '#F1F5F9'
+                }}>
+                  <div className="skeleton-shimmer" style={{ flex: 1, borderRadius: '8px', height: '100%' }} />
+                  <div className="skeleton-shimmer" style={{ flex: 1, borderRadius: '8px', height: '100%' }} />
+                  <div className="skeleton-shimmer" style={{ flex: 1, borderRadius: '8px', height: '100%' }} />
+                </div>
+              ) : (
+                <div style={{
+                  width: '100%',
+                  display: 'grid',
+                  gridTemplateColumns: `repeat(${availableMachineTabs.length || 1}, 1fr)`,
+                  background: '#F1F5F9',
+                  padding: '4px',
+                  borderRadius: '12px',
+                  gap: '4px',
+                  border: '1px solid #E2E8F0',
+                  marginBottom: '0.625rem',
+                  boxSizing: 'border-box'
+                }}>
+                  {availableMachineTabs.includes('pine_labs') && (
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchMachine('pine_labs')}
+                      style={{
+                        width: '100%',
+                        padding: '0.45rem 0.5rem',
+                        borderRadius: '8px',
+                        fontSize: '0.75rem',
+                        fontWeight: 800,
+                        border: 'none',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.35rem',
+                        whiteSpace: 'nowrap',
+                        background: selectedMachineKey === 'pine_labs' ? '#0F52BA' : 'transparent',
+                        color: selectedMachineKey === 'pine_labs' ? '#FFFFFF' : '#64748B',
+                        boxShadow: selectedMachineKey === 'pine_labs' ? '0 2px 6px rgba(15,82,186,0.25)' : 'none',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <span>🌲</span>
+                      <span>Pine Labs</span>
+                    </button>
+                  )}
 
-                {availableMachineTabs.includes('payswiff') && (
-                  <button
-                    type="button"
-                    onClick={() => handleSwitchMachine('payswiff')}
-                    style={{
-                      width: '100%',
-                      padding: '0.45rem 0.5rem',
-                      borderRadius: '8px',
-                      fontSize: '0.75rem',
-                      fontWeight: 800,
-                      border: 'none',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '0.35rem',
-                      whiteSpace: 'nowrap',
-                      background: selectedMachineKey === 'payswiff' ? '#D97706' : 'transparent',
-                      color: selectedMachineKey === 'payswiff' ? '#FFFFFF' : '#64748B',
-                      boxShadow: selectedMachineKey === 'payswiff' ? '0 2px 6px rgba(217,119,6,0.25)' : 'none',
-                      transition: 'all 0.15s ease'
-                    }}
-                  >
-                    <span>⚡</span>
-                    <span>Payswiff</span>
-                  </button>
-                )}
+                  {availableMachineTabs.includes('payswiff') && (
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchMachine('payswiff')}
+                      style={{
+                        width: '100%',
+                        padding: '0.45rem 0.5rem',
+                        borderRadius: '8px',
+                        fontSize: '0.75rem',
+                        fontWeight: 800,
+                        border: 'none',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.35rem',
+                        whiteSpace: 'nowrap',
+                        background: selectedMachineKey === 'payswiff' ? '#D97706' : 'transparent',
+                        color: selectedMachineKey === 'payswiff' ? '#FFFFFF' : '#64748B',
+                        boxShadow: selectedMachineKey === 'payswiff' ? '0 2px 6px rgba(217,119,6,0.25)' : 'none',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <span>⚡</span>
+                      <span>Payswiff</span>
+                    </button>
+                  )}
 
-                {availableMachineTabs.includes('qr') && (
-                  <button
-                    type="button"
-                    onClick={() => handleSwitchMachine('qr')}
-                    style={{
-                      width: '100%',
-                      padding: '0.45rem 0.5rem',
-                      borderRadius: '8px',
-                      fontSize: '0.75rem',
-                      fontWeight: 800,
-                      border: 'none',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '0.35rem',
-                      whiteSpace: 'nowrap',
-                      background: selectedMachineKey === 'qr' ? '#7C3AED' : 'transparent',
-                      color: selectedMachineKey === 'qr' ? '#FFFFFF' : '#64748B',
-                      boxShadow: selectedMachineKey === 'qr' ? '0 2px 6px rgba(124,58,237,0.25)' : 'none',
-                      transition: 'all 0.15s ease'
-                    }}
-                  >
-                    <span>📱</span>
-                    <span>QR</span>
-                  </button>
-                )}
-              </div>
+                  {availableMachineTabs.includes('qr') && (
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchMachine('qr')}
+                      style={{
+                        width: '100%',
+                        padding: '0.45rem 0.5rem',
+                        borderRadius: '8px',
+                        fontSize: '0.75rem',
+                        fontWeight: 800,
+                        border: 'none',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.35rem',
+                        whiteSpace: 'nowrap',
+                        background: selectedMachineKey === 'qr' ? '#7C3AED' : 'transparent',
+                        color: selectedMachineKey === 'qr' ? '#FFFFFF' : '#64748B',
+                        boxShadow: selectedMachineKey === 'qr' ? '0 2px 6px rgba(124,58,237,0.25)' : 'none',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <span>📱</span>
+                      <span>QR</span>
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* 1. Virtual Wallet Card (Clean Light Enterprise Application Card) */}
               <div style={{
