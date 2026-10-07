@@ -1559,7 +1559,7 @@ export async function recordMerchantSale(saleData) {
           specificTerminalId = 'RONAV-UPI-HQ';
         }
       } else {
-        specificTerminalId = isQRPayment ? 'QR-UPI-HQ' : (pos.terminal_id || (provider === 'Payswiff' ? 'SWIFF-01' : 'PL-HYD-9941'));
+        specificTerminalId = isQRPayment ? 'QR-UPI-HQ' : (pos.terminal_id || (provider === 'Payswiff' ? 'SWIFF-01' : 'PL-01'));
       }
     }
     if (!specificTerminalId) {

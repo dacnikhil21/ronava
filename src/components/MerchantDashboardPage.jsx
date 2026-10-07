@@ -547,6 +547,17 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
   // Interactive Profile Contact Details Edit State (Requirement #8: Mobile Number & Gmail)
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [userProfile, setUserProfile] = useState(() => ({
+    name: user?.name || user?.user?.name || '',
+    mobile: user?.mobile || user?.user?.mobile || user?.phone || '',
+    email: user?.email || user?.user?.email || '',
+    aadhaar: user?.aadhaar || user?.user?.aadhaar || '',
+    pan: user?.pan || user?.user?.pan || '',
+    address: user?.address || user?.user?.address || '',
+    role: user?.role || user?.user?.role || 'MERCHANT',
+    created_at: user?.created_at || user?.user?.created_at || null
+  }));
+
   const [profileFormData, setProfileFormData] = useState({
     mobile: user?.mobile || user?.user?.mobile || user?.phone || '',
     email: user?.email || user?.user?.email || '',
@@ -566,6 +577,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         .maybeSingle()
         .then(({ data: freshUser }) => {
           if (freshUser) {
+            setUserProfile(freshUser);
             if (freshUser.name) setMerchantName(freshUser.name);
             setProfileFormData(prev => ({
               ...prev,
@@ -7427,7 +7439,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                       <h2 style={{ fontSize: '1.375rem', fontWeight: 800, margin: 0, color: '#FFFFFF', letterSpacing: '-0.02em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {merchantName || 'nikhil slicers'}
+                        {userProfile?.name || merchantName || user?.name || user?.id || 'Partner Account'}
                       </h2>
                       <span style={{
                         fontSize: '0.6875rem',
@@ -7438,18 +7450,18 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                         borderRadius: '6px',
                         border: '1px solid rgba(255,255,255,0.3)'
                       }}>
-                        {userRole}
+                        {userProfile?.role === 'MERCHANT' ? 'Retailer' : (userProfile?.role === 'DIST_FRANCHISE' || userProfile?.role === 'DISTRICT_DISTRIBUTOR' ? 'District Distributor' : (userProfile?.role === 'SUPER_DISTRIBUTOR' ? 'Super Distributor' : (userProfile?.role === 'DISTRIBUTOR' ? 'Area Distributor' : (userProfile?.role || userRole))))}
                       </span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', marginTop: '6px', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '0.8125rem', color: '#DBEAFE', fontWeight: 800, fontFamily: 'monospace' }}>
-                        {merchantId || 'MID6925'}
+                        {merchantId || user?.id || 'MID-N/A'}
                       </span>
                       <span style={{ fontSize: '0.65rem', background: '#10B981', color: '#FFFFFF', fontWeight: 800, padding: '2px 7px', borderRadius: '5px' }}>
                         KYC Verified ✓
                       </span>
                       <span style={{ fontSize: '0.6875rem', color: 'rgba(255,255,255,0.85)' }}>
-                        • Partner Since 2021
+                        • Partner Since {userProfile?.created_at ? new Date(userProfile.created_at).getFullYear() : '2021'}
                       </span>
                     </div>
                   </div>
@@ -7674,49 +7686,49 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0.75rem', borderRadius: '10px', background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
                         <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>Registered Mobile:</span>
                         <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: '#0F172A', fontFamily: 'monospace' }}>
-                          {profileFormData.mobile || user?.mobile || user?.user?.mobile || user?.phone || 'Not Registered'}
+                          {userProfile?.mobile || profileFormData.mobile || user?.mobile || 'Not Registered'}
                         </span>
                       </div>
 
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0.75rem', borderRadius: '10px', background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
                         <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>Registered Gmail / Email:</span>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0F172A' }}>
-                          {profileFormData.email || user?.email || user?.user?.email || 'Not Registered'}
+                          {userProfile?.email || profileFormData.email || user?.email || 'Not Registered'}
                         </span>
                       </div>
 
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0.75rem', borderRadius: '10px', background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
                         <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>Store / Outlet Name:</span>
                         <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: '#0F172A' }}>
-                          {merchantName || user?.name || user?.id || 'Registered Store'}
+                          {userProfile?.name || merchantName || user?.name || user?.id || 'Registered Store'}
                         </span>
                       </div>
 
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0.75rem', borderRadius: '10px', background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
                         <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>Merchant Network Tier:</span>
                         <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F52BA' }}>
-                          {userRole || 'Retailer (Counter POS Operator)'}
+                          {userProfile?.role === 'MERCHANT' ? 'Retailer (Counter POS Operator)' : (userProfile?.role === 'DIST_FRANCHISE' || userProfile?.role === 'DISTRICT_DISTRIBUTOR' ? 'District Distributor (DF/DD)' : (userProfile?.role === 'SUPER_DISTRIBUTOR' ? 'Super Distributor (SD)' : (userProfile?.role === 'DISTRIBUTOR' ? 'Area Distributor' : (userProfile?.role || userRole))))}
                         </span>
                       </div>
 
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0.75rem', borderRadius: '10px', background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
                         <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>Aadhaar Number:</span>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155', fontFamily: 'monospace' }}>
-                          {user?.aadhaar ? `XXXX-XXXX-${user.aadhaar.slice(-4)}` : 'Verified via DigiLocker'}
+                          {userProfile?.aadhaar ? `XXXX-XXXX-${userProfile.aadhaar.slice(-4)}` : (user?.aadhaar ? `XXXX-XXXX-${user.aadhaar.slice(-4)}` : 'Verified via DigiLocker')}
                         </span>
                       </div>
 
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0.75rem', borderRadius: '10px', background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
                         <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>PAN Number:</span>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155', fontFamily: 'monospace' }}>
-                          {user?.pan ? `${user.pan.slice(0, 2)}XXXXX${user.pan.slice(-2)}` : 'Verified'}
+                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', fontFamily: 'monospace', letterSpacing: '0.05em' }}>
+                          {userProfile?.pan || user?.pan || 'Not Provided'}
                         </span>
                       </div>
 
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0.75rem', borderRadius: '10px', background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
                         <span style={{ fontSize: '0.75rem', color: '#64748B', fontWeight: 600 }}>Business Address:</span>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#334155', maxWidth: '240px', textAlign: 'right' }}>
-                          {user?.address || 'Hyderabad, Telangana - 502 319'}
+                          {userProfile?.address || user?.address || 'Hyderabad, Telangana'}
                         </span>
                       </div>
                     </div>
@@ -7787,67 +7799,133 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                       
-                      {/* Pine Labs POS Terminal */}
-                      <div style={{ padding: '0.875rem', borderRadius: '12px', background: '#F8FAFC', border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span style={{ fontSize: '1.1rem' }}>🌲</span>
+                      {/* Dynamic Pine Labs POS Terminal */}
+                      {merchantChannels?.pine_labs?.enabled && (
+                        <div style={{ padding: '0.875rem', borderRadius: '12px', background: '#F8FAFC', border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <span style={{ fontSize: '1.1rem' }}>🌲</span>
+                              <div>
+                                <strong style={{ fontSize: '0.8125rem', color: '#0F172A', display: 'block' }}>Pine Labs POS</strong>
+                                <span style={{ fontSize: '0.625rem', color: '#64748B' }}>{merchantChannels.pine_labs.vendor || 'Rose Navaneetham Enterprises'}</span>
+                              </div>
+                            </div>
+                            <span style={{ fontSize: '0.625rem', background: '#ECFDF5', color: '#059669', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', border: '1px solid #A7F3D0' }}>
+                              Active
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', background: '#FFFFFF', padding: '0.5rem', borderRadius: '8px', border: '1px solid #EDF2F7', textAlign: 'center' }}>
                             <div>
-                              <strong style={{ fontSize: '0.8125rem', color: '#0F172A', display: 'block' }}>Pine Labs POS</strong>
-                              <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Smart Android Counter POS</span>
+                              <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>Terminal ID</span>
+                              <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0F52BA', fontFamily: 'monospace' }}>
+                                {merchantChannels.pine_labs.terminal_id || 'PL-01'}
+                              </span>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>T+1 MDR</span>
+                              <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#059669' }}>
+                                {(parseFloat(merchantChannels.pine_labs.rate_t1) || 1.50).toFixed(2)}%
+                              </span>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>Instant MDR</span>
+                              <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#D97706' }}>
+                                {(parseFloat(merchantChannels.pine_labs.rate_instant) || 1.80).toFixed(2)}%
+                              </span>
                             </div>
                           </div>
-                          <span style={{ fontSize: '0.625rem', background: '#ECFDF5', color: '#059669', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', border: '1px solid #A7F3D0' }}>
-                            Online
-                          </span>
-                        </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', background: '#FFFFFF', padding: '0.5rem', borderRadius: '8px', border: '1px solid #EDF2F7', textAlign: 'center' }}>
-                          <div>
-                            <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>Terminal ID</span>
-                            <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0F52BA', fontFamily: 'monospace' }}>PL-HYD-9941</span>
-                          </div>
-                          <div>
-                            <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>T+1 MDR</span>
-                            <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#059669' }}>1.50%</span>
-                          </div>
-                          <div>
-                            <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>Instant MDR</span>
-                            <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#D97706' }}>1.80%</span>
+                          <div style={{ fontSize: '0.625rem', color: '#64748B', display: 'flex', justifyContent: 'space-between', padding: '0 2px' }}>
+                            <span>Plan: <strong style={{ color: '#0F172A' }}>{merchantChannels.pine_labs.plan === 'RENTAL' ? '₹499/mo Rental' : `Custom (₹${merchantChannels.pine_labs.rent || 0}/mo)`}</strong></span>
+                            <span>Entity: <strong style={{ color: '#0F172A' }}>{merchantChannels.pine_labs.vendor || 'Rose Navaneetham Enterprises'}</strong></span>
                           </div>
                         </div>
-                      </div>
+                      )}
 
-                      {/* Payswiff POS Terminal */}
-                      <div style={{ padding: '0.875rem', borderRadius: '12px', background: '#F8FAFC', border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                            <span style={{ fontSize: '1.1rem' }}>⚡</span>
+                      {/* Dynamic Payswiff POS Terminal */}
+                      {merchantChannels?.payswiff?.enabled && (
+                        <div style={{ padding: '0.875rem', borderRadius: '12px', background: '#F8FAFC', border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <span style={{ fontSize: '1.1rem' }}>⚡</span>
+                              <div>
+                                <strong style={{ fontSize: '0.8125rem', color: '#0F172A', display: 'block' }}>Payswiff POS</strong>
+                                <span style={{ fontSize: '0.625rem', color: '#64748B' }}>{merchantChannels.payswiff.vendor || 'RONAV Technologies'}</span>
+                              </div>
+                            </div>
+                            <span style={{ fontSize: '0.625rem', background: '#ECFDF5', color: '#059669', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', border: '1px solid #A7F3D0' }}>
+                              Active
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', background: '#FFFFFF', padding: '0.5rem', borderRadius: '8px', border: '1px solid #EDF2F7', textAlign: 'center' }}>
                             <div>
-                              <strong style={{ fontSize: '0.8125rem', color: '#0F172A', display: 'block' }}>Payswiff POS</strong>
-                              <span style={{ fontSize: '0.625rem', color: '#64748B' }}>High-Speed Contactless Terminal</span>
+                              <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>Terminal ID</span>
+                              <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#D97706', fontFamily: 'monospace' }}>
+                                {merchantChannels.payswiff.terminal_id || 'SWIFF-01'}
+                              </span>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>T+1 MDR</span>
+                              <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#059669' }}>
+                                {(parseFloat(merchantChannels.payswiff.rate_t1) || 1.65).toFixed(2)}%
+                              </span>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>Instant MDR</span>
+                              <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#D97706' }}>
+                                {(parseFloat(merchantChannels.payswiff.rate_instant) || 1.83).toFixed(2)}%
+                              </span>
                             </div>
                           </div>
-                          <span style={{ fontSize: '0.625rem', background: '#ECFDF5', color: '#059669', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', border: '1px solid #A7F3D0' }}>
-                            Online
-                          </span>
-                        </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', background: '#FFFFFF', padding: '0.5rem', borderRadius: '8px', border: '1px solid #EDF2F7', textAlign: 'center' }}>
-                          <div>
-                            <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>Terminal ID</span>
-                            <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#D97706', fontFamily: 'monospace' }}>PW-HYD-4482</span>
-                          </div>
-                          <div>
-                            <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>T+1 MDR</span>
-                            <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#059669' }}>1.65%</span>
-                          </div>
-                          <div>
-                            <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>Instant MDR</span>
-                            <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#D97706' }}>1.83%</span>
+                          <div style={{ fontSize: '0.625rem', color: '#64748B', display: 'flex', justifyContent: 'space-between', padding: '0 2px' }}>
+                            <span>Plan: <strong style={{ color: '#0F172A' }}>{merchantChannels.payswiff.plan === 'RENTAL' ? '₹499/mo Rental' : `Custom (₹${merchantChannels.payswiff.rent || 0}/mo)`}</strong></span>
+                            <span>Entity: <strong style={{ color: '#0F172A' }}>{merchantChannels.payswiff.vendor || 'RONAV Technologies'}</strong></span>
                           </div>
                         </div>
-                      </div>
+                      )}
+
+                      {/* Dynamic Company QR Channel */}
+                      {merchantChannels?.qr?.enabled && (
+                        <div style={{ padding: '0.875rem', borderRadius: '12px', background: '#F8FAFC', border: '1px solid #E2E8F0', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <span style={{ fontSize: '1.1rem' }}>📱</span>
+                              <div>
+                                <strong style={{ fontSize: '0.8125rem', color: '#0F172A', display: 'block' }}>Company QR (UPI) Channel</strong>
+                                <span style={{ fontSize: '0.625rem', color: '#64748B' }}>RONAV Technologies (Corporate HQ QR)</span>
+                              </div>
+                            </div>
+                            <span style={{ fontSize: '0.625rem', background: '#F3E8FF', color: '#7C3AED', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', border: '1px solid #DDD6FE' }}>
+                              Active
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', background: '#FFFFFF', padding: '0.5rem', borderRadius: '8px', border: '1px solid #EDF2F7', textAlign: 'center' }}>
+                            <div>
+                              <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>Instant MDR Fee</span>
+                              <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#7C3AED' }}>
+                                {(parseFloat(merchantChannels.qr.rate_instant) || 1.50).toFixed(2)}%
+                              </span>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>Settlement Cycle</span>
+                              <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#059669' }}>Strictly Instant</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Fallback Empty state when no channels are assigned */}
+                      {(!merchantChannels?.pine_labs?.enabled && !merchantChannels?.payswiff?.enabled && !merchantChannels?.qr?.enabled) && (
+                        <div style={{ padding: '1.25rem', textAlign: 'center', background: '#F8FAFC', borderRadius: '12px', border: '1px dashed #CBD5E1' }}>
+                          <CreditCard style={{ width: '24px', height: '24px', color: '#94A3B8', margin: '0 auto 6px', display: 'block' }} />
+                          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748B', display: 'block' }}>No POS Terminals Assigned</span>
+                          <span style={{ fontSize: '0.65rem', color: '#94A3B8' }}>Contact your upline distributor or administrator to assign POS hardware.</span>
+                        </div>
+                      )}
 
                     </div>
                   </div>
@@ -7899,17 +7977,10 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                           </div>
                         ))
                       ) : (
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.625rem 0.75rem', background: '#F8FAFC', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-                            <BankLogo bankName="State Bank of India" />
-                            <div>
-                              <strong style={{ fontSize: '0.78125rem', color: '#0F172A', display: 'block' }}>State Bank of India</strong>
-                              <span style={{ fontSize: '0.65rem', color: '#64748B', fontFamily: 'monospace' }}>•••• 5678 • SBIN0001234</span>
-                            </div>
-                          </div>
-                          <span style={{ fontSize: '0.59rem', background: '#ECFDF5', color: '#059669', fontWeight: 800, padding: '2px 6px', borderRadius: '4px' }}>
-                            Primary
-                          </span>
+                        <div style={{ padding: '1.25rem', textAlign: 'center', background: '#F8FAFC', borderRadius: '10px', border: '1px dashed #CBD5E1' }}>
+                          <Landmark style={{ width: '22px', height: '22px', color: '#94A3B8', margin: '0 auto 6px', display: 'block' }} />
+                          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748B', display: 'block' }}>No Bank Accounts Linked</span>
+                          <span style={{ fontSize: '0.65rem', color: '#94A3B8' }}>Click "+ Link Bank" above to add your settlement payout account.</span>
                         </div>
                       )}
                     </div>
