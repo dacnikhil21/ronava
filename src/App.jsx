@@ -270,6 +270,8 @@ export default function App() {
       sessionStorage.removeItem('ronav_merchant_user');
       sessionStorage.removeItem('ronav_current_view');
       sessionStorage.removeItem('ronav_merchant_active_tab');
+      sessionStorage.removeItem('ronav_user_pos');
+      sessionStorage.removeItem('ronav_merchant_selected_machine');
     }
     if (window.location.pathname.toLowerCase().startsWith('/admin')) {
       window.history.pushState({}, '', '/');

@@ -1259,38 +1259,49 @@ export function parsePosTerminalRates(terminalStr, baseRate = 1.50) {
   let adminCut = 1.20;
   let uplineCut = 0.20;
 
+  const channels = {
+    pinelabs: { enabled: false, terminal_id: '', rateT1, rateInstant },
+    payswiff: { enabled: false, terminal_id: '', rateT1, rateInstant },
+    qr: { enabled: false, terminal_id: 'RONAV-UPI-HQ', rateInstant: 1.80 }
+  };
+
   if (str.startsWith('[PORTFOLIO]')) {
     try {
       const jsonStr = str.replace('[PORTFOLIO]', '').trim();
       const p = JSON.parse(jsonStr);
       if (p.pine_labs?.enabled) {
-        return {
+        channels.pinelabs = {
+          enabled: true,
           terminal_id: p.pine_labs.terminal_id || 'PL-01',
-          raw_terminal: str,
-          rateT1: p.pine_labs.rate_t1 || 1.50,
-          rateInstant: p.pine_labs.rate_instant || 1.80,
-          adminCut: 1.20,
-          uplineCut: 0.20
-        };
-      } else if (p.payswiff?.enabled) {
-        return {
-          terminal_id: p.payswiff.terminal_id || 'SWIFF-01',
-          raw_terminal: str,
-          rateT1: p.payswiff.rate_t1 || 1.50,
-          rateInstant: p.payswiff.rate_instant || 1.80,
-          adminCut: 1.20,
-          uplineCut: 0.20
-        };
-      } else if (p.qr?.enabled) {
-        return {
-          terminal_id: 'QR-CHANNEL',
-          raw_terminal: str,
-          rateT1: p.qr.rate_instant || 1.50,
-          rateInstant: p.qr.rate_instant || 1.50,
-          adminCut: 1.20,
-          uplineCut: 0.20
+          rateT1: parseFloat(p.pine_labs.rate_t1) || 1.50,
+          rateInstant: parseFloat(p.pine_labs.rate_instant) || 1.80
         };
       }
+      if (p.payswiff?.enabled) {
+        channels.payswiff = {
+          enabled: true,
+          terminal_id: p.payswiff.terminal_id || 'SWIFF-01',
+          rateT1: parseFloat(p.payswiff.rate_t1) || 1.50,
+          rateInstant: parseFloat(p.payswiff.rate_instant) || 1.80
+        };
+      }
+      if (p.qr?.enabled) {
+        channels.qr = {
+          enabled: true,
+          terminal_id: 'RONAV-UPI-HQ',
+          rateInstant: parseFloat(p.qr.rate_instant) || 1.80
+        };
+      }
+      const primary = channels.pinelabs.enabled ? channels.pinelabs : (channels.payswiff.enabled ? channels.payswiff : channels.qr);
+      return {
+        terminal_id: primary.terminal_id,
+        raw_terminal: str,
+        rateT1: primary.rateT1 || 1.50,
+        rateInstant: primary.rateInstant || 1.80,
+        adminCut: 1.20,
+        uplineCut: 0.20,
+        channels
+      };
     } catch (_) {}
   }
 
@@ -1315,24 +1326,33 @@ export function parsePosTerminalRates(terminalStr, baseRate = 1.50) {
     rateT1,
     rateInstant,
     adminCut,
-    uplineCut
+    uplineCut,
+    channels
   };
 }
 
 // ----------------------------------------------------
 // 4.1 TRANSACTIONS & MULTI-TIER COMMISSION ROLL-UP
-// -------------------------// ----------------------------------------------------
+// ----------------------------------------------------
 // TRANSACTION CHANNEL CLASSIFIER (CENTRAL SOURCE OF TRUTH)
 // ----------------------------------------------------
 export function classifyTransactionChannel(item) {
   if (!item) return 'pinelabs';
+
+  // 0. Direct channel property
+  if (item.channel) {
+    const ch = String(item.channel).toLowerCase();
+    if (ch.includes('swiff')) return 'payswiff';
+    if (ch.includes('qr') || ch.includes('upi')) return 'qr';
+    if (ch.includes('pine')) return 'pinelabs';
+  }
 
   const type = (item.type || '').toUpperCase();
   const provider = (item.pos_provider || item.provider || '').toLowerCase();
   const id = (item.id || '').toUpperCase();
 
   // 1. Explicit QR Scan / QR payment type
-  if (type === 'QR_SCAN' || type === 'QR' || type === 'QR_PAYMENT') return 'qr';
+  if (type === 'QR_SCAN' || type === 'QR' || type === 'QR_PAYMENT' || type === 'QR_PAYOUT') return 'qr';
 
   // 2. Provider or ID indicates QR/UPI (excluding hardware swipe providers)
   if ((provider.includes('qr') || provider.includes('upi') || id.startsWith('TXN-QR-')) && !provider.includes('swiff') && !provider.includes('pine')) {
@@ -1386,9 +1406,13 @@ export function classifyTransactionChannel(item) {
 }
 
 // Central Dynamic User Rate Resolver (Zero Hardcoded Percentages)
-export function getUserBuyRate(user, pos, isInstant = false) {
+export function getUserBuyRate(user, pos, isInstant = false, targetChannel = null) {
   if (pos) {
     const parsed = parsePosTerminalRates(pos.terminal_id, pos.commission_rate);
+    if (targetChannel && parsed.channels && parsed.channels[targetChannel]?.enabled) {
+      const ch = parsed.channels[targetChannel];
+      return isInstant ? (ch.rateInstant || 1.80) : (ch.rateT1 || 1.50);
+    }
     const r = isInstant ? (pos.commission_rate_instant || parsed.rateInstant) : (pos.commission_rate_t1 || parsed.rateT1);
     if (r !== undefined && r !== null && !isNaN(parseFloat(r)) && parseFloat(r) > 0) {
       return parseFloat(r);
@@ -2005,17 +2029,18 @@ export async function getDownstreamNetwork(creatorId) {
     allUniqueDownlineMerchantIds.forEach(mId => {
       const mObj = userMap[mId];
       const directBranch = getDirectBranchChild(mObj);
-      const branchRate = getUserBuyRate(directBranch, posMap[directBranch?.id], false);
-      const marginPct = Math.max(0, branchRate - creatorBuyRate);
 
       const mTxns = allTxns.filter(t => t.merchant_id === mId && t.status === 'APPROVED');
       mTxns.forEach(t => {
         const amt = parseFloat(t.amount) || 0;
+        const ch = classifyTransactionChannel(t);
+        const branchRate = getUserBuyRate(directBranch, posMap[directBranch?.id], false, ch);
+        const creatorChannelBuyRate = getUserBuyRate(creator, creatorPos, false, ch);
+        const marginPct = Math.max(0, branchRate - creatorChannelBuyRate);
         const comm = (amt * marginPct) / 100;
         totalDownlineVolume += amt;
         totalCommissionAll += comm;
 
-        const ch = classifyTransactionChannel(t);
         if (ch === 'pinelabs') {
           totalVolumePinelabs += amt;
           totalCommissionPinelabs += comm;

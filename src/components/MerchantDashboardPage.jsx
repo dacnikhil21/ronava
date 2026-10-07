@@ -1060,6 +1060,63 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     }
   };
 
+  const [networkChannelFilter, setNetworkChannelFilter] = useState(() => {
+    if (selectedMachineKey === 'payswiff') return 'payswiff';
+    if (selectedMachineKey === 'qr') return 'qr';
+    return 'pinelabs';
+  });
+
+  // Keep networkChannelFilter automatically in sync when top machine switcher changes
+  useEffect(() => {
+    if (selectedMachineKey === 'payswiff') setNetworkChannelFilter('payswiff');
+    else if (selectedMachineKey === 'qr') setNetworkChannelFilter('qr');
+    else setNetworkChannelFilter('pinelabs');
+  }, [selectedMachineKey]);
+
+  // Terminal-Isolated Executive Network Stats
+  const networkSummaryStats = useMemo(() => {
+    const chVol = networkData.channel_volumes || { pinelabs: 0, payswiff: 0, qr: 0, all: 0, today_pinelabs: 0, today_payswiff: 0, today_qr: 0, today_all: 0 };
+    const chComm = networkData.channel_commissions || { pinelabs: 0, payswiff: 0, qr: 0, today_pinelabs: 0, today_payswiff: 0, today_qr: 0 };
+
+    if (networkChannelFilter === 'pinelabs') {
+      return {
+        label: 'Pine Labs POS',
+        volume: chVol.pinelabs || 0,
+        profit: chComm.pinelabs || 0,
+        todayVolume: chVol.today_pinelabs || 0,
+        todayProfit: chComm.today_pinelabs || 0,
+        themeColor: '#0F52BA'
+      };
+    } else if (networkChannelFilter === 'payswiff') {
+      return {
+        label: 'Payswiff POS',
+        volume: chVol.payswiff || 0,
+        profit: chComm.payswiff || 0,
+        todayVolume: chVol.today_payswiff || 0,
+        todayProfit: chComm.today_payswiff || 0,
+        themeColor: '#D97706'
+      };
+    } else if (networkChannelFilter === 'qr') {
+      return {
+        label: 'Company QR (UPI)',
+        volume: chVol.qr || 0,
+        profit: chComm.qr || 0,
+        todayVolume: chVol.today_qr || 0,
+        todayProfit: chComm.today_qr || 0,
+        themeColor: '#7C3AED'
+      };
+    } else {
+      return {
+        label: 'All Terminals',
+        volume: chVol.all || networkData.total_downline_volume || 0,
+        profit: networkData.total_commission_earned || 0,
+        todayVolume: chVol.today_all || networkData.today_downline_volume || 0,
+        todayProfit: networkData.today_network_profit || 0,
+        themeColor: '#0F52BA'
+      };
+    }
+  }, [networkData, networkChannelFilter]);
+
   const togglePartnerExpand = async (partner) => {
     if (expandedPartnerId === partner.id) {
       setExpandedPartnerId(null);
@@ -1067,6 +1124,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     }
     setExpandedPartnerId(partner.id);
     setSelectedPartner(partner);
+    setPartnerTxnChannelFilter(networkChannelFilter === 'ALL' ? 'ALL' : networkChannelFilter);
     setIsLoadingPartnerTxns(true);
     try {
       const res = await getPartnerTransactions(merchantId, partner.id);
@@ -1516,7 +1574,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
       return true;
     });
-  }, [transactions, withdrawals, txnCategoryFilter, txnStatusFilter, dateFilter, customFromDate, customToDate, searchQuery]);
+  }, [transactions, withdrawals, selectedMachineKey, activeMachineTransactions, activeMachineHistoryWithdrawals, txnCategoryFilter, txnStatusFilter, dateFilter, customFromDate, customToDate, searchQuery]);
 
   // Dynamic turnover totals for filtered activity (Sales vs Withdrawals)
   const activitySummary = useMemo(() => {
@@ -1623,13 +1681,15 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       return;
     }
 
-    // Check Sunday-only schedule for self commission withdrawal
+    // Check dynamic Admin configuration for commission payout schedule
     if (payoutTargetType === 'MERCHANT') {
-      const currentDay = new Date().getDay(); // 0 is Sunday
-      if (currentDay !== 0) {
-        showToast('🔒 Self-Commission Payout Schedule: Weekly profit & commission withdrawals unlock strictly on Sundays (00:00 to 23:59).');
-        return;
-      }
+      try {
+        const commConfig = await getCommissionPayoutConfig();
+        if (commConfig && commConfig.enabled === false) {
+          showToast(commConfig.message || '🔒 Self-Commission Payouts are currently locked by Admin settings.');
+          return;
+        }
+      } catch (_) {}
     }
 
     const isQrMode = selectedMachineKey === 'qr';
@@ -6042,6 +6102,102 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
                   {networkSubTab === 'members' ? (
                     <>
+                      {/* Channel / Machine Segmented Filter Bar for Network View */}
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(4, 1fr)',
+                        background: '#F8FAFC',
+                        border: '1px solid #E2E8F0',
+                        padding: '3px',
+                        borderRadius: '10px',
+                        gap: '4px'
+                      }}>
+                        <button
+                          type="button"
+                          onClick={() => setNetworkChannelFilter('ALL')}
+                          style={{
+                            padding: '0.42rem 0.25rem',
+                            borderRadius: '7px',
+                            border: 'none',
+                            background: networkChannelFilter === 'ALL' ? '#0F172A' : 'transparent',
+                            color: networkChannelFilter === 'ALL' ? '#FFFFFF' : '#64748B',
+                            fontWeight: 800,
+                            fontSize: '0.71875rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '4px',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <span>💳 All</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNetworkChannelFilter('pinelabs')}
+                          style={{
+                            padding: '0.42rem 0.25rem',
+                            borderRadius: '7px',
+                            border: 'none',
+                            background: networkChannelFilter === 'pinelabs' ? '#0F52BA' : 'transparent',
+                            color: networkChannelFilter === 'pinelabs' ? '#FFFFFF' : '#64748B',
+                            fontWeight: 800,
+                            fontSize: '0.71875rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '4px',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <span>🌲 Pine Labs</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNetworkChannelFilter('payswiff')}
+                          style={{
+                            padding: '0.42rem 0.25rem',
+                            borderRadius: '7px',
+                            border: 'none',
+                            background: networkChannelFilter === 'payswiff' ? '#D97706' : 'transparent',
+                            color: networkChannelFilter === 'payswiff' ? '#FFFFFF' : '#64748B',
+                            fontWeight: 800,
+                            fontSize: '0.71875rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '4px',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <span>⚡ Payswiff</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNetworkChannelFilter('qr')}
+                          style={{
+                            padding: '0.42rem 0.25rem',
+                            borderRadius: '7px',
+                            border: 'none',
+                            background: networkChannelFilter === 'qr' ? '#7C3AED' : 'transparent',
+                            color: networkChannelFilter === 'qr' ? '#FFFFFF' : '#64748B',
+                            fontWeight: 800,
+                            fontSize: '0.71875rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '4px',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <span>📱 QR</span>
+                        </button>
+                      </div>
+
                       {/* 2. TOP EXECUTIVE STATS (Strict 2x2 Grid) */}
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.625rem' }}>
                     
@@ -6074,10 +6230,10 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                         </div>
                       </div>
                       <h3 style={{ fontSize: '1.1875rem', fontWeight: 900, color: '#0F172A', margin: '0 0 1px', letterSpacing: '-0.01em' }}>
-                        ₹{totalTeamVolume.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        ₹{networkSummaryStats.volume.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h3>
-                      <span style={{ fontSize: '0.59rem', color: '#059669', fontWeight: 700, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        All shops &amp; POS terminals
+                      <span style={{ fontSize: '0.59rem', color: networkSummaryStats.themeColor, fontWeight: 700, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {networkSummaryStats.label} sales
                       </span>
                     </div>
 
@@ -6092,7 +6248,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                         </div>
                       </div>
                       <h3 style={{ fontSize: '1.1875rem', fontWeight: 900, color: '#059669', margin: '0 0 1px', letterSpacing: '-0.01em' }}>
-                        ₹{networkData.total_commission_earned.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        ₹{networkSummaryStats.profit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h3>
                       <span style={{ fontSize: '0.59rem', color: '#0F52BA', fontWeight: 800, background: '#EFF6FF', padding: '1px 5px', borderRadius: '4px', display: 'inline-block' }}>
                         +{parseFloat(userTierMargin) > 0 ? userTierMargin : networkData.commission_rate_pct}% Cut
@@ -6110,10 +6266,10 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                         </div>
                       </div>
                       <h3 style={{ fontSize: '1.1875rem', fontWeight: 900, color: '#7C3AED', margin: '0 0 1px', letterSpacing: '-0.01em' }}>
-                        +₹{networkData.today_network_profit.toFixed(2)}
+                        +₹{networkSummaryStats.todayProfit.toFixed(2)}
                       </h3>
                       <span style={{ fontSize: '0.59rem', color: '#64748B', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        On ₹{totalTodayVolume.toLocaleString('en-IN', { minimumFractionDigits: 2 })} sales
+                        On ₹{networkSummaryStats.todayVolume.toLocaleString('en-IN', { minimumFractionDigits: 2 })} sales
                       </span>
                     </div>
 
@@ -6983,10 +7139,16 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
                               <div style={{ textAlign: 'right' }}>
                                 <div style={{ fontSize: '0.9375rem', fontWeight: 900, color: '#059669', letterSpacing: '-0.01em', lineHeight: 1.1 }}>
-                                  +₹{(p.commission_earned || 0).toFixed(2)}
+                                  +₹{(networkChannelFilter === 'pinelabs' 
+                                    ? (p.channel_commissions?.pinelabs !== undefined ? p.channel_commissions.pinelabs : p.commission_earned) 
+                                    : (networkChannelFilter === 'payswiff' 
+                                      ? (p.channel_commissions?.payswiff || 0) 
+                                      : (networkChannelFilter === 'qr' 
+                                        ? (p.channel_commissions?.qr || 0) 
+                                        : (p.commission_earned || 0)))).toFixed(2)}
                                 </div>
                                 <span style={{ fontSize: '0.59rem', color: '#64748B', fontWeight: 700 }}>
-                                  {p.commission_rate_pct}% margin
+                                  {networkChannelFilter === 'ALL' ? `${p.commission_rate_pct}% margin` : `${networkSummaryStats.label}`}
                                 </span>
                               </div>
 

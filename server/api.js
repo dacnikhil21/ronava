@@ -646,23 +646,46 @@ export async function handleApiRequest(req, res) {
         LIMIT 100
       `);
 
-      const pineTxns = (await pgQuery(`
-        SELECT COALESCE(SUM(t.amount), 0) as vol, COUNT(*) as cnt
+      const allApprovedTxns = await pgQuery(`
+        SELECT t.*, COALESCE(t.provider, 'Pine Labs') as pos_provider
         FROM transactions t
-        LEFT JOIN merchant_pos p ON t.merchant_id = p.merchant_id
-        WHERE t.status = 'APPROVED' AND (p.provider = 'Pine Labs' OR t.provider = 'Pine Labs')
-      `))[0] || {};
+        WHERE t.status = 'APPROVED'
+      `);
 
-      const payswiffTxns = (await pgQuery(`
-        SELECT COALESCE(SUM(t.amount), 0) as vol, COUNT(*) as cnt
-        FROM transactions t
-        LEFT JOIN merchant_pos p ON t.merchant_id = p.merchant_id
-        WHERE t.status = 'APPROVED' AND (p.provider = 'Payswiff' OR t.provider = 'Payswiff')
-      `))[0] || {};
+      let pineVol = 0;
+      let pineCnt = 0;
+      let payswiffVol = 0;
+      let payswiffCnt = 0;
+      let qrVol = 0;
+      let qrCnt = 0;
+      let totalAdminProfit = 0;
 
-      const pineAdminProfit = (parseFloat(pineTxns.vol) || 0) * 0.0015;
-      const payswiffAdminProfit = (parseFloat(payswiffTxns.vol) || 0) * 0.0005;
-      const adminNetProfit = pineAdminProfit + payswiffAdminProfit;
+      allApprovedTxns.forEach(t => {
+        const amt = parseFloat(t.amount) || 0;
+        const p = (t.provider || '').toLowerCase();
+        let fee = 0;
+        if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
+          try {
+            const jsonPart = t.notes.slice(t.notes.indexOf('{'));
+            const meta = JSON.parse(jsonPart);
+            fee = parseFloat(meta.company_fee) || 0;
+          } catch (_) {}
+        }
+
+        if (p.includes('swiff') || (t.id && t.id.startsWith('TXN-SW-'))) {
+          payswiffVol += amt;
+          payswiffCnt++;
+          totalAdminProfit += fee > 0 ? fee : (amt * 0.0010);
+        } else if (p.includes('qr') || p.includes('upi') || (t.id && t.id.startsWith('TXN-QR-'))) {
+          qrVol += amt;
+          qrCnt++;
+          totalAdminProfit += fee > 0 ? fee : (amt * 0.0030);
+        } else {
+          pineVol += amt;
+          pineCnt++;
+          totalAdminProfit += fee > 0 ? fee : (amt * 0.0015);
+        }
+      });
 
       const mCount = (await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role = 'MERCHANT'`))[0]?.c || 0;
       const sdCount = (await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role = 'SUPER_DISTRIBUTOR'`))[0]?.c || 0;
@@ -678,7 +701,10 @@ export async function handleApiRequest(req, res) {
         pendingWithdrawalsCount: pendingWithdrawals.length,
         totalVolume: parseFloat(totalVol),
         pendingVolume: parseFloat(pendingVol),
-        adminNetProfit: parseFloat(adminNetProfit.toFixed(2))
+        adminNetProfit: parseFloat(totalAdminProfit.toFixed(2)),
+        pineVolume: parseFloat(pineVol.toFixed(2)),
+        payswiffVolume: parseFloat(payswiffVol.toFixed(2)),
+        qrVolume: parseFloat(qrVol.toFixed(2))
       };
 
       return sendJson(res, 200, {
@@ -711,6 +737,16 @@ export async function handleApiRequest(req, res) {
       const merchantId = txn.merchant_id;
 
       if (action === 'APPROVE') {
+        let companyFee = 0;
+        if (txn.notes && typeof txn.notes === 'string' && txn.notes.includes('[CARD_SWIPE_ENTRY]')) {
+          try {
+            const jsonPart = txn.notes.slice(txn.notes.indexOf('{'));
+            const meta = JSON.parse(jsonPart);
+            companyFee = parseFloat(meta.company_fee) || 0;
+          } catch (_) {}
+        }
+        const netCredit = Math.max(0, amount - companyFee);
+
         await pgQuery(`
           UPDATE transactions 
           SET status = 'APPROVED', 
@@ -726,7 +762,7 @@ export async function handleApiRequest(req, res) {
               pending_balance = GREATEST(0.0, pending_balance - $3),
               updated_at = CURRENT_TIMESTAMP
           WHERE user_id = $4
-        `, [amount, amount, amount, merchantId]);
+        `, [netCredit, netCredit, amount, merchantId]);
       } else {
         await pgQuery(`
           UPDATE transactions 
@@ -760,7 +796,7 @@ export async function handleApiRequest(req, res) {
     // 5. WITHDRAWALS
     // ----------------------------------------------------
     if (pathname === '/api/withdrawals/request' && method === 'POST') {
-      const { merchant_id, amount, bank_name, account_number, ifsc, remarks, admin_remark } = await parseJsonBody(req);
+      const { merchant_id, amount, bank_name, account_number, ifsc, remarks, admin_remark, channel, provider, customer_name, customer_mobile, settlement_mode, payout_type, payout_purpose } = await parseJsonBody(req);
       const numAmount = parseFloat(amount);
       if (!merchant_id || !numAmount || !bank_name || !account_number) {
         return sendJson(res, 400, { success: false, message: 'Missing required withdrawal details.' });
@@ -776,6 +812,17 @@ export async function handleApiRequest(req, res) {
         });
       }
 
+      const metaPayload = {
+        channel: channel || (provider?.includes('swiff') ? 'payswiff' : (provider?.includes('qr') ? 'qr' : 'pinelabs')),
+        provider: provider || 'Pine Labs',
+        payout_type: payout_type || 'CUSTOMER_DISBURSAL',
+        payout_purpose: payout_purpose || 'REGULAR',
+        customer_name: customer_name || '',
+        customer_mobile: customer_mobile || '',
+        settlement_mode: settlement_mode || 'INSTANT'
+      };
+      const finalRemark = admin_remark || remarks || `[PAYOUT_META]${JSON.stringify(metaPayload)}`;
+
       const wId = `WTH-${Date.now().toString().slice(-6)}`;
       await pgQuery(`
         UPDATE wallets 
@@ -788,7 +835,7 @@ export async function handleApiRequest(req, res) {
       await pgQuery(`
         INSERT INTO withdrawals (id, merchant_id, amount, bank_name, account_number, ifsc, admin_remark, status)
         VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING')
-      `, [wId, merchant_id, numAmount, bank_name, account_number, ifsc || 'SBIN0001234', admin_remark || remarks || '']);
+      `, [wId, merchant_id, numAmount, bank_name, account_number, ifsc || 'SBIN0001234', finalRemark]);
 
       const createdWths = await pgQuery(`SELECT * FROM withdrawals WHERE id = $1`, [wId]);
 
