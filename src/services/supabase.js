@@ -87,10 +87,35 @@ function saveLocalTable(table, data) {
 
 function getApiUrl(endpoint) {
   if (typeof window !== 'undefined' && window.location && window.location.origin) {
-    return endpoint;
+    const origin = window.location.origin;
+    // Direct backend or localhost
+    if (origin.includes('13.201.4.145') || origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes(':3000') || origin.includes(':5173')) {
+      return endpoint;
+    }
+    // Static hosting (S3, CloudFront, Vercel) -> connect to live EC2 API
+    return `http://13.201.4.145${endpoint}`;
   }
-  const base = (typeof process !== 'undefined' && (process.env?.API_BASE_URL || process.env?.VITE_API_BASE_URL)) || 'http://127.0.0.1:5000';
+  const base = (typeof process !== 'undefined' && (process.env?.API_BASE_URL || process.env?.VITE_API_BASE_URL)) || 'http://13.201.4.145';
   return `${base}${endpoint}`;
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 2500) {
+  if (typeof AbortController === 'undefined') {
+    return fetch(url, options);
+  }
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(id);
+    return res;
+  } catch (err) {
+    clearTimeout(id);
+    throw err;
+  }
 }
 
 class TableQueryBuilder {
@@ -206,7 +231,7 @@ class TableQueryBuilder {
 
         // Try API endpoint first
         try {
-          const res = await fetch(getApiUrl('/api/db/delete'), {
+          const res = await fetchWithTimeout(getApiUrl('/api/db/delete'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -244,7 +269,7 @@ class TableQueryBuilder {
 
         // Try API endpoint first (if available)
         try {
-          const res = await fetch(getApiUrl('/api/db/insert'), {
+          const res = await fetchWithTimeout(getApiUrl('/api/db/insert'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ table: this.table, data: items[0] }),
@@ -285,7 +310,7 @@ class TableQueryBuilder {
 
         // Try API endpoint first
         try {
-          const res = await fetch(getApiUrl('/api/db/update'), {
+          const res = await fetchWithTimeout(getApiUrl('/api/db/update'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -325,7 +350,7 @@ class TableQueryBuilder {
 
       // Default: select
       try {
-        const res = await fetch(getApiUrl('/api/db/select'), {
+        const res = await fetchWithTimeout(getApiUrl('/api/db/select'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
