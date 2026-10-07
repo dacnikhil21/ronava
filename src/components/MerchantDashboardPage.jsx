@@ -26,7 +26,8 @@ import {
   classifyTransactionChannel,
   getMonthlyRentalReport,
   updatePosRentalStatus,
-  updateUserDetails
+  updateUserDetails,
+  formatTerminalDisplay
 } from '../services/api';
 import { downloadRentalReportFile } from '../utils/bankExportUtils';
 import { subscribeToWallet, subscribeToTransactions } from '../services/supabase';
@@ -3035,8 +3036,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                             }}>
                               <span style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0F172A', marginRight: '0.4rem' }}>₹</span>
                               <input 
-                                type="number"
-                                step="any"
+                                type="text"
+                                inputMode="decimal"
                                 placeholder="0.00"
                                 required
                                 value={saleForm.amount}
@@ -3629,8 +3630,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                           }}>
                             <span style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0F172A', marginRight: '0.35rem' }}>₹</span>
                             <input 
-                              type="number"
-                              step="any"
+                              type="text"
+                              inputMode="decimal"
                               placeholder="0.00"
                               required
                               value={withdrawAmount}
@@ -4924,7 +4925,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                       alignItems: 'center'
                     }}>
                       <input 
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         placeholder="e.g. 199, 599, 1250"
                         required
                         value={bbpsForm.amount}
@@ -6437,9 +6439,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                   <div style={{ position: 'relative' }}>
                                     <span style={{ position: 'absolute', left: '7px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', fontWeight: 800, color: '#64748B' }}>₹</span>
                                     <input
-                                      type="number"
-                                      step="1"
-                                      min="0"
+                                      type="text"
+                                      inputMode="numeric"
                                       required
                                       placeholder="e.g. 799"
                                       value={onboardChannels.pine_labs.rent || ''}
@@ -6464,8 +6465,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                 T+1 MDR (%) *
                               </label>
                               <input
-                                type="number"
-                                step="0.01"
+                                type="text"
+                                inputMode="decimal"
                                 value={onboardChannels.pine_labs.rate_t1}
                                 onChange={(e) => {
                                   const val = e.target.value;
@@ -6482,8 +6483,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                 Instant MDR (%) *
                               </label>
                               <input
-                                type="number"
-                                step="0.01"
+                                type="text"
+                                inputMode="decimal"
                                 value={onboardChannels.pine_labs.rate_instant}
                                 onChange={(e) => {
                                   const val = e.target.value;
@@ -6595,9 +6596,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                   <div style={{ position: 'relative' }}>
                                     <span style={{ position: 'absolute', left: '7px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', fontWeight: 800, color: '#64748B' }}>₹</span>
                                     <input
-                                      type="number"
-                                      step="1"
-                                      min="0"
+                                      type="text"
+                                      inputMode="numeric"
                                       required
                                       placeholder="e.g. 799"
                                       value={onboardChannels.payswiff.rent || ''}
@@ -6622,8 +6622,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                 T+1 MDR (%) *
                               </label>
                               <input
-                                type="number"
-                                step="0.01"
+                                type="text"
+                                inputMode="decimal"
                                 value={onboardChannels.payswiff.rate_t1}
                                 onChange={(e) => {
                                   const val = e.target.value;
@@ -6640,8 +6640,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                 Instant MDR (%) *
                               </label>
                               <input
-                                type="number"
-                                step="0.01"
+                                type="text"
+                                inputMode="decimal"
                                 value={onboardChannels.payswiff.rate_instant}
                                 onChange={(e) => {
                                   const val = e.target.value;
@@ -6683,10 +6683,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                               Custom Instant MDR Fee (%) *
                             </label>
                             <input
-                              type="number"
-                              step="0.01"
-                              min="0.0"
-                              max="4.0"
+                              type="text"
+                              inputMode="decimal"
                               value={onboardChannels.qr.rate_instant}
                               onChange={(e) => {
                                 const val = e.target.value;
@@ -6952,7 +6950,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                         <div style={{ padding: '0.45rem 0.875rem', background: '#F8FAFC', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', borderBottom: '1px solid #F1F5F9' }}>
                           <span style={{ fontSize: '0.625rem', background: '#FFFFFF', border: '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#334155', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                             <span>🌲</span>
-                            <span>{p.pos_provider || 'Pine Labs'} ({p.pos_terminal ? p.pos_terminal.split('|')[0] : 'TID Pending'})</span>
+                            <span>{formatTerminalDisplay(p.pos_terminal, p.pos_provider || 'Pine Labs')}</span>
                           </span>
 
                           <span style={{ fontSize: '0.625rem', background: '#FFFFFF', border: '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#0F52BA', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>

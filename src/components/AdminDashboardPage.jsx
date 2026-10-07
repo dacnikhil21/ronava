@@ -39,7 +39,8 @@ import {
   updatePosRentalStatus,
   clawbackTransaction,
   purgeAllTestAccounts,
-  deleteUserAccount
+  deleteUserAccount,
+  formatTerminalDisplay
 } from '../services/api';
 import { subscribeToAdminFeed } from '../services/supabase';
 import RonavLogo from './RonavLogo';
@@ -2764,7 +2765,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           <div>
                             <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{m.name}</strong>
                             <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
-                              MID: {m.id} • {m.mobile} • {m.pos_provider || 'Pine Labs'} ({(m.pos_terminal || 'PL-TS').split('|')[0]})
+                              MID: {m.id} • {m.mobile} • {formatTerminalDisplay(m.pos_terminal, m.pos_provider || 'Pine Labs')}
                             </span>
                           </div>
                           <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -2824,7 +2825,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           <div>
                             <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{m.name}</strong>
                             <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
-                              MID: {m.id} • {m.mobile} • {m.pos_provider || 'Pine Labs'} ({(m.pos_terminal || 'PL-TS').split('|')[0]})
+                              MID: {m.id} • {m.mobile} • {formatTerminalDisplay(m.pos_terminal, m.pos_provider || 'Pine Labs')}
                             </span>
                           </div>
                           <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -2858,7 +2859,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       <div>
                         <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{m.name}</strong>
                         <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
-                          MID: {m.id} • {m.mobile} • {m.pos_provider || 'Pine Labs'} ({(m.pos_terminal || 'PL-TS').split('|')[0]})
+                          MID: {m.id} • {m.mobile} • {formatTerminalDisplay(m.pos_terminal, m.pos_provider || 'Pine Labs')}
                         </span>
                       </div>
                       <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -8677,9 +8678,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             <div style={{ position: 'relative' }}>
                               <span style={{ position: 'absolute', left: '7px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', fontWeight: 800, color: '#64748B' }}>₹</span>
                               <input
-                                type="number"
-                                step="1"
-                                min="0"
+                                type="text"
+                                inputMode="decimal"
                                 required
                                 placeholder="e.g. 799"
                                 value={onboardChannels.pine_labs.rent || ''}
@@ -8704,8 +8704,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           T+1 MDR (%) *
                         </label>
                         <input
-                          type="number"
-                          step="0.01"
+                          type="text"
+                          inputMode="decimal"
                           value={onboardChannels.pine_labs.rate_t1}
                           onChange={(e) => {
                             const val = e.target.value;
@@ -8722,8 +8722,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           Instant MDR (%) *
                         </label>
                         <input
-                          type="number"
-                          step="0.01"
+                          type="text"
+                          inputMode="decimal"
                           value={onboardChannels.pine_labs.rate_instant}
                           onChange={(e) => {
                             const val = e.target.value;
@@ -8835,9 +8835,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             <div style={{ position: 'relative' }}>
                               <span style={{ position: 'absolute', left: '7px', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', fontWeight: 800, color: '#64748B' }}>₹</span>
                               <input
-                                type="number"
-                                step="1"
-                                min="0"
+                                type="text"
+                                inputMode="decimal"
                                 required
                                 placeholder="e.g. 799"
                                 value={onboardChannels.payswiff.rent || ''}
@@ -8862,8 +8861,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           T+1 MDR (%) *
                         </label>
                         <input
-                          type="number"
-                          step="0.01"
+                          type="text"
+                          inputMode="decimal"
                           value={onboardChannels.payswiff.rate_t1}
                           onChange={(e) => {
                             const val = e.target.value;
@@ -8880,8 +8879,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           Instant MDR (%) *
                         </label>
                         <input
-                          type="number"
-                          step="0.01"
+                          type="text"
+                          inputMode="decimal"
                           value={onboardChannels.payswiff.rate_instant}
                           onChange={(e) => {
                             const val = e.target.value;
@@ -8923,10 +8922,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         Custom Instant MDR Fee (%) *
                       </label>
                       <input
-                        type="number"
-                        step="0.01"
-                        min="0.0"
-                        max="4.0"
+                        type="text"
+                        inputMode="decimal"
                         value={onboardChannels.qr.rate_instant}
                         onChange={(e) => {
                           const val = e.target.value;
@@ -9275,11 +9272,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         T+1 MDR (%)
                       </label>
                       <input
-                        type="number"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         value={managingChannelsData.pine_labs.rate_t1 || 1.50}
                         onChange={(e) => {
-                          const val = parseFloat(e.target.value) || 1.50;
+                          const val = e.target.value;
                           setManagingChannelsData(prev => ({
                             ...prev,
                             pine_labs: { ...prev.pine_labs, rate_t1: val }
@@ -9293,11 +9290,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         Instant MDR (%)
                       </label>
                       <input
-                        type="number"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         value={managingChannelsData.pine_labs.rate_instant || 1.80}
                         onChange={(e) => {
-                          const val = parseFloat(e.target.value) || 1.80;
+                          const val = e.target.value;
                           setManagingChannelsData(prev => ({
                             ...prev,
                             pine_labs: { ...prev.pine_labs, rate_instant: val }
@@ -9407,11 +9404,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         T+1 MDR (%)
                       </label>
                       <input
-                        type="number"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         value={managingChannelsData.payswiff.rate_t1 || 1.50}
                         onChange={(e) => {
-                          const val = parseFloat(e.target.value) || 1.50;
+                          const val = e.target.value;
                           setManagingChannelsData(prev => ({
                             ...prev,
                             payswiff: { ...prev.payswiff, rate_t1: val }
@@ -9425,11 +9422,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         Instant MDR (%)
                       </label>
                       <input
-                        type="number"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
                         value={managingChannelsData.payswiff.rate_instant || 1.80}
                         onChange={(e) => {
-                          const val = parseFloat(e.target.value) || 1.80;
+                          const val = e.target.value;
                           setManagingChannelsData(prev => ({
                             ...prev,
                             payswiff: { ...prev.payswiff, rate_instant: val }
@@ -9471,13 +9468,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       Custom Instant MDR Fee (%) *
                     </label>
                     <input
-                      type="number"
-                      step="0.01"
-                      min="0.0"
-                      max="4.0"
+                      type="text"
+                      inputMode="decimal"
                       value={managingChannelsData.qr.rate_instant || 1.50}
                       onChange={(e) => {
-                        const val = parseFloat(e.target.value) || 1.50;
+                        const val = e.target.value;
                         setManagingChannelsData(prev => ({
                           ...prev,
                           qr: { ...prev.qr, rate_instant: val }

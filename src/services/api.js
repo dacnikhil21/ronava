@@ -1227,6 +1227,30 @@ export async function updateMerchantChannels(merchantId, channels) {
   }
 }
 
+export function formatTerminalDisplay(terminalStr, defaultProvider = 'Pine Labs') {
+  if (!terminalStr) return defaultProvider || 'POS Pending';
+  if (terminalStr.startsWith('[PORTFOLIO]')) {
+    try {
+      const jsonStr = terminalStr.replace('[PORTFOLIO]', '').trim();
+      const obj = JSON.parse(jsonStr);
+      const parts = [];
+      if (obj.pine_labs?.enabled) {
+        parts.push(`Pine Labs (${obj.pine_labs.terminal_id || 'Active'})`);
+      }
+      if (obj.payswiff?.enabled) {
+        parts.push(`Payswiff (${obj.payswiff.terminal_id || 'Active'})`);
+      }
+      if (obj.qr?.enabled) {
+        parts.push(`Company QR`);
+      }
+      return parts.length > 0 ? parts.join(' • ') : defaultProvider;
+    } catch (_) {
+      return defaultProvider;
+    }
+  }
+  return `${defaultProvider} (${terminalStr.split('|')[0]})`;
+}
+
 export function parsePosTerminalRates(terminalStr, baseRate = 1.50) {
   const str = terminalStr || '';
   let cleanId = str;
