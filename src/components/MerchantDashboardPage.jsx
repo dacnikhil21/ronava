@@ -854,8 +854,6 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         } else {
           earnedCommission = chComms.pinelabs || 0;
         }
-      } else {
-        earnedCommission = parseFloat(networkData?.total_commission_earned) || 0;
       }
     }
 
@@ -864,11 +862,20 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     const activeHold = 500.0;
     const withdrawableBalance = Math.max(0, parseFloat((availableBalance - activeHold).toFixed(2)));
 
+    // Channel-specific sales volume (for distributors/uplines without direct swipes, show downline sales for this machine)
+    const effectiveTotalSales = (totalSales > 0 || userRole === 'MERCHANT' || userRole === 'Retailer')
+      ? totalSales
+      : (networkData?.channel_volumes ? (
+          selectedMachineKey === 'qr' ? (networkData.channel_volumes.qr || 0) : (
+            selectedMachineKey === 'payswiff' ? (networkData.channel_volumes.payswiff || 0) : (networkData.channel_volumes.pinelabs || 0)
+          )
+        ) : 0);
+
     return {
       available_balance: availableBalance,
       withdrawable_balance: withdrawableBalance,
       active_hold: activeHold,
-      total_sales: totalSales,
+      total_sales: effectiveTotalSales,
       received_sales: receivedSales,
       commission_earned: earnedCommission,
       pending_balance: pendingBalance,
@@ -1037,7 +1044,11 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           partners: res.partners || [],
           total_commission_earned: res.total_commission_earned || 0,
           today_network_profit: res.today_network_profit || 0,
-          commission_rate_pct: res.commission_rate_pct || 0.25
+          total_downline_volume: res.total_downline_volume || 0,
+          today_downline_volume: res.today_downline_volume || 0,
+          commission_rate_pct: res.commission_rate_pct || 0.25,
+          channel_commissions: res.channel_commissions || { pinelabs: 0, payswiff: 0, qr: 0 },
+          channel_volumes: res.channel_volumes || { pinelabs: 0, payswiff: 0, qr: 0, all: 0 }
         });
       }
       fetchHierarchyRentalReport(rentalMonthFilter);
@@ -1887,8 +1898,12 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
   const directPartnersCount = networkData.partners.filter(p => p.is_direct).length;
   const indirectPartnersCount = networkData.partners.filter(p => !p.is_direct).length;
-  const totalTeamVolume = networkData.partners.reduce((sum, p) => sum + (p.total_volume || 0), 0);
-  const totalTodayVolume = networkData.partners.reduce((sum, p) => sum + (p.today_volume || 0), 0);
+  const totalTeamVolume = networkData.total_downline_volume !== undefined 
+    ? networkData.total_downline_volume 
+    : networkData.partners.filter(p => p.role === 'MERCHANT' || p.id.startsWith('MID')).reduce((sum, p) => sum + (p.total_volume || 0), 0);
+  const totalTodayVolume = networkData.today_downline_volume !== undefined
+    ? networkData.today_downline_volume
+    : networkData.partners.filter(p => p.role === 'MERCHANT' || p.id.startsWith('MID')).reduce((sum, p) => sum + (p.today_volume || 0), 0);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans merchant-responsive-wrapper">
@@ -6999,21 +7014,44 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                           </div>
                         </div>
 
-                        {/* 2. GLANCEABLE SUMMARY PILLS STRIP (Apple Inset Style) */}
+                        {/* 2. GLANCEABLE SUMMARY PILLS STRIP (Per-Machine Breakdown) */}
                         <div style={{ padding: '0.45rem 0.875rem', background: '#F8FAFC', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', borderBottom: '1px solid #F1F5F9' }}>
-                          <span style={{ fontSize: '0.625rem', background: '#FFFFFF', border: '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#334155', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                            <span>🌲</span>
-                            <span>{formatTerminalDisplay(p.pos_terminal, p.pos_provider || 'Pine Labs')}</span>
-                          </span>
+                          {/* Pine Labs breakdown badge */}
+                          {(p.channel_volumes?.pinelabs > 0 || p.channels?.pine_labs?.enabled) && (
+                            <span style={{ fontSize: '0.625rem', background: p.channel_volumes?.pinelabs > 0 ? '#EFF6FF' : '#FFFFFF', border: p.channel_volumes?.pinelabs > 0 ? '1px solid #BFDBFE' : '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#0F52BA', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              <span>🌲</span>
+                              <span>Pine Labs: ₹{(p.channel_volumes?.pinelabs || 0).toLocaleString('en-IN')}{p.channel_txn_counts?.pinelabs > 0 ? ` (${p.channel_txn_counts.pinelabs} Txns)` : ''}</span>
+                            </span>
+                          )}
 
+                          {/* Payswiff breakdown badge */}
+                          {(p.channel_volumes?.payswiff > 0 || p.channels?.payswiff?.enabled) && (
+                            <span style={{ fontSize: '0.625rem', background: p.channel_volumes?.payswiff > 0 ? '#FFFBEB' : '#FFFFFF', border: p.channel_volumes?.payswiff > 0 ? '1px solid #FDE68A' : '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#D97706', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              <span>⚡</span>
+                              <span>Payswiff: ₹{(p.channel_volumes?.payswiff || 0).toLocaleString('en-IN')}{p.channel_txn_counts?.payswiff > 0 ? ` (${p.channel_txn_counts.payswiff} Txns)` : ''}</span>
+                            </span>
+                          )}
+
+                          {/* QR breakdown badge */}
+                          {(p.channel_volumes?.qr > 0 || p.channels?.qr?.enabled) && (
+                            <span style={{ fontSize: '0.625rem', background: p.channel_volumes?.qr > 0 ? '#F5F3FF' : '#FFFFFF', border: p.channel_volumes?.qr > 0 ? '1px solid #DDD6FE' : '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#7C3AED', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              <span>📱</span>
+                              <span>QR: ₹{(p.channel_volumes?.qr || 0).toLocaleString('en-IN')}{p.channel_txn_counts?.qr > 0 ? ` (${p.channel_txn_counts.qr} Txns)` : ''}</span>
+                            </span>
+                          )}
+
+                          {/* Fallback legacy terminal badge if no channels */}
+                          {!p.channels && (
+                            <span style={{ fontSize: '0.625rem', background: '#FFFFFF', border: '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#334155', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                              <span>🌲</span>
+                              <span>{formatTerminalDisplay(p.pos_terminal, p.pos_provider || 'Pine Labs')}</span>
+                            </span>
+                          )}
+
+                          {/* Total Sales Badge */}
                           <span style={{ fontSize: '0.625rem', background: '#FFFFFF', border: '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#0F52BA', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                             <span>💳</span>
-                            <span>₹{(p.total_volume || 0).toLocaleString('en-IN')} Sales</span>
-                          </span>
-
-                          <span style={{ fontSize: '0.625rem', background: '#FFFFFF', border: '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#15803D', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                            <span>⚡</span>
-                            <span>{p.settlement_type || 'T+1'} Payout</span>
+                            <span>₹{(p.total_volume || 0).toLocaleString('en-IN')} Total</span>
                           </span>
 
                           <span style={{ fontSize: '0.625rem', background: '#FFFFFF', border: '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#64748B', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>

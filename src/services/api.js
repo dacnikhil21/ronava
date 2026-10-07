@@ -1909,6 +1909,36 @@ export async function getDownstreamNetwork(creatorId) {
       const todayVol = todayTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
       const partnerTodayProfit = parseFloat(((todayVol * partnerCommRatePct) / 100).toFixed(2));
 
+      // Per-channel breakdown for this partner
+      let pVolPinelabs = 0, pVolPayswiff = 0, pVolQr = 0;
+      let pCommPinelabs = 0, pCommPayswiff = 0, pCommQr = 0;
+      let pTxnCountPinelabs = 0, pTxnCountPayswiff = 0, pTxnCountQr = 0;
+
+      partnerTxns.forEach(t => {
+        const amt = parseFloat(t.amount) || 0;
+        const ch = classifyTransactionChannel(t);
+        const isAppr = t.status === 'APPROVED';
+        if (ch === 'pinelabs') {
+          pTxnCountPinelabs++;
+          if (isAppr) {
+            pVolPinelabs += amt;
+            pCommPinelabs += (amt * partnerCommRatePct) / 100;
+          }
+        } else if (ch === 'payswiff') {
+          pTxnCountPayswiff++;
+          if (isAppr) {
+            pVolPayswiff += amt;
+            pCommPayswiff += (amt * partnerCommRatePct) / 100;
+          }
+        } else if (ch === 'qr') {
+          pTxnCountQr++;
+          if (isAppr) {
+            pVolQr += amt;
+            pCommQr += (amt * partnerCommRatePct) / 100;
+          }
+        }
+      });
+
       return {
         ...p,
         is_direct: isDirect,
@@ -1929,7 +1959,22 @@ export async function getDownstreamNetwork(creatorId) {
         commission_earned: commissionEarned,
         commission_rate_pct: partnerCommRatePct,
         today_volume: todayVol,
-        today_profit: partnerTodayProfit
+        today_profit: partnerTodayProfit,
+        channel_volumes: {
+          pinelabs: parseFloat(pVolPinelabs.toFixed(2)),
+          payswiff: parseFloat(pVolPayswiff.toFixed(2)),
+          qr: parseFloat(pVolQr.toFixed(2))
+        },
+        channel_commissions: {
+          pinelabs: parseFloat(pCommPinelabs.toFixed(2)),
+          payswiff: parseFloat(pCommPayswiff.toFixed(2)),
+          qr: parseFloat(pCommQr.toFixed(2))
+        },
+        channel_txn_counts: {
+          pinelabs: pTxnCountPinelabs,
+          payswiff: pTxnCountPayswiff,
+          qr: pTxnCountQr
+        }
       };
     });
 
@@ -1938,6 +1983,13 @@ export async function getDownstreamNetwork(creatorId) {
     let todayProfitAll = 0;
     let totalDownlineVolume = 0;
     let todayDownlineVol = 0;
+
+    let totalVolumePinelabs = 0;
+    let totalVolumePayswiff = 0;
+    let totalVolumeQr = 0;
+    let todayVolumePinelabs = 0;
+    let todayVolumePayswiff = 0;
+    let todayVolumeQr = 0;
 
     let totalCommissionPinelabs = 0;
     let totalCommissionPayswiff = 0;
@@ -1964,16 +2016,30 @@ export async function getDownstreamNetwork(creatorId) {
         totalCommissionAll += comm;
 
         const ch = classifyTransactionChannel(t);
-        if (ch === 'pinelabs') totalCommissionPinelabs += comm;
-        else if (ch === 'payswiff') totalCommissionPayswiff += comm;
-        else if (ch === 'qr') totalCommissionQr += comm;
+        if (ch === 'pinelabs') {
+          totalVolumePinelabs += amt;
+          totalCommissionPinelabs += comm;
+        } else if (ch === 'payswiff') {
+          totalVolumePayswiff += amt;
+          totalCommissionPayswiff += comm;
+        } else if (ch === 'qr') {
+          totalVolumeQr += amt;
+          totalCommissionQr += comm;
+        }
 
         if ((t.created_at || '').slice(0, 10) === todayStr) {
           todayDownlineVol += amt;
           todayProfitAll += comm;
-          if (ch === 'pinelabs') todayProfitPinelabs += comm;
-          else if (ch === 'payswiff') todayProfitPayswiff += comm;
-          else if (ch === 'qr') todayProfitQr += comm;
+          if (ch === 'pinelabs') {
+            todayVolumePinelabs += amt;
+            todayProfitPinelabs += comm;
+          } else if (ch === 'payswiff') {
+            todayVolumePayswiff += amt;
+            todayProfitPayswiff += comm;
+          } else if (ch === 'qr') {
+            todayVolumeQr += amt;
+            todayProfitQr += comm;
+          }
         }
       });
     });
@@ -1987,6 +2053,8 @@ export async function getDownstreamNetwork(creatorId) {
       total_partners: enrichedPartners.length,
       total_commission_earned: parseFloat(totalCommissionAll.toFixed(2)),
       today_network_profit: parseFloat(todayProfitAll.toFixed(2)),
+      total_downline_volume: parseFloat(totalDownlineVolume.toFixed(2)),
+      today_downline_volume: parseFloat(todayDownlineVol.toFixed(2)),
       channel_commissions: {
         pinelabs: parseFloat(totalCommissionPinelabs.toFixed(2)),
         payswiff: parseFloat(totalCommissionPayswiff.toFixed(2)),
@@ -1994,6 +2062,16 @@ export async function getDownstreamNetwork(creatorId) {
         today_pinelabs: parseFloat(todayProfitPinelabs.toFixed(2)),
         today_payswiff: parseFloat(todayProfitPayswiff.toFixed(2)),
         today_qr: parseFloat(todayProfitQr.toFixed(2))
+      },
+      channel_volumes: {
+        pinelabs: parseFloat(totalVolumePinelabs.toFixed(2)),
+        payswiff: parseFloat(totalVolumePayswiff.toFixed(2)),
+        qr: parseFloat(totalVolumeQr.toFixed(2)),
+        all: parseFloat(totalDownlineVolume.toFixed(2)),
+        today_pinelabs: parseFloat(todayVolumePinelabs.toFixed(2)),
+        today_payswiff: parseFloat(todayVolumePayswiff.toFixed(2)),
+        today_qr: parseFloat(todayVolumeQr.toFixed(2)),
+        today_all: parseFloat(todayDownlineVol.toFixed(2))
       }
     };
   } catch (err) {
