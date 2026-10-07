@@ -225,12 +225,23 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
   // Swipe Machine Active State (Case 1: Dual Machines vs Case 2: Single Machine)
   const [machineMode, setMachineMode] = useState('single');
-  const [selectedMachineKey, setSelectedMachineKey] = useState('pine_labs');
+  const [selectedMachineKey, setSelectedMachineKey] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem('ronav_merchant_selected_machine');
+      if (saved && ['pine_labs', 'payswiff', 'qr'].includes(saved)) {
+        return saved;
+      }
+    }
+    return 'pine_labs';
+  });
   const [merchantPayswiffVendor, setMerchantPayswiffVendor] = useState('ALL'); // 'ALL' | 'ronav' | 'rp'
   const [userPos, setUserPos] = useState(null);
 
   const handleSwitchMachine = (key) => {
     setSelectedMachineKey(key);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('ronav_merchant_selected_machine', key);
+    }
     setTxnCategoryFilter('ALL');
     const m = POS_MACHINES_DATA[key] || POS_MACHINES_DATA.pine_labs;
     showToast(`${m?.icon || '💳'} Switched to ${m?.title || key}`);
@@ -1175,12 +1186,6 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         setWallet(walletRes.wallet);
         if (walletRes.pos) {
           setUserPos(walletRes.pos);
-          const prov = (walletRes.pos.provider || '').toLowerCase();
-          if (prov.includes('swiff')) {
-            setSelectedMachineKey('payswiff');
-          } else if (prov.includes('pine')) {
-            setSelectedMachineKey('pine_labs');
-          }
         }
       }
 
