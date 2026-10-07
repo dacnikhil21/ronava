@@ -78,6 +78,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   const [dossierHistory, setDossierHistory] = useState([]);
   const [dossierBeneficiaries, setDossierBeneficiaries] = useState([]);
   const [dossierWithdrawals, setDossierWithdrawals] = useState([]);
+  const [dossierMachineFilter, setDossierMachineFilter] = useState('ALL'); // 'ALL' | 'pine_labs' | 'payswiff' | 'qr'
+  const [selectedDossierTxn, setSelectedDossierTxn] = useState(null);
 
   // Inquiries State (Loans & ATM/CDM Franchises)
   const [inquiriesList, setInquiriesList] = useState([]);
@@ -2331,28 +2333,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     );
                   })()}
 
-                  {/* Hardware, Channel Portfolio & Rate Architecture for All Partner Tiers */}
-                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                    {viewingUserDossier.channels?.pine_labs?.enabled && (
-                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '3px 8px', borderRadius: '6px', border: '1px solid #BFDBFE' }}>
-                        🌲 Pine Labs: {viewingUserDossier.channels.pine_labs.terminal_id || 'PL-01'} (Rose Navaneetham) • {viewingUserDossier.channels.pine_labs.rate_t1}% T+1 / {viewingUserDossier.channels.pine_labs.rate_instant}% Instant
-                      </span>
-                    )}
-                    {viewingUserDossier.channels?.payswiff?.enabled && (
-                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#FFFBEB', color: '#D97706', padding: '3px 8px', borderRadius: '6px', border: '1px solid #FDE68A' }}>
-                        ⚡ Payswiff: {viewingUserDossier.channels.payswiff.terminal_id || 'SWIFF-01'} ({viewingUserDossier.channels.payswiff.vendor}) • {viewingUserDossier.channels.payswiff.rate_t1}% T+1 / {viewingUserDossier.channels.payswiff.rate_instant}% Instant
-                      </span>
-                    )}
-                    {viewingUserDossier.channels?.qr?.enabled && (
-                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#F5F3FF', color: '#7C3AED', padding: '3px 8px', borderRadius: '6px', border: '1px solid #DDD6FE' }}>
-                        📱 QR Active: {viewingUserDossier.channels.qr.rate_instant}% Instant Settlement (RONAV Technologies)
-                      </span>
-                    )}
-                    {(!viewingUserDossier.channels || (!viewingUserDossier.channels.pine_labs?.enabled && !viewingUserDossier.channels.payswiff?.enabled && !viewingUserDossier.channels.qr?.enabled)) && (
-                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#F1F5F9', color: '#334155', padding: '3px 8px', borderRadius: '6px', border: '1px solid #E2E8F0' }}>
-                        📟 Rates: T+1: {viewingUserDossier.commission_rate_t1 || viewingUserDossier.margin_rate || 1.50}% • Instant: {viewingUserDossier.commission_rate_instant || 1.80}% {viewingUserDossier.upline_override_rate ? `• Downline Cut: ${viewingUserDossier.upline_override_rate}%` : ''}
-                      </span>
-                    )}
+                  {/* Compact Rates & Channel Capsule */}
+                  <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.625rem', flexWrap: 'wrap', alignItems: 'center' }}>
                     <button
                       type="button"
                       onClick={() => handleOpenManageChannels(viewingUserDossier)}
@@ -2360,29 +2342,32 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         background: '#0F52BA',
                         color: '#FFFFFF',
                         border: 'none',
-                        padding: '3px 9px',
+                        padding: '4px 10px',
                         borderRadius: '6px',
-                        fontSize: '0.65625rem',
+                        fontSize: '0.6875rem',
                         fontWeight: 800,
                         cursor: 'pointer',
-                        display: 'flex',
+                        display: 'inline-flex',
                         alignItems: 'center',
-                        gap: '4px'
+                        gap: '4px',
+                        boxShadow: '0 1px 3px rgba(15,82,186,0.2)'
                       }}
                     >
-                      ⚙️ Manage Terminals & Rates
+                      <CreditCard style={{ width: '12px', height: '12px' }} />
+                      <span>Manage Terminals &amp; Rates</span>
                     </button>
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                {/* Compact Action Bar */}
+                <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', alignItems: 'center' }}>
                   <button
                     onClick={(e) => handleOpenEditPartner(viewingUserDossier, e)}
-                    style={{ background: '#EFF6FF', color: '#0F52BA', border: '1px solid #BFDBFE', padding: '0.4rem 0.65rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                    title="Edit Partner Details"
+                    style={{ background: '#EFF6FF', color: '#0F52BA', border: '1px solid #BFDBFE', padding: '0.35rem 0.6rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    title="Edit Profile"
                   >
                     <Edit3 style={{ width: '12px', height: '12px' }} />
-                    <span>Edit Profile</span>
+                    <span>Edit</span>
                   </button>
 
                   <button
@@ -2391,7 +2376,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       background: viewingUserDossier.status === 'SUSPENDED' ? '#FEF2F2' : '#FFFBEB',
                       color: viewingUserDossier.status === 'SUSPENDED' ? '#DC2626' : '#B45309',
                       border: viewingUserDossier.status === 'SUSPENDED' ? '1px solid #FECACA' : '1px solid #FDE68A',
-                      padding: '0.4rem 0.65rem',
+                      padding: '0.35rem 0.6rem',
                       borderRadius: '6px',
                       fontSize: '0.6875rem',
                       fontWeight: 800,
@@ -2407,26 +2392,26 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
                   <button
                     onClick={() => copyToClipboard(`ID: ${viewingUserDossier.id}\nMobile: ${viewingUserDossier.mobile}`, viewingUserDossier.id)}
-                    style={{ background: '#F8FAFC', border: '1px solid #CBD5E1', padding: '0.4rem 0.65rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    style={{ background: '#F8FAFC', border: '1px solid #CBD5E1', padding: '0.35rem 0.6rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
                   >
                     <Copy style={{ width: '12px', height: '12px' }} />
-                    <span>{copiedId[viewingUserDossier.id] ? 'Copied!' : 'Copy Info'}</span>
+                    <span>{copiedId[viewingUserDossier.id] ? 'Copied!' : 'Copy'}</span>
                   </button>
 
                   <button
                     onClick={(e) => handleOpenResetPassword(viewingUserDossier, e)}
-                    style={{ background: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0', padding: '0.4rem 0.65rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                    title="Reset User Password"
+                    style={{ background: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0', padding: '0.35rem 0.6rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    title="Reset Password"
                   >
                     <Key style={{ width: '12px', height: '12px' }} />
-                    <span>Reset Password</span>
+                    <span>Reset Pass</span>
                   </button>
 
                   {viewingUserDossier.id !== 'ADM001' && (
                     <button
                       onClick={() => handleDeleteUser(viewingUserDossier.id, viewingUserDossier.name)}
-                      style={{ background: '#FFF1F2', color: '#E11D48', border: '1px solid #FECDD3', padding: '0.4rem 0.65rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                      title="Permanently Delete This Account"
+                      style={{ background: '#FFF1F2', color: '#E11D48', border: '1px solid #FECDD3', padding: '0.35rem 0.6rem', borderRadius: '6px', fontSize: '0.6875rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      title="Delete User"
                     >
                       <Trash2 style={{ width: '12px', height: '12px' }} />
                       <span>Delete</span>
@@ -2435,240 +2420,494 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 </div>
               </div>
 
-              {/* Complete Financial Cards Tailored to Role */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.625rem', marginTop: '1.25rem' }}>
-                {viewingUserDossier.dossierType === 'MERCHANT' ? (
-                  <>
-                    <div style={{ background: '#EFF6FF', padding: '0.75rem', borderRadius: '8px', border: '1px solid #BFDBFE' }}>
-                      <span style={{ fontSize: '0.625rem', color: '#0F52BA', fontWeight: 800, textTransform: 'uppercase' }}>Available Wallet</span>
-                      <strong style={{ display: 'block', fontSize: '1.0625rem', fontWeight: 900, color: '#0F52BA', marginTop: '2px' }}>
-                        ₹{parseFloat(viewingUserDossier.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </strong>
+              {/* SEGMENTED MACHINE / TERMINAL SELECTOR (Only for Merchant view) */}
+              {viewingUserDossier.dossierType === 'MERCHANT' && (() => {
+                const ch = viewingUserDossier?.channels || (viewingUserDossier?.pos_raw ? parseMerchantChannels(viewingUserDossier.pos_raw) : null);
+                const tabs = [{ id: 'ALL', label: 'All Terminals', icon: '💳', sub: 'Combined Ledger' }];
+                if (ch) {
+                  if (ch.pine_labs?.enabled) tabs.push({ id: 'pine_labs', label: 'Pine Labs', tid: ch.pine_labs.terminal_id || 'PL-01', rate: `${ch.pine_labs.rate_t1 || 1.5}%`, icon: '🌲', color: '#0F52BA' });
+                  if (ch.payswiff?.enabled) tabs.push({ id: 'payswiff', label: 'Payswiff', tid: ch.payswiff.terminal_id || 'SWIFF-01', rate: `${ch.payswiff.rate_t1 || 2.1}%`, icon: '⚡', color: '#D97706' });
+                  if (ch.qr?.enabled) tabs.push({ id: 'qr', label: 'Company QR', tid: 'QR-UPI', rate: `${ch.qr.rate_instant || 1.8}%`, icon: '📱', color: '#7C3AED' });
+                } else {
+                  tabs.push({ id: 'pine_labs', label: 'Pine Labs', tid: 'PL-01', rate: '1.5%', icon: '🌲', color: '#0F52BA' });
+                }
+
+                return (
+                  <div style={{
+                    marginTop: '1rem',
+                    background: '#F1F5F9',
+                    padding: '4px',
+                    borderRadius: '12px',
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${tabs.length}, 1fr)`,
+                    gap: '4px',
+                    border: '1px solid #E2E8F0'
+                  }}>
+                    {tabs.map(tab => {
+                      const isActive = dossierMachineFilter === tab.id;
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => setDossierMachineFilter(tab.id)}
+                          style={{
+                            padding: '0.45rem 0.5rem',
+                            borderRadius: '8px',
+                            border: 'none',
+                            background: isActive ? (tab.color || '#0F172A') : 'transparent',
+                            color: isActive ? '#FFFFFF' : '#475569',
+                            fontWeight: 800,
+                            fontSize: '0.72rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '1px',
+                            boxShadow: isActive ? '0 2px 6px rgba(0,0,0,0.15)' : 'none',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                            <span>{tab.icon}</span>
+                            <span>{tab.label}</span>
+                          </span>
+                          {tab.tid && (
+                            <span style={{ fontSize: '0.5625rem', opacity: isActive ? 0.9 : 0.7, fontWeight: 600 }}>
+                              {tab.tid} • {tab.rate}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
+              {/* DYNAMIC RECOMPUTED FINANCIAL CARD (Clean Native Fintech 2x2 Grid) */}
+              {(() => {
+                const allTxns = viewingUserDossier.transactions || [];
+                const filteredTxns = allTxns.filter(t => {
+                  if (dossierMachineFilter === 'ALL') return true;
+                  const channel = classifyTransactionChannel(t);
+                  return channel === dossierMachineFilter;
+                });
+
+                const totalVol = filteredTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+                const approvedTxns = filteredTxns.filter(t => (t.status || '').toUpperCase() === 'APPROVED');
+                
+                let grossMdr = 0;
+                let netAdmin = 0;
+                approvedTxns.forEach(t => {
+                  let fee = parseFloat(t.company_fee) || 0;
+                  if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
+                    try {
+                      const meta = JSON.parse(t.notes.slice(t.notes.indexOf('{')));
+                      if (meta.company_fee) fee = parseFloat(meta.company_fee);
+                    } catch (_) {}
+                  }
+                  grossMdr += fee;
+                  netAdmin += (parseFloat(t.amount || 0) * 0.0015);
+                });
+
+                return (
+                  <div style={{
+                    marginTop: '0.875rem',
+                    background: 'linear-gradient(135deg, #F8FAFC 0%, #EFF6FF 100%)',
+                    borderRadius: '14px',
+                    border: '1px solid #BFDBFE',
+                    padding: '1rem'
+                  }}>
+                    {/* Primary Hero: Live Wallet Balance */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #DBEAFE', paddingBottom: '0.625rem', marginBottom: '0.625rem' }}>
+                      <div>
+                        <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                          Available Wallet
+                        </span>
+                        <strong style={{ display: 'block', fontSize: '1.25rem', fontWeight: 900, color: '#0F52BA', marginTop: '2px' }}>
+                          ₹{parseFloat(viewingUserDossier.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </strong>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                          Admin Net Profit
+                        </span>
+                        <strong style={{ display: 'block', fontSize: '1.25rem', fontWeight: 900, color: '#059669', marginTop: '2px' }}>
+                          +₹{netAdmin.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </strong>
+                      </div>
                     </div>
-                    <div style={{ background: '#F8FAFC', padding: '0.75rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
-                      <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 800, textTransform: 'uppercase' }}>Total Sales</span>
-                      <strong style={{ display: 'block', fontSize: '1.0625rem', fontWeight: 900, color: '#0A192F', marginTop: '2px' }}>
-                        ₹{viewingUserDossier.totalVol.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </strong>
+
+                    {/* Sub-grid: 3-column financial audit summary */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', textAlign: 'center' }}>
+                      <div style={{ background: '#FFFFFF', padding: '0.5rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                        <span style={{ fontSize: '0.5625rem', color: '#64748B', fontWeight: 800, display: 'block' }}>TOTAL VOLUME</span>
+                        <strong style={{ fontSize: '0.8125rem', color: '#0F172A', fontWeight: 800 }}>
+                          ₹{totalVol.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </strong>
+                        <span style={{ fontSize: '0.5rem', color: '#64748B', display: 'block' }}>
+                          {filteredTxns.length} Swipes
+                        </span>
+                      </div>
+                      <div style={{ background: '#FFFFFF', padding: '0.5rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                        <span style={{ fontSize: '0.5625rem', color: '#D97706', fontWeight: 800, display: 'block' }}>GROSS MDR</span>
+                        <strong style={{ fontSize: '0.8125rem', color: '#D97706', fontWeight: 800 }}>
+                          ₹{grossMdr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </strong>
+                        <span style={{ fontSize: '0.5rem', color: '#64748B', display: 'block' }}>
+                          Company Deducted
+                        </span>
+                      </div>
+                      <div style={{ background: '#FFFFFF', padding: '0.5rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                        <span style={{ fontSize: '0.5625rem', color: '#16A34A', fontWeight: 800, display: 'block' }}>WITHDRAWN</span>
+                        <strong style={{ fontSize: '0.8125rem', color: '#16A34A', fontWeight: 800 }}>
+                          ₹{parseFloat(viewingUserDossier.withdrawn_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </strong>
+                        <span style={{ fontSize: '0.5rem', color: '#64748B', display: 'block' }}>
+                          To Bank
+                        </span>
+                      </div>
                     </div>
-                    <div style={{ background: '#FFFBEB', padding: '0.75rem', borderRadius: '8px', border: '1px solid #FDE68A' }}>
-                      <span style={{ fontSize: '0.625rem', color: '#B45309', fontWeight: 800, textTransform: 'uppercase' }}>Pending Balance</span>
-                      <strong style={{ display: 'block', fontSize: '1.0625rem', fontWeight: 900, color: '#D97706', marginTop: '2px' }}>
-                        ₹{parseFloat(viewingUserDossier.pending_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </strong>
-                    </div>
-                    <div style={{ background: '#F0FDF4', padding: '0.75rem', borderRadius: '8px', border: '1px solid #BBF7D0' }}>
-                      <span style={{ fontSize: '0.625rem', color: '#15803D', fontWeight: 800, textTransform: 'uppercase' }}>Withdrawn to Bank</span>
-                      <strong style={{ display: 'block', fontSize: '1.0625rem', fontWeight: 900, color: '#16A34A', marginTop: '2px' }}>
-                        ₹{parseFloat(viewingUserDossier.withdrawn_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </strong>
-                    </div>
-                    <div style={{ background: '#ECFDF5', padding: '0.75rem', borderRadius: '8px', border: '1px solid #A7F3D0' }}>
-                      <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800, textTransform: 'uppercase' }}>Admin Profit</span>
-                      <strong style={{ display: 'block', fontSize: '1.0625rem', fontWeight: 900, color: '#059669', marginTop: '2px' }}>
-                        +₹{viewingUserDossier.profitEarned.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </strong>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div style={{ background: '#F8FAFC', padding: '0.75rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
-                      <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 800, textTransform: 'uppercase' }}>Downline Turnover</span>
-                      <strong style={{ display: 'block', fontSize: '1.0625rem', fontWeight: 900, color: '#0A192F', marginTop: '2px' }}>
-                        ₹{viewingUserDossier.totalVol.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </strong>
-                    </div>
-                    <div style={{ background: '#F5F3FF', padding: '0.75rem', borderRadius: '8px', border: '1px solid #DDD6FE' }}>
-                      <span style={{ fontSize: '0.625rem', color: '#6D28D9', fontWeight: 800, textTransform: 'uppercase' }}>Commission Earned</span>
-                      <strong style={{ display: 'block', fontSize: '1.0625rem', fontWeight: 900, color: '#7C3AED', marginTop: '2px' }}>
-                        +₹{(viewingUserDossier.totalVol * (viewingUserDossier.dossierType === 'SUPER_DISTRIBUTOR' ? 0.0015 : 0.0025)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </strong>
-                    </div>
-                    <div style={{ background: '#EFF6FF', padding: '0.75rem', borderRadius: '8px', border: '1px solid #BFDBFE' }}>
-                      <span style={{ fontSize: '0.625rem', color: '#0F52BA', fontWeight: 800, textTransform: 'uppercase' }}>Wallet Balance</span>
-                      <strong style={{ display: 'block', fontSize: '1.0625rem', fontWeight: 900, color: '#0F52BA', marginTop: '2px' }}>
-                        ₹{parseFloat(viewingUserDossier.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </strong>
-                    </div>
-                    <div style={{ background: '#ECFDF5', padding: '0.75rem', borderRadius: '8px', border: '1px solid #A7F3D0' }}>
-                      <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800, textTransform: 'uppercase' }}>Admin Profit</span>
-                      <strong style={{ display: 'block', fontSize: '1.0625rem', fontWeight: 900, color: '#059669', marginTop: '2px' }}>
-                        +₹{viewingUserDossier.profitEarned.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </strong>
-                    </div>
-                  </>
-                )}
-              </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Merchant Activity: Unified 3-Tab View (Transactions, Withdrawals, Linked Banks) */}
-            {viewingUserDossier.dossierType === 'MERCHANT' && (
-              <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-                {/* 3 Modern Clean Tabs */}
-                <div style={{ display: 'flex', borderBottom: '1px solid #E2E8F0', background: '#F8FAFC', padding: '0.35rem 0.5rem', gap: '0.35rem' }}>
-                  {[
-                    { id: 'transactions', label: 'Transactions', count: viewingUserDossier.transactions?.length || 0, icon: '💳' },
-                    { id: 'withdrawals', label: 'Withdrawals', count: dossierWithdrawals.length, icon: '💸' },
-                    { id: 'banks', label: 'Linked Banks', count: dossierBeneficiaries.length, icon: '🏦' }
-                  ].map(tab => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => setDossierTab(tab.id)}
-                      style={{
-                        padding: '0.5rem 0.85rem',
-                        fontSize: '0.75rem',
-                        fontWeight: 800,
-                        borderRadius: '6px',
-                        border: dossierTab === tab.id ? '1px solid #CBD5E1' : '1px solid transparent',
-                        background: dossierTab === tab.id ? '#FFFFFF' : 'transparent',
-                        color: dossierTab === tab.id ? '#0F52BA' : '#64748B',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        boxShadow: dossierTab === tab.id ? '0 1px 2px rgba(0,0,0,0.05)' : 'none'
-                      }}
-                    >
-                      <span>{tab.icon} {tab.label}</span>
-                      <span style={{
-                        fontSize: '0.625rem',
-                        padding: '1px 6px',
-                        borderRadius: '10px',
-                        background: dossierTab === tab.id ? '#EFF6FF' : '#E2E8F0',
-                        color: dossierTab === tab.id ? '#0F52BA' : '#475569'
-                      }}>
-                        {tab.count}
-                      </span>
-                    </button>
-                  ))}
-                </div>
+            {viewingUserDossier.dossierType === 'MERCHANT' && (() => {
+              const allTxns = viewingUserDossier.transactions || [];
+              const filteredTxns = allTxns.filter(t => {
+                if (dossierMachineFilter === 'ALL') return true;
+                const channel = classifyTransactionChannel(t);
+                return channel === dossierMachineFilter;
+              });
 
-                {/* Tab 1: Transactions */}
-                {dossierTab === 'transactions' && (
-                  <div style={{ padding: '1rem' }}>
-                    {(!viewingUserDossier.transactions || viewingUserDossier.transactions.length === 0) ? (
-                      <div style={{ padding: '2rem', textAlign: 'center', background: '#F8FAFC', borderRadius: '8px', border: '1px dashed #CBD5E1', color: '#64748B', fontSize: '0.75rem' }}>
-                        No transactions recorded for this merchant yet.
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        {viewingUserDossier.transactions.map(t => (
-                          <div key={t.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #E2E8F0', flexWrap: 'wrap', gap: '0.5rem' }}>
-                            <div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                                <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0A192F' }}>
-                                  {t.type === 'POS_SWIPE' ? '💳 Card Swipe' : t.type === 'BBPS_BILL' ? '⚡ Utility Bill' : '📱 Payment'}
-                                </span>
-                                <span style={{
-                                  fontSize: '0.55rem',
-                                  fontWeight: 800,
-                                  padding: '1px 5px',
-                                  borderRadius: '3px',
-                                  background: t.status === 'APPROVED' || t.status === 'Success' ? '#D1FAE5' : '#FEE2E2',
-                                  color: t.status === 'APPROVED' || t.status === 'Success' ? '#059669' : '#DC2626'
+              return (
+                <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                  {/* 3 Modern Clean Tabs */}
+                  <div style={{ display: 'flex', borderBottom: '1px solid #E2E8F0', background: '#F8FAFC', padding: '0.35rem 0.5rem', gap: '0.35rem' }}>
+                    {[
+                      { id: 'transactions', label: 'Transactions', count: filteredTxns.length, icon: '💳' },
+                      { id: 'withdrawals', label: 'Withdrawals', count: dossierWithdrawals.length, icon: '💸' },
+                      { id: 'banks', label: 'Linked Banks', count: dossierBeneficiaries.length, icon: '🏦' }
+                    ].map(tab => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setDossierTab(tab.id)}
+                        style={{
+                          padding: '0.5rem 0.85rem',
+                          fontSize: '0.75rem',
+                          fontWeight: 800,
+                          borderRadius: '6px',
+                          border: dossierTab === tab.id ? '1px solid #CBD5E1' : '1px solid transparent',
+                          background: dossierTab === tab.id ? '#FFFFFF' : 'transparent',
+                          color: dossierTab === tab.id ? '#0F52BA' : '#64748B',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          boxShadow: dossierTab === tab.id ? '0 1px 2px rgba(0,0,0,0.05)' : 'none'
+                        }}
+                      >
+                        <span>{tab.icon} {tab.label}</span>
+                        <span style={{
+                          fontSize: '0.625rem',
+                          padding: '1px 6px',
+                          borderRadius: '10px',
+                          background: dossierTab === tab.id ? '#EFF6FF' : '#E2E8F0',
+                          color: dossierTab === tab.id ? '#0F52BA' : '#475569'
+                        }}>
+                          {tab.count}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Tab 1: Clean App-Style Scannable Transactions */}
+                  {dossierTab === 'transactions' && (
+                    <div style={{ padding: '0.75rem' }}>
+                      {filteredTxns.length === 0 ? (
+                        <div style={{ padding: '2rem', textAlign: 'center', background: '#F8FAFC', borderRadius: '8px', border: '1px dashed #CBD5E1', color: '#64748B', fontSize: '0.75rem' }}>
+                          No transactions recorded for this terminal filter.
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          {filteredTxns.map(t => {
+                            let meta = {};
+                            if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
+                              try {
+                                meta = JSON.parse(t.notes.slice(t.notes.indexOf('{')));
+                              } catch (_) {}
+                            }
+
+                            const amt = parseFloat(t.amount || 0);
+                            const compFee = parseFloat(meta.company_fee || t.company_fee || (amt * 0.016)) || 0;
+                            const adminNet = parseFloat((amt * 0.0015).toFixed(2));
+                            const uplinesCut = Math.max(0, parseFloat((compFee - adminNet).toFixed(2)));
+                            const providerName = meta.pos_provider || t.provider || 'POS';
+                            const terminalId = meta.terminal_id || t.terminal_id || '';
+                            const customerName = meta.customer_name || t.customer_name || 'Customer';
+                            const utrNumber = meta.rrn || t.ref_number || t.rrn || t.id;
+                            const isSwiff = providerName.toLowerCase().includes('swiff');
+                            const isQr = t.type === 'QR_SCAN' || providerName.toLowerCase().includes('qr');
+
+                            return (
+                              <div
+                                key={t.id}
+                                onClick={() => setSelectedDossierTxn({ ...t, meta, compFee, adminNet, uplinesCut, providerName, terminalId, customerName, utrNumber })}
+                                className="card-hover"
+                                style={{
+                                  background: '#FFFFFF',
+                                  borderRadius: '10px',
+                                  border: '1px solid #E2E8F0',
+                                  padding: '0.75rem',
+                                  cursor: 'pointer',
+                                  boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: '0.4rem'
+                                }}
+                              >
+                                {/* Top Line: Terminal Icon & Badge + Amount & Status */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                    <span style={{ fontSize: '1rem' }}>
+                                      {isQr ? '📱' : (isSwiff ? '⚡' : '🌲')}
+                                    </span>
+                                    <div>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                        <strong style={{ fontSize: '0.78125rem', color: '#0F172A' }}>
+                                          {providerName} POS
+                                        </strong>
+                                        {terminalId && (
+                                          <span style={{ fontSize: '0.5625rem', background: '#F1F5F9', color: '#475569', padding: '1px 5px', borderRadius: '4px', border: '1px solid #E2E8F0', fontWeight: 700 }}>
+                                            {terminalId}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block' }}>
+                                        {customerName} • {new Date(t.created_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div style={{ textAlign: 'right' }}>
+                                    <strong style={{ fontSize: '0.9375rem', color: '#0F172A', display: 'block', fontWeight: 900 }}>
+                                      ₹{amt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                    </strong>
+                                    <span style={{
+                                      fontSize: '0.5625rem',
+                                      fontWeight: 800,
+                                      padding: '1px 6px',
+                                      borderRadius: '4px',
+                                      background: t.status === 'APPROVED' ? '#DCFCE7' : '#FEF3C7',
+                                      color: t.status === 'APPROVED' ? '#15803D' : '#B45309'
+                                    }}>
+                                      ● {t.status || 'APPROVED'}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Financial Split Strip */}
+                                <div style={{
+                                  marginTop: '2px',
+                                  padding: '4px 8px',
+                                  borderRadius: '6px',
+                                  background: '#F8FAFC',
+                                  border: '1px solid #F1F5F9',
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  fontSize: '0.625rem'
                                 }}>
-                                  {t.status}
+                                  <span style={{ color: '#64748B' }}>
+                                    Gross MDR: <strong style={{ color: '#D97706' }}>₹{compFee.toFixed(2)}</strong>
+                                  </span>
+                                  <span style={{ color: '#64748B' }}>
+                                    Uplines Cut: <strong style={{ color: '#475569' }}>₹{uplinesCut.toFixed(2)}</strong>
+                                  </span>
+                                  <span style={{ color: '#059669', fontWeight: 800 }}>
+                                    👑 Net Admin: +₹{adminNet.toFixed(2)}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Tab 2: Withdrawals */}
+                  {dossierTab === 'withdrawals' && (
+                    <div style={{ padding: '0.75rem' }}>
+                      {dossierWithdrawals.length === 0 ? (
+                        <div style={{ padding: '2rem', background: '#F8FAFC', borderRadius: '8px', border: '1px dashed #CBD5E1', fontSize: '0.75rem', color: '#64748B', textAlign: 'center' }}>
+                          No withdrawal requests submitted by this merchant yet.
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          {dossierWithdrawals.map(w => (
+                            <div key={w.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                              <div>
+                                <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>
+                                  ₹{parseFloat(w.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })} ➔ {w.bank_name}
+                                </strong>
+                                <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
+                                  A/C: ••••{(w.account_number || '').slice(-4)} • {new Date(w.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                                 </span>
                               </div>
-                              <span style={{ display: 'block', fontSize: '0.625rem', color: '#64748B', marginTop: '2px' }}>
-                                TXN: {t.id} • {new Date(t.created_at || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              <span style={{
+                                fontSize: '0.625rem',
+                                fontWeight: 800,
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                background: w.status === 'APPROVED' ? '#DCFCE7' : '#FEF3C7',
+                                color: w.status === 'APPROVED' ? '#15803D' : '#B45309'
+                              }}>
+                                {w.status}
                               </span>
                             </div>
-                            <div style={{ textAlign: 'right' }}>
-                              <strong style={{ fontSize: '0.875rem', color: '#0A192F', display: 'block' }}>
-                                ₹{parseFloat(t.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                              </strong>
-                              {t.notes && t.notes.includes('company_fee') && (
-                                <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 700 }}>
-                                  Admin Cut: ₹{(() => {
-                                    try {
-                                      const n = JSON.parse(t.notes.replace('[CARD_SWIPE_ENTRY] ', ''));
-                                      return (n.company_fee || 0).toFixed(2);
-                                    } catch {
-                                      return (parseFloat(t.amount) * 0.0015).toFixed(2);
-                                    }
-                                  })()}
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Tab 3: Linked Bank Accounts */}
+                  {dossierTab === 'banks' && (
+                    <div style={{ padding: '0.75rem' }}>
+                      {dossierBeneficiaries.length === 0 ? (
+                        <div style={{ padding: '2rem', background: '#F8FAFC', borderRadius: '8px', border: '1px dashed #CBD5E1', fontSize: '0.75rem', color: '#64748B', textAlign: 'center' }}>
+                          No bank accounts linked by this merchant yet.
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          {dossierBeneficiaries.map(b => (
+                            <div key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.75rem' }}>
+                              <div>
+                                <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{b.bank_name}</strong>
+                                <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
+                                  A/C: {b.account_number} • IFSC: {b.ifsc} • {b.holder_name}
+                                </span>
+                              </div>
+                              {b.is_primary && (
+                                <span style={{ fontSize: '0.625rem', fontWeight: 800, color: '#0F52BA', background: '#EFF6FF', padding: '2px 8px', borderRadius: '4px', border: '1px solid #BFDBFE' }}>
+                                  Primary
                                 </span>
                               )}
                             </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
-                {/* Tab 2: Withdrawals */}
-                {dossierTab === 'withdrawals' && (
-                  <div style={{ padding: '1rem' }}>
-                    {dossierWithdrawals.length === 0 ? (
-                      <div style={{ padding: '2rem', background: '#F8FAFC', borderRadius: '8px', border: '1px dashed #CBD5E1', fontSize: '0.75rem', color: '#64748B', textAlign: 'center' }}>
-                        No withdrawal requests submitted by this merchant yet.
+            {/* TRANSACTION AUDIT MODAL SHEET */}
+            {selectedDossierTxn && (
+              <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(15, 23, 42, 0.65)',
+                backdropFilter: 'blur(4px)',
+                zIndex: 9999,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '1rem'
+              }}>
+                <div style={{
+                  background: '#FFFFFF',
+                  borderRadius: '16px',
+                  maxWidth: '460px',
+                  width: '100%',
+                  padding: '1.25rem',
+                  boxShadow: '0 20px 25px -5px rgba(0,0,0,0.3)',
+                  boxSizing: 'border-box'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #E2E8F0', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                      <span style={{ fontSize: '1.25rem' }}>💳</span>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 900, color: '#0F172A' }}>
+                          Transaction Financial Audit
+                        </h3>
+                        <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
+                          TXN: {selectedDossierTxn.id}
+                        </span>
                       </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        {dossierWithdrawals.map(w => (
-                          <div key={w.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-                            <div>
-                              <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>
-                                ₹{parseFloat(w.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })} ➔ {w.bank_name}
-                              </strong>
-                              <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
-                                A/C: ••••{w.account_number.slice(-4)} • {new Date(w.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                              {w.admin_remark && (
-                                <span style={{ display: 'block', fontSize: '0.625rem', color: '#475569', fontStyle: 'italic', marginTop: '2px' }}>
-                                  Remark: "{w.admin_remark}"
-                                </span>
-                              )}
-                            </div>
-                            <span style={{
-                              fontSize: '0.625rem',
-                              fontWeight: 800,
-                              padding: '2px 8px',
-                              borderRadius: '4px',
-                              background: w.status === 'APPROVED' ? '#D1FAE5' : w.status === 'PENDING' ? '#FEF3C7' : '#FEE2E2',
-                              color: w.status === 'APPROVED' ? '#059669' : w.status === 'PENDING' ? '#B45309' : '#DC2626'
-                            }}>
-                              {w.status}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDossierTxn(null)}
+                      style={{ background: '#F1F5F9', border: 'none', borderRadius: '50%', width: '28px', height: '28px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <X style={{ width: '14px', height: '14px', color: '#475569' }} />
+                    </button>
                   </div>
-                )}
 
-                {/* Tab 3: Bank Accounts */}
-                {dossierTab === 'banks' && (
-                  <div style={{ padding: '1rem' }}>
-                    {dossierBeneficiaries.length === 0 ? (
-                      <div style={{ padding: '2rem', background: '#F8FAFC', borderRadius: '8px', border: '1px dashed #CBD5E1', fontSize: '0.75rem', color: '#64748B', textAlign: 'center' }}>
-                        No bank accounts linked yet.
-                      </div>
-                    ) : (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.625rem' }}>
-                        {dossierBeneficiaries.map(b => (
-                          <div key={b.id} style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '0.75rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{b.bank_name}</strong>
-                              {b.is_primary === 1 && (
-                                <span style={{ fontSize: '0.55rem', fontWeight: 800, background: '#D1FAE5', color: '#059669', padding: '1px 6px', borderRadius: '3px' }}>PRIMARY</span>
-                              )}
-                            </div>
-                            <span style={{ display: 'block', fontSize: '0.75rem', color: '#334155', marginTop: '4px', fontFamily: 'monospace', fontWeight: 700 }}>
-                              A/C: ••••{b.account_number.slice(-4)}
-                            </span>
-                            <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
-                              IFSC: {b.ifsc} • {b.holder_name}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem', fontSize: '0.75rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', background: '#F8FAFC', padding: '0.5rem 0.75rem', borderRadius: '8px' }}>
+                      <span style={{ color: '#64748B' }}>Gross Swipe Amount:</span>
+                      <strong style={{ color: '#0F172A', fontSize: '0.875rem' }}>
+                        ₹{parseFloat(selectedDossierTxn.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0.75rem' }}>
+                      <span style={{ color: '#64748B' }}>Hardware Terminal:</span>
+                      <strong style={{ color: '#0F172A' }}>{selectedDossierTxn.providerName} ({selectedDossierTxn.terminalId || 'COUNTER-01'})</strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0.75rem' }}>
+                      <span style={{ color: '#64748B' }}>Customer Name / Slip UTR:</span>
+                      <strong style={{ color: '#0F172A' }}>{selectedDossierTxn.customerName} • {selectedDossierTxn.utrNumber}</strong>
+                    </div>
+
+                    <div style={{ borderTop: '1px dashed #CBD5E1', margin: '0.25rem 0' }} />
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0.75rem' }}>
+                      <span style={{ color: '#D97706', fontWeight: 700 }}>Gross Company MDR Fee:</span>
+                      <strong style={{ color: '#D97706' }}>-₹{selectedDossierTxn.compFee.toFixed(2)}</strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0.75rem' }}>
+                      <span style={{ color: '#475569' }}>Downline Uplines Split:</span>
+                      <strong style={{ color: '#475569' }}>-₹{selectedDossierTxn.uplinesCut.toFixed(2)}</strong>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', background: '#ECFDF5', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #A7F3D0' }}>
+                      <span style={{ color: '#059669', fontWeight: 800 }}>👑 Net Admin Profit Retained:</span>
+                      <strong style={{ color: '#059669', fontSize: '0.875rem', fontWeight: 900 }}>
+                        +₹{selectedDossierTxn.adminNet.toFixed(2)}
+                      </strong>
+                    </div>
                   </div>
-                )}
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDossierTxn(null)}
+                    style={{
+                      width: '100%',
+                      marginTop: '1rem',
+                      background: '#0F172A',
+                      color: '#FFFFFF',
+                      border: 'none',
+                      padding: '0.625rem',
+                      borderRadius: '8px',
+                      fontWeight: 800,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Done
+                  </button>
+                </div>
               </div>
             )}
 
