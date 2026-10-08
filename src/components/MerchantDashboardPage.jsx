@@ -1077,12 +1077,17 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   const networkSummaryStats = useMemo(() => {
     const chVol = networkData.channel_volumes || { pinelabs: 0, payswiff: 0, qr: 0, all: 0, today_pinelabs: 0, today_payswiff: 0, today_qr: 0, today_all: 0 };
     const chComm = networkData.channel_commissions || { pinelabs: 0, payswiff: 0, qr: 0, today_pinelabs: 0, today_payswiff: 0, today_qr: 0 };
+    const firstPartner = networkData.partners && networkData.partners[0];
+    const marginPinelabs = firstPartner?.channel_margins?.pinelabs ?? 0.10;
+    const marginPayswiff = firstPartner?.channel_margins?.payswiff ?? 0.20;
+    const marginQr = firstPartner?.channel_margins?.qr ?? 0.25;
 
     if (networkChannelFilter === 'pinelabs') {
       return {
         label: 'Pine Labs POS',
         volume: chVol.pinelabs || 0,
         profit: chComm.pinelabs || 0,
+        marginPct: marginPinelabs,
         todayVolume: chVol.today_pinelabs || 0,
         todayProfit: chComm.today_pinelabs || 0,
         themeColor: '#0F52BA'
@@ -1092,6 +1097,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         label: 'Payswiff POS',
         volume: chVol.payswiff || 0,
         profit: chComm.payswiff || 0,
+        marginPct: marginPayswiff,
         todayVolume: chVol.today_payswiff || 0,
         todayProfit: chComm.today_payswiff || 0,
         themeColor: '#D97706'
@@ -1101,6 +1107,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         label: 'Company QR (UPI)',
         volume: chVol.qr || 0,
         profit: chComm.qr || 0,
+        marginPct: marginQr,
         todayVolume: chVol.today_qr || 0,
         todayProfit: chComm.today_qr || 0,
         themeColor: '#7C3AED'
@@ -1110,6 +1117,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         label: 'All Terminals',
         volume: chVol.all || networkData.total_downline_volume || 0,
         profit: networkData.total_commission_earned || 0,
+        marginPct: networkData.commission_rate_pct || 0.25,
         todayVolume: chVol.today_all || networkData.today_downline_volume || 0,
         todayProfit: networkData.today_network_profit || 0,
         themeColor: '#0F52BA'
@@ -1124,7 +1132,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     }
     setExpandedPartnerId(partner.id);
     setSelectedPartner(partner);
-    setPartnerTxnChannelFilter(networkChannelFilter === 'ALL' ? 'ALL' : networkChannelFilter);
+    setPartnerTxnChannelFilter(networkChannelFilter);
     setIsLoadingPartnerTxns(true);
     try {
       const res = await getPartnerTransactions(merchantId, partner.id);
@@ -6251,7 +6259,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                         ₹{networkSummaryStats.profit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h3>
                       <span style={{ fontSize: '0.59rem', color: '#0F52BA', fontWeight: 800, background: '#EFF6FF', padding: '1px 5px', borderRadius: '4px', display: 'inline-block' }}>
-                        +{parseFloat(userTierMargin) > 0 ? userTierMargin : networkData.commission_rate_pct}% Cut
+                        +{networkSummaryStats.marginPct || 0.25}% Cut
                       </span>
                     </div>
 
@@ -7142,13 +7150,15 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                   +₹{(networkChannelFilter === 'pinelabs' 
                                     ? (p.channel_commissions?.pinelabs !== undefined ? p.channel_commissions.pinelabs : p.commission_earned) 
                                     : (networkChannelFilter === 'payswiff' 
-                                      ? (p.channel_commissions?.payswiff || 0) 
+                                      ? (p.channel_commissions?.payswiff !== undefined ? p.channel_commissions.payswiff : 0) 
                                       : (networkChannelFilter === 'qr' 
-                                        ? (p.channel_commissions?.qr || 0) 
+                                        ? (p.channel_commissions?.qr !== undefined ? p.channel_commissions.qr : 0) 
                                         : (p.commission_earned || 0)))).toFixed(2)}
                                 </div>
                                 <span style={{ fontSize: '0.59rem', color: '#64748B', fontWeight: 700 }}>
-                                  {networkChannelFilter === 'ALL' ? `${p.commission_rate_pct}% margin` : `${networkSummaryStats.label}`}
+                                  {networkChannelFilter === 'ALL' 
+                                    ? `${p.commission_rate_pct}% margin` 
+                                    : `${networkSummaryStats.label} (${(p.channel_margins?.[networkChannelFilter] ?? p.commission_rate_pct)}% margin)`}
                                 </span>
                               </div>
 
@@ -7177,18 +7187,12 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                           </div>
                         </div>
 
-                        {/* 2. GLANCEABLE SUMMARY PILLS STRIP (Per-Machine Breakdown with 1-Click Filter) */}
+                        {/* 2. GLANCEABLE SUMMARY PILLS STRIP (Strictly isolates pills to active channel) */}
                         <div style={{ padding: '0.45rem 0.875rem', background: '#F8FAFC', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', borderBottom: '1px solid #F1F5F9' }}>
                           {/* Pine Labs breakdown badge */}
-                          {(p.channel_volumes?.pinelabs > 0 || p.channels?.pine_labs?.enabled) && (
+                          {(networkChannelFilter === 'ALL' || networkChannelFilter === 'pinelabs') && (p.channel_volumes?.pinelabs > 0 || p.channels?.pine_labs?.enabled) && (
                             <span 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (!isExpanded) togglePartnerExpand(p);
-                                setPartnerTxnChannelFilter('pinelabs');
-                              }}
-                              style={{ fontSize: '0.625rem', background: p.channel_volumes?.pinelabs > 0 ? '#EFF6FF' : '#FFFFFF', border: p.channel_volumes?.pinelabs > 0 ? '1px solid #BFDBFE' : '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#0F52BA', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}
-                              title="Click to view Pine Labs swipes"
+                              style={{ fontSize: '0.625rem', background: p.channel_volumes?.pinelabs > 0 ? '#EFF6FF' : '#FFFFFF', border: p.channel_volumes?.pinelabs > 0 ? '1px solid #BFDBFE' : '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#0F52BA', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}
                             >
                               <span>🌲</span>
                               <span>Pine Labs: ₹{(p.channel_volumes?.pinelabs || 0).toLocaleString('en-IN')}{p.channel_txn_counts?.pinelabs > 0 ? ` (${p.channel_txn_counts.pinelabs} Txns)` : ''}</span>
@@ -7196,15 +7200,9 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                           )}
 
                           {/* Payswiff breakdown badge */}
-                          {(p.channel_volumes?.payswiff > 0 || p.channels?.payswiff?.enabled) && (
+                          {(networkChannelFilter === 'ALL' || networkChannelFilter === 'payswiff') && (p.channel_volumes?.payswiff > 0 || p.channels?.payswiff?.enabled) && (
                             <span 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (!isExpanded) togglePartnerExpand(p);
-                                setPartnerTxnChannelFilter('payswiff');
-                              }}
-                              style={{ fontSize: '0.625rem', background: p.channel_volumes?.payswiff > 0 ? '#FFFBEB' : '#FFFFFF', border: p.channel_volumes?.payswiff > 0 ? '1px solid #FDE68A' : '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#D97706', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}
-                              title="Click to view Payswiff swipes"
+                              style={{ fontSize: '0.625rem', background: p.channel_volumes?.payswiff > 0 ? '#FFFBEB' : '#FFFFFF', border: p.channel_volumes?.payswiff > 0 ? '1px solid #FDE68A' : '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#D97706', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}
                             >
                               <span>⚡</span>
                               <span>Payswiff: ₹{(p.channel_volumes?.payswiff || 0).toLocaleString('en-IN')}{p.channel_txn_counts?.payswiff > 0 ? ` (${p.channel_txn_counts.payswiff} Txns)` : ''}</span>
@@ -7212,15 +7210,9 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                           )}
 
                           {/* QR breakdown badge */}
-                          {(p.channel_volumes?.qr > 0 || p.channels?.qr?.enabled) && (
+                          {(networkChannelFilter === 'ALL' || networkChannelFilter === 'qr') && (p.channel_volumes?.qr > 0 || p.channels?.qr?.enabled) && (
                             <span 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (!isExpanded) togglePartnerExpand(p);
-                                setPartnerTxnChannelFilter('qr');
-                              }}
-                              style={{ fontSize: '0.625rem', background: p.channel_volumes?.qr > 0 ? '#F5F3FF' : '#FFFFFF', border: p.channel_volumes?.qr > 0 ? '1px solid #DDD6FE' : '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#7C3AED', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}
-                              title="Click to view QR scans"
+                              style={{ fontSize: '0.625rem', background: p.channel_volumes?.qr > 0 ? '#F5F3FF' : '#FFFFFF', border: p.channel_volumes?.qr > 0 ? '1px solid #DDD6FE' : '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#7C3AED', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px' }}
                             >
                               <span>📱</span>
                               <span>QR: ₹{(p.channel_volumes?.qr || 0).toLocaleString('en-IN')}{p.channel_txn_counts?.qr > 0 ? ` (${p.channel_txn_counts.qr} Txns)` : ''}</span>
@@ -7228,30 +7220,34 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                           )}
 
                           {/* Fallback legacy terminal badge if no channels */}
-                          {!p.channels && (
+                          {!p.channels && networkChannelFilter === 'ALL' && (
                             <span style={{ fontSize: '0.625rem', background: '#FFFFFF', border: '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#334155', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                               <span>🌲</span>
                               <span>{formatTerminalDisplay(p.pos_terminal, p.pos_provider || 'Pine Labs')}</span>
                             </span>
                           )}
 
-                          {/* Total Sales Badge */}
-                          <span 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (!isExpanded) togglePartnerExpand(p);
-                              setPartnerTxnChannelFilter('ALL');
-                            }}
-                            style={{ fontSize: '0.625rem', background: '#FFFFFF', border: '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#0F52BA', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}
-                          >
-                            <span>💳</span>
-                            <span>₹{(p.total_volume || 0).toLocaleString('en-IN')} Total</span>
-                          </span>
+                          {/* Total Sales Badge (Only visible on All tab) */}
+                          {networkChannelFilter === 'ALL' && (
+                            <>
+                              <span 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (!isExpanded) togglePartnerExpand(p);
+                                  setPartnerTxnChannelFilter('ALL');
+                                }}
+                                style={{ fontSize: '0.625rem', background: '#FFFFFF', border: '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#0F52BA', fontWeight: 800, display: 'inline-flex', alignItems: 'center', gap: '3px', cursor: 'pointer' }}
+                              >
+                                <span>💳</span>
+                                <span>₹{(p.total_volume || 0).toLocaleString('en-IN')} Total</span>
+                              </span>
 
-                          <span style={{ fontSize: '0.625rem', background: '#FFFFFF', border: '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#64748B', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                            <span>🔄</span>
-                            <span>{p.txn_count || 0} Txns</span>
-                          </span>
+                              <span style={{ fontSize: '0.625rem', background: '#FFFFFF', border: '1px solid #E2E8F0', padding: '2px 7px', borderRadius: '6px', color: '#64748B', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                <span>🔄</span>
+                                <span>{p.txn_count || 0} Txns</span>
+                              </span>
+                            </>
+                          )}
                         </div>
 
                         {/* 3. APPLE DISCLOSURE TOGGLE BAR (Tap to reveal full specs & live swipes) */}
@@ -7292,13 +7288,33 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                               </div>
 
                               <div>
-                                <span style={{ color: '#64748B', display: 'block', fontSize: '0.5625rem', fontWeight: 700 }}>TODAY'S VOLUME</span>
-                                <strong style={{ color: '#475569', fontSize: '0.75rem' }}>₹{(p.today_volume || 0).toLocaleString('en-IN')}</strong>
+                                <span style={{ color: '#64748B', display: 'block', fontSize: '0.5625rem', fontWeight: 700 }}>
+                                  {networkChannelFilter === 'ALL' ? "TODAY'S VOLUME" : `${networkSummaryStats.label.toUpperCase()} VOLUME`}
+                                </span>
+                                <strong style={{ color: '#475569', fontSize: '0.75rem' }}>
+                                  ₹{(networkChannelFilter === 'pinelabs' 
+                                    ? (p.channel_volumes?.pinelabs || 0) 
+                                    : (networkChannelFilter === 'payswiff' 
+                                      ? (p.channel_volumes?.payswiff || 0) 
+                                      : (networkChannelFilter === 'qr' 
+                                        ? (p.channel_volumes?.qr || 0) 
+                                        : (p.today_volume || p.total_volume || 0)))).toLocaleString('en-IN')}
+                                </strong>
                               </div>
 
                               <div>
-                                <span style={{ color: '#64748B', display: 'block', fontSize: '0.5625rem', fontWeight: 700 }}>TODAY'S YOUR PROFIT</span>
-                                <strong style={{ color: '#059669', fontSize: '0.75rem' }}>+₹{(p.today_profit || 0).toFixed(2)}</strong>
+                                <span style={{ color: '#64748B', display: 'block', fontSize: '0.5625rem', fontWeight: 700 }}>
+                                  {networkChannelFilter === 'ALL' ? "TODAY'S YOUR PROFIT" : `${networkSummaryStats.label.toUpperCase()} PROFIT`}
+                                </span>
+                                <strong style={{ color: '#059669', fontSize: '0.75rem' }}>
+                                  +₹{(networkChannelFilter === 'pinelabs' 
+                                    ? (p.channel_commissions?.pinelabs !== undefined ? p.channel_commissions.pinelabs : p.commission_earned) 
+                                    : (networkChannelFilter === 'payswiff' 
+                                      ? (p.channel_commissions?.payswiff !== undefined ? p.channel_commissions.payswiff : 0) 
+                                      : (networkChannelFilter === 'qr' 
+                                        ? (p.channel_commissions?.qr !== undefined ? p.channel_commissions.qr : 0) 
+                                        : (p.today_profit || p.commission_earned || 0)))).toFixed(2)}
+                                </strong>
                               </div>
 
                               <div>
@@ -7313,14 +7329,22 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
                         {/* EXPANDED LIVE TRANSACTIONS LEDGER WITH MACHINE FILTER */}
                         {isExpanded && (() => {
+                          const activeChannel = networkChannelFilter;
                           const pineCount = partnerTxns.filter(t => classifyTransactionChannel(t) === 'pinelabs').length;
                           const payswiffCount = partnerTxns.filter(t => classifyTransactionChannel(t) === 'payswiff').length;
                           const qrCount = partnerTxns.filter(t => classifyTransactionChannel(t) === 'qr').length;
 
                           const filteredPartnerTxns = partnerTxns.filter(t => {
-                            if (partnerTxnChannelFilter === 'ALL') return true;
-                            return classifyTransactionChannel(t) === partnerTxnChannelFilter;
+                            if (activeChannel === 'ALL') {
+                              if (partnerTxnChannelFilter === 'ALL') return true;
+                              return classifyTransactionChannel(t) === partnerTxnChannelFilter;
+                            }
+                            return classifyTransactionChannel(t) === activeChannel;
                           });
+
+                          const activeMarginPct = activeChannel === 'ALL'
+                            ? p.commission_rate_pct
+                            : (p.channel_margins?.[activeChannel] ?? p.commission_rate_pct ?? 0.1);
 
                           return (
                             <div style={{ padding: '0.875rem 1rem', background: '#FFFFFF', borderTop: '1px solid #DBEAFE' }}>
@@ -7330,89 +7354,108 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                     Customer Swipes &amp; Your Profit Ledger
                                   </span>
                                   <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
-                                    Filter by hardware terminal to audit per-machine swipes
+                                    {activeChannel === 'ALL' ? 'Filter by hardware terminal to audit per-machine swipes' : `Showing only ${networkSummaryStats.label} swipes`}
                                   </span>
                                 </div>
                                 <span style={{ fontSize: '0.65rem', color: '#64748B' }}>
-                                  Your Profit Rate: <strong style={{ color: '#059669' }}>{p.commission_rate_pct}% margin</strong>
+                                  Your Profit Rate: <strong style={{ color: '#059669' }}>{activeMarginPct}% margin</strong>
                                 </span>
                               </div>
 
-                              {/* SEGMENTED MACHINE FILTER TABS */}
-                              <div style={{
-                                display: 'grid',
-                                gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))',
-                                gap: '4px',
-                                background: '#F1F5F9',
-                                padding: '3px',
-                                borderRadius: '8px',
-                                marginBottom: '0.75rem'
-                              }}>
-                                <button
-                                  type="button"
-                                  onClick={() => setPartnerTxnChannelFilter('ALL')}
-                                  style={{
-                                    padding: '0.35rem 0.5rem',
-                                    borderRadius: '6px',
-                                    border: 'none',
-                                    background: partnerTxnChannelFilter === 'ALL' ? '#0F172A' : 'transparent',
-                                    color: partnerTxnChannelFilter === 'ALL' ? '#FFFFFF' : '#475569',
-                                    fontWeight: 800,
-                                    fontSize: '0.6875rem',
-                                    cursor: 'pointer'
-                                  }}
-                                >
-                                  💳 All ({partnerTxns.length})
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setPartnerTxnChannelFilter('pinelabs')}
-                                  style={{
-                                    padding: '0.35rem 0.5rem',
-                                    borderRadius: '6px',
-                                    border: 'none',
-                                    background: partnerTxnChannelFilter === 'pinelabs' ? '#0F52BA' : 'transparent',
-                                    color: partnerTxnChannelFilter === 'pinelabs' ? '#FFFFFF' : '#475569',
-                                    fontWeight: 800,
-                                    fontSize: '0.6875rem',
-                                    cursor: 'pointer'
-                                  }}
-                                >
-                                  🌲 Pine Labs ({pineCount})
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setPartnerTxnChannelFilter('payswiff')}
-                                  style={{
-                                    padding: '0.35rem 0.5rem',
-                                    borderRadius: '6px',
-                                    border: 'none',
-                                    background: partnerTxnChannelFilter === 'payswiff' ? '#D97706' : 'transparent',
-                                    color: partnerTxnChannelFilter === 'payswiff' ? '#FFFFFF' : '#475569',
-                                    fontWeight: 800,
-                                    fontSize: '0.6875rem',
-                                    cursor: 'pointer'
-                                  }}
-                                >
-                                  ⚡ Payswiff ({payswiffCount})
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setPartnerTxnChannelFilter('qr')}
-                                  style={{
-                                    padding: '0.35rem 0.5rem',
-                                    borderRadius: '6px',
-                                    border: 'none',
-                                    background: partnerTxnChannelFilter === 'qr' ? '#7C3AED' : 'transparent',
-                                    color: partnerTxnChannelFilter === 'qr' ? '#FFFFFF' : '#475569',
-                                    fontWeight: 800,
-                                    fontSize: '0.6875rem',
-                                    cursor: 'pointer'
-                                  }}
-                                >
-                                  📱 QR ({qrCount})
-                                </button>
-                              </div>
+                              {/* SEGMENTED MACHINE FILTER TABS (Only visible when on ALL view) */}
+                              {activeChannel === 'ALL' ? (
+                                <div style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))',
+                                  gap: '4px',
+                                  background: '#F1F5F9',
+                                  padding: '3px',
+                                  borderRadius: '8px',
+                                  marginBottom: '0.75rem'
+                                }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPartnerTxnChannelFilter('ALL')}
+                                    style={{
+                                      padding: '0.35rem 0.5rem',
+                                      borderRadius: '6px',
+                                      border: 'none',
+                                      background: partnerTxnChannelFilter === 'ALL' ? '#0F172A' : 'transparent',
+                                      color: partnerTxnChannelFilter === 'ALL' ? '#FFFFFF' : '#475569',
+                                      fontWeight: 800,
+                                      fontSize: '0.6875rem',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    💳 All ({partnerTxns.length})
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPartnerTxnChannelFilter('pinelabs')}
+                                    style={{
+                                      padding: '0.35rem 0.5rem',
+                                      borderRadius: '6px',
+                                      border: 'none',
+                                      background: partnerTxnChannelFilter === 'pinelabs' ? '#0F52BA' : 'transparent',
+                                      color: partnerTxnChannelFilter === 'pinelabs' ? '#FFFFFF' : '#475569',
+                                      fontWeight: 800,
+                                      fontSize: '0.6875rem',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    🌲 Pine Labs ({pineCount})
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPartnerTxnChannelFilter('payswiff')}
+                                    style={{
+                                      padding: '0.35rem 0.5rem',
+                                      borderRadius: '6px',
+                                      border: 'none',
+                                      background: partnerTxnChannelFilter === 'payswiff' ? '#D97706' : 'transparent',
+                                      color: partnerTxnChannelFilter === 'payswiff' ? '#FFFFFF' : '#475569',
+                                      fontWeight: 800,
+                                      fontSize: '0.6875rem',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    ⚡ Payswiff ({payswiffCount})
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setPartnerTxnChannelFilter('qr')}
+                                    style={{
+                                      padding: '0.35rem 0.5rem',
+                                      borderRadius: '6px',
+                                      border: 'none',
+                                      background: partnerTxnChannelFilter === 'qr' ? '#7C3AED' : 'transparent',
+                                      color: partnerTxnChannelFilter === 'qr' ? '#FFFFFF' : '#475569',
+                                      fontWeight: 800,
+                                      fontSize: '0.6875rem',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    📱 QR ({qrCount})
+                                  </button>
+                                </div>
+                              ) : (
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  background: activeChannel === 'payswiff' ? '#FFFBEB' : (activeChannel === 'qr' ? '#F5F3FF' : '#EFF6FF'),
+                                  border: `1px solid ${activeChannel === 'payswiff' ? '#FDE68A' : (activeChannel === 'qr' ? '#DDD6FE' : '#BFDBFE')}`,
+                                  padding: '0.38rem 0.75rem',
+                                  borderRadius: '8px',
+                                  marginBottom: '0.75rem',
+                                  fontSize: '0.6875rem',
+                                  fontWeight: 700,
+                                  color: activeChannel === 'payswiff' ? '#B45309' : (activeChannel === 'qr' ? '#6D28D9' : '#1E40AF')
+                                }}>
+                                  <span>{activeChannel === 'payswiff' ? '⚡' : (activeChannel === 'qr' ? '📱' : '🌲')}</span>
+                                  <span>Viewing strictly <strong>{networkSummaryStats.label}</strong> live transactions for this partner</span>
+                                </div>
+                              )}
 
                               {isLoadingPartnerTxns ? (
                                 <div style={{ textAlign: 'center', padding: '1.5rem 0', color: '#64748B' }}>
@@ -7423,9 +7466,9 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                 <div style={{ textAlign: 'center', padding: '1.5rem 0.5rem', color: '#94A3B8' }}>
                                   <CreditCard style={{ width: '28px', height: '28px', margin: '0 auto 0.35rem', opacity: 0.5 }} />
                                   <p style={{ margin: 0, fontSize: '0.78125rem', fontWeight: 600, color: '#475569' }}>
-                                    {partnerTxnChannelFilter === 'ALL' 
+                                    {activeChannel === 'ALL' 
                                       ? 'No card swipes or bill payments recorded yet.' 
-                                      : `No swipes recorded on ${partnerTxnChannelFilter.toUpperCase()} terminal yet.`}
+                                      : `No swipes recorded on ${networkSummaryStats.label} terminal yet.`}
                                   </p>
                                   <span style={{ fontSize: '0.65rem', color: '#64748B' }}>
                                     When this member swipes a customer card, your profit cut will appear right here in real time!
@@ -7437,6 +7480,11 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                     const channel = classifyTransactionChannel(t);
                                     const isSwiff = channel === 'payswiff';
                                     const isQR = channel === 'qr';
+                                    const txnMargin = t.commission_rate_pct ?? p.channel_margins?.[channel] ?? p.commission_rate_pct ?? 0.1;
+                                    const txnProfit = t.commission_profit !== undefined 
+                                      ? t.commission_profit 
+                                      : ((parseFloat(t.amount || 0) * txnMargin) / 100);
+
                                     return (
                                       <div 
                                         key={t.id}
@@ -7483,10 +7531,10 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                             Swipe Amount: <strong>₹{parseFloat(t.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
                                           </div>
                                           <div style={{ fontSize: '0.875rem', fontWeight: 900, color: '#059669' }}>
-                                            +₹{(t.commission_profit || ((parseFloat(t.amount || 0) * (p.commission_rate_pct || 0.1)) / 100)).toFixed(2)} Profit
+                                            +₹{parseFloat(txnProfit).toFixed(2)} Profit
                                           </div>
                                           <span style={{ fontSize: '0.5625rem', color: '#64748B' }}>
-                                            (₹{parseFloat(t.amount).toLocaleString('en-IN')} × {p.commission_rate_pct || 0.1}% margin)
+                                            (₹{parseFloat(t.amount).toLocaleString('en-IN')} × {txnMargin}% margin)
                                           </span>
                                         </div>
                                       </div>

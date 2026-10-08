@@ -1919,19 +1919,24 @@ export async function getDownstreamNetwork(creatorId) {
         .filter(t => t.status === 'APPROVED')
         .reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
 
-      // Dynamic margin difference calculation:
-      // If direct partner: partnerBuyRate - creatorBuyRate
-      // If indirect partner: directBranchBuyRate - creatorBuyRate
+      // Dynamic margin difference calculation per channel:
       const directBranch = getDirectBranchChild(p);
       const branchRate = getUserBuyRate(directBranch, posMap[directBranch?.id], false);
       const partnerRate = getUserBuyRate(p, pos, false);
       const partnerCommRatePct = parseFloat(Math.max(0, isDirect ? (partnerRate - creatorBuyRate) : (branchRate - creatorBuyRate)).toFixed(2));
 
-      const commissionEarned = parseFloat(((totalVolume * partnerCommRatePct) / 100).toFixed(2));
+      // Channel-specific buy rates and exact margin cuts
+      const branchPinelabs = getUserBuyRate(directBranch, posMap[directBranch?.id], false, 'pinelabs');
+      const creatorPinelabs = getUserBuyRate(creator, creatorPos, false, 'pinelabs');
+      const marginPinelabs = parseFloat(Math.max(0, branchPinelabs - creatorPinelabs).toFixed(2));
 
-      const todayTxns = partnerTxns.filter(t => (t.created_at || '').slice(0, 10) === todayStr && t.status === 'APPROVED');
-      const todayVol = todayTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-      const partnerTodayProfit = parseFloat(((todayVol * partnerCommRatePct) / 100).toFixed(2));
+      const branchPayswiff = getUserBuyRate(directBranch, posMap[directBranch?.id], false, 'payswiff');
+      const creatorPayswiff = getUserBuyRate(creator, creatorPos, false, 'payswiff');
+      const marginPayswiff = parseFloat(Math.max(0, branchPayswiff - creatorPayswiff).toFixed(2));
+
+      const branchQr = getUserBuyRate(directBranch, posMap[directBranch?.id], false, 'qr');
+      const creatorQr = getUserBuyRate(creator, creatorPos, false, 'qr');
+      const marginQr = parseFloat(Math.max(0, branchQr - creatorQr).toFixed(2));
 
       // Per-channel breakdown for this partner
       let pVolPinelabs = 0, pVolPayswiff = 0, pVolQr = 0;
@@ -1946,22 +1951,35 @@ export async function getDownstreamNetwork(creatorId) {
           pTxnCountPinelabs++;
           if (isAppr) {
             pVolPinelabs += amt;
-            pCommPinelabs += (amt * partnerCommRatePct) / 100;
+            pCommPinelabs += (amt * marginPinelabs) / 100;
           }
         } else if (ch === 'payswiff') {
           pTxnCountPayswiff++;
           if (isAppr) {
             pVolPayswiff += amt;
-            pCommPayswiff += (amt * partnerCommRatePct) / 100;
+            pCommPayswiff += (amt * marginPayswiff) / 100;
           }
         } else if (ch === 'qr') {
           pTxnCountQr++;
           if (isAppr) {
             pVolQr += amt;
-            pCommQr += (amt * partnerCommRatePct) / 100;
+            pCommQr += (amt * marginQr) / 100;
           }
         }
       });
+
+      const commissionEarned = parseFloat((pCommPinelabs + pCommPayswiff + pCommQr).toFixed(2));
+
+      const todayTxns = partnerTxns.filter(t => (t.created_at || '').slice(0, 10) === todayStr && t.status === 'APPROVED');
+      const todayVol = todayTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+      let partnerTodayProfit = 0;
+      todayTxns.forEach(t => {
+        const amt = parseFloat(t.amount) || 0;
+        const ch = classifyTransactionChannel(t);
+        const mPct = ch === 'payswiff' ? marginPayswiff : (ch === 'qr' ? marginQr : marginPinelabs);
+        partnerTodayProfit += (amt * mPct) / 100;
+      });
+      partnerTodayProfit = parseFloat(partnerTodayProfit.toFixed(2));
 
       return {
         ...p,
@@ -1982,6 +2000,11 @@ export async function getDownstreamNetwork(creatorId) {
         total_volume: totalVolume,
         commission_earned: commissionEarned,
         commission_rate_pct: partnerCommRatePct,
+        channel_margins: {
+          pinelabs: marginPinelabs,
+          payswiff: marginPayswiff,
+          qr: marginQr
+        },
         today_volume: todayVol,
         today_profit: partnerTodayProfit,
         channel_volumes: {
@@ -2157,13 +2180,20 @@ export async function getPartnerTransactions(creatorId, partnerId) {
 
     const enrichedTxns = relevantTxns.map(t => {
       const amt = parseFloat(t.amount) || 0;
-      const profit = (amt * commRate) / 100;
+      const ch = classifyTransactionChannel(t);
+      const isInstant = t.settlement_type === 'INSTANT';
       const mObj = userMap[t.merchant_id];
+      const mPos = posMap[t.merchant_id];
+      const mBuyRate = getUserBuyRate(mObj, mPos, isInstant, ch);
+      const cBuyRate = getUserBuyRate(creator, posMap[creatorId], isInstant, ch);
+      const txnMargin = parseFloat(Math.max(0, mBuyRate - cBuyRate).toFixed(2));
+      const profit = (amt * txnMargin) / 100;
       return {
         ...t,
         merchant_name: mObj ? mObj.name : t.merchant_id,
+        channel: ch,
         commission_profit: parseFloat(profit.toFixed(2)),
-        commission_rate_pct: commRate
+        commission_rate_pct: txnMargin
       };
     });
 
