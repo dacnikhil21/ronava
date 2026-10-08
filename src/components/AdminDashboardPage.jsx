@@ -6411,33 +6411,33 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
                     {/* Card 3: Commission Lock Status */}
                     <div style={{
-                      background: isCommissionPayoutsLocked ? '#FEF2F2' : '#F0FDF4',
-                      border: isCommissionPayoutsLocked ? '1.5px solid #FCA5A5' : '1px solid #BBF7D0',
+                      background: !commissionPayoutActive ? '#FEF2F2' : '#F0FDF4',
+                      border: !commissionPayoutActive ? '1.5px solid #FCA5A5' : '1px solid #BBF7D0',
                       borderRadius: '10px',
                       padding: '0.875rem 1rem',
                       boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: isCommissionPayoutsLocked ? '#DC2626' : '#15803D', textTransform: 'uppercase' }}>
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: !commissionPayoutActive ? '#DC2626' : '#15803D', textTransform: 'uppercase' }}>
                           🔒 Commission Lock
                         </span>
-                        <span style={{ fontSize: '0.625rem', fontWeight: 800, background: isCommissionPayoutsLocked ? '#DC2626' : '#15803D', color: '#FFFFFF', padding: '1px 6px', borderRadius: '10px' }}>
-                          {isCommissionPayoutsLocked ? 'LOCKED' : 'ACTIVE'}
+                        <span style={{ fontSize: '0.625rem', fontWeight: 800, background: !commissionPayoutActive ? '#DC2626' : '#15803D', color: '#FFFFFF', padding: '1px 6px', borderRadius: '10px' }}>
+                          {!commissionPayoutActive ? 'LOCKED' : 'ACTIVE'}
                         </span>
                       </div>
                       <h4 style={{ fontSize: '1rem', fontWeight: 800, color: '#0F172A', margin: '6px 0 2px' }}>
-                        {isCommissionPayoutsLocked ? 'Downlines Frozen' : 'Withdrawals Allowed'}
+                        {!commissionPayoutActive ? 'Downlines Frozen' : 'Withdrawals Allowed'}
                       </h4>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
                         <span style={{ fontSize: '0.6rem', color: '#64748B' }}>
-                          {isCommissionPayoutsLocked ? 'Uplines cannot withdraw' : 'Audit window open'}
+                          {!commissionPayoutActive ? 'Uplines cannot withdraw' : 'Audit window open'}
                         </span>
                         <button
                           type="button"
-                          onClick={() => handleToggleCommissionLock()}
-                          disabled={isTogglingLock}
+                          onClick={() => handleToggleCommissionPayout()}
+                          disabled={isUpdatingCommissionToggle}
                           style={{
-                            background: isCommissionPayoutsLocked ? '#DC2626' : '#15803D',
+                            background: !commissionPayoutActive ? '#DC2626' : '#15803D',
                             color: '#FFFFFF',
                             border: 'none',
                             borderRadius: '4px',
@@ -6447,7 +6447,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             cursor: 'pointer'
                           }}
                         >
-                          {isCommissionPayoutsLocked ? 'Unlock' : 'Freeze'}
+                          {!commissionPayoutActive ? 'Unlock' : 'Freeze'}
                         </button>
                       </div>
                     </div>
