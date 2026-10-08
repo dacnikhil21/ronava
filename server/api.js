@@ -538,8 +538,9 @@ export async function handleApiRequest(req, res) {
 
       const posList = await pgQuery(`SELECT * FROM merchant_pos WHERE merchant_id = $1`, [merchant_id]);
       const pos = posList[0] || null;
-      const provider = bodyProvider || (pos ? pos.provider : (type === 'BBPS_BILL' ? 'BBPS' : 'Pine Labs'));
-      const txnId = `TXN-${provider === 'Payswiff' ? 'SW' : (provider === 'Pine Labs' ? 'PL' : 'GEN')}-${Date.now().toString().slice(-6)}`;
+      const isQRPayment = type === 'QR_SCAN' || (bodyProvider && bodyProvider.toLowerCase().includes('qr'));
+      const provider = isQRPayment ? 'Company QR (UPI)' : (bodyProvider || (pos ? pos.provider : (type === 'BBPS_BILL' ? 'BBPS' : 'Pine Labs')));
+      const txnId = `TXN-${isQRPayment ? 'QR' : (provider === 'Payswiff' ? 'SW' : (provider === 'Pine Labs' ? 'PL' : 'GEN'))}-${Date.now().toString().slice(-6)}`;
 
       await pgQuery(`
         INSERT INTO transactions (id, merchant_id, customer_mobile, amount, type, provider, ref_number, notes, status)
@@ -621,7 +622,7 @@ export async function handleApiRequest(req, res) {
     // ----------------------------------------------------
     if (pathname === '/api/admin/pending' && method === 'GET') {
       const pendingTransactions = await pgQuery(`
-        SELECT t.*, u.name as merchant_name, u.mobile as merchant_mobile, COALESCE(t.provider, p.provider, 'Pine Labs') as pos_provider, p.commission_rate as pos_rate
+        SELECT t.*, u.name as merchant_name, u.mobile as merchant_mobile, COALESCE(t.provider, p.provider, CASE WHEN t.type = 'QR_SCAN' THEN 'Company QR (UPI)' WHEN t.type = 'BBPS_BILL' THEN 'BBPS' ELSE 'Pine Labs' END) as pos_provider, p.commission_rate as pos_rate
         FROM transactions t
         JOIN users u ON t.merchant_id = u.id
         LEFT JOIN merchant_pos p ON t.merchant_id = p.merchant_id
@@ -638,7 +639,7 @@ export async function handleApiRequest(req, res) {
       `);
 
       const allTransactions = await pgQuery(`
-        SELECT t.*, u.name as merchant_name, COALESCE(t.provider, p.provider, 'Pine Labs') as pos_provider
+        SELECT t.*, u.name as merchant_name, COALESCE(t.provider, p.provider, CASE WHEN t.type = 'QR_SCAN' THEN 'Company QR (UPI)' WHEN t.type = 'BBPS_BILL' THEN 'BBPS' ELSE 'Pine Labs' END) as pos_provider
         FROM transactions t
         JOIN users u ON t.merchant_id = u.id
         LEFT JOIN merchant_pos p ON t.merchant_id = p.merchant_id
@@ -647,7 +648,7 @@ export async function handleApiRequest(req, res) {
       `);
 
       const allApprovedTxns = await pgQuery(`
-        SELECT t.*, COALESCE(t.provider, 'Pine Labs') as pos_provider
+        SELECT t.*, COALESCE(t.provider, CASE WHEN t.type = 'QR_SCAN' THEN 'Company QR (UPI)' WHEN t.type = 'BBPS_BILL' THEN 'BBPS' ELSE 'Pine Labs' END) as pos_provider
         FROM transactions t
         WHERE t.status = 'APPROVED'
       `);

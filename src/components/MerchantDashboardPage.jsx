@@ -232,6 +232,9 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         return saved;
       }
     }
+    const prov = (user?.pos?.provider || '').toLowerCase();
+    if (prov.includes('swiff')) return 'payswiff';
+    if (prov.includes('qr') || prov.includes('upi')) return 'qr';
     return 'pine_labs';
   });
   const [merchantPayswiffVendor, setMerchantPayswiffVendor] = useState('ALL'); // 'ALL' | 'ronav' | 'rp'
@@ -371,6 +374,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       const prov = (userPos.provider || '').toLowerCase();
       if (prov.includes('swiff')) {
         tabs.push('payswiff');
+      } else if (prov.includes('qr') || prov.includes('upi')) {
+        tabs.push('qr');
       } else {
         tabs.push('pine_labs');
       }
@@ -398,11 +403,12 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     if (effectiveKey === 'qr') {
       const instantRate = (ch && ch.rate_instant)
         ? ch.rate_instant
-        : ((userPosRates && userPosRates.rateInstant) || base.rateInstant || 1.50);
+        : ((userPosRates && userPosRates.rateInstant) || base.rateInstant || 1.80);
       return {
         ...base,
         provider: 'Company QR (UPI)',
         vendor: 'RONAV Technologies',
+        terminal_id: 'QR-UPI-HQ',
         rateT1: instantRate,
         rateInstant: instantRate,
         rateStrT1: `${instantRate.toFixed(2)}%`,

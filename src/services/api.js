@@ -1405,19 +1405,69 @@ export function classifyTransactionChannel(item) {
   return 'pinelabs';
 }
 
-// Central Dynamic User Rate Resolver (Zero Hardcoded Percentages)
+export function normalizeChannelKey(key) {
+  if (!key) return 'pinelabs';
+  const k = String(key).toLowerCase().replace(/[-_]/g, '');
+  if (k.includes('swiff')) return 'payswiff';
+  if (k.includes('qr') || k.includes('upi')) return 'qr';
+  return 'pinelabs';
+}
+
+// Central Dynamic User Rate Resolver (Zero Hardcoded Percentages & Channel-Isolated)
 export function getUserBuyRate(user, pos, isInstant = false, targetChannel = null) {
+  const chKey = targetChannel ? normalizeChannelKey(targetChannel) : null;
+  const role = (user?.role || '').toUpperCase();
+  const uid = (user?.id || '').toUpperCase();
+
   if (pos) {
     const parsed = parsePosTerminalRates(pos.terminal_id, pos.commission_rate);
-    if (targetChannel && parsed.channels && parsed.channels[targetChannel]?.enabled) {
-      const ch = parsed.channels[targetChannel];
-      return isInstant ? (ch.rateInstant || 1.80) : (ch.rateT1 || 1.50);
-    }
-    const r = isInstant ? (pos.commission_rate_instant || parsed.rateInstant) : (pos.commission_rate_t1 || parsed.rateT1);
-    if (r !== undefined && r !== null && !isNaN(parseFloat(r)) && parseFloat(r) > 0) {
-      return parseFloat(r);
+    if (chKey && parsed.channels) {
+      const ch = parsed.channels[chKey] || (chKey === 'pinelabs' ? parsed.channels.pine_labs : null);
+      if (ch && ch.enabled) {
+        if (chKey === 'qr') {
+          const qrRate = parseFloat(ch.rateInstant || ch.rate_instant);
+          if (!isNaN(qrRate) && qrRate > 0) return qrRate;
+        } else {
+          const rateVal = isInstant ? parseFloat(ch.rateInstant || ch.rate_instant) : parseFloat(ch.rateT1 || ch.rate_t1);
+          if (!isNaN(rateVal) && rateVal > 0) return rateVal;
+        }
+      }
+    } else if (!chKey) {
+      const r = isInstant ? (pos.commission_rate_instant || parsed.rateInstant) : (pos.commission_rate_t1 || parsed.rateT1);
+      if (r !== undefined && r !== null && !isNaN(parseFloat(r)) && parseFloat(r) > 0) {
+        return parseFloat(r);
+      }
     }
   }
+
+  // Tiered wholesale buy rates per channel (Strictly isolated without defaulting to Pine Labs)
+  if (chKey === 'qr') {
+    if (role === 'MERCHANT' || uid.startsWith('MID')) return 1.80;
+    if (role === 'DISTRIBUTOR' || uid.startsWith('DIST')) return 1.55; // 0.25% margin
+    if (role.includes('DISTRICT') || uid.startsWith('DD')) return 1.35; // 0.20% margin
+    if (role.includes('SUPER') || uid.startsWith('SD')) return 1.15; // 0.20% margin
+    if (role === 'ADMIN' || uid.startsWith('ADM')) return 0.00;
+    return 1.80;
+  }
+
+  if (chKey === 'payswiff') {
+    if (role === 'MERCHANT' || uid.startsWith('MID')) return isInstant ? 2.80 : 2.10;
+    if (role === 'DISTRIBUTOR' || uid.startsWith('DIST')) return isInstant ? 2.40 : 1.90; // 0.20% margin
+    if (role.includes('DISTRICT') || uid.startsWith('DD')) return isInstant ? 2.20 : 1.70; // 0.20% margin
+    if (role.includes('SUPER') || uid.startsWith('SD')) return isInstant ? 2.00 : 1.50; // 0.20% margin
+    if (role === 'ADMIN' || uid.startsWith('ADM')) return 0.00;
+    return isInstant ? 2.80 : 2.10;
+  }
+
+  if (chKey === 'pinelabs') {
+    if (role === 'MERCHANT' || uid.startsWith('MID')) return isInstant ? 1.70 : 1.60;
+    if (role === 'DISTRIBUTOR' || uid.startsWith('DIST')) return isInstant ? 1.60 : 1.50; // 0.10% margin
+    if (role.includes('DISTRICT') || uid.startsWith('DD')) return isInstant ? 1.50 : 1.40; // 0.10% margin
+    if (role.includes('SUPER') || uid.startsWith('SD')) return isInstant ? 1.30 : 1.20; // 0.20% margin
+    if (role === 'ADMIN' || uid.startsWith('ADM')) return 0.00;
+    return isInstant ? 1.70 : 1.60;
+  }
+
   if (user) {
     const uRate = isInstant ? user.commission_rate_instant : (user.commission_rate_t1 || user.commission_rate || user.margin_rate);
     if (uRate !== undefined && uRate !== null && !isNaN(parseFloat(uRate)) && parseFloat(uRate) > 0) {
@@ -1536,20 +1586,34 @@ export async function recordMerchantSale(saleData) {
     if (isQRPayment) {
       provider = 'Company QR (UPI)';
     } else if (!provider) {
-      provider = pos ? pos.provider : (type === 'BBPS_BILL' ? 'BBPS' : 'Pine Labs');
+      if (pos?.provider) {
+        provider = pos.provider;
+      } else if (type === 'BBPS_BILL') {
+        provider = 'BBPS';
+      } else {
+        const chs = parseMerchantChannels(pos);
+        if (chs.payswiff?.enabled && !chs.pine_labs?.enabled) {
+          provider = 'Payswiff';
+        } else if (chs.qr?.enabled && !chs.pine_labs?.enabled) {
+          provider = 'Company QR (UPI)';
+        } else {
+          provider = 'Pine Labs';
+        }
+      }
     }
 
-    const txnId = `TXN-${isQRPayment ? 'QR' : (provider === 'Payswiff' ? 'SW' : (provider === 'Pine Labs' ? 'PL' : 'GEN'))}-${Date.now().toString().slice(-6)}`;
+    const activeChannelKey = isQRPayment ? 'qr' : ((provider || '').toLowerCase().includes('swiff') ? 'payswiff' : 'pinelabs');
+    const txnId = `TXN-${activeChannelKey === 'qr' ? 'QR' : (activeChannelKey === 'payswiff' ? 'SW' : 'PL')}-${Date.now().toString().slice(-6)}`;
     
     // Strict vendor entity determination
     let finalVendor = 'Rose Navaneetham Enterprises';
-    if (isQRPayment) {
+    if (isQRPayment || activeChannelKey === 'qr') {
       finalVendor = 'RONAV Technologies';
-    } else if (provider === 'Payswiff') {
+    } else if (activeChannelKey === 'payswiff' || provider === 'Payswiff') {
       finalVendor = (pos?.vendor_entity === 'R.P. Technologies' || pos?.pos_vendor === 'R.P. Technologies')
         ? 'R.P. Technologies' 
         : 'RONAV Technologies';
-    } else if (provider === 'Pine Labs') {
+    } else if (activeChannelKey === 'pinelabs' || provider === 'Pine Labs') {
       finalVendor = 'Rose Navaneetham Enterprises';
     } else {
       finalVendor = pos?.vendor_entity || 'RONAV Technologies';
@@ -1573,32 +1637,26 @@ export async function recordMerchantSale(saleData) {
     if (!specificTerminalId && pos) {
       if (pos.terminal_id && pos.terminal_id.startsWith('[PORTFOLIO]')) {
         const channels = parseMerchantChannels(pos);
-        if (isQRPayment) {
+        if (activeChannelKey === 'qr') {
           specificTerminalId = 'QR-UPI-HQ';
-        } else if (provider === 'Payswiff') {
+        } else if (activeChannelKey === 'payswiff') {
           specificTerminalId = channels.payswiff?.terminal_id || 'SWIFF-01';
-        } else if (provider === 'Pine Labs') {
+        } else if (activeChannelKey === 'pinelabs') {
           specificTerminalId = channels.pine_labs?.terminal_id || 'PL-01';
         } else {
           specificTerminalId = 'RONAV-UPI-HQ';
         }
       } else {
-        specificTerminalId = isQRPayment ? 'QR-UPI-HQ' : (pos.terminal_id || (provider === 'Payswiff' ? 'SWIFF-01' : 'PL-01'));
+        specificTerminalId = activeChannelKey === 'qr' ? 'QR-UPI-HQ' : (pos.terminal_id || (activeChannelKey === 'payswiff' ? 'SWIFF-01' : 'PL-01'));
       }
     }
     if (!specificTerminalId) {
-      specificTerminalId = isQRPayment ? 'QR-UPI-HQ' : (provider === 'Payswiff' ? 'SWIFF-01' : (provider === 'Pine Labs' ? 'PL-01' : 'RONAV-UPI-HQ'));
+      specificTerminalId = activeChannelKey === 'qr' ? 'QR-UPI-HQ' : (activeChannelKey === 'payswiff' ? 'SWIFF-01' : 'PL-01');
     }
 
-    // Resolve active wholesale percentage rate dynamically (Zero hardcoded percentages)
-    const isInstant = (settlement_type || '').toUpperCase() === 'INSTANT';
-    let merchantBuyRate = getUserBuyRate(merchant, pos, isInstant);
-    if (isQRPayment && pos) {
-      const ch = parseMerchantChannels(pos);
-      if (ch.qr?.enabled && ch.qr.rate_instant) {
-        merchantBuyRate = parseFloat(ch.qr.rate_instant) || 1.50;
-      }
-    }
+    // Resolve active wholesale percentage rate dynamically (Zero hardcoded percentages, channel-isolated)
+    const isInstant = (activeChannelKey === 'qr') ? true : ((settlement_type || '').toUpperCase() === 'INSTANT');
+    let merchantBuyRate = getUserBuyRate(merchant, pos, isInstant, activeChannelKey);
     const compFee = parseFloat(((numAmount * merchantBuyRate) / 100).toFixed(2));
     const netCreditAmount = parseFloat(Math.max(0, numAmount - compFee).toFixed(2));
 
@@ -1736,7 +1794,7 @@ export async function recordMerchantSale(saleData) {
 
       for (const uplineUser of uplineChain) {
         const uPos = posMap[uplineUser.id];
-        const parentBuyRate = getUserBuyRate(uplineUser, uPos, isInstant);
+        const parentBuyRate = getUserBuyRate(uplineUser, uPos, isInstant, activeChannelKey);
 
         // Exact margin difference: Child rate minus Parent buy rate
         const marginDiff = Math.max(0, currentLevelRate - parentBuyRate);
@@ -2442,6 +2500,14 @@ export async function getAdminPending() {
       if (meta.company_fee) payswiffAdminProfit += (parseFloat(meta.company_fee) || 0);
     });
 
+    const qrTxns = approvedTxns.filter(t => classifyTransactionChannel(t) === 'qr');
+    const qrVol = qrTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+    let qrAdminProfit = 0;
+    qrTxns.forEach(t => {
+      const meta = parseSwipeMeta(t.notes);
+      if (meta.company_fee) qrAdminProfit += (parseFloat(meta.company_fee) || 0);
+    });
+
     const adminNetProfit = adminWalletBalance;
 
     const rentalPos = allPos.filter(p => p.device_plan === 'RENTAL' || !p.device_plan);
@@ -2467,7 +2533,9 @@ export async function getAdminPending() {
         roseNavaneethamProfit: parseFloat(pineAdminProfit.toFixed(2)),
         ronavTechVolume: ronavTechVol,
         rpTechVolume: rpTechVol,
-        payswiffAdminProfit: parseFloat(payswiffAdminProfit.toFixed(2))
+        payswiffAdminProfit: parseFloat(payswiffAdminProfit.toFixed(2)),
+        qrVolume: qrVol,
+        qrAdminProfit: parseFloat(qrAdminProfit.toFixed(2))
       },
       devicePlanSummary: {
         rentalCount: rentalPos.length,
@@ -2906,9 +2974,10 @@ export async function clawbackTransaction(txnId, adminReason = 'Payment Cancelle
 
       let distributedUplineTotal = 0;
 
+      const txnChannel = classifyTransactionChannel(txn);
       for (const uplineUser of uplineChain) {
         const uPos = posMap[uplineUser.id];
-        const parentBuyRate = getUserBuyRate(uplineUser, uPos, isInstant);
+        const parentBuyRate = getUserBuyRate(uplineUser, uPos, isInstant, txnChannel);
         const marginDiff = Math.max(0, currentLevelRate - parentBuyRate);
         const commissionEarned = parseFloat(((amount * marginDiff) / 100).toFixed(2));
 
