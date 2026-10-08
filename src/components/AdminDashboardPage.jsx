@@ -5929,6 +5929,19 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               const t1BatchPendingItems = channelWithdrawals.filter(w => w._subStatus === 'PENDING' && !isItemInstant(w));
               const totalBatchAmount = t1BatchPendingItems.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
 
+              // Executive Financial Totals
+              const pendingWithdrawalsList = channelWithdrawals.filter(w => w._subStatus === 'PENDING');
+              const totalPendingWithdrawalAmount = pendingWithdrawalsList.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
+
+              const pendingSwipesList = channelSwipes.filter(s => s._subStatus === 'PENDING');
+              const totalPendingSwipesAmount = pendingSwipesList.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
+
+              const submittedWithdrawalsList = channelWithdrawals.filter(w => w._subStatus === 'SUBMITTED_TO_BANK');
+              const totalSubmittedAmount = submittedWithdrawalsList.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
+
+              const completedWithdrawalsList = channelWithdrawals.filter(w => w._subStatus === 'APPROVED');
+              const totalCompletedWithdrawalAmount = completedWithdrawalsList.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
+
               // Apply Search Query
               const q = (payoutSearchQuery || '').toLowerCase().trim();
               const activeList = q ? candidateList.filter(item => {
@@ -6298,6 +6311,180 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
                   
+                  {/* TOP EXECUTIVE FINANCIAL SUMMARY STRIP (TOTAL CASH NUMBERS & AUDIT CLARITY) */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+                    gap: '0.75rem'
+                  }}>
+                    {/* Card 1: Pending Withdrawals */}
+                    <div 
+                      onClick={() => {
+                        setPayoutCategoryFilter('WITHDRAWALS');
+                        setPayoutStatusFilter('PENDING');
+                        setPayoutPage(1);
+                      }}
+                      style={{
+                        background: (payoutCategoryFilter === 'WITHDRAWALS' && payoutStatusFilter === 'PENDING') ? '#EFF6FF' : '#FFFFFF',
+                        border: (payoutCategoryFilter === 'WITHDRAWALS' && payoutStatusFilter === 'PENDING') ? '2px solid #0F52BA' : '1px solid #E2E8F0',
+                        borderRadius: '10px',
+                        padding: '0.875rem 1rem',
+                        cursor: 'pointer',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0F52BA', textTransform: 'uppercase' }}>
+                          🏦 Pending Withdrawals
+                        </span>
+                        <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#DBEAFE', color: '#1E40AF', padding: '1px 6px', borderRadius: '10px' }}>
+                          {pendingWithdrawalsList.length} Due
+                        </span>
+                      </div>
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: '6px 0 2px' }}>
+                        ₹{totalPendingWithdrawalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </h3>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                        <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 600 }}>
+                          Bank cash due to merchants
+                        </span>
+                        {pendingWithdrawalsList.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDownloadBankFile();
+                            }}
+                            style={{
+                              background: '#0F52BA',
+                              color: '#FFFFFF',
+                              border: 'none',
+                              borderRadius: '4px',
+                              padding: '2px 6px',
+                              fontSize: '0.6rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '3px'
+                            }}
+                            title="Download Excel Sheet for Bank Payout"
+                          >
+                            <Download style={{ width: '10px', height: '10px' }} />
+                            <span>Download Sheet</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Card 2: Pending Swipes Audit */}
+                    <div 
+                      onClick={() => {
+                        setPayoutCategoryFilter('SWIPES');
+                        setPayoutStatusFilter('PENDING');
+                        setPayoutPage(1);
+                      }}
+                      style={{
+                        background: (payoutCategoryFilter === 'SWIPES' && payoutStatusFilter === 'PENDING') ? '#FEF3C7' : '#FFFFFF',
+                        border: (payoutCategoryFilter === 'SWIPES' && payoutStatusFilter === 'PENDING') ? '2px solid #D97706' : '1px solid #E2E8F0',
+                        borderRadius: '10px',
+                        padding: '0.875rem 1rem',
+                        cursor: 'pointer',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#D97706', textTransform: 'uppercase' }}>
+                          💳 Swipes to Audit
+                        </span>
+                        <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#FEF3C7', color: '#B45309', padding: '1px 6px', borderRadius: '10px' }}>
+                          {pendingSwipesList.length} Slips
+                        </span>
+                      </div>
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: '6px 0 2px' }}>
+                        ₹{totalPendingSwipesAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </h3>
+                      <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 600 }}>
+                        Wallet credited • Audit UTRs
+                      </span>
+                    </div>
+
+                    {/* Card 3: Commission Lock Status */}
+                    <div style={{
+                      background: isCommissionPayoutsLocked ? '#FEF2F2' : '#F0FDF4',
+                      border: isCommissionPayoutsLocked ? '1.5px solid #FCA5A5' : '1px solid #BBF7D0',
+                      borderRadius: '10px',
+                      padding: '0.875rem 1rem',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: isCommissionPayoutsLocked ? '#DC2626' : '#15803D', textTransform: 'uppercase' }}>
+                          🔒 Commission Lock
+                        </span>
+                        <span style={{ fontSize: '0.625rem', fontWeight: 800, background: isCommissionPayoutsLocked ? '#DC2626' : '#15803D', color: '#FFFFFF', padding: '1px 6px', borderRadius: '10px' }}>
+                          {isCommissionPayoutsLocked ? 'LOCKED' : 'ACTIVE'}
+                        </span>
+                      </div>
+                      <h4 style={{ fontSize: '1rem', fontWeight: 800, color: '#0F172A', margin: '6px 0 2px' }}>
+                        {isCommissionPayoutsLocked ? 'Downlines Frozen' : 'Withdrawals Allowed'}
+                      </h4>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                        <span style={{ fontSize: '0.6rem', color: '#64748B' }}>
+                          {isCommissionPayoutsLocked ? 'Uplines cannot withdraw' : 'Audit window open'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleCommissionLock()}
+                          disabled={isTogglingLock}
+                          style={{
+                            background: isCommissionPayoutsLocked ? '#DC2626' : '#15803D',
+                            color: '#FFFFFF',
+                            border: 'none',
+                            borderRadius: '4px',
+                            padding: '2px 6px',
+                            fontSize: '0.6rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {isCommissionPayoutsLocked ? 'Unlock' : 'Freeze'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Card 4: Submitted to Bank In Transit */}
+                    <div 
+                      onClick={() => {
+                        setPayoutCategoryFilter('WITHDRAWALS');
+                        setPayoutStatusFilter('SUBMITTED_TO_BANK');
+                        setPayoutPage(1);
+                      }}
+                      style={{
+                        background: (payoutCategoryFilter === 'WITHDRAWALS' && payoutStatusFilter === 'SUBMITTED_TO_BANK') ? '#FAF5FF' : '#FFFFFF',
+                        border: (payoutCategoryFilter === 'WITHDRAWALS' && payoutStatusFilter === 'SUBMITTED_TO_BANK') ? '2px solid #7C3AED' : '1px solid #E2E8F0',
+                        borderRadius: '10px',
+                        padding: '0.875rem 1rem',
+                        cursor: 'pointer',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#7C3AED', textTransform: 'uppercase' }}>
+                          📤 Sent to Bank
+                        </span>
+                        <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#F3E8FF', color: '#7C3AED', padding: '1px 6px', borderRadius: '10px' }}>
+                          {submittedWithdrawalsList.length} In Transit
+                        </span>
+                      </div>
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: '6px 0 2px' }}>
+                        ₹{totalSubmittedAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </h3>
+                      <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 600 }}>
+                        Excel sent • Enter UTR when paid
+                      </span>
+                    </div>
+                  </div>
+
                   {/* 1. SEARCH, DATE FILTER & ICON-ONLY DOWNLOAD BUTTON (COMPACT SINGLE ROW) */}
                   <div style={{
                     display: 'flex',
