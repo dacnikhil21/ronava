@@ -1329,3 +1329,34 @@ input:-webkit-autofill:active {
   margin: 0;
 }
 
+/* ---- 11. DEDICATED PROFITS HUB DUAL-RESPONSIVE ARCHITECTURE ---- */
+@media (max-width: 768px) {
+  .mobile-only-hero {
+    display: block !important;
+  }
+  .desktop-profit-summary-grid {
+    display: none !important;
+  }
+  .desktop-ledger-table-wrap {
+    display: none !important;
+  }
+  .mobile-ledger-cards-feed {
+    display: flex !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .mobile-only-hero {
+    display: none !important;
+  }
+  .desktop-profit-summary-grid {
+    display: grid !important;
+  }
+  .desktop-ledger-table-wrap {
+    display: block !important;
+  }
+  .mobile-ledger-cards-feed {
+    display: none !important;
+  }
+}
+

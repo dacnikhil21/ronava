@@ -254,6 +254,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [selectedProfitTier, setSelectedProfitTier] = useState('COMPANY'); // 'COMPANY' | 'MASTER' | 'SUPER' | 'DISTRICT' | 'DISTRIBUTOR' | 'MERCHANT'
+  const [selectedProfitChannel, setSelectedProfitChannel] = useState('ALL'); // 'ALL' | 'QR' | 'PINELABS' | 'PAYSWIFF'
+  const [profitSearchQuery, setProfitSearchQuery] = useState('');
+  const [expandedProfitTxnId, setExpandedProfitTxnId] = useState(null);
 
   // Monthly POS Terminal Rental Report State (Items #22 & #23)
   const [rentalReportData, setRentalReportData] = useState({
@@ -282,6 +285,41 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         setCopiedId(prev => ({ ...prev, [id]: false }));
       }, 1500);
     });
+  };
+
+  // Dedicated Profit CSV Export Helper
+  const handleExportProfitCsv = (items, tierTitle = 'Ecosystem') => {
+    if (!items || items.length === 0) {
+      triggerToast('No profit records available to export for selected filter.', 'error');
+      return;
+    }
+    try {
+      const headers = ['Date & Time', 'Transaction ID', 'RRN / Ref', 'Merchant Name', 'Merchant ID', 'Channel', 'Gross Swiped (INR)', 'Fee Deducted (INR)', 'Uplines Cut (INR)', 'Tier Profit (INR)', 'Status'];
+      const rows = items.map(item => [
+        `"${new Date(item.created_at || Date.now()).toLocaleString('en-IN')}"`,
+        `"${item.txn_id || ''}"`,
+        `"${item.ref_number || ''}"`,
+        `"${(item.merchant_name || '').replace(/"/g, '""')}"`,
+        `"${item.merchant_id || ''}"`,
+        `"${item.provider || ''}"`,
+        (item.amount || 0).toFixed(2),
+        (item.fee_deducted || 0).toFixed(2),
+        (item.paid_uplines || 0).toFixed(2),
+        (item.commission_amount || 0).toFixed(2),
+        `"${item.status || 'APPROVED'}"`
+      ]);
+      const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', `RONAV_${tierTitle.replace(/\s+/g, '_')}_Profits_${profitDateFilter}_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      triggerToast(`✓ Exported ${items.length} records to CSV!`, 'success');
+    } catch (err) {
+      triggerToast('Failed to export CSV: ' + err.message, 'error');
+    }
   };
 
   const fetchRentalReport = async (monthVal) => {
@@ -1343,12 +1381,21 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       });
     }
 
+    let totalSalesVolume = 0;
+    let totalFeesCollected = 0;
     let companyNet = 0;
     let masterTotal = 0;
     let superTotal = 0;
     let districtTotal = 0;
     let distributorTotal = 0;
     let merchantTotal = 0;
+
+    const channelStats = {
+      ALL: { count: 0, volume: 0, profit: 0 },
+      QR: { count: 0, volume: 0, profit: 0 },
+      PINELABS: { count: 0, volume: 0, profit: 0 },
+      PAYSWIFF: { count: 0, volume: 0, profit: 0 }
+    };
 
     const breakdowns = {
       COMPANY: [],
@@ -1364,6 +1411,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       if (amt <= 0) return;
 
       const merchant = userMap[t.merchant_id] || { id: t.merchant_id, name: t.merchant_name || t.merchant_id || 'Merchant' };
+      const merchantDisplayName = merchant.business_name || merchant.name || t.merchant_name || 'Merchant Outlet';
       
       let companyFee = parseFloat(t.company_fee);
       let merchantComm = parseFloat(t.merchant_commission);
@@ -1375,18 +1423,34 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         merchantComm = Math.max(0, (amt * 0.02) - companyFee);
       }
 
+      totalSalesVolume += amt;
+      totalFeesCollected += companyFee;
+
+      // Channel classification
+      const provStr = (t.pos_provider || t.provider || '').toLowerCase();
+      const isQR = provStr.includes('qr') || t.type === 'QR_SCAN' || (t.notes && typeof t.notes === 'string' && t.notes.includes('QR'));
+      const isSwiff = provStr.includes('swiff');
+      const channelKey = isQR ? 'QR' : (isSwiff ? 'PAYSWIFF' : 'PINELABS');
+      const channelDisplayName = isQR ? 'Company QR (UPI)' : (isSwiff ? 'Payswiff POS' : 'Pine Labs POS');
+
       // 1. Merchant Earnings
       merchantTotal += merchantComm;
       breakdowns.MERCHANT.push({
         partner_id: merchant.id,
         partner_name: merchant.name,
         merchant_id: merchant.id,
-        merchant_name: merchant.name,
+        merchant_name: merchantDisplayName,
         txn_id: t.id,
         amount: amt,
-        provider: t.pos_provider || t.provider || 'POS',
+        provider: channelDisplayName,
+        channel_key: channelKey,
         commission_rate: amt > 0 ? `${((merchantComm / amt) * 100).toFixed(2)}%` : '0.30%',
         commission_amount: merchantComm,
+        fee_deducted: companyFee,
+        paid_uplines: 0,
+        admin_cut: 0,
+        ref_number: t.ref_number || t.rrn || '',
+        status: t.status || 'APPROVED',
         created_at: t.created_at || new Date().toISOString(),
         role: 'MERCHANT'
       });
@@ -1419,12 +1483,18 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           partner_id: masterUser.id,
           partner_name: masterUser.name,
           merchant_id: merchant.id,
-          merchant_name: merchant.name,
+          merchant_name: merchantDisplayName,
           txn_id: t.id,
           amount: amt,
-          provider: t.pos_provider || t.provider || 'POS',
+          provider: channelDisplayName,
+          channel_key: channelKey,
           commission_rate: '0.05% override',
           commission_amount: cut,
+          fee_deducted: companyFee,
+          paid_uplines: cut,
+          admin_cut: 0,
+          ref_number: t.ref_number || t.rrn || '',
+          status: t.status || 'APPROVED',
           created_at: t.created_at || new Date().toISOString(),
           role: 'MASTER_DISTRIBUTOR'
         });
@@ -1439,12 +1509,18 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           partner_id: superUser.id,
           partner_name: superUser.name,
           merchant_id: merchant.id,
-          merchant_name: merchant.name,
+          merchant_name: merchantDisplayName,
           txn_id: t.id,
           amount: amt,
-          provider: t.pos_provider || t.provider || 'POS',
+          provider: channelDisplayName,
+          channel_key: channelKey,
           commission_rate: '0.10% override',
           commission_amount: cut,
+          fee_deducted: companyFee,
+          paid_uplines: cut,
+          admin_cut: 0,
+          ref_number: t.ref_number || t.rrn || '',
+          status: t.status || 'APPROVED',
           created_at: t.created_at || new Date().toISOString(),
           role: 'SUPER_DISTRIBUTOR'
         });
@@ -1459,12 +1535,18 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           partner_id: districtUser.id,
           partner_name: districtUser.name,
           merchant_id: merchant.id,
-          merchant_name: merchant.name,
+          merchant_name: merchantDisplayName,
           txn_id: t.id,
           amount: amt,
-          provider: t.pos_provider || t.provider || 'POS',
+          provider: channelDisplayName,
+          channel_key: channelKey,
           commission_rate: '0.10% override',
           commission_amount: cut,
+          fee_deducted: companyFee,
+          paid_uplines: cut,
+          admin_cut: 0,
+          ref_number: t.ref_number || t.rrn || '',
+          status: t.status || 'APPROVED',
           created_at: t.created_at || new Date().toISOString(),
           role: 'DISTRICT_DISTRIBUTOR'
         });
@@ -1479,12 +1561,18 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           partner_id: distUser.id,
           partner_name: distUser.name,
           merchant_id: merchant.id,
-          merchant_name: merchant.name,
+          merchant_name: merchantDisplayName,
           txn_id: t.id,
           amount: amt,
-          provider: t.pos_provider || t.provider || 'POS',
+          provider: channelDisplayName,
+          channel_key: channelKey,
           commission_rate: '0.10% override',
           commission_amount: cut,
+          fee_deducted: companyFee,
+          paid_uplines: cut,
+          admin_cut: 0,
+          ref_number: t.ref_number || t.rrn || '',
+          status: t.status || 'APPROVED',
           created_at: t.created_at || new Date().toISOString(),
           role: 'DISTRIBUTOR'
         });
@@ -1493,28 +1581,51 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       // Company Net Margin = companyFee - paidUplines
       const companyEarned = Math.max(0, companyFee - paidUplines);
       companyNet += companyEarned;
+
+      // Update Channel Stats
+      channelStats.ALL.count += 1;
+      channelStats.ALL.volume += amt;
+      channelStats.ALL.profit += companyEarned;
+      if (channelStats[channelKey]) {
+        channelStats[channelKey].count += 1;
+        channelStats[channelKey].volume += amt;
+        channelStats[channelKey].profit += companyEarned;
+      }
+
       breakdowns.COMPANY.push({
         partner_id: 'ADM001',
         partner_name: 'RONAV Technologies (Company)',
         merchant_id: merchant.id,
-        merchant_name: merchant.name,
+        merchant_name: merchantDisplayName,
         txn_id: t.id,
         amount: amt,
-        provider: t.pos_provider || t.provider || 'POS',
-        commission_rate: amt > 0 ? `${((companyEarned / amt) * 100).toFixed(2)}% net margin` : '1.20% net margin',
+        provider: channelDisplayName,
+        channel_key: channelKey,
+        commission_rate: amt > 0 ? `${((companyEarned / amt) * 100).toFixed(2)}% net margin` : '1.50% net margin',
         commission_amount: companyEarned,
+        fee_deducted: companyFee,
+        paid_uplines: paidUplines,
+        admin_cut: companyEarned,
+        ref_number: t.ref_number || t.rrn || '',
+        status: t.status || 'APPROVED',
         created_at: t.created_at || new Date().toISOString(),
         role: 'ADMIN'
       });
     });
 
+    const totalUplinesDistributed = masterTotal + superTotal + districtTotal + distributorTotal;
+
     return {
+      totalSalesVolume,
+      totalFeesCollected,
+      totalUplinesDistributed,
       companyNet,
       masterTotal,
       superTotal,
       districtTotal,
       distributorTotal,
       merchantTotal,
+      channelStats,
       breakdowns,
       txnsCount: txns.length,
       counts: {
@@ -3896,96 +4007,154 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
             {/* TAB VIEW: DEDICATED ECOSYSTEM PROFITS & COMMISSION LEDGER */}
             {activeTab === 'profits' && (() => {
               const currentTierKey = selectedProfitTier || 'COMPANY';
-              const currentItems = profitDistributionData.breakdowns[currentTierKey] || [];
+              const rawItems = profitDistributionData.breakdowns[currentTierKey] || [];
+              const channelStats = profitDistributionData.channelStats || { ALL: { count: 0 }, QR: { count: 0 }, PINELABS: { count: 0 }, PAYSWIFF: { count: 0 } };
+
+              // Apply Channel Filter
+              let filteredItems = rawItems;
+              if (selectedProfitChannel !== 'ALL') {
+                filteredItems = filteredItems.filter(it => it.channel_key === selectedProfitChannel);
+              }
+
+              // Apply Search Query Filter
+              if (profitSearchQuery.trim()) {
+                const q = profitSearchQuery.toLowerCase().trim();
+                filteredItems = filteredItems.filter(it => 
+                  (it.merchant_name || '').toLowerCase().includes(q) ||
+                  (it.merchant_id || '').toLowerCase().includes(q) ||
+                  (it.partner_name || '').toLowerCase().includes(q) ||
+                  (it.partner_id || '').toLowerCase().includes(q) ||
+                  (it.txn_id || '').toLowerCase().includes(q) ||
+                  (it.ref_number || '').toLowerCase().includes(q) ||
+                  (it.provider || '').toLowerCase().includes(q)
+                );
+              }
+
               const tierMetaMap = {
                 COMPANY: {
                   title: 'Company Net Margin',
                   icon: '🏢',
                   accentColor: '#059669',
                   tabId: null,
-                  total: profitDistributionData.companyNet
+                  total: profitDistributionData.companyNet,
+                  subtitle: `${profitDistributionData.breakdowns.COMPANY?.length || 0} Swipes • Retained Platform Margin`
                 },
                 MASTER: {
                   title: 'Master Distributors',
                   icon: '👑',
                   accentColor: '#7C3AED',
                   tabId: 'master_distributors',
-                  total: profitDistributionData.masterTotal
+                  total: profitDistributionData.masterTotal,
+                  subtitle: `${profitDistributionData.counts.master} Active Partners • 0.05% Override`
                 },
                 SUPER: {
                   title: 'Super Distributors',
                   icon: '⚡',
                   accentColor: '#4F46E5',
                   tabId: 'super_distributors',
-                  total: profitDistributionData.superTotal
+                  total: profitDistributionData.superTotal,
+                  subtitle: `${profitDistributionData.counts.super} Active Partners • 0.10% Cut`
                 },
                 DISTRICT: {
                   title: 'District Distributors',
                   icon: '🏛️',
                   accentColor: '#D97706',
                   tabId: 'district_distributors',
-                  total: profitDistributionData.districtTotal
+                  total: profitDistributionData.districtTotal,
+                  subtitle: `${profitDistributionData.counts.district} Active Partners • 0.10% Cut`
                 },
                 DISTRIBUTOR: {
                   title: 'Distributors',
                   icon: '📦',
                   accentColor: '#0F52BA',
                   tabId: 'distributors',
-                  total: profitDistributionData.distributorTotal
+                  total: profitDistributionData.distributorTotal,
+                  subtitle: `${profitDistributionData.counts.distributor} Active Partners • 0.10% Cut`
                 },
                 MERCHANT: {
                   title: 'Retail Merchants',
                   icon: '🏪',
                   accentColor: '#0284C7',
                   tabId: 'merchants',
-                  total: profitDistributionData.merchantTotal
+                  total: profitDistributionData.merchantTotal,
+                  subtitle: `${profitDistributionData.counts.merchant} Active Merchants • Direct Margin`
                 }
               };
               const activeMeta = tierMetaMap[currentTierKey] || tierMetaMap.COMPANY;
 
+              // Filtered Subtotals for ledger
+              const subtotalSwiped = filteredItems.reduce((acc, it) => acc + (parseFloat(it.amount) || 0), 0);
+              const subtotalFees = filteredItems.reduce((acc, it) => acc + (parseFloat(it.fee_deducted) || 0), 0);
+              const subtotalProfit = filteredItems.reduce((acc, it) => acc + (parseFloat(it.commission_amount) || 0), 0);
+
               return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {/* Horizontal Scrolling Date Filter Buttons directly below header */}
-                  <div 
-                    className="admin-date-filter-scroll no-scrollbar"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.4rem',
-                      overflowX: 'auto',
-                      paddingBottom: '2px',
-                      WebkitOverflowScrolling: 'touch',
-                      scrollbarWidth: 'none',
-                      msOverflowStyle: 'none'
-                    }}
-                  >
-                    {[
-                      { id: 'TODAY', label: "Today" },
-                      { id: 'YESTERDAY', label: "Yesterday" },
-                      { id: 'WEEK', label: "7 Days" },
-                      { id: 'MONTH', label: "This Month" },
-                      { id: 'ALL', label: "All Time" },
-                      { id: 'CUSTOM', label: "Custom Range" }
-                    ].map(p => (
-                      <button
-                        key={p.id}
-                        onClick={() => setProfitDateFilter(p.id)}
-                        style={{
-                          background: profitDateFilter === p.id ? '#0F52BA' : '#FFFFFF',
-                          color: profitDateFilter === p.id ? '#FFFFFF' : '#475569',
-                          border: profitDateFilter === p.id ? '1px solid #0F52BA' : '1px solid #CBD5E1',
-                          padding: '0.35rem 0.75rem',
-                          borderRadius: '6px',
-                          fontSize: '0.6875rem',
-                          fontWeight: profitDateFilter === p.id ? 800 : 600,
-                          cursor: 'pointer',
-                          whiteSpace: 'nowrap',
-                          flexShrink: 0
-                        }}
-                      >
-                        {p.label}
-                      </button>
-                    ))}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+                  
+                  {/* Top Control Bar: Date Filter Pills */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <div 
+                      className="admin-date-filter-scroll no-scrollbar"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        overflowX: 'auto',
+                        paddingBottom: '2px',
+                        WebkitOverflowScrolling: 'touch',
+                        scrollbarWidth: 'none',
+                        msOverflowStyle: 'none'
+                      }}
+                    >
+                      {[
+                        { id: 'TODAY', label: "Today" },
+                        { id: 'YESTERDAY', label: "Yesterday" },
+                        { id: 'WEEK', label: "7 Days" },
+                        { id: 'MONTH', label: "This Month" },
+                        { id: 'ALL', label: "All Time" },
+                        { id: 'CUSTOM', label: "Custom Range" }
+                      ].map(p => (
+                        <button
+                          key={p.id}
+                          onClick={() => setProfitDateFilter(p.id)}
+                          style={{
+                            background: profitDateFilter === p.id ? '#0F52BA' : '#FFFFFF',
+                            color: profitDateFilter === p.id ? '#FFFFFF' : '#475569',
+                            border: profitDateFilter === p.id ? '1px solid #0F52BA' : '1px solid #CBD5E1',
+                            padding: '0.35rem 0.75rem',
+                            borderRadius: '6px',
+                            fontSize: '0.6875rem',
+                            fontWeight: profitDateFilter === p.id ? 800 : 600,
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap',
+                            flexShrink: 0
+                          }}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      onClick={() => handleExportProfitCsv(filteredItems, activeMeta.title)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        background: '#FFFFFF',
+                        border: '1px solid #CBD5E1',
+                        color: '#0F52BA',
+                        padding: '0.35rem 0.75rem',
+                        borderRadius: '6px',
+                        fontSize: '0.6875rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap'
+                      }}
+                      title="Download profit ledger as CSV spreadsheet"
+                    >
+                      <Download style={{ width: '13px', height: '13px' }} />
+                      <span>Export CSV</span>
+                    </button>
                   </div>
 
                   {/* Custom Date Inputs (Only when Custom Range is active) */}
@@ -3994,14 +4163,19 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       display: 'flex',
                       alignItems: 'center',
                       flexWrap: 'wrap',
-                      gap: '0.5rem'
+                      gap: '0.5rem',
+                      background: '#FFFFFF',
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: '8px',
+                      border: '1px solid #E2E8F0'
                     }}>
+                      <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#64748B' }}>From:</span>
                       <input
                         type="date"
                         value={customStartDate}
                         onChange={(e) => setCustomStartDate(e.target.value)}
                         style={{
-                          padding: '0.35rem 0.5rem',
+                          padding: '0.3rem 0.5rem',
                           borderRadius: '6px',
                           border: '1px solid #CBD5E1',
                           fontSize: '0.75rem',
@@ -4009,13 +4183,13 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           fontWeight: 600
                         }}
                       />
-                      <span style={{ fontSize: '0.75rem', color: '#64748B' }}>to</span>
+                      <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#64748B' }}>To:</span>
                       <input
                         type="date"
                         value={customEndDate}
                         onChange={(e) => setCustomEndDate(e.target.value)}
                         style={{
-                          padding: '0.35rem 0.5rem',
+                          padding: '0.3rem 0.5rem',
                           borderRadius: '6px',
                           border: '1px solid #CBD5E1',
                           fontSize: '0.75rem',
@@ -4030,7 +4204,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             background: '#F1F5F9',
                             border: 'none',
                             color: '#64748B',
-                            padding: '0.35rem 0.6rem',
+                            padding: '0.3rem 0.6rem',
                             borderRadius: '6px',
                             fontSize: '0.6875rem',
                             fontWeight: 700,
@@ -4043,299 +4217,583 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     </div>
                   )}
 
-                  {/* 2-COLUMN GRID: 6 CLEAN TIERS (NO SUBTITLES, NO OVERRIDES TEXT) */}
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(2, 1fr)',
-                    gap: '0.875rem'
-                  }}>
+                  {/* SECTION 1: EXECUTIVE FINANCIAL SUMMARY */}
+                  
+                  {/* Mobile-Only Hero Card */}
+                  <div 
+                    className="mobile-only-hero"
+                    style={{
+                      background: 'linear-gradient(135deg, #0A192F 0%, #0F52BA 100%)',
+                      borderRadius: '14px',
+                      padding: '1.125rem',
+                      color: '#FFFFFF',
+                      boxShadow: '0 8px 24px rgba(15, 82, 186, 0.18)',
+                      display: 'none'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.6875rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#93C5FD' }}>
+                        🏢 Admin Net Profit ({profitDateFilter})
+                      </span>
+                      <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#10B981', color: '#FFFFFF', padding: '2px 8px', borderRadius: '12px' }}>
+                        ✓ 100% Realized
+                      </span>
+                    </div>
 
-                    {/* Tier 1: Company Net Margin */}
-                    <div
-                      onClick={() => setSelectedProfitTier('COMPANY')}
-                      style={{
-                        background: selectedProfitTier === 'COMPANY' ? '#ECFDF5' : '#FFFFFF',
-                        border: selectedProfitTier === 'COMPANY' ? '2px solid #059669' : '1px solid #E2E8F0',
-                        borderRadius: '12px',
-                        padding: '1rem',
-                        cursor: 'pointer',
-                        boxShadow: selectedProfitTier === 'COMPANY' ? '0 4px 12px rgba(5, 150, 105, 0.12)' : '0 2px 4px rgba(0,0,0,0.02)'
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#059669', textTransform: 'uppercase' }}>
-                          🏢 Company Margin
-                        </span>
-                        {selectedProfitTier === 'COMPANY' ? (
-                          <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#059669', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
-                            ✓ Active
-                          </span>
-                        ) : (
-                          <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#D1FAE5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <DollarSign style={{ width: '15px', height: '15px' }} />
-                          </div>
-                        )}
-                      </div>
-                      <h3 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#059669', margin: '8px 0 0' }}>
+                    <div style={{ marginTop: '0.5rem' }}>
+                      <h2 style={{ fontSize: '1.875rem', fontWeight: 900, margin: 0, color: '#FFFFFF' }}>
                         ₹{profitDistributionData.companyNet.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </h3>
+                      </h2>
                     </div>
 
-                    {/* Tier 2: Master Distributors */}
-                    <div
-                      onClick={() => setSelectedProfitTier('MASTER')}
-                      style={{
-                        background: selectedProfitTier === 'MASTER' ? '#FAF5FF' : '#FFFFFF',
-                        border: selectedProfitTier === 'MASTER' ? '2px solid #7C3AED' : '1px solid #E2E8F0',
-                        borderRadius: '12px',
-                        padding: '1rem',
-                        cursor: 'pointer',
-                        boxShadow: selectedProfitTier === 'MASTER' ? '0 4px 12px rgba(124, 58, 237, 0.12)' : '0 2px 4px rgba(0,0,0,0.02)'
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#7C3AED', textTransform: 'uppercase' }}>
-                          👑 Master Dist
-                        </span>
-                        {selectedProfitTier === 'MASTER' ? (
-                          <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#7C3AED', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
-                            ✓ Active
-                          </span>
-                        ) : (
-                          <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#F3E8FF', color: '#7C3AED', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <Crown style={{ width: '15px', height: '15px' }} />
-                          </div>
-                        )}
+                    <div style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(3, 1fr)',
+                      gap: '0.5rem',
+                      marginTop: '0.875rem',
+                      paddingTop: '0.75rem',
+                      borderTop: '1px solid rgba(255,255,255,0.15)'
+                    }}>
+                      <div>
+                        <span style={{ fontSize: '0.58rem', color: '#BFDBFE', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Sales Swiped</span>
+                        <strong style={{ fontSize: '0.8125rem', color: '#FFFFFF', fontWeight: 800 }}>
+                          ₹{profitDistributionData.totalSalesVolume.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                        </strong>
                       </div>
-                      <h3 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#7C3AED', margin: '8px 0 0' }}>
-                        ₹{profitDistributionData.masterTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </h3>
-                    </div>
-
-                    {/* Tier 3: Super Distributors */}
-                    <div
-                      onClick={() => setSelectedProfitTier('SUPER')}
-                      style={{
-                        background: selectedProfitTier === 'SUPER' ? '#EEF2FF' : '#FFFFFF',
-                        border: selectedProfitTier === 'SUPER' ? '2px solid #4F46E5' : '1px solid #E2E8F0',
-                        borderRadius: '12px',
-                        padding: '1rem',
-                        cursor: 'pointer',
-                        boxShadow: selectedProfitTier === 'SUPER' ? '0 4px 12px rgba(79, 70, 229, 0.12)' : '0 2px 4px rgba(0,0,0,0.02)'
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#4F46E5', textTransform: 'uppercase' }}>
-                          ⚡ Super Dist
-                        </span>
-                        {selectedProfitTier === 'SUPER' ? (
-                          <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#4F46E5', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
-                            ✓ Active
-                          </span>
-                        ) : (
-                          <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#E0E7FF', color: '#4F46E5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <Zap style={{ width: '15px', height: '15px' }} />
-                          </div>
-                        )}
+                      <div>
+                        <span style={{ fontSize: '0.58rem', color: '#BFDBFE', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Fees Collected</span>
+                        <strong style={{ fontSize: '0.8125rem', color: '#FFFFFF', fontWeight: 800 }}>
+                          ₹{profitDistributionData.totalFeesCollected.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                        </strong>
                       </div>
-                      <h3 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#4F46E5', margin: '8px 0 0' }}>
-                        ₹{profitDistributionData.superTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </h3>
-                    </div>
-
-                    {/* Tier 4: District Distributors */}
-                    <div
-                      onClick={() => setSelectedProfitTier('DISTRICT')}
-                      style={{
-                        background: selectedProfitTier === 'DISTRICT' ? '#FFFBEB' : '#FFFFFF',
-                        border: selectedProfitTier === 'DISTRICT' ? '2px solid #D97706' : '1px solid #E2E8F0',
-                        borderRadius: '12px',
-                        padding: '1rem',
-                        cursor: 'pointer',
-                        boxShadow: selectedProfitTier === 'DISTRICT' ? '0 4px 12px rgba(217, 119, 6, 0.12)' : '0 2px 4px rgba(0,0,0,0.02)'
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#D97706', textTransform: 'uppercase' }}>
-                          🏛️ District Dist
-                        </span>
-                        {selectedProfitTier === 'DISTRICT' ? (
-                          <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#D97706', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
-                            ✓ Active
-                          </span>
-                        ) : (
-                          <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#FEF3C7', color: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <Building2 style={{ width: '15px', height: '15px' }} />
-                          </div>
-                        )}
+                      <div>
+                        <span style={{ fontSize: '0.58rem', color: '#FCA5A5', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Uplines Paid</span>
+                        <strong style={{ fontSize: '0.8125rem', color: '#FCA5A5', fontWeight: 800 }}>
+                          -₹{profitDistributionData.totalUplinesDistributed.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                        </strong>
                       </div>
-                      <h3 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#D97706', margin: '8px 0 0' }}>
-                        ₹{profitDistributionData.districtTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </h3>
                     </div>
-
-                    {/* Tier 5: Distributors */}
-                    <div
-                      onClick={() => setSelectedProfitTier('DISTRIBUTOR')}
-                      style={{
-                        background: selectedProfitTier === 'DISTRIBUTOR' ? '#EFF6FF' : '#FFFFFF',
-                        border: selectedProfitTier === 'DISTRIBUTOR' ? '2px solid #0F52BA' : '1px solid #E2E8F0',
-                        borderRadius: '12px',
-                        padding: '1rem',
-                        cursor: 'pointer',
-                        boxShadow: selectedProfitTier === 'DISTRIBUTOR' ? '0 4px 12px rgba(15, 82, 186, 0.12)' : '0 2px 4px rgba(0,0,0,0.02)'
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0F52BA', textTransform: 'uppercase' }}>
-                          📦 Distributor
-                        </span>
-                        {selectedProfitTier === 'DISTRIBUTOR' ? (
-                          <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#0F52BA', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
-                            ✓ Active
-                          </span>
-                        ) : (
-                          <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#DBEAFE', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <GitFork style={{ width: '15px', height: '15px' }} />
-                          </div>
-                        )}
-                      </div>
-                      <h3 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#0F52BA', margin: '8px 0 0' }}>
-                        ₹{profitDistributionData.distributorTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </h3>
-                    </div>
-
-                    {/* Tier 6: Retail Merchants */}
-                    <div
-                      onClick={() => setSelectedProfitTier('MERCHANT')}
-                      style={{
-                        background: selectedProfitTier === 'MERCHANT' ? '#F0F9FF' : '#FFFFFF',
-                        border: selectedProfitTier === 'MERCHANT' ? '2px solid #0284C7' : '1px solid #E2E8F0',
-                        borderRadius: '12px',
-                        padding: '1rem',
-                        cursor: 'pointer',
-                        boxShadow: selectedProfitTier === 'MERCHANT' ? '0 4px 12px rgba(2, 132, 199, 0.12)' : '0 2px 4px rgba(0,0,0,0.02)'
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#0284C7', textTransform: 'uppercase' }}>
-                          🏪 Merchants
-                        </span>
-                        {selectedProfitTier === 'MERCHANT' ? (
-                          <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#0284C7', color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
-                            ✓ Active
-                          </span>
-                        ) : (
-                          <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#E0F2FE', color: '#0284C7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <Store style={{ width: '15px', height: '15px' }} />
-                          </div>
-                        )}
-                      </div>
-                      <h3 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#0284C7', margin: '8px 0 0' }}>
-                        ₹{profitDistributionData.merchantTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </h3>
-                    </div>
-
                   </div>
 
-                  {/* INLINE DETAILED BREAKDOWN BELOW ALL BUTTONS */}
+                  {/* Desktop 4-Metric Grid (Responsive) */}
+                  <div 
+                    className="desktop-profit-summary-grid"
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+                      gap: '0.75rem'
+                    }}
+                  >
+                    {/* Stat 1: Total Sales Volume */}
+                    <div style={{
+                      background: '#FFFFFF',
+                      borderRadius: '10px',
+                      border: '1px solid #E2E8F0',
+                      padding: '0.875rem 1rem',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>
+                          💳 Total Sales Volume
+                        </span>
+                        <div style={{ width: '24px', height: '24px', borderRadius: '6px', background: '#F1F5F9', color: '#0F52BA', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <CreditCard style={{ width: '13px', height: '13px' }} />
+                        </div>
+                      </div>
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: '6px 0 2px' }}>
+                        ₹{profitDistributionData.totalSalesVolume.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </h3>
+                      <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 600 }}>
+                        {profitDistributionData.txnsCount} transactions swiped
+                      </span>
+                    </div>
+
+                    {/* Stat 2: Total Fees Collected */}
+                    <div style={{
+                      background: '#FFFFFF',
+                      borderRadius: '10px',
+                      border: '1px solid #E2E8F0',
+                      padding: '0.875rem 1rem',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>
+                          🏷️ Total Fees Collected
+                        </span>
+                        <div style={{ width: '24px', height: '24px', borderRadius: '6px', background: '#EFF6FF', color: '#1D4ED8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <Receipt style={{ width: '13px', height: '13px' }} />
+                        </div>
+                      </div>
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#1E293B', margin: '6px 0 2px' }}>
+                        ₹{profitDistributionData.totalFeesCollected.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </h3>
+                      <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 600 }}>
+                        Gross deductions from merchants
+                      </span>
+                    </div>
+
+                    {/* Stat 3: Distributor Commissions */}
+                    <div style={{
+                      background: '#FFFFFF',
+                      borderRadius: '10px',
+                      border: '1px solid #E2E8F0',
+                      padding: '0.875rem 1rem',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>
+                          👥 Distributor Payouts
+                        </span>
+                        <div style={{ width: '24px', height: '24px', borderRadius: '6px', background: '#FEF2F2', color: '#DC2626', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <GitFork style={{ width: '13px', height: '13px' }} />
+                        </div>
+                      </div>
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#DC2626', margin: '6px 0 2px' }}>
+                        -₹{profitDistributionData.totalUplinesDistributed.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </h3>
+                      <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 600 }}>
+                        Distributed to upline partners
+                      </span>
+                    </div>
+
+                    {/* Stat 4: Admin Net Profit */}
+                    <div style={{
+                      background: '#ECFDF5',
+                      borderRadius: '10px',
+                      border: '2px solid #059669',
+                      padding: '0.875rem 1rem',
+                      boxShadow: '0 4px 12px rgba(5, 150, 105, 0.12)'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#059669', textTransform: 'uppercase' }}>
+                          🏢 Admin Net Profit
+                        </span>
+                        <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#059669', color: '#FFFFFF', padding: '1px 6px', borderRadius: '10px' }}>
+                          ✓ Retained
+                        </span>
+                      </div>
+                      <h3 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#059669', margin: '6px 0 2px' }}>
+                        +₹{profitDistributionData.companyNet.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </h3>
+                      <span style={{ fontSize: '0.625rem', color: '#047857', fontWeight: 700 }}>
+                        100% Realized Company Margin
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* SECTION 2: CHANNEL QUICK FILTER PILLS */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    overflowX: 'auto',
+                    paddingBottom: '2px',
+                    scrollbarWidth: 'none',
+                    msOverflowStyle: 'none'
+                  }}>
+                    <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#64748B', whiteSpace: 'nowrap', textTransform: 'uppercase', marginRight: '4px' }}>
+                      Filter Channel:
+                    </span>
+                    
+                    {[
+                      { key: 'ALL', label: 'All Channels', count: channelStats.ALL.count, icon: '⚡' },
+                      { key: 'QR', label: 'Company QR (UPI)', count: channelStats.QR.count, icon: '📱' },
+                      { key: 'PINELABS', label: 'Pine Labs POS', count: channelStats.PINELABS.count, icon: '🟩' },
+                      { key: 'PAYSWIFF', label: 'Payswiff POS', count: channelStats.PAYSWIFF.count, icon: '🟦' }
+                    ].map(ch => (
+                      <button
+                        key={ch.key}
+                        onClick={() => setSelectedProfitChannel(ch.key)}
+                        style={{
+                          background: selectedProfitChannel === ch.key ? '#0F52BA' : '#FFFFFF',
+                          color: selectedProfitChannel === ch.key ? '#FFFFFF' : '#1E293B',
+                          border: selectedProfitChannel === ch.key ? '1px solid #0F52BA' : '1px solid #CBD5E1',
+                          padding: '0.35rem 0.75rem',
+                          borderRadius: '8px',
+                          fontSize: '0.6875rem',
+                          fontWeight: selectedProfitChannel === ch.key ? 800 : 600,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          whiteSpace: 'nowrap',
+                          boxShadow: selectedProfitChannel === ch.key ? '0 2px 6px rgba(15, 82, 186, 0.2)' : 'none'
+                        }}
+                      >
+                        <span>{ch.icon}</span>
+                        <span>{ch.label}</span>
+                        <span style={{
+                          background: selectedProfitChannel === ch.key ? 'rgba(255,255,255,0.25)' : '#F1F5F9',
+                          color: selectedProfitChannel === ch.key ? '#FFFFFF' : '#475569',
+                          padding: '1px 6px',
+                          borderRadius: '10px',
+                          fontSize: '0.625rem',
+                          fontWeight: 800
+                        }}>
+                          {ch.count}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* SECTION 3: THE 6 NETWORK TIER CARDS */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                    gap: '0.75rem'
+                  }}>
+                    {Object.entries(tierMetaMap).map(([tKey, meta]) => {
+                      const isSelected = (selectedProfitTier === tKey);
+                      return (
+                        <div
+                          key={tKey}
+                          onClick={() => setSelectedProfitTier(tKey)}
+                          style={{
+                            background: isSelected ? '#FFFFFF' : '#FFFFFF',
+                            border: isSelected ? `2px solid ${meta.accentColor}` : '1px solid #E2E8F0',
+                            borderRadius: '10px',
+                            padding: '0.875rem',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                            boxShadow: isSelected ? `0 4px 14px ${meta.accentColor}25` : '0 1px 3px rgba(0,0,0,0.02)'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: meta.accentColor, textTransform: 'uppercase' }}>
+                              {meta.icon} {meta.title.replace('Distributors', 'Dist').replace('Retail Merchants', 'Merchants')}
+                            </span>
+                            {isSelected ? (
+                              <span style={{ fontSize: '0.58rem', fontWeight: 800, background: meta.accentColor, color: '#FFF', padding: '1px 6px', borderRadius: '10px' }}>
+                                ✓ Active
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '0.625rem', color: '#94A3B8' }}>Tap</span>
+                            )}
+                          </div>
+                          
+                          <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: isSelected ? meta.accentColor : '#0A192F', margin: '6px 0 2px' }}>
+                            ₹{meta.total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </h3>
+
+                          <span style={{ fontSize: '0.6rem', color: '#64748B', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {meta.subtitle}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* SECTION 4: ENTERPRISE AUDIT LEDGER */}
                   <div style={{
                     background: '#FFFFFF',
                     borderRadius: '12px',
                     border: '1px solid #E2E8F0',
                     padding: '1rem',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
                   }}>
-                    {/* Clean Header */}
+                    {/* Ledger Header & Search Controls */}
                     <div style={{
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
-                      marginBottom: '0.75rem',
-                      paddingBottom: '0.625rem',
+                      marginBottom: '0.875rem',
+                      paddingBottom: '0.75rem',
                       borderBottom: '1px solid #F1F5F9',
                       flexWrap: 'wrap',
-                      gap: '0.5rem'
+                      gap: '0.75rem'
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ fontSize: '1.25rem' }}>{activeMeta.icon}</span>
-                        <h3 style={{ fontSize: '0.9375rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
-                          {activeMeta.title} ({currentItems.length})
-                        </h3>
+                        <div>
+                          <h3 style={{ fontSize: '0.9375rem', fontWeight: 900, color: '#0A192F', margin: 0 }}>
+                            {activeMeta.title} Ledger
+                          </h3>
+                          <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>
+                            Showing {filteredItems.length} transactions {selectedProfitChannel !== 'ALL' ? `(${selectedProfitChannel})` : ''}
+                          </span>
+                        </div>
                       </div>
 
-                      {activeMeta.tabId && (
-                        <button
-                          onClick={() => handleTabSwitch(activeMeta.tabId)}
-                          style={{
-                            background: '#0F52BA',
-                            color: '#FFFFFF',
-                            border: 'none',
-                            padding: '0.35rem 0.75rem',
-                            borderRadius: '6px',
-                            fontSize: '0.6875rem',
-                            fontWeight: 800,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                          }}
-                        >
-                          <span>Open Directory</span>
-                          <ArrowRight style={{ width: '12px', height: '12px' }} />
-                        </button>
-                      )}
+                      {/* Search Bar */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <div style={{ position: 'relative', width: '220px' }}>
+                          <Search style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', width: '13px', height: '13px', color: '#94A3B8' }} />
+                          <input
+                            type="text"
+                            placeholder="Search merchant, MID, RRN..."
+                            value={profitSearchQuery}
+                            onChange={(e) => setProfitSearchQuery(e.target.value)}
+                            style={{
+                              width: '100%',
+                              padding: '0.35rem 0.5rem 0.35rem 1.625rem',
+                              borderRadius: '6px',
+                              border: '1px solid #CBD5E1',
+                              fontSize: '0.6875rem',
+                              color: '#0A192F',
+                              outline: 'none'
+                            }}
+                          />
+                          {profitSearchQuery && (
+                            <button
+                              onClick={() => setProfitSearchQuery('')}
+                              style={{ position: 'absolute', right: '6px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', fontSize: '12px' }}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+
+                        {activeMeta.tabId && (
+                          <button
+                            onClick={() => handleTabSwitch(activeMeta.tabId)}
+                            style={{
+                              background: '#0F52BA',
+                              color: '#FFFFFF',
+                              border: 'none',
+                              padding: '0.35rem 0.75rem',
+                              borderRadius: '6px',
+                              fontSize: '0.6875rem',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <span>Directory</span>
+                            <ArrowRight style={{ width: '12px', height: '12px' }} />
+                          </button>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Itemized Transactions List */}
-                    {currentItems.length === 0 ? (
+                    {/* Data Display: Zero State */}
+                    {filteredItems.length === 0 ? (
                       <div style={{
-                        padding: '1.75rem 1rem',
+                        padding: '2.5rem 1rem',
                         textAlign: 'center',
                         color: '#64748B',
                         fontSize: '0.8125rem'
                       }}>
-                        No transactions recorded for {activeMeta.title} in selected period.
+                        <div style={{ fontSize: '1.75rem', marginBottom: '0.5rem' }}>🔍</div>
+                        <strong style={{ color: '#0A192F', display: 'block', marginBottom: '4px' }}>
+                          No transactions found
+                        </strong>
+                        No recorded earnings for {activeMeta.title} matching the selected channel & date filter.
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-                        {currentItems.map((item, idx) => (
-                          <div
-                            key={idx}
-                            style={{
-                              background: '#F8FAFC',
-                              border: '1px solid #E2E8F0',
-                              borderRadius: '8px',
-                              padding: '0.75rem',
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              gap: '0.75rem'
-                            }}
-                          >
-                            <div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>
-                                  {item.partner_name}
-                                </strong>
-                                <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
-                                  ({item.partner_id})
-                                </span>
-                              </div>
+                      <>
+                        {/* 1. DESKTOP VIEW: High-Density Table */}
+                        <div className="desktop-ledger-table-wrap" style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.75rem' }}>
+                            <thead>
+                              <tr style={{ background: '#F8FAFC', borderBottom: '2px solid #E2E8F0', color: '#475569', fontWeight: 800, fontSize: '0.6875rem' }}>
+                                <th style={{ padding: '0.625rem 0.75rem' }}>Date & Time</th>
+                                <th style={{ padding: '0.625rem 0.75rem' }}>TXN ID / RRN</th>
+                                <th style={{ padding: '0.625rem 0.75rem' }}>Merchant Outlet</th>
+                                <th style={{ padding: '0.625rem 0.75rem' }}>Channel</th>
+                                <th style={{ padding: '0.625rem 0.75rem', textAlign: 'right' }}>Swiped Amount</th>
+                                <th style={{ padding: '0.625rem 0.75rem', textAlign: 'right' }}>Fee Deducted</th>
+                                <th style={{ padding: '0.625rem 0.75rem', textAlign: 'right' }}>Uplines Cut</th>
+                                <th style={{ padding: '0.625rem 0.75rem', textAlign: 'right' }}>Tier Profit</th>
+                                <th style={{ padding: '0.625rem 0.75rem', textAlign: 'center' }}>Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filteredItems.map((item, idx) => (
+                                <tr 
+                                  key={idx}
+                                  style={{
+                                    borderBottom: '1px solid #F1F5F9',
+                                    background: idx % 2 === 0 ? '#FFFFFF' : '#FAFAFA',
+                                    transition: 'background 0.1s ease'
+                                  }}
+                                >
+                                  <td style={{ padding: '0.625rem 0.75rem', color: '#64748B', whiteSpace: 'nowrap' }}>
+                                    {new Date(item.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    <span style={{ display: 'block', fontSize: '0.625rem', color: '#94A3B8' }}>
+                                      {new Date(item.created_at || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                                    </span>
+                                  </td>
+                                  
+                                  <td style={{ padding: '0.625rem 0.75rem', fontFamily: 'monospace', fontWeight: 700, color: '#0A192F' }}>
+                                    {item.txn_id || `TXN-${idx + 1}`}
+                                    {item.ref_number && (
+                                      <span style={{ display: 'block', fontSize: '0.625rem', color: '#64748B', fontFamily: 'sans-serif' }}>
+                                        RRN: {item.ref_number}
+                                      </span>
+                                    )}
+                                  </td>
 
-                              <div style={{ fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
-                                Swipe at {item.merchant_name} • ₹{(item.amount || 0).toLocaleString('en-IN')} on {item.provider}
-                              </div>
-                            </div>
+                                  <td style={{ padding: '0.625rem 0.75rem' }}>
+                                    <strong style={{ color: '#0A192F', display: 'block' }}>
+                                      {item.merchant_name || 'Counter Merchant'}
+                                    </strong>
+                                    <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
+                                      MID: {item.merchant_id || 'MCH'}
+                                    </span>
+                                  </td>
 
-                            <div style={{ textAlign: 'right' }}>
-                              <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#059669' }}>
-                                +₹{(item.commission_amount || 0).toFixed(2)}
-                              </strong>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                                  <td style={{ padding: '0.625rem 0.75rem', whiteSpace: 'nowrap' }}>
+                                    <span style={{
+                                      padding: '2px 7px',
+                                      borderRadius: '4px',
+                                      fontSize: '0.625rem',
+                                      fontWeight: 800,
+                                      background: item.channel_key === 'QR' ? '#F3E8FF' : (item.channel_key === 'PINELABS' ? '#ECFDF5' : '#EFF6FF'),
+                                      color: item.channel_key === 'QR' ? '#7C3AED' : (item.channel_key === 'PINELABS' ? '#059669' : '#0F52BA')
+                                    }}>
+                                      {item.provider || 'POS'}
+                                    </span>
+                                  </td>
+
+                                  <td style={{ padding: '0.625rem 0.75rem', textAlign: 'right', fontWeight: 800, color: '#0A192F' }}>
+                                    ₹{(item.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                  </td>
+
+                                  <td style={{ padding: '0.625rem 0.75rem', textAlign: 'right', color: '#475569', fontWeight: 600 }}>
+                                    ₹{(item.fee_deducted || 0).toFixed(2)}
+                                  </td>
+
+                                  <td style={{ padding: '0.625rem 0.75rem', textAlign: 'right', color: '#DC2626', fontWeight: 600 }}>
+                                    {item.paid_uplines > 0 ? `-₹${item.paid_uplines.toFixed(2)}` : '₹0.00'}
+                                  </td>
+
+                                  <td style={{ padding: '0.625rem 0.75rem', textAlign: 'right' }}>
+                                    <strong style={{ color: '#059669', fontSize: '0.875rem', fontWeight: 900 }}>
+                                      +₹{(item.commission_amount || 0).toFixed(2)}
+                                    </strong>
+                                    <span style={{ display: 'block', fontSize: '0.6rem', color: '#64748B' }}>
+                                      {item.commission_rate}
+                                    </span>
+                                  </td>
+
+                                  <td style={{ padding: '0.625rem 0.75rem', textAlign: 'center' }}>
+                                    <span style={{
+                                      background: '#ECFDF5',
+                                      color: '#059669',
+                                      padding: '2px 6px',
+                                      borderRadius: '4px',
+                                      fontSize: '0.625rem',
+                                      fontWeight: 800
+                                    }}>
+                                      ✓ Realized
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr style={{ background: '#F8FAFC', borderTop: '2px solid #CBD5E1', fontWeight: 900 }}>
+                                <td colSpan={4} style={{ padding: '0.75rem', color: '#0A192F', fontSize: '0.75rem', textTransform: 'uppercase' }}>
+                                  Totals for filtered selection ({filteredItems.length} records):
+                                </td>
+                                <td style={{ padding: '0.75rem', textAlign: 'right', color: '#0A192F' }}>
+                                  ₹{subtotalSwiped.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                </td>
+                                <td style={{ padding: '0.75rem', textAlign: 'right', color: '#475569' }}>
+                                  ₹{subtotalFees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                </td>
+                                <td style={{ padding: '0.75rem', textAlign: 'right', color: '#DC2626' }}>
+                                  -
+                                </td>
+                                <td style={{ padding: '0.75rem', textAlign: 'right', color: '#059669', fontSize: '0.875rem' }}>
+                                  +₹{subtotalProfit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                </td>
+                                <td></td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+
+                        {/* 2. MOBILE VIEW: Interactive Tap-to-Expand Cards Feed */}
+                        <div className="mobile-ledger-cards-feed" style={{ display: 'none', flexDirection: 'column', gap: '0.625rem' }}>
+                          {filteredItems.map((item, idx) => {
+                            const isExpanded = (expandedProfitTxnId === idx);
+                            return (
+                              <div
+                                key={idx}
+                                onClick={() => setExpandedProfitTxnId(isExpanded ? null : idx)}
+                                style={{
+                                  background: '#F8FAFC',
+                                  border: '1px solid #E2E8F0',
+                                  borderRadius: '10px',
+                                  padding: '0.75rem',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.15s ease'
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                                  <div>
+                                    <strong style={{ fontSize: '0.8125rem', color: '#0A192F', display: 'block' }}>
+                                      {item.merchant_name || 'Counter Merchant'}
+                                    </strong>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px', flexWrap: 'wrap' }}>
+                                      <span style={{
+                                        padding: '1px 5px',
+                                        borderRadius: '4px',
+                                        fontSize: '0.58rem',
+                                        fontWeight: 800,
+                                        background: item.channel_key === 'QR' ? '#F3E8FF' : '#ECFDF5',
+                                        color: item.channel_key === 'QR' ? '#7C3AED' : '#059669'
+                                      }}>
+                                        {item.provider}
+                                      </span>
+                                      <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
+                                        {new Date(item.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div style={{ textAlign: 'right' }}>
+                                    <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#059669' }}>
+                                      +₹{(item.commission_amount || 0).toFixed(2)}
+                                    </strong>
+                                    <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block' }}>
+                                      {isExpanded ? '▴ Less' : '▾ Receipt'}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Expanded Receipt Breakdown Drawer */}
+                                {isExpanded && (
+                                  <div style={{
+                                    marginTop: '0.75rem',
+                                    paddingTop: '0.625rem',
+                                    borderTop: '1px dashed #CBD5E1',
+                                    background: '#FFFFFF',
+                                    borderRadius: '6px',
+                                    padding: '0.625rem',
+                                    fontSize: '0.6875rem'
+                                  }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                      <span style={{ color: '#64748B' }}>Swiped Amount:</span>
+                                      <strong style={{ color: '#0A192F' }}>₹{(item.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                      <span style={{ color: '#64748B' }}>Fee Deducted:</span>
+                                      <span style={{ color: '#475569', fontWeight: 700 }}>₹{(item.fee_deducted || 0).toFixed(2)}</span>
+                                    </div>
+                                    {item.paid_uplines > 0 && (
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                        <span style={{ color: '#64748B' }}>Uplines Cut:</span>
+                                        <span style={{ color: '#DC2626', fontWeight: 700 }}>-₹{item.paid_uplines.toFixed(2)}</span>
+                                      </div>
+                                    )}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', paddingTop: '4px', borderTop: '1px solid #F1F5F9' }}>
+                                      <span style={{ fontWeight: 800, color: '#0A192F' }}>Tier Net Cut:</span>
+                                      <strong style={{ color: '#059669', fontWeight: 900 }}>+₹{(item.commission_amount || 0).toFixed(2)} ({item.commission_rate})</strong>
+                                    </div>
+                                    <div style={{ fontSize: '0.58rem', color: '#94A3B8', marginTop: '6px' }}>
+                                      Ref: {item.ref_number || item.txn_id} • MID: {item.merchant_id}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
                     )}
 
                   </div>
