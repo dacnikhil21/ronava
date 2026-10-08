@@ -6110,100 +6110,38 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
                   {networkSubTab === 'members' ? (
                     <>
-                      {/* Channel / Machine Segmented Filter Bar for Network View */}
+                      {/* Terminal Status Banner (Strictly Dedicated to Active Machine, No Redundant Sub-Tabs) */}
                       <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(4, 1fr)',
-                        background: '#F8FAFC',
-                        border: '1px solid #E2E8F0',
-                        padding: '3px',
+                        background: selectedMachineKey === 'payswiff' ? '#FFFBEB' : (selectedMachineKey === 'qr' ? '#F5F3FF' : '#EFF6FF'),
+                        border: `1px solid ${selectedMachineKey === 'payswiff' ? '#FDE68A' : (selectedMachineKey === 'qr' ? '#DDD6FE' : '#BFDBFE')}`,
                         borderRadius: '10px',
-                        gap: '4px'
+                        padding: '0.45rem 0.75rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '0.5rem'
                       }}>
-                        <button
-                          type="button"
-                          onClick={() => setNetworkChannelFilter('ALL')}
-                          style={{
-                            padding: '0.42rem 0.25rem',
-                            borderRadius: '7px',
-                            border: 'none',
-                            background: networkChannelFilter === 'ALL' ? '#0F172A' : 'transparent',
-                            color: networkChannelFilter === 'ALL' ? '#FFFFFF' : '#64748B',
-                            fontWeight: 800,
-                            fontSize: '0.71875rem',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '4px',
-                            transition: 'all 0.15s ease'
-                          }}
-                        >
-                          <span>💳 All</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setNetworkChannelFilter('pinelabs')}
-                          style={{
-                            padding: '0.42rem 0.25rem',
-                            borderRadius: '7px',
-                            border: 'none',
-                            background: networkChannelFilter === 'pinelabs' ? '#0F52BA' : 'transparent',
-                            color: networkChannelFilter === 'pinelabs' ? '#FFFFFF' : '#64748B',
-                            fontWeight: 800,
-                            fontSize: '0.71875rem',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '4px',
-                            transition: 'all 0.15s ease'
-                          }}
-                        >
-                          <span>🌲 Pine Labs</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setNetworkChannelFilter('payswiff')}
-                          style={{
-                            padding: '0.42rem 0.25rem',
-                            borderRadius: '7px',
-                            border: 'none',
-                            background: networkChannelFilter === 'payswiff' ? '#D97706' : 'transparent',
-                            color: networkChannelFilter === 'payswiff' ? '#FFFFFF' : '#64748B',
-                            fontWeight: 800,
-                            fontSize: '0.71875rem',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '4px',
-                            transition: 'all 0.15s ease'
-                          }}
-                        >
-                          <span>⚡ Payswiff</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setNetworkChannelFilter('qr')}
-                          style={{
-                            padding: '0.42rem 0.25rem',
-                            borderRadius: '7px',
-                            border: 'none',
-                            background: networkChannelFilter === 'qr' ? '#7C3AED' : 'transparent',
-                            color: networkChannelFilter === 'qr' ? '#FFFFFF' : '#64748B',
-                            fontWeight: 800,
-                            fontSize: '0.71875rem',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: '4px',
-                            transition: 'all 0.15s ease'
-                          }}
-                        >
-                          <span>📱 QR</span>
-                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+                          <span style={{ fontSize: '1rem' }}>{activeMachine.icon}</span>
+                          <div>
+                            <strong style={{ fontSize: '0.78125rem', color: selectedMachineKey === 'payswiff' ? '#B45309' : (selectedMachineKey === 'qr' ? '#6D28D9' : '#1D4ED8') }}>
+                              {networkSummaryStats.label} Network Overview
+                            </strong>
+                            <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block' }}>
+                              Earning +{networkSummaryStats.marginPct}% margin cut on downline {activeMachine.title} transactions
+                            </span>
+                          </div>
+                        </div>
+                        <span style={{
+                          fontSize: '0.625rem',
+                          fontWeight: 800,
+                          padding: '2px 8px',
+                          borderRadius: '999px',
+                          background: selectedMachineKey === 'payswiff' ? '#F59E0B' : (selectedMachineKey === 'qr' ? '#7C3AED' : '#0F52BA'),
+                          color: '#FFFFFF'
+                        }}>
+                          Active
+                        </span>
                       </div>
 
                       {/* 2. TOP EXECUTIVE STATS (Strict 2x2 Grid) */}
