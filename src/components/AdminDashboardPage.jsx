@@ -121,7 +121,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   const [payoutCategoryFilter, setPayoutCategoryFilter] = useState('ALL'); // 'ALL' | 'SWIPES' | 'WITHDRAWALS'
   const [payoutStatusFilter, setPayoutStatusFilter] = useState('PENDING'); // 'APPROVED' | 'PENDING' | 'INVALID'
   const [payoutSearchQuery, setPayoutSearchQuery] = useState('');
-  const [payoutDateFilter, setPayoutDateFilter] = useState('TODAY'); // 'TODAY' | 'ALL' | 'YESTERDAY' | 'WEEK' | 'MONTH' | 'CUSTOM'
+  const [payoutDateFilter, setPayoutDateFilter] = useState('ALL'); // 'ALL' | 'TODAY' | 'YESTERDAY' | 'WEEK' | 'MONTH' | 'CUSTOM'
   const [payoutCustomDate, setPayoutCustomDate] = useState('');
   const [payoutFromDate, setPayoutFromDate] = useState('');
   const [payoutToDate, setPayoutToDate] = useState('');
@@ -5785,6 +5785,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 weekAgo.setDate(now.getDate() - 7);
 
                 return items.filter(item => {
+                  // Actionable pending items (swipes to audit, pending payouts, in-transit batches) must never be hidden by preset day filters
+                  if (payoutDateFilter !== 'CUSTOM' && (item._subStatus === 'PENDING' || item._subStatus === 'SUBMITTED_TO_BANK')) {
+                    return true;
+                  }
+
                   const dVal = item[dateField] || item.created_at || item.verified_at;
                   if (!dVal) return true;
                   const itemDateStr = toLocalDateStr(dVal);
@@ -6771,247 +6776,217 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     </div>
                   )}
 
-                  {/* 2. CATEGORY SELECTOR (SWIPES / RECORD SALE vs WITHDRAW) */}
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, 1fr)',
-                    background: '#FFFFFF',
-                    borderRadius: '10px',
-                    border: '1px solid #CBD5E1',
-                    padding: '3px',
-                    gap: '4px',
-                    boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
-                  }}>
-                    {/* All Category */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPayoutCategoryFilter('ALL');
-                        setPayoutPage(1);
-                      }}
-                      style={{
-                        background: payoutCategoryFilter === 'ALL' ? '#0F52BA' : 'transparent',
-                        color: payoutCategoryFilter === 'ALL' ? '#FFFFFF' : '#334155',
-                        border: 'none',
-                        borderRadius: '7px',
-                        padding: '0.42rem 0.35rem',
-                        fontSize: '0.8125rem',
-                        fontWeight: payoutCategoryFilter === 'ALL' ? 700 : 600,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px',
-                        transition: 'all 0.15s ease'
-                      }}
-                    >
-                      <span>All</span>
-                    </button>
-
-                    {/* Swipes (Record Sale) */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPayoutCategoryFilter(payoutCategoryFilter === 'SWIPES' ? 'ALL' : 'SWIPES');
-                        setPayoutPage(1);
-                      }}
-                      style={{
-                        background: payoutCategoryFilter === 'SWIPES' ? '#0F52BA' : 'transparent',
-                        color: payoutCategoryFilter === 'SWIPES' ? '#FFFFFF' : '#334155',
-                        border: 'none',
-                        borderRadius: '7px',
-                        padding: '0.42rem 0.5rem',
-                        fontSize: '0.8125rem',
-                        fontWeight: payoutCategoryFilter === 'SWIPES' ? 700 : 600,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px',
-                        transition: 'all 0.15s ease'
-                      }}
-                    >
-                      <CreditCard style={{ width: '13px', height: '13px', flexShrink: 0 }} />
-                      <span>Swipes</span>
-                    </button>
-
-                    {/* Withdraw (Payouts) */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPayoutCategoryFilter(payoutCategoryFilter === 'WITHDRAWALS' ? 'ALL' : 'WITHDRAWALS');
-                        setPayoutPage(1);
-                      }}
-                      style={{
-                        background: payoutCategoryFilter === 'WITHDRAWALS' ? '#0F52BA' : 'transparent',
-                        color: payoutCategoryFilter === 'WITHDRAWALS' ? '#FFFFFF' : '#334155',
-                        border: 'none',
-                        borderRadius: '7px',
-                        padding: '0.42rem 0.5rem',
-                        fontSize: '0.8125rem',
-                        fontWeight: payoutCategoryFilter === 'WITHDRAWALS' ? 700 : 600,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px',
-                        transition: 'all 0.15s ease'
-                      }}
-                    >
-                      <Landmark style={{ width: '13px', height: '13px', flexShrink: 0 }} />
-                      <span>Withdraw</span>
-                    </button>
-                  </div>
-
-                  {/* 3. SPEED PILLS ROW (CLEAN & FIXED) */}
+                  {/* UNIFIED STREAMLINED WORKFLOW CONTROLLER BAR */}
                   <div style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '0.5rem'
+                    justifyContent: 'space-between',
+                    gap: '0.5rem',
+                    background: '#FFFFFF',
+                    borderRadius: '12px',
+                    border: '1px solid #CBD5E1',
+                    padding: '4px',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                    flexWrap: 'wrap'
                   }}>
-                    {/* Instant Pill */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPayoutSettlementFilter(payoutSettlementFilter === 'INSTANT' ? 'ALL' : 'INSTANT');
-                        setPayoutPage(1);
-                      }}
-                      style={{
-                        flex: 1,
-                        height: '38px',
-                        padding: '0 0.85rem',
-                        borderRadius: '9999px',
-                        background: payoutSettlementFilter === 'INSTANT' ? '#2563EB' : '#FFFFFF',
-                        color: payoutSettlementFilter === 'INSTANT' ? '#FFFFFF' : '#1E293B',
-                        border: payoutSettlementFilter === 'INSTANT' ? '1.5px solid #2563EB' : '1px solid #CBD5E1',
-                        fontSize: '0.8125rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px',
-                        boxShadow: payoutSettlementFilter === 'INSTANT' ? '0 2px 6px rgba(37,99,235,0.3)' : 'none',
-                        transition: 'all 0.15s ease'
-                      }}
-                    >
-                      <Zap style={{ width: '13px', height: '13px', fill: payoutSettlementFilter === 'INSTANT' ? '#FFFFFF' : 'none' }} />
-                      <span>Instant</span>
-                    </button>
+                    {/* Primary Workflow Queues */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', flex: '1 1 auto' }}>
+                      {/* 1. Swipes to Audit */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPayoutCategoryFilter('SWIPES');
+                          setPayoutStatusFilter('PENDING');
+                          setPayoutPage(1);
+                        }}
+                        style={{
+                          background: (payoutCategoryFilter === 'SWIPES' && payoutStatusFilter === 'PENDING') ? '#FEF3C7' : 'transparent',
+                          color: (payoutCategoryFilter === 'SWIPES' && payoutStatusFilter === 'PENDING') ? '#92400E' : '#334155',
+                          border: (payoutCategoryFilter === 'SWIPES' && payoutStatusFilter === 'PENDING') ? '1.5px solid #F59E0B' : '1px solid transparent',
+                          borderRadius: '8px',
+                          padding: '0.42rem 0.75rem',
+                          fontSize: '0.78125rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <CreditCard style={{ width: '13px', height: '13px', color: '#D97706' }} />
+                        <span>Swipes to Audit</span>
+                        <span style={{
+                          fontSize: '0.625rem',
+                          fontWeight: 800,
+                          background: (payoutCategoryFilter === 'SWIPES' && payoutStatusFilter === 'PENDING') ? '#D97706' : '#F1F5F9',
+                          color: (payoutCategoryFilter === 'SWIPES' && payoutStatusFilter === 'PENDING') ? '#FFFFFF' : '#475569',
+                          padding: '1px 6px',
+                          borderRadius: '10px'
+                        }}>
+                          {pendingSwipesList.length}
+                        </span>
+                      </button>
 
-                    {/* T+1 Pill */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPayoutSettlementFilter(payoutSettlementFilter === 'T1' ? 'ALL' : 'T1');
-                        setPayoutPage(1);
-                      }}
-                      style={{
-                        flex: 1,
-                        height: '38px',
-                        padding: '0 0.85rem',
-                        borderRadius: '9999px',
-                        background: payoutSettlementFilter === 'T1' ? '#2563EB' : '#FFFFFF',
-                        color: payoutSettlementFilter === 'T1' ? '#FFFFFF' : '#1E293B',
-                        border: payoutSettlementFilter === 'T1' ? '1.5px solid #2563EB' : '1px solid #CBD5E1',
-                        fontSize: '0.8125rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px',
-                        boxShadow: payoutSettlementFilter === 'T1' ? '0 2px 6px rgba(37,99,235,0.3)' : 'none',
-                        transition: 'all 0.15s ease'
-                      }}
-                    >
-                      <Calendar style={{ width: '13px', height: '13px' }} />
-                      <span>T+1</span>
-                    </button>
+                      {/* 2. Pending Payouts */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPayoutCategoryFilter('WITHDRAWALS');
+                          setPayoutStatusFilter('PENDING');
+                          setPayoutPage(1);
+                        }}
+                        style={{
+                          background: (payoutCategoryFilter === 'WITHDRAWALS' && payoutStatusFilter === 'PENDING') ? '#EFF6FF' : 'transparent',
+                          color: (payoutCategoryFilter === 'WITHDRAWALS' && payoutStatusFilter === 'PENDING') ? '#1E40AF' : '#334155',
+                          border: (payoutCategoryFilter === 'WITHDRAWALS' && payoutStatusFilter === 'PENDING') ? '1.5px solid #3B82F6' : '1px solid transparent',
+                          borderRadius: '8px',
+                          padding: '0.42rem 0.75rem',
+                          fontSize: '0.78125rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <Landmark style={{ width: '13px', height: '13px', color: '#0F52BA' }} />
+                        <span>Pending Withdrawals</span>
+                        <span style={{
+                          fontSize: '0.625rem',
+                          fontWeight: 800,
+                          background: (payoutCategoryFilter === 'WITHDRAWALS' && payoutStatusFilter === 'PENDING') ? '#0F52BA' : '#F1F5F9',
+                          color: (payoutCategoryFilter === 'WITHDRAWALS' && payoutStatusFilter === 'PENDING') ? '#FFFFFF' : '#475569',
+                          padding: '1px 6px',
+                          borderRadius: '10px'
+                        }}>
+                          {pendingWithdrawalsList.length}
+                        </span>
+                      </button>
 
-                    {/* All Pill */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPayoutSettlementFilter('ALL');
-                        setPayoutPage(1);
-                      }}
-                      style={{
-                        flex: 1,
-                        height: '38px',
-                        padding: '0 0.85rem',
-                        borderRadius: '9999px',
-                        background: payoutSettlementFilter === 'ALL' ? '#FFFFFF' : '#FFFFFF',
-                        color: '#1E293B',
-                        border: payoutSettlementFilter === 'ALL' ? '1.5px solid #0F172A' : '1px solid #CBD5E1',
-                        fontSize: '0.8125rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px',
-                        boxShadow: payoutSettlementFilter === 'ALL' ? '0 1px 4px rgba(0,0,0,0.08)' : 'none',
-                        transition: 'all 0.15s ease'
-                      }}
-                    >
-                      <span>All</span>
-                    </button>
-                  </div>
+                      {/* 3. Sent to Bank / In Transit */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPayoutCategoryFilter('WITHDRAWALS');
+                          setPayoutStatusFilter('SUBMITTED_TO_BANK');
+                          setPayoutPage(1);
+                        }}
+                        style={{
+                          background: (payoutCategoryFilter === 'WITHDRAWALS' && payoutStatusFilter === 'SUBMITTED_TO_BANK') ? '#FAF5FF' : 'transparent',
+                          color: (payoutCategoryFilter === 'WITHDRAWALS' && payoutStatusFilter === 'SUBMITTED_TO_BANK') ? '#6B21A8' : '#334155',
+                          border: (payoutCategoryFilter === 'WITHDRAWALS' && payoutStatusFilter === 'SUBMITTED_TO_BANK') ? '1.5px solid #A855F7' : '1px solid transparent',
+                          borderRadius: '8px',
+                          padding: '0.42rem 0.75rem',
+                          fontSize: '0.78125rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <FileText style={{ width: '13px', height: '13px', color: '#7C3AED' }} />
+                        <span>Sent to Bank (In Transit)</span>
+                        <span style={{
+                          fontSize: '0.625rem',
+                          fontWeight: 800,
+                          background: (payoutCategoryFilter === 'WITHDRAWALS' && payoutStatusFilter === 'SUBMITTED_TO_BANK') ? '#7C3AED' : '#F1F5F9',
+                          color: (payoutCategoryFilter === 'WITHDRAWALS' && payoutStatusFilter === 'SUBMITTED_TO_BANK') ? '#FFFFFF' : '#475569',
+                          padding: '1px 6px',
+                          borderRadius: '10px'
+                        }}>
+                          {submittedWithdrawalsList.length}
+                        </span>
+                      </button>
 
-                  {/* 3. STATUS SEGMENTED TRACK (PENDING, SUBMITTED TO BANK, COMPLETED, INVALID) */}
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(4, 1fr)',
-                    background: '#ECEEF0',
-                    padding: '3px',
-                    borderRadius: '9999px',
-                    gap: '3px'
-                  }}>
-                    {[
-                      { 
-                        id: 'PENDING', 
-                        label: statusCounts.pending > 0 
-                          ? `Pending (${statusCounts.pending > 99 ? '99+' : statusCounts.pending})` 
-                          : 'Pending' 
-                      },
-                      {
-                        id: 'SUBMITTED_TO_BANK',
-                        label: statusCounts.submitted > 0
-                          ? `Submitted (${statusCounts.submitted > 99 ? '99+' : statusCounts.submitted})`
-                          : 'Submitted'
-                      },
-                      { id: 'APPROVED', label: 'Completed' },
-                      { id: 'INVALID', label: 'Invalid' }
-                    ].map(st => {
-                      const isActive = payoutStatusFilter === st.id;
-                      return (
-                        <button
-                          key={st.id}
-                          type="button"
-                          onClick={() => {
-                            setPayoutStatusFilter(payoutStatusFilter === st.id ? 'ALL' : st.id);
-                            setPayoutPage(1);
-                          }}
-                          style={{
-                            background: isActive ? '#FFFFFF' : 'transparent',
-                            color: '#0F172A',
-                            border: 'none',
-                            borderRadius: '9999px',
-                            padding: '0.45rem 0.25rem',
-                            fontSize: '0.72rem',
-                            fontWeight: isActive ? 700 : 600,
-                            cursor: 'pointer',
-                            textAlign: 'center',
-                            boxShadow: isActive ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                            transition: 'all 0.15s ease',
-                            whiteSpace: 'nowrap'
-                          }}
-                        >
-                          {st.label}
-                        </button>
-                      );
-                    })}
+                      {/* 4. Completed History */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPayoutCategoryFilter('ALL');
+                          setPayoutStatusFilter('APPROVED');
+                          setPayoutPage(1);
+                        }}
+                        style={{
+                          background: payoutStatusFilter === 'APPROVED' ? '#F0FDF4' : 'transparent',
+                          color: payoutStatusFilter === 'APPROVED' ? '#15803D' : '#334155',
+                          border: payoutStatusFilter === 'APPROVED' ? '1.5px solid #22C55E' : '1px solid transparent',
+                          borderRadius: '8px',
+                          padding: '0.42rem 0.75rem',
+                          fontSize: '0.78125rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <CheckCircle2 style={{ width: '13px', height: '13px', color: '#16A34A' }} />
+                        <span>Completed History</span>
+                      </button>
+
+                      {/* 5. All Records */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPayoutCategoryFilter('ALL');
+                          setPayoutStatusFilter('ALL');
+                          setPayoutPage(1);
+                        }}
+                        style={{
+                          background: (payoutCategoryFilter === 'ALL' && payoutStatusFilter === 'ALL') ? '#F1F5F9' : 'transparent',
+                          color: (payoutCategoryFilter === 'ALL' && payoutStatusFilter === 'ALL') ? '#0F172A' : '#64748B',
+                          border: (payoutCategoryFilter === 'ALL' && payoutStatusFilter === 'ALL') ? '1px solid #CBD5E1' : '1px solid transparent',
+                          borderRadius: '8px',
+                          padding: '0.42rem 0.65rem',
+                          fontSize: '0.78125rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <span>All</span>
+                      </button>
+                    </div>
+
+                    {/* Right: Inline Speed Filter Chips */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '3px', borderLeft: '1px solid #E2E8F0', paddingLeft: '8px', flexShrink: 0 }}>
+                      <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 600, marginRight: '2px' }}>Speed:</span>
+                      {[
+                        { id: 'ALL', label: 'All' },
+                        { id: 'INSTANT', label: 'Instant' },
+                        { id: 'T1', label: 'T+1' }
+                      ].map(sp => {
+                        const isSpActive = payoutSettlementFilter === sp.id;
+                        return (
+                          <button
+                            key={sp.id}
+                            type="button"
+                            onClick={() => {
+                              setPayoutSettlementFilter(sp.id);
+                              setPayoutPage(1);
+                            }}
+                            style={{
+                              background: isSpActive ? '#0F172A' : '#F8FAFC',
+                              color: isSpActive ? '#FFFFFF' : '#475569',
+                              border: isSpActive ? 'none' : '1px solid #E2E8F0',
+                              borderRadius: '6px',
+                              padding: '3px 8px',
+                              fontSize: '0.6875rem',
+                              fontWeight: isSpActive ? 700 : 500,
+                              cursor: 'pointer',
+                              transition: 'all 0.12s ease'
+                            }}
+                          >
+                            {sp.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   {/* PENDING BATCH SELECTION & DOWNLOAD TOOLBAR */}
@@ -7474,42 +7449,146 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       alignItems: 'center',
                       gap: '0.625rem'
                     }}>
-                      <div style={{ width: '42px', height: '42px', borderRadius: '50%', background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748B' }}>
-                        <Search style={{ width: '18px', height: '18px' }} />
+                      <div style={{
+                        width: '44px',
+                        height: '44px',
+                        borderRadius: '50%',
+                        background: (payoutStatusFilter === 'PENDING' && !payoutSearchQuery) ? '#F0FDF4' : '#F1F5F9',
+                        color: (payoutStatusFilter === 'PENDING' && !payoutSearchQuery) ? '#16A34A' : '#64748B',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}>
+                        {(payoutStatusFilter === 'PENDING' && !payoutSearchQuery) 
+                          ? <CheckCircle2 style={{ width: '22px', height: '22px' }} />
+                          : <Search style={{ width: '18px', height: '18px' }} />
+                        }
                       </div>
                       <div>
                         <strong style={{ fontSize: '0.9375rem', color: '#0F172A', display: 'block' }}>
-                          No transactions found
+                          {payoutCategoryFilter === 'WITHDRAWALS' && payoutStatusFilter === 'PENDING' && !payoutSearchQuery
+                            ? 'No Pending Withdrawals'
+                            : (payoutCategoryFilter === 'SWIPES' && payoutStatusFilter === 'PENDING' && !payoutSearchQuery
+                                ? 'All Swipes Audited'
+                                : 'No transactions found')}
                         </strong>
-                        <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
-                          No records match the current filter selection under {selectedChannel}.
+                        <span style={{ fontSize: '0.75rem', color: '#64748B', display: 'block', marginTop: '2px', maxWidth: '380px' }}>
+                          {payoutCategoryFilter === 'WITHDRAWALS' && payoutStatusFilter === 'PENDING' && !payoutSearchQuery
+                            ? 'All merchant payout requests have either been cleared or are currently in bank transit.'
+                            : (payoutCategoryFilter === 'SWIPES' && payoutStatusFilter === 'PENDING' && !payoutSearchQuery
+                                ? 'No new slips are waiting for 7-day UTR audit in the current channel.'
+                                : `No records match the current filter selection under ${selectedChannel}.`)}
                         </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPayoutSearchQuery('');
-                          setPayoutCategoryFilter('ALL');
-                          setPayoutSettlementFilter('ALL');
-                          setPayoutStatusFilter('ALL');
-                          setPayoutDateFilter('ALL');
-                          setPayoutCustomDate('');
-                          setPayoutPage(1);
-                        }}
-                        style={{
-                          marginTop: '0.35rem',
-                          padding: '0.4rem 1rem',
-                          borderRadius: '9999px',
-                          background: '#0F172A',
-                          color: '#FFFFFF',
-                          border: 'none',
-                          fontSize: '0.75rem',
-                          fontWeight: 700,
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Reset All Filters
-                      </button>
+
+                      {/* Smart Quick Route Buttons */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem' }}>
+                        {submittedWithdrawalsList.length > 0 && (payoutCategoryFilter !== 'WITHDRAWALS' || payoutStatusFilter !== 'SUBMITTED_TO_BANK') && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPayoutCategoryFilter('WITHDRAWALS');
+                              setPayoutStatusFilter('SUBMITTED_TO_BANK');
+                              setPayoutPage(1);
+                            }}
+                            style={{
+                              padding: '0.45rem 0.85rem',
+                              borderRadius: '8px',
+                              background: '#7C3AED',
+                              color: '#FFFFFF',
+                              border: 'none',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '5px'
+                            }}
+                          >
+                            <FileText style={{ width: '12px', height: '12px' }} />
+                            <span>View In-Transit Payouts ({submittedWithdrawalsList.length})</span>
+                          </button>
+                        )}
+
+                        {pendingSwipesList.length > 0 && (payoutCategoryFilter !== 'SWIPES' || payoutStatusFilter !== 'PENDING') && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPayoutCategoryFilter('SWIPES');
+                              setPayoutStatusFilter('PENDING');
+                              setPayoutPage(1);
+                            }}
+                            style={{
+                              padding: '0.45rem 0.85rem',
+                              borderRadius: '8px',
+                              background: '#D97706',
+                              color: '#FFFFFF',
+                              border: 'none',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '5px'
+                            }}
+                          >
+                            <CreditCard style={{ width: '12px', height: '12px' }} />
+                            <span>Audit Swipes ({pendingSwipesList.length})</span>
+                          </button>
+                        )}
+
+                        {pendingWithdrawalsList.length > 0 && (payoutCategoryFilter !== 'WITHDRAWALS' || payoutStatusFilter !== 'PENDING') && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPayoutCategoryFilter('WITHDRAWALS');
+                              setPayoutStatusFilter('PENDING');
+                              setPayoutPage(1);
+                            }}
+                            style={{
+                              padding: '0.45rem 0.85rem',
+                              borderRadius: '8px',
+                              background: '#0F52BA',
+                              color: '#FFFFFF',
+                              border: 'none',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '5px'
+                            }}
+                          >
+                            <Landmark style={{ width: '12px', height: '12px' }} />
+                            <span>View Pending ({pendingWithdrawalsList.length})</span>
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPayoutSearchQuery('');
+                            setPayoutCategoryFilter('ALL');
+                            setPayoutSettlementFilter('ALL');
+                            setPayoutStatusFilter('ALL');
+                            setPayoutDateFilter('ALL');
+                            setPayoutCustomDate('');
+                            setPayoutPage(1);
+                          }}
+                          style={{
+                            padding: '0.45rem 0.85rem',
+                            borderRadius: '8px',
+                            background: '#F1F5F9',
+                            color: '#334155',
+                            border: '1px solid #CBD5E1',
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          Show All Records
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div style={{
