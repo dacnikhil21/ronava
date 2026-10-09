@@ -138,13 +138,13 @@ async function runAudit() {
   const sdBal1 = parseFloat(sdW1.data?.available_balance || 0);
 
   console.log(`  📊 Wallet Balances after ₹10,000 Sale:`);
-  console.log(`     - Merchant (${midId}): ₹${midBal1.toFixed(2)} (Expected: ₹9,850.00)`);
-  console.log(`     - Distributor (${distId}): ₹${distBal1.toFixed(2)} (Expected: ₹20.00)`);
-  console.log(`     - Super Distributor (${sdId}): ₹${sdBal1.toFixed(2)} (Expected: ₹10.00)`);
+  console.log(`     - Merchant (${midId}): ₹${midBal1.toFixed(2)} (Expected: ₹9,840.00 @ 1.60% MDR)`);
+  console.log(`     - Distributor (${distId}): ₹${distBal1.toFixed(2)} (Expected: ₹10.00 @ 0.10% margin)`);
+  console.log(`     - Super Distributor (${sdId}): ₹${sdBal1.toFixed(2)} (Expected: ₹30.00 @ 0.30% margin)`);
 
-  if (midBal1 !== 9850.00) flaws.push(`Merchant net credit mismatch: Got ₹${midBal1}, expected ₹9850.00`);
-  if (distBal1 !== 20.00) flaws.push(`Distributor commission mismatch: Got ₹${distBal1}, expected ₹20.00`);
-  if (sdBal1 !== 10.00) flaws.push(`Super Distributor commission mismatch: Got ₹${sdBal1}, expected ₹10.00`);
+  if (midBal1 !== 9840.00) flaws.push(`Merchant net credit mismatch: Got ₹${midBal1}, expected ₹9840.00`);
+  if (distBal1 !== 10.00) flaws.push(`Distributor commission mismatch: Got ₹${distBal1}, expected ₹10.00`);
+  if (sdBal1 !== 30.00) flaws.push(`Super Distributor commission mismatch: Got ₹${sdBal1}, expected ₹30.00`);
 
   // ----------------------------------------------------
   // TEST CASE 4: DUAL-MODE WITHDRAWALS & 100% BALANCE WITHDRAWAL
