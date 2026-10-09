@@ -5007,6 +5007,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   <div className="admin-roster-grid">
                     {filteredSDs.map(sd => {
                       const sdVol = parseFloat(sd.network_volume || sd.total_sales || 0);
+                      const sdCutRate = parseFloat(sd.upline_override_rate || (sd.channels?.pine_labs?.enabled ? 0.20 : (sd.margin_rate || 0.20)));
                       const sdProfit = sdVol * 0.0015;
 
                       // Robust Downline Aggregation (District Dist -> Dist -> Shops)
@@ -5113,9 +5114,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               </strong>
                             </div>
                             <div>
-                              <span style={{ fontSize: '0.55rem', color: '#7C3AED', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>SD Cut ({parseFloat(sd.upline_override_rate || sd.commission_rate_t1 || sd.margin_rate || 0.40)}%)</span>
+                              <span style={{ fontSize: '0.55rem', color: '#7C3AED', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>SD Cut ({sdCutRate.toFixed(2)}%)</span>
                               <strong style={{ fontSize: '0.8125rem', color: '#7C3AED', fontWeight: 900 }}>
-                                +₹{(sdVol * ((parseFloat(sd.upline_override_rate || sd.commission_rate_t1 || sd.margin_rate || 0.40)) / 100)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                +₹{(sdVol * (sdCutRate / 100)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                               </strong>
                             </div>
                             <div>
@@ -5205,7 +5206,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   <div className="admin-roster-grid">
                     {filteredDDs.map(dd => {
                       const ddVol = parseFloat(dd.downline_volume || dd.total_sales || 0);
-                      const ddProfit = ddVol * 0.0008;
+                      const ddCutRate = parseFloat(dd.upline_override_rate || (dd.channels?.pine_labs?.enabled ? 0.10 : (dd.margin_rate || 0.10)));
+                      const ddProfit = ddVol * 0.0015;
 
                       return (
                         <div
@@ -5295,9 +5297,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               </strong>
                             </div>
                             <div>
-                              <span style={{ fontSize: '0.55rem', color: '#D97706', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>DD Cut ({parseFloat(dd.upline_override_rate || dd.commission_rate_t1 || dd.margin_rate || 0.30)}%)</span>
+                              <span style={{ fontSize: '0.55rem', color: '#D97706', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>DD Cut ({ddCutRate.toFixed(2)}%)</span>
                               <strong style={{ fontSize: '0.8125rem', color: '#D97706', fontWeight: 900 }}>
-                                +₹{(ddVol * ((parseFloat(dd.upline_override_rate || dd.commission_rate_t1 || dd.margin_rate || 0.30)) / 100)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                +₹{(ddVol * (ddCutRate / 100)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                               </strong>
                             </div>
                             <div>
@@ -5383,7 +5385,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   <div className="admin-roster-grid">
                     {filteredDists.map(d => {
                       const distVol = parseFloat(d.downline_volume || d.total_sales || 0);
-                      const distProfit = distVol * 0.0006;
+                      const distCutRate = parseFloat(d.upline_override_rate || (d.channels?.pine_labs?.enabled ? 0.10 : (d.margin_rate || 0.10)));
+                      const distProfit = distVol * 0.0015;
 
                       return (
                         <div
@@ -5472,9 +5475,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               </strong>
                             </div>
                             <div>
-                              <span style={{ fontSize: '0.55rem', color: '#0F52BA', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Dist Cut ({parseFloat(d.upline_override_rate || d.commission_rate_t1 || d.margin_rate || 0.25)}%)</span>
+                              <span style={{ fontSize: '0.55rem', color: '#0F52BA', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Dist Cut ({distCutRate.toFixed(2)}%)</span>
                               <strong style={{ fontSize: '0.8125rem', color: '#0F52BA', fontWeight: 900 }}>
-                                +₹{(distVol * ((parseFloat(d.upline_override_rate || d.commission_rate_t1 || d.margin_rate || 0.25)) / 100)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                +₹{(distVol * (distCutRate / 100)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                               </strong>
                             </div>
                             <div>
