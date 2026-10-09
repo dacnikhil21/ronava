@@ -669,7 +669,7 @@ export async function getHierarchyTree() {
     const enrichedDistributors = distributors.map(d => {
       const downlineMerchants = merchantsByParent[d.id] || [];
       const downlineVolume = downlineMerchants.reduce((sum, m) => sum + (parseFloat(m.total_sales) || 0), 0);
-      const commissionEarned = parseFloat((downlineVolume * 0.0025).toFixed(2));
+      const commissionEarned = parseFloat(((parseFloat(d.available_balance || 0)) + (parseFloat(d.withdrawn_amount || 0))).toFixed(2));
       return {
         ...d,
         merchants: downlineMerchants,
@@ -692,7 +692,7 @@ export async function getHierarchyTree() {
         totalVol += d.downline_volume;
       });
 
-      const commissionEarned = parseFloat((totalVol * 0.0008).toFixed(2));
+      const commissionEarned = parseFloat(((parseFloat(dd.available_balance || 0)) + (parseFloat(dd.withdrawn_amount || 0))).toFixed(2));
 
       return {
         ...dd,
@@ -723,7 +723,7 @@ export async function getHierarchyTree() {
         totalVolumeInSD += d.downline_volume;
       });
 
-      const commissionEarned = parseFloat((totalVolumeInSD * 0.0015).toFixed(2));
+      const commissionEarned = parseFloat(((parseFloat(sd.available_balance || 0)) + (parseFloat(sd.withdrawn_amount || 0))).toFixed(2));
 
       return {
         ...sd,

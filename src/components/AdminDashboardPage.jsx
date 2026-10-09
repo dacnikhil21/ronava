@@ -1143,43 +1143,38 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     let profitEarned = 0;
     let downlineCount = 0;
 
-    if (type === 'MASTER') {
+    const actualWalletEarned = parseFloat(user.available_balance || 0) + parseFloat(user.withdrawn_amount || 0);
+
+    if (type === 'MASTER' || type === 'SUPER_DISTRIBUTOR') {
       totalVol = parseFloat(user.network_volume || user.total_sales || 0);
       if (totalVol === 0 && childMerchants.length > 0) {
         totalVol = childMerchants.reduce((sum, m) => sum + parseFloat(m.total_sales || 0), 0);
       }
-      profitEarned = totalVol * 0.0020;
-      downlineCount = childSDs.length + childDDs.length + childDists.length + childMerchants.length;
-    } else if (type === 'SUPER_DISTRIBUTOR') {
-      totalVol = parseFloat(user.network_volume || user.total_sales || 0);
-      if (totalVol === 0 && childMerchants.length > 0) {
-        totalVol = childMerchants.reduce((sum, m) => sum + parseFloat(m.total_sales || 0), 0);
-      }
-      profitEarned = totalVol * 0.0015;
+      const cutRate = parseFloat(user.upline_override_rate || (user.channels?.pine_labs?.enabled ? 0.20 : 0.20));
+      profitEarned = actualWalletEarned > 0 ? actualWalletEarned : (totalVol * (cutRate / 100));
       downlineCount = childDDs.length + childDists.length + childMerchants.length;
     } else if (type === 'DISTRICT_DISTRIBUTOR') {
       totalVol = parseFloat(user.downline_volume || user.total_sales || 0);
       if (totalVol === 0 && childMerchants.length > 0) {
         totalVol = childMerchants.reduce((sum, m) => sum + parseFloat(m.total_sales || 0), 0);
       }
-      profitEarned = totalVol * 0.0008;
+      const cutRate = parseFloat(user.upline_override_rate || (user.channels?.pine_labs?.enabled ? 0.10 : 0.10));
+      profitEarned = actualWalletEarned > 0 ? actualWalletEarned : (totalVol * (cutRate / 100));
       downlineCount = childDists.length + childMerchants.length;
     } else if (type === 'DISTRIBUTOR') {
       totalVol = parseFloat(user.downline_volume || user.total_sales || 0);
       if (totalVol === 0 && childMerchants.length > 0) {
         totalVol = childMerchants.reduce((sum, m) => sum + parseFloat(m.total_sales || 0), 0);
       }
-      profitEarned = totalVol * 0.0025;
+      const cutRate = parseFloat(user.upline_override_rate || (user.channels?.pine_labs?.enabled ? 0.10 : 0.10));
+      profitEarned = actualWalletEarned > 0 ? actualWalletEarned : (totalVol * (cutRate / 100));
       downlineCount = childMerchants.length;
     } else {
       totalVol = parseFloat(user.total_sales || 0);
       if (totalVol === 0 && userTxns.length > 0) {
         totalVol = userTxns.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
       }
-      const isPine = (user.pos_provider || '').includes('Pine');
-      const isInstant = (user.pos_settlement || '').includes('INSTANT');
-      const rate = isPine ? (isInstant ? 0.0025 : 0.0015) : 0.0005;
-      profitEarned = totalVol * rate;
+      profitEarned = totalVol * 0.0015;
       downlineCount = 1;
     }
 
@@ -2635,14 +2630,16 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 let netAdmin = 0;
                 approvedTxns.forEach(t => {
                   let fee = parseFloat(t.company_fee) || 0;
+                  let adminCut = 0;
                   if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
                     try {
                       const meta = JSON.parse(t.notes.slice(t.notes.indexOf('{')));
                       if (meta.company_fee) fee = parseFloat(meta.company_fee);
+                      if (meta.admin_net_margin !== undefined) adminCut = parseFloat(meta.admin_net_margin);
                     } catch (_) {}
                   }
                   grossMdr += fee;
-                  netAdmin += (parseFloat(t.amount || 0) * 0.0015);
+                  netAdmin += (adminCut || (parseFloat(t.amount || 0) * 0.0015));
                 });
 
                 return (
@@ -2778,8 +2775,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
                             const amt = parseFloat(t.amount || 0);
                             const compFee = parseFloat(meta.company_fee || t.company_fee || (amt * 0.016)) || 0;
-                            const adminNet = parseFloat((amt * 0.0015).toFixed(2));
-                            const uplinesCut = Math.max(0, parseFloat((compFee - adminNet).toFixed(2)));
+                            const totalUplines = meta.commission_splits && Array.isArray(meta.commission_splits)
+                              ? meta.commission_splits.reduce((s, x) => s + (parseFloat(x.amount) || 0), 0)
+                              : 0;
+                            const adminNet = parseFloat((meta.admin_net_margin !== undefined ? meta.admin_net_margin : (totalUplines > 0 ? (compFee - totalUplines) : (amt * 0.0015))).toFixed(2));
+                            const uplinesCut = totalUplines > 0 ? totalUplines : Math.max(0, parseFloat((compFee - adminNet).toFixed(2)));
                             const providerName = meta.pos_provider || t.provider || 'POS';
                             const terminalId = meta.terminal_id || t.terminal_id || '';
                             const customerName = meta.customer_name || t.customer_name || 'Customer';
@@ -3300,7 +3300,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             ₹{parseFloat(t.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                           </strong>
                           <span style={{ fontSize: '0.5625rem', color: '#0F52BA', fontWeight: 700 }}>
-                            Admin Cut: +₹{(parseFloat(t.amount || 0) * 0.0015).toFixed(2)}
+                            Admin Cut: +₹{(parseFloat(t.admin_net_margin || t.admin_margin || (parseFloat(t.amount || 0) * 0.0015))).toFixed(2)}
                           </span>
                         </div>
                       </div>
@@ -3933,7 +3933,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               ₹{parseFloat(txn.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                             </strong>
                             <span style={{ display: 'block', fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>
-                              +₹{parseFloat(txn.admin_margin || txn.admin_cut || (txn.amount * 0.0015)).toFixed(2)} Profit
+                              +₹{parseFloat(txn.admin_net_margin || txn.admin_margin || txn.admin_cut || (txn.amount * 0.0015)).toFixed(2)} Profit
                             </span>
                           </div>
                         </div>
@@ -4885,7 +4885,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   <div className="admin-roster-grid">
                     {filteredMasters.map(m => {
                       const mVol = parseFloat(m.network_volume || m.total_sales || 0);
-                      const mProfit = mVol * 0.0020;
+                      const mCutRate = parseFloat(m.upline_override_rate || 0.20);
+                      const mProfit = mVol * 0.0015;
 
                       // Robust Downline Aggregation (SD -> DD -> Dist -> Shops)
                       const childSDs = m.super_distributors || superDistributorsList.filter(sd => sd.creator_id === m.id || sd.parent_id === m.id);

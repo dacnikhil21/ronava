@@ -411,7 +411,7 @@ export function generateGstAuditCSV(transactionsList, options = {}) {
     const ifsc = String(item.ifsc_code || item.ifsc || '').toUpperCase().trim();
 
     const gross = parseFloat(item.amount || 0);
-    const fee = parseFloat(item.admin_margin || item.admin_cut || (gross * 0.0015) || 0);
+    const fee = parseFloat(item.admin_net_margin || item.admin_margin || item.admin_cut || (gross * 0.0015) || 0);
     const gst = parseFloat((fee * 0.18).toFixed(2));
     const netSettled = (gross - fee).toFixed(2);
 
