@@ -1545,7 +1545,7 @@ export function getUserBuyRate(user, pos, isInstant = false, targetChannel = nul
   return isInstant ? 1.80 : 1.50;
 }
 
-export async function validateUtrUniqueness(utr, excludeTxnId = null, excludeWithdrawalId = null) {
+export async function validateUtrUniqueness(utr, excludeTxnId = null, excludeWithdrawalId = null, scope = 'ALL') {
   if (!utr) return { isUnique: true };
   const clean = String(utr).trim().toUpperCase();
   if (clean.length < 5 || clean.startsWith('RRN') || clean.startsWith('TXN-') || clean.startsWith('BBPS-') || clean.startsWith('CMS-') || clean.startsWith('CMS_') || clean.startsWith('BATCH-')) {
@@ -1553,51 +1553,55 @@ export async function validateUtrUniqueness(utr, excludeTxnId = null, excludeWit
   }
 
   try {
-    // 1. Check in transactions table (ref_number and notes)
-    const { data: txns } = await supabase
-      .from('transactions')
-      .select('id, ref_number, notes, amount, status, created_at');
+    // 1. Check in transactions table (ref_number and notes) if scope is 'ALL' or 'SALE'
+    if (scope === 'ALL' || scope === 'SALE') {
+      const { data: txns } = await supabase
+        .from('transactions')
+        .select('id, ref_number, notes, amount, status, created_at');
 
-    if (txns && txns.length > 0) {
-      const dupTxn = txns.find(t => {
-        if (excludeTxnId && t.id === excludeTxnId) return false;
-        const ref = (t.ref_number || '').trim().toUpperCase();
-        if (ref === clean) return true;
-        const notes = (t.notes || '').toUpperCase();
-        if (notes.includes(`UTR: ${clean}`) || notes.includes(`UTR:${clean}`) || notes.includes(`SLIP: ${clean}`)) {
-          return true;
+      if (txns && txns.length > 0) {
+        const dupTxn = txns.find(t => {
+          if (excludeTxnId && t.id === excludeTxnId) return false;
+          const ref = (t.ref_number || '').trim().toUpperCase();
+          if (ref === clean) return true;
+          const notes = (t.notes || '').toUpperCase();
+          if (notes.includes(`UTR: ${clean}`) || notes.includes(`UTR:${clean}`) || notes.includes(`SLIP: ${clean}`)) {
+            return true;
+          }
+          return false;
+        });
+
+        if (dupTxn) {
+          return {
+            isUnique: false,
+            message: `⚠️ Duplicate Slip UTR / Ref Number: "${clean}" has already been used in sale transaction ${dupTxn.id} (Status: ${dupTxn.status}, Amount: ₹${dupTxn.amount}). Each swipe sale requires a unique Slip UTR.`
+          };
         }
-        return false;
-      });
-
-      if (dupTxn) {
-        return {
-          isUnique: false,
-          message: `Duplicate UTR / Ref Number: "${clean}" has already been used in transaction ${dupTxn.id} (Status: ${dupTxn.status}, Amount: ₹${dupTxn.amount}). Each transaction requires a strictly unique UTR.`
-        };
       }
     }
 
-    // 2. Check in withdrawals table (admin_remark containing UTR)
-    const { data: withs } = await supabase
-      .from('withdrawals')
-      .select('id, amount, status, admin_remark, created_at');
+    // 2. Check in withdrawals table (admin_remark containing UTR) if scope is 'ALL' or 'WITHDRAWAL'
+    if (scope === 'ALL' || scope === 'WITHDRAWAL') {
+      const { data: withs } = await supabase
+        .from('withdrawals')
+        .select('id, amount, status, admin_remark, created_at');
 
-    if (withs && withs.length > 0) {
-      const dupWith = withs.find(w => {
-        if (excludeWithdrawalId && w.id === excludeWithdrawalId) return false;
-        const remark = (w.admin_remark || '').toUpperCase();
-        if (remark.includes(`UTR: ${clean}`) || remark.includes(`UTR:${clean}`)) return true;
-        const m = remark.match(/(?:UTR:?\s*)+([A-Za-z0-9_-]+)/i);
-        if (m && m[1].toUpperCase() === clean) return true;
-        return false;
-      });
+      if (withs && withs.length > 0) {
+        const dupWith = withs.find(w => {
+          if (excludeWithdrawalId && w.id === excludeWithdrawalId) return false;
+          const remark = (w.admin_remark || '').toUpperCase();
+          if (remark.includes(`UTR: ${clean}`) || remark.includes(`UTR:${clean}`)) return true;
+          const m = remark.match(/(?:UTR:?\s*)+([A-Za-z0-9_-]+)/i);
+          if (m && m[1].toUpperCase() === clean) return true;
+          return false;
+        });
 
-      if (dupWith) {
-        return {
-          isUnique: false,
-          message: `Duplicate UTR: "${clean}" has already been submitted for payout ${dupWith.id} (Status: ${dupWith.status}, Amount: ₹${dupWith.amount}). UTR must be strictly unique.`
-        };
+        if (dupWith) {
+          return {
+            isUnique: false,
+            message: `⚠️ Duplicate UTR: "${clean}" has already been submitted for payout request ${dupWith.id} (Status: ${dupWith.status}, Amount: ₹${dupWith.amount}). A Slip UTR can only be withdrawn once.`
+          };
+        }
       }
     }
   } catch (err) {
@@ -1689,9 +1693,9 @@ export async function recordMerchantSale(saleData) {
 
     const finalRrn = (rrn_number || ref_number || '').trim().toUpperCase() || `RRN${Date.now().toString().slice(-8)}`;
 
-    // Item #7: Strict Global Unique UTR Validation (Cross-system check across sales and payouts)
+    // Item #7: Strict Unique UTR Validation for Card Swipes & UPI Sales
     if (finalRrn && !finalRrn.startsWith('RRN') && finalRrn.length >= 5) {
-      const utrValidation = await validateUtrUniqueness(finalRrn);
+      const utrValidation = await validateUtrUniqueness(finalRrn, null, null, 'SALE');
       if (!utrValidation.isUnique) {
         return {
           success: false,
@@ -3278,9 +3282,9 @@ export async function requestWithdrawal(withdrawalData) {
     const noteTag = cleanRemarks ? ` | Note: ${cleanRemarks}` : '';
     const cleanUtr = (withdrawalData.utr_number || withdrawalData.ref_number || withdrawalData.utr || '').trim().toUpperCase();
     
-    // Strict Global Unique UTR Validation on Payout / Disbursal Request
+    // Strict Unique UTR Validation on Payout / Disbursal Request (Prevents double withdrawal on the same slip)
     if (cleanUtr && !cleanUtr.startsWith('RRN') && cleanUtr.length >= 5) {
-      const utrValidation = await validateUtrUniqueness(cleanUtr);
+      const utrValidation = await validateUtrUniqueness(cleanUtr, null, null, 'WITHDRAWAL');
       if (!utrValidation.isUnique) {
         return {
           success: false,

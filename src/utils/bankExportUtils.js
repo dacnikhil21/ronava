@@ -22,6 +22,7 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
     'IFSC Code',
     'Bank Name',
     'Payout Amount (INR)',
+    'Slip UTR / Bank Reference',
     'Channel / Provider',
     'Settlement Speed',
     'Payout Reference ID',
@@ -70,7 +71,20 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
     // 9. Payout Amount
     const amt = parseFloat(item.amount || 0).toFixed(2);
 
-    // 10. Channel / Provider (Accurate determination for QR, Payswiff, and Pine Labs)
+    // 10. Slip UTR / Bank Reference Number
+    let utrVal = item.utr_number || item.utr || item.ref_number || item.rrn || '';
+    if (!utrVal && item.admin_remark) {
+      const utrMatch = item.admin_remark.match(/UTR:?\s*([A-Za-z0-9_-]+)/i);
+      if (utrMatch) utrVal = utrMatch[1].trim();
+    }
+    if (!utrVal && item.notes) {
+      const notesMatch = item.notes.match(/UTR:?\s*([A-Za-z0-9_-]+)/i);
+      if (notesMatch) utrVal = notesMatch[1].trim();
+    }
+    const cleanUtr = String(utrVal).trim();
+    const formattedUtr = cleanUtr && cleanUtr !== 'N/A' ? `="${cleanUtr}"` : '""';
+
+    // 11. Channel / Provider (Accurate determination for QR, Payswiff, and Pine Labs)
     let channel = 'Pine Labs';
     const rawRemark = (item.admin_remark || item.notes || '').toLowerCase();
     const rawProv = (item.channel || item.pos_provider || item.provider || '').toLowerCase();
@@ -89,16 +103,16 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
       channel = 'Pine Labs';
     }
 
-    // 11. Settlement Speed
+    // 12. Settlement Speed
     const speed = (item.settlement_mode || item.settlement_type || 'T1').toUpperCase();
 
-    // 12. Payout Ref ID
+    // 13. Payout Ref ID
     const refId = item.id || item.ref_number || item.payout_id || 'N/A';
 
-    // 13. Date & Time
+    // 14. Date & Time
     const dateStr = item.created_at ? new Date(item.created_at).toLocaleString('en-IN') : 'N/A';
 
-    // 14. Status
+    // 15. Status
     const status = item.status || 'PENDING';
 
     return [
@@ -111,6 +125,7 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
       escapeCSV(ifsc),
       escapeCSV(bankName),
       amt,
+      formattedUtr,
       escapeCSV(channel),
       escapeCSV(speed),
       escapeCSV(refId),
