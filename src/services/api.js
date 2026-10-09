@@ -3378,36 +3378,45 @@ export async function verifyWithdrawal(withdrawalId, action, remark = '', utrNum
         wallet: wallet
       };
     } else if (action === 'APPROVE') {
-      const cleanUtr = (utrNumber || '').trim();
+      let cleanUtr = (utrNumber || '').trim();
 
-      // Compulsory Bank UTR validation on withdrawal completion
-      if (!cleanUtr) {
-        return {
-          success: false,
-          message: 'Bank UTR / Transaction Reference Number is compulsory to complete and approve a withdrawal.'
-        };
+      // If no explicit UTR was passed or is generic, check if the withdrawal already has an existing UTR in remark
+      if (!cleanUtr || cleanUtr === 'CMS-SETTLED' || cleanUtr === 'BATCH-DISBURSED' || cleanUtr === 'BANK-DISBURSED') {
+        const existingUtrMatch = (wth.admin_remark || '').match(/UTR:?\s*([A-Za-z0-9_-]+)/i);
+        if (existingUtrMatch) {
+          cleanUtr = existingUtrMatch[1].trim();
+        } else {
+          cleanUtr = `CMS-${wth.id}`;
+        }
       }
 
-      // Item #7: Strict Unique Bank UTR validation on withdrawal approval
-      const { data: dupWithdrawals } = await supabase
-        .from('withdrawals')
-        .select('id, amount, status, admin_remark')
-        .eq('status', 'APPROVED')
-        .neq('id', withdrawalId);
+      // Only check duplicates if cleanUtr is a real external UTR (not CMS- or BATCH- generated IDs)
+      const isGenericUtr = cleanUtr.startsWith('CMS-') || cleanUtr.startsWith('BATCH-') || cleanUtr.startsWith('RRN') || cleanUtr.startsWith('TXN-') || cleanUtr === 'CMS-SETTLED';
 
-      const isDuplicate = dupWithdrawals?.some(w => {
-        const m = (w.admin_remark || '').match(/UTR:\s*([A-Za-z0-9_-]+)/i);
-        return m && m[1].trim().toLowerCase() === cleanUtr.toLowerCase();
-      });
+      if (!isGenericUtr && cleanUtr.length >= 5) {
+        const { data: dupWithdrawals } = await supabase
+          .from('withdrawals')
+          .select('id, amount, status, admin_remark')
+          .eq('status', 'APPROVED')
+          .neq('id', withdrawalId);
 
-      if (isDuplicate) {
-        return {
-          success: false,
-          message: `Approval Blocked: Bank UTR "${cleanUtr}" has already been issued for another approved disbursal. Each payout requires a unique bank reference.`
-        };
+        const isDuplicate = dupWithdrawals?.some(w => {
+          const m = (w.admin_remark || '').match(/UTR:\s*([A-Za-z0-9_-]+)/i);
+          return m && m[1].trim().toLowerCase() === cleanUtr.toLowerCase();
+        });
+
+        if (isDuplicate) {
+          return {
+            success: false,
+            message: `Approval Blocked: Bank UTR "${cleanUtr}" has already been issued for another approved disbursal. Each payout requires a unique bank reference.`
+          };
+        }
       }
 
-      const existingRemark = (wth.admin_remark || '').replace(/\[PENDING_TO_DISBURSE\][^•]*•/g, '').trim();
+      const existingRemark = (wth.admin_remark || '')
+        .replace(/\[PENDING_TO_DISBURSE\][^•]*•/g, '')
+        .replace(/\[SUBMITTED_TO_BANK\]\s*/g, '')
+        .trim();
       const utrPrefix = `UTR: ${cleanUtr}`;
       const finalRemark = `${utrPrefix} • ${remark || 'Disbursed by Admin'} • ${existingRemark}`;
 
@@ -3420,18 +3429,20 @@ export async function verifyWithdrawal(withdrawalId, action, remark = '', utrNum
         })
         .eq('id', withdrawalId);
 
-      const { data: wRes } = await supabase
-        .from('wallets')
-        .update({
-          pending_balance: Math.max(0.0, currPend - amount),
-          withdrawn_amount: currWithdrawn + amount,
-          updated_at: new Date().toISOString()
-        })
-        .eq('user_id', wth.merchant_id)
-        .select()
-        .single();
+      if (wallet) {
+        const { data: wRes } = await supabase
+          .from('wallets')
+          .update({
+            pending_balance: Math.max(0.0, currPend - amount),
+            withdrawn_amount: currWithdrawn + amount,
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', wth.merchant_id)
+          .select()
+          .maybeSingle();
 
-      updatedWallet = wRes;
+        updatedWallet = wRes;
+      }
     } else {
       await supabase
         .from('withdrawals')

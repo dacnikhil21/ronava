@@ -6358,7 +6358,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleDownloadBankFile();
+                              handleInitiateBankDownload();
                             }}
                             style={{
                               background: '#0F52BA',
