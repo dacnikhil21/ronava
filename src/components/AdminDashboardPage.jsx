@@ -248,6 +248,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     qr: { enabled: false, rate_instant: 1.50, vendor: 'RONAV Technologies' }
   });
   const [isSavingChannels, setIsSavingChannels] = useState(false);
+  const [actionProcessingMap, setActionProcessingMap] = useState({});
 
   // Dedicated Ecosystem Profit & Commission Distribution State
   const [profitDateFilter, setProfitDateFilter] = useState('TODAY'); // 'TODAY' | 'YESTERDAY' | 'WEEK' | 'MONTH' | 'ALL' | 'CUSTOM'
@@ -806,6 +807,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
   // Approve / Reject / Dispatch Payout Action
   const handlePayoutAction = async (id, action, merchantName, amount, utr = '', remark = '') => {
+    if (actionProcessingMap[`payout_${id}`]) return;
+    setActionProcessingMap(prev => ({ ...prev, [`payout_${id}`]: true }));
     try {
       const finalRemark = remark || (action === 'DISPATCH' ? 'T+1 Standard Bank Transfer' : 'Disbursed via IMPS');
       const res = await verifyWithdrawal(id, action, finalRemark, utr);
@@ -827,11 +830,19 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     } catch (err) {
       console.error(err);
       triggerToast('Connection error processing payout', 'error');
+    } finally {
+      setActionProcessingMap(prev => {
+        const next = { ...prev };
+        delete next[`payout_${id}`];
+        return next;
+      });
     }
   };
 
   // Approve / Reject Merchant Swipe Action
   const handleTransactionAction = async (id, action, merchantName, amount, remark = '') => {
+    if (actionProcessingMap[`txn_${id}`]) return;
+    setActionProcessingMap(prev => ({ ...prev, [`txn_${id}`]: true }));
     try {
       const res = await verifyTransaction(id, action, remark);
       if (res && res.success) {
@@ -849,14 +860,22 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     } catch (err) {
       console.error(err);
       triggerToast('Connection error verifying transaction', 'error');
+    } finally {
+      setActionProcessingMap(prev => {
+        const next = { ...prev };
+        delete next[`txn_${id}`];
+        return next;
+      });
     }
   };
 
   // Admin Transaction Cancellation & Reversal Action
   const handleClawbackTransaction = async (id, merchantName, amount, reason = '') => {
+    if (actionProcessingMap[`clawback_${id}`]) return;
     const confirmed = window.confirm(`Are you sure you want to cancel transaction ${id} (₹${parseFloat(amount).toLocaleString('en-IN')}) for ${merchantName}?\n\nThis will deduct the amount back from the merchant's wallet and cancel commissions.`);
     if (!confirmed) return;
 
+    setActionProcessingMap(prev => ({ ...prev, [`clawback_${id}`]: true }));
     try {
       const res = await clawbackTransaction(id, reason || 'Cancelled by Admin');
       if (res && res.success) {
@@ -868,6 +887,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     } catch (err) {
       console.error('handleClawbackTransaction error:', err);
       triggerToast('Connection error cancelling transaction', 'error');
+    } finally {
+      setActionProcessingMap(prev => {
+        const next = { ...prev };
+        delete next[`clawback_${id}`];
+        return next;
+      });
     }
   };
 

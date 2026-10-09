@@ -1863,6 +1863,7 @@ export async function recordMerchantSale(saleData) {
       }
 
       let distributedUplineTotal = 0;
+      const commissionSplits = [];
 
       for (const uplineUser of uplineChain) {
         const uPos = posMap[uplineUser.id];
@@ -1874,6 +1875,15 @@ export async function recordMerchantSale(saleData) {
 
         if (commissionEarned > 0) {
           distributedUplineTotal += commissionEarned;
+          commissionSplits.push({
+            user_id: uplineUser.id,
+            user_name: uplineUser.name,
+            role: uplineUser.role,
+            amount: commissionEarned,
+            margin_diff: marginDiff,
+            buy_rate: parentBuyRate
+          });
+
           const { data: pWallet } = await supabase
             .from('wallets')
             .select('*')
@@ -1919,6 +1929,16 @@ export async function recordMerchantSale(saleData) {
             .eq('user_id', 'ADM001');
         }
       }
+
+      // Permanently lock exact commission snapshot into transaction receipt notes
+      swipeMeta.commission_splits = commissionSplits;
+      swipeMeta.admin_net_margin = adminNetMargin;
+      await supabase
+        .from('transactions')
+        .update({
+          notes: `[CARD_SWIPE_ENTRY] ${JSON.stringify(swipeMeta)}`
+        })
+        .eq('id', txnId);
     } catch (uplineErr) {
       console.error('Upline margin split error:', uplineErr);
     }
@@ -2971,10 +2991,12 @@ export async function clawbackTransaction(txnId, adminReason = 'Payment Cancelle
     const amount = parseFloat(txn.amount) || 0;
     const merchantId = txn.merchant_id;
 
-    // Parse swipe metadata to find exact net credited
+    // Parse swipe metadata to find exact net credited and saved commission splits
     let netCredited = amount * 0.985;
     let compFee = amount * 0.015;
     let merchantBuyRate = 1.50;
+    let savedSplits = [];
+    let savedAdminNet = null;
 
     if (txn.notes && typeof txn.notes === 'string') {
       try {
@@ -2983,6 +3005,8 @@ export async function clawbackTransaction(txnId, adminReason = 'Payment Cancelle
         if (meta.net_credited) netCredited = parseFloat(meta.net_credited);
         if (meta.company_fee) compFee = parseFloat(meta.company_fee);
         if (meta.merchant_buy_rate) merchantBuyRate = parseFloat(meta.merchant_buy_rate);
+        if (Array.isArray(meta.commission_splits)) savedSplits = meta.commission_splits;
+        if (meta.admin_net_margin !== undefined) savedAdminNet = parseFloat(meta.admin_net_margin);
       } catch (_) {}
     }
 
@@ -3028,87 +3052,137 @@ export async function clawbackTransaction(txnId, adminReason = 'Payment Cancelle
       }
     }
 
-    // 3. Rollback Upline Commissions along dynamic tree
+    // 3. Rollback Upline Commissions using Exact Historical Snapshot
     try {
-      const [allUsersRes, allPosRes] = await Promise.all([
-        supabase.from('users').select('*'),
-        supabase.from('merchant_pos').select('*')
-      ]);
+      if (savedSplits.length > 0) {
+        let distributedUplineTotal = 0;
+        for (const split of savedSplits) {
+          const splitAmount = parseFloat(split.amount || 0);
+          if (splitAmount > 0) {
+            distributedUplineTotal += splitAmount;
+            const { data: pWallet } = await supabase
+              .from('wallets')
+              .select('*')
+              .eq('user_id', split.user_id)
+              .maybeSingle();
 
-      const allUsers = allUsersRes?.data || [];
-      const allPos = allPosRes?.data || [];
-      const posMap = {};
-      allPos.forEach(p => { posMap[p.merchant_id] = p; });
+            if (pWallet) {
+              const pBal = parseFloat(pWallet.available_balance || 0);
+              const pTotal = parseFloat(pWallet.total_sales || 0);
+              await supabase
+                .from('wallets')
+                .update({
+                  available_balance: parseFloat((pBal - splitAmount).toFixed(2)),
+                  total_sales: Math.max(0, parseFloat((pTotal - amount).toFixed(2))),
+                  updated_at: new Date().toISOString()
+                })
+                .eq('user_id', split.user_id);
+            }
+          }
+        }
 
-      const merchant = allUsers.find(u => u.id === merchantId);
-
-      const isInstant = txn.settlement_type === 'INSTANT';
-      let currentLevelRate = merchantBuyRate;
-
-      const uplineChain = [];
-      let cur = merchant;
-      let safety = 0;
-      while (cur && cur.creator_id && cur.creator_id !== 'ADM001' && safety < 10) {
-        safety++;
-        const parentUser = allUsers.find(u => u.id === cur.creator_id);
-        if (!parentUser) break;
-        uplineChain.push(parentUser);
-        cur = parentUser;
-      }
-
-      let distributedUplineTotal = 0;
-
-      const txnChannel = classifyTransactionChannel(txn);
-      for (const uplineUser of uplineChain) {
-        const uPos = posMap[uplineUser.id];
-        const parentBuyRate = getUserBuyRate(uplineUser, uPos, isInstant, txnChannel);
-        const marginDiff = Math.max(0, currentLevelRate - parentBuyRate);
-        const commissionEarned = parseFloat(((amount * marginDiff) / 100).toFixed(2));
-
-        if (commissionEarned > 0) {
-          distributedUplineTotal += commissionEarned;
-          const { data: pWallet } = await supabase
+        // Rollback Admin Net Profit
+        const adminNetMargin = savedAdminNet !== null ? savedAdminNet : parseFloat(Math.max(0, compFee - distributedUplineTotal).toFixed(2));
+        if (adminNetMargin > 0) {
+          const { data: aWallet } = await supabase
             .from('wallets')
             .select('*')
-            .eq('user_id', uplineUser.id)
+            .eq('user_id', 'ADM001')
             .maybeSingle();
 
-          if (pWallet) {
-            const pBal = parseFloat(pWallet.available_balance || 0);
-            const pTotal = parseFloat(pWallet.total_sales || 0);
+          if (aWallet) {
+            const aBal = parseFloat(aWallet.available_balance || 0);
+            const aTotal = parseFloat(aWallet.total_sales || 0);
             await supabase
               .from('wallets')
               .update({
-                available_balance: parseFloat((pBal - commissionEarned).toFixed(2)),
-                total_sales: Math.max(0, parseFloat((pTotal - amount).toFixed(2))),
+                available_balance: parseFloat((aBal - adminNetMargin).toFixed(2)),
+                total_sales: Math.max(0, parseFloat((aTotal - amount).toFixed(2))),
                 updated_at: new Date().toISOString()
               })
-              .eq('user_id', uplineUser.id);
+              .eq('user_id', 'ADM001');
           }
         }
-        currentLevelRate = Math.min(currentLevelRate, parentBuyRate);
-      }
+      } else {
+        // Fallback for legacy records
+        const [allUsersRes, allPosRes] = await Promise.all([
+          supabase.from('users').select('*'),
+          supabase.from('merchant_pos').select('*')
+        ]);
 
-      // Rollback Admin Net Profit
-      const adminNetMargin = parseFloat(Math.max(0, compFee - distributedUplineTotal).toFixed(2));
-      if (adminNetMargin > 0) {
-        const { data: aWallet } = await supabase
-          .from('wallets')
-          .select('*')
-          .eq('user_id', 'ADM001')
-          .maybeSingle();
+        const allUsers = allUsersRes?.data || [];
+        const allPos = allPosRes?.data || [];
+        const posMap = {};
+        allPos.forEach(p => { posMap[p.merchant_id] = p; });
 
-        if (aWallet) {
-          const aBal = parseFloat(aWallet.available_balance || 0);
-          const aTotal = parseFloat(aWallet.total_sales || 0);
-          await supabase
+        const merchant = allUsers.find(u => u.id === merchantId);
+        const isInstant = txn.settlement_type === 'INSTANT';
+        let currentLevelRate = merchantBuyRate;
+
+        const uplineChain = [];
+        let cur = merchant;
+        let safety = 0;
+        while (cur && cur.creator_id && cur.creator_id !== 'ADM001' && safety < 10) {
+          safety++;
+          const parentUser = allUsers.find(u => u.id === cur.creator_id);
+          if (!parentUser) break;
+          uplineChain.push(parentUser);
+          cur = parentUser;
+        }
+
+        let distributedUplineTotal = 0;
+        const txnChannel = classifyTransactionChannel(txn);
+        for (const uplineUser of uplineChain) {
+          const uPos = posMap[uplineUser.id];
+          const parentBuyRate = getUserBuyRate(uplineUser, uPos, isInstant, txnChannel);
+          const marginDiff = Math.max(0, currentLevelRate - parentBuyRate);
+          const commissionEarned = parseFloat(((amount * marginDiff) / 100).toFixed(2));
+
+          if (commissionEarned > 0) {
+            distributedUplineTotal += commissionEarned;
+            const { data: pWallet } = await supabase
+              .from('wallets')
+              .select('*')
+              .eq('user_id', uplineUser.id)
+              .maybeSingle();
+
+            if (pWallet) {
+              const pBal = parseFloat(pWallet.available_balance || 0);
+              const pTotal = parseFloat(pWallet.total_sales || 0);
+              await supabase
+                .from('wallets')
+                .update({
+                  available_balance: parseFloat((pBal - commissionEarned).toFixed(2)),
+                  total_sales: Math.max(0, parseFloat((pTotal - amount).toFixed(2))),
+                  updated_at: new Date().toISOString()
+                })
+                .eq('user_id', uplineUser.id);
+            }
+          }
+          currentLevelRate = Math.min(currentLevelRate, parentBuyRate);
+        }
+
+        // Rollback Admin Net Profit
+        const adminNetMargin = parseFloat(Math.max(0, compFee - distributedUplineTotal).toFixed(2));
+        if (adminNetMargin > 0) {
+          const { data: aWallet } = await supabase
             .from('wallets')
-            .update({
-              available_balance: parseFloat((aBal - adminNetMargin).toFixed(2)),
-              total_sales: Math.max(0, parseFloat((aTotal - amount).toFixed(2))),
-              updated_at: new Date().toISOString()
-            })
-            .eq('user_id', 'ADM001');
+            .select('*')
+            .eq('user_id', 'ADM001')
+            .maybeSingle();
+
+          if (aWallet) {
+            const aBal = parseFloat(aWallet.available_balance || 0);
+            const aTotal = parseFloat(aWallet.total_sales || 0);
+            await supabase
+              .from('wallets')
+              .update({
+                available_balance: parseFloat((aBal - adminNetMargin).toFixed(2)),
+                total_sales: Math.max(0, parseFloat((aTotal - amount).toFixed(2))),
+                updated_at: new Date().toISOString()
+              })
+              .eq('user_id', 'ADM001');
+          }
         }
       }
     } catch (rbErr) {
@@ -3221,16 +3295,25 @@ export async function requestWithdrawal(withdrawalData) {
     const allLiveAvail = Math.max(0, parseFloat((allReceivedSales - allWithdrawn - allPendingWithdrawn).toFixed(2)));
 
     const staticWalletAvail = parseFloat(wallet?.available_balance || 0);
-    const clientAvail = parseFloat(withdrawalData.client_available_balance || 0);
-    const currAvail = Math.max(channelLiveAvail, allLiveAvail, staticWalletAvail, clientAvail);
 
-    const holdAmount = 500.0;
+    // Strict Negative Balance Lockout Protection
+    if (staticWalletAvail <= 0) {
+      return {
+        success: false,
+        message: `⚠️ Withdrawal Locked: Your wallet balance is ₹${staticWalletAvail.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (zero or negative). New payouts are strictly blocked until the balance is positive.`
+      };
+    }
+
+    const currAvail = staticWalletAvail;
+    const holdAmount = isSelfWithdrawal ? 0.0 : 500.0;
     const maxWithdrawable = Math.max(0, parseFloat((currAvail - holdAmount).toFixed(2)));
 
     if (numAmount > maxWithdrawable) {
       return {
         success: false,
-        message: `Insufficient withdrawable balance. Total Balance is ₹${currAvail.toLocaleString('en-IN', { minimumFractionDigits: 2 })}. A minimum reserve balance of ₹500.00 must be maintained in your wallet to keep your account active. Maximum withdrawable amount is ₹${maxWithdrawable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`
+        message: holdAmount > 0 
+          ? `Insufficient withdrawable balance. Total Balance is ₹${currAvail.toLocaleString('en-IN', { minimumFractionDigits: 2 })}. A minimum reserve balance of ₹500.00 must be maintained. Maximum withdrawable amount is ₹${maxWithdrawable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`
+          : `Insufficient balance. Available Balance: ₹${currAvail.toLocaleString('en-IN', { minimumFractionDigits: 2 })}, Requested: ₹${numAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`
       };
     }
 
