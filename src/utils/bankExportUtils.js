@@ -224,9 +224,7 @@ export function generateCommissionBatchCSV(commissionPayoutsList, options = {}) 
     'IFSC Code',
     'Bank Name',
     'Commission Amount (INR)',
-    'Payout Purpose',
     'Senior Upline / Distributor',
-    'Payout Reference ID',
     'Request Date & Time',
     'Status'
   ];
@@ -274,8 +272,6 @@ export function generateCommissionBatchCSV(commissionPayoutsList, options = {}) 
     const amt = parseFloat(item.amount || 0).toFixed(2);
 
     const upline = item.creator_name ? `${item.creator_name} (${item.creator_id || 'DIRECT'})` : (item.parent_id || item.creator_id || 'Super Admin (Direct)');
-    const purpose = 'Commission & Profit Margin Payout';
-    const refId = item.id || item.ref_number || item.payout_id || 'N/A';
     const dateStr = item.created_at ? new Date(item.created_at).toLocaleString('en-IN') : 'N/A';
     const status = item.status || 'PENDING';
 
@@ -290,9 +286,7 @@ export function generateCommissionBatchCSV(commissionPayoutsList, options = {}) 
       escapeCSV(ifsc),
       escapeCSV(bankName),
       amt,
-      escapeCSV(purpose),
       escapeCSV(upline),
-      escapeCSV(refId),
       escapeCSV(dateStr),
       escapeCSV(status)
     ].join(',');

@@ -5890,19 +5890,29 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 });
               };
 
+              const isCommItem = (item) => Boolean(
+                (item.admin_remark || '').includes('[COMMISSION_PAYOUT]') || 
+                item.payout_purpose === 'COMMISSION' || 
+                item.is_commission_payout
+              );
+
               const channelSwipes = dedupeById(filterByDate(filterByChannel(allSwipes)));
               const channelWithdrawals = dedupeById(filterByDate(filterByChannel(allWithdrawals)));
+              const channelRegularWithdrawals = channelWithdrawals.filter(w => !isCommItem(w));
+              const channelCommissionWithdrawals = channelWithdrawals.filter(w => isCommItem(w));
               const channelAllItems = dedupeById([...channelSwipes, ...channelWithdrawals]);
 
               // Contextual counts
               const totalSwipesCount = channelSwipes.length;
-              const totalWithdrawalsCount = channelWithdrawals.length;
+              const totalWithdrawalsCount = channelRegularWithdrawals.length;
+              const totalCommissionCount = channelCommissionWithdrawals.length;
               const totalAllActivityCount = channelAllItems.length;
 
               // Filter by Category
               let categoryList = channelAllItems;
               if (payoutCategoryFilter === 'SWIPES') categoryList = channelSwipes;
-              else if (payoutCategoryFilter === 'WITHDRAWALS') categoryList = channelWithdrawals;
+              else if (payoutCategoryFilter === 'WITHDRAWALS') categoryList = channelRegularWithdrawals;
+              else if (payoutCategoryFilter === 'COMMISSION') categoryList = channelCommissionWithdrawals;
 
               const statusCounts = {
                 all: categoryList.length,
@@ -5931,12 +5941,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               else if (payoutSettlementFilter === 'INSTANT') candidateList = statusFilteredList.filter(i => isItemInstant(i));
 
               // T+1 Batch Items
-              const t1BatchPendingItems = channelWithdrawals.filter(w => w._subStatus === 'PENDING' && !isItemInstant(w));
+              const t1BatchPendingItems = channelRegularWithdrawals.filter(w => w._subStatus === 'PENDING' && !isItemInstant(w));
               const totalBatchAmount = t1BatchPendingItems.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
 
               // Executive Financial Totals
-              const pendingWithdrawalsList = channelWithdrawals.filter(w => w._subStatus === 'PENDING');
+              const pendingWithdrawalsList = channelRegularWithdrawals.filter(w => w._subStatus === 'PENDING');
               const totalPendingWithdrawalAmount = pendingWithdrawalsList.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
+
+              const pendingCommissionList = channelCommissionWithdrawals.filter(w => w._subStatus === 'PENDING');
+              const totalPendingCommissionAmount = pendingCommissionList.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
 
               const pendingSwipesList = channelSwipes.filter(s => s._subStatus === 'PENDING');
               const totalPendingSwipesAmount = pendingSwipesList.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
@@ -6258,16 +6271,26 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 setIsExportMenuOpen(false);
 
                 // Get all commission withdrawals across the network
-                const allCommPayouts = allWithdrawals.filter(item => 
+                let allCommPayouts = allWithdrawals.filter(item => 
                   item._entityType === 'WITHDRAWAL' &&
                   ((item.admin_remark || '').includes('[COMMISSION_PAYOUT]') || item.payout_purpose === 'COMMISSION' || item.is_commission_payout)
                 );
 
-                // Filter by date if active
-                const filteredComm = filterByDate(allCommPayouts);
+                // If specific checkboxes were selected, export only those selected IDs
+                if (selectedPendingIds && selectedPendingIds.size > 0) {
+                  allCommPayouts = allCommPayouts.filter(w => selectedPendingIds.has(w.id));
+                } else {
+                  // Otherwise filter by active date & channel
+                  allCommPayouts = filterByDate(filterByChannel(allCommPayouts));
+                }
 
-                if (filteredComm.length === 0) {
-                  triggerToast('No partner commission payout requests found for current filter.', 'info');
+                // If in PENDING status, filter by pending
+                if (payoutStatusFilter === 'PENDING') {
+                  allCommPayouts = allCommPayouts.filter(w => w._subStatus === 'PENDING');
+                }
+
+                if (allCommPayouts.length === 0) {
+                  triggerToast('No partner commission payout requests found for current selection.', 'info');
                   return;
                 }
 
@@ -6278,9 +6301,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 const dateSlug = dateLabel.replace(/[^a-zA-Z0-9_-]/g, '_');
                 const fileName = `RONAV_Partner_Commission_Payouts_${dateSlug}_${today}.csv`;
 
-                const res = downloadCommissionBatchFile(filteredComm, { fileName });
+                const res = downloadCommissionBatchFile(allCommPayouts, { fileName });
                 if (res && res.success) {
-                  triggerToast(`📥 Downloaded ${filteredComm.length} Commission Payout(s) for Partner Disbursal!`, 'success');
+                  triggerToast(`📥 Downloaded ${allCommPayouts.length} Commission Payout(s) for Partner Disbursal!`, 'success');
                 } else {
                   triggerToast(res?.error || 'Failed to download commission batch file.', 'error');
                 }
@@ -6446,53 +6469,48 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       </span>
                     </div>
 
-                    {/* Card 3: Commission Lock Status */}
-                    <div style={{
-                      background: !commissionPayoutActive ? '#FEF2F2' : '#F0FDF4',
-                      border: !commissionPayoutActive ? '1.5px solid #FCA5A5' : '1px solid #BBF7D0',
-                      borderRadius: '10px',
-                      padding: '0.875rem 1rem',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
-                    }}>
+                    {/* Card 3: Commission Withdrawals & Lock Status */}
+                    <div 
+                      onClick={() => {
+                        setPayoutCategoryFilter('COMMISSION');
+                        setPayoutStatusFilter('PENDING');
+                        setPayoutPage(1);
+                      }}
+                      style={{
+                        background: (payoutCategoryFilter === 'COMMISSION' && payoutStatusFilter === 'PENDING') ? '#F5F3FF' : (!commissionPayoutActive ? '#FEF2F2' : '#F0FDF4'),
+                        border: (payoutCategoryFilter === 'COMMISSION' && payoutStatusFilter === 'PENDING') ? '2px solid #8B5CF6' : (!commissionPayoutActive ? '1.5px solid #FCA5A5' : '1px solid #BBF7D0'),
+                        borderRadius: '10px',
+                        padding: '0.875rem 1rem',
+                        cursor: 'pointer',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+                      }}
+                    >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: !commissionPayoutActive ? '#DC2626' : '#15803D', textTransform: 'uppercase' }}>
-                          🔒 Commission Lock
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: (payoutCategoryFilter === 'COMMISSION') ? '#7C3AED' : (!commissionPayoutActive ? '#DC2626' : '#15803D'), textTransform: 'uppercase' }}>
+                          👑 Commission Payouts
                         </span>
-                        <span style={{ fontSize: '0.625rem', fontWeight: 800, background: !commissionPayoutActive ? '#DC2626' : '#15803D', color: '#FFFFFF', padding: '1px 6px', borderRadius: '10px' }}>
-                          {!commissionPayoutActive ? 'LOCKED' : 'ACTIVE'}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#DDD6FE', color: '#6B21A8', padding: '1px 6px', borderRadius: '10px' }}>
+                            {pendingCommissionList.length} Due
+                          </span>
+                          <span style={{ fontSize: '0.625rem', fontWeight: 800, background: !commissionPayoutActive ? '#DC2626' : '#15803D', color: '#FFFFFF', padding: '1px 6px', borderRadius: '10px' }}>
+                            {!commissionPayoutActive ? 'LOCKED' : 'ACTIVE'}
+                          </span>
+                        </div>
                       </div>
-                      <h4 style={{ fontSize: '1rem', fontWeight: 800, color: '#0F172A', margin: '6px 0 2px' }}>
-                        {!commissionPayoutActive ? 'Downlines Frozen' : 'Withdrawals Allowed'}
+                      <h4 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: '6px 0 2px' }}>
+                        ₹{totalPendingCommissionAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h4>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                        <span style={{ fontSize: '0.6rem', color: '#64748B' }}>
+                          {!commissionPayoutActive ? '🔒 Downlines Frozen' : '🟢 Click to view requests'}
+                        </span>
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleDownloadCommissionBatch();
+                            handleToggleCommissionPayout();
                           }}
-                          style={{
-                            background: '#7C3AED',
-                            color: '#FFFFFF',
-                            border: 'none',
-                            borderRadius: '4px',
-                            padding: '2px 6px',
-                            fontSize: '0.6rem',
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '3px'
-                          }}
-                          title="Download Commission Payouts Sheet"
-                        >
-                          <Download style={{ width: '10px', height: '10px' }} />
-                          <span>Download Sheet</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleToggleCommissionPayout()}
                           disabled={isUpdatingCommissionToggle}
                           style={{
                             background: !commissionPayoutActive ? '#DC2626' : '#15803D',
@@ -6939,7 +6957,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         </span>
                       </button>
 
-                      {/* 2. Pending Payouts */}
+                      {/* 2. Pending Payouts (Regular Settlements) */}
                       <button
                         type="button"
                         onClick={() => {
@@ -6976,7 +6994,44 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         </span>
                       </button>
 
-                      {/* 3. Sent to Bank / In Transit */}
+                      {/* 3. Dedicated Commission Withdrawals Tab */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPayoutCategoryFilter('COMMISSION');
+                          setPayoutStatusFilter('PENDING');
+                          setPayoutPage(1);
+                        }}
+                        style={{
+                          background: (payoutCategoryFilter === 'COMMISSION' && payoutStatusFilter === 'PENDING') ? '#F5F3FF' : 'transparent',
+                          color: (payoutCategoryFilter === 'COMMISSION' && payoutStatusFilter === 'PENDING') ? '#6B21A8' : '#334155',
+                          border: (payoutCategoryFilter === 'COMMISSION' && payoutStatusFilter === 'PENDING') ? '1.5px solid #8B5CF6' : '1px solid transparent',
+                          borderRadius: '8px',
+                          padding: '0.42rem 0.75rem',
+                          fontSize: '0.78125rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <Crown style={{ width: '13px', height: '13px', color: '#7C3AED' }} />
+                        <span>Commission Withdrawals</span>
+                        <span style={{
+                          fontSize: '0.625rem',
+                          fontWeight: 800,
+                          background: (payoutCategoryFilter === 'COMMISSION' && payoutStatusFilter === 'PENDING') ? '#7C3AED' : '#F1F5F9',
+                          color: (payoutCategoryFilter === 'COMMISSION' && payoutStatusFilter === 'PENDING') ? '#FFFFFF' : '#475569',
+                          padding: '1px 6px',
+                          borderRadius: '10px'
+                        }}>
+                          {pendingCommissionList.length}
+                        </span>
+                      </button>
+
+                      {/* 4. Sent to Bank / In Transit */}
                       <button
                         type="button"
                         onClick={() => {
@@ -7170,9 +7225,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           {/* Right: Download Bank Sheet Button */}
                           <button
                             type="button"
-                            onClick={handleInitiateBankDownload}
+                            onClick={() => {
+                              if (payoutCategoryFilter === 'COMMISSION') {
+                                handleDownloadCommissionBatch();
+                              } else {
+                                handleInitiateBankDownload();
+                              }
+                            }}
                             style={{
-                              background: '#0F52BA',
+                              background: payoutCategoryFilter === 'COMMISSION' ? '#7C3AED' : '#0F52BA',
                               color: '#FFFFFF',
                               border: 'none',
                               padding: '7px 14px',
@@ -7183,15 +7244,23 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               display: 'flex',
                               alignItems: 'center',
                               gap: '6px',
-                              boxShadow: '0 1px 3px rgba(15,82,186,0.25)',
+                              boxShadow: payoutCategoryFilter === 'COMMISSION' ? '0 1px 3px rgba(124,58,237,0.3)' : '0 1px 3px rgba(15,82,186,0.25)',
                               transition: 'all 0.15s ease'
                             }}
                           >
-                            <Download style={{ width: '13px', height: '13px' }} />
+                            {payoutCategoryFilter === 'COMMISSION' ? (
+                              <Crown style={{ width: '13px', height: '13px' }} />
+                            ) : (
+                              <Download style={{ width: '13px', height: '13px' }} />
+                            )}
                             <span>
-                              {selectedPendingIds.size > 0 
-                                ? `Download Selected Batch (${selectedPendingIds.size})`
-                                : `Download Bank Sheet (${pendingWithdrawals.length})`}
+                              {payoutCategoryFilter === 'COMMISSION'
+                                ? (selectedPendingIds.size > 0 
+                                    ? `Download Selected Commission (${selectedPendingIds.size})`
+                                    : `Download Commission Sheet (${pendingWithdrawals.length})`)
+                                : (selectedPendingIds.size > 0 
+                                    ? `Download Selected Batch (${selectedPendingIds.size})`
+                                    : `Download Bank Sheet (${pendingWithdrawals.length})`)}
                             </span>
                           </button>
                         </div>
