@@ -740,8 +740,26 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       // If user typed custom notes, don't confuse with title
     }
 
+    let posProvider = meta?.pos_provider || t.pos_provider || t.provider || '';
+    let posVendor = meta?.pos_vendor || t.pos_vendor || '';
+    const ch = classifyTransactionChannel(t);
+    if (!posProvider) {
+      if (ch === 'qr') posProvider = 'Company QR (UPI)';
+      else if (ch === 'payswiff') posProvider = 'Payswiff';
+      else posProvider = 'Pine Labs';
+    }
+    if (!posVendor) {
+      if (ch === 'qr') posVendor = 'RONAV Technologies';
+      else if (ch === 'payswiff') {
+        const isRp = (t.notes || t.admin_remark || '').toLowerCase().includes('rp');
+        posVendor = isRp ? 'R.P. Technologies' : 'RONAV Technologies';
+      } else {
+        posVendor = 'Rose Navaneetham Enterprises';
+      }
+    }
+
     // Clean display title: Priority: Customer Name > Customer (Mobile) > POS Swipe
-    let title = customerName || (customerMobile ? `Customer (${customerMobile})` : `${t.provider || activeMachine?.title || 'POS'} Swipe`);
+    let title = customerName || (customerMobile ? `Customer (${customerMobile})` : `${posProvider} Swipe`);
 
     return { 
       title, 
@@ -753,7 +771,10 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       settlementType, 
       customerCharge, 
       companyFee, 
-      merchantCommission 
+      merchantCommission,
+      posProvider,
+      posVendor,
+      channel: ch
     };
   };
 
@@ -9014,7 +9035,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                       {isWithdrawal ? 'Bank Disbursal Receipt' : (isQRTxn(item) ? 'UPI QR Payment Receipt' : 'POS Charge Slip & Sale Receipt')}
                     </strong>
                     <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
-                      {isWithdrawal ? 'Payout to Verified Bank Account' : (isQRTxn(item) ? 'Customer UPI Payment via Company QR' : `${item.provider || activeMachine?.title || 'Pine Labs'} Verified Swipe`)}
+                      {isWithdrawal ? 'Payout to Verified Bank Account' : (isQRTxn(item) ? 'Customer UPI Payment via Company QR' : `${parsed.posProvider || 'Pine Labs'} Verified Swipe`)}
                     </span>
                   </div>
                 </div>
@@ -9100,6 +9121,13 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                 {isWithdrawal ? (
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid #F1F5F9', fontSize: '0.75rem' }}>
+                      <span style={{ color: '#64748B', fontWeight: 600 }}>Source Channel</span>
+                      <span style={{ fontWeight: 800, color: '#0F172A' }}>
+                        {item.channel === 'payswiff' || classifyTransactionChannel(item) === 'payswiff' ? '⚡ Payswiff' : ((item.channel === 'qr' || classifyTransactionChannel(item) === 'qr') ? '📱 Company QR' : '💳 Pine Labs')}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid #F1F5F9', fontSize: '0.75rem' }}>
                       <span style={{ color: '#64748B', fontWeight: 600 }}>Destination Bank</span>
                       <span style={{ fontWeight: 800, color: '#0F172A' }}>{item.bank_name || 'Bank Account'}</span>
                     </div>
@@ -9158,7 +9186,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid #F1F5F9', fontSize: '0.75rem' }}>
                       <span style={{ color: '#64748B', fontWeight: 600 }}>{isQRTxn(item) ? 'Payment Mode' : 'POS Terminal Channel'}</span>
                       <span style={{ fontWeight: 800, color: isQRTxn(item) ? '#7C3AED' : '#0F172A' }}>
-                        {isQRTxn(item) ? '📱 Company QR (UPI)' : (item.provider || activeMachine?.title || 'Pine Labs POS')}
+                        {isQRTxn(item) ? '📱 Company QR (UPI)' : `${parsed.posProvider || 'Pine Labs'} POS`}
                       </span>
                     </div>
 

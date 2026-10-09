@@ -1334,6 +1334,75 @@ export function parsePosTerminalRates(terminalStr, baseRate = 1.50) {
 // ----------------------------------------------------
 // 4.1 TRANSACTIONS & MULTI-TIER COMMISSION ROLL-UP
 // ----------------------------------------------------
+// REMARK METADATA PARSER (EXTRACTS ACTUAL POS / CHANNEL / VENDOR)
+// ----------------------------------------------------
+export function parseRemarkMetadata(remarkStr, fallbackPos = {}) {
+  const fallbackProv = fallbackPos?.provider || 'Pine Labs';
+  const fallbackVend = fallbackPos?.vendor_entity || ((fallbackProv === 'Pine Labs') ? 'Rose Navaneetham Enterprises' : 'RONAV Technologies');
+  const fallbackTerm = fallbackPos?.terminal_id || '';
+
+  if (!remarkStr || typeof remarkStr !== 'string') {
+    const ch = normalizeChannelKey(fallbackProv);
+    return {
+      channel: ch,
+      pos_provider: fallbackProv,
+      pos_vendor: fallbackVend,
+      pos_terminal: fallbackTerm
+    };
+  }
+
+  const r = remarkStr;
+  const matchPos = r.match(/POS:\s*([^|•\r\n]+)/i);
+  const matchChannel = r.match(/Channel:\s*([^|•\r\n]+)/i);
+  const matchVendor = r.match(/Vendor:\s*([^|•\r\n]+)/i);
+  const matchTerminal = r.match(/Terminal:\s*([^|•\r\n]+)/i);
+
+  let extractedChannel = matchChannel ? matchChannel[1].trim().toLowerCase() : '';
+  let extractedPos = matchPos ? matchPos[1].trim() : '';
+  let extractedVendor = matchVendor ? matchVendor[1].trim() : '';
+  let extractedTerminal = matchTerminal ? matchTerminal[1].trim() : fallbackTerm;
+
+  const rLow = r.toLowerCase();
+  if (!extractedChannel) {
+    if (rLow.includes('pos: payswiff') || rLow.includes('channel: payswiff') || rLow.includes('payswiff') || rLow.includes('swiff')) {
+      extractedChannel = 'payswiff';
+    } else if (rLow.includes('pos: company qr') || rLow.includes('channel: qr') || rLow.includes('qr_scan') || rLow.includes('qr_payout') || rLow.includes('company qr')) {
+      extractedChannel = 'qr';
+    } else if (rLow.includes('pos: pine labs') || rLow.includes('channel: pinelabs') || rLow.includes('pine labs') || rLow.includes('pinelabs')) {
+      extractedChannel = 'pinelabs';
+    }
+  }
+
+  if (extractedChannel === 'payswiff' || rLow.includes('swiff') || rLow.includes('payswiff')) {
+    extractedChannel = 'payswiff';
+    if (!extractedPos || extractedPos.toLowerCase().includes('pine')) extractedPos = 'Payswiff';
+    if (!extractedVendor || extractedVendor.toLowerCase().includes('rose')) {
+      const isRp = extractedVendor.toLowerCase().includes('rp') || rLow.includes('rp tech') || rLow.includes('r.p.');
+      extractedVendor = isRp ? 'R.P. Technologies' : 'RONAV Technologies';
+    }
+  } else if (extractedChannel === 'qr' || rLow.includes('qr') || rLow.includes('company qr')) {
+    extractedChannel = 'qr';
+    if (!extractedPos || extractedPos.toLowerCase().includes('pine')) extractedPos = 'Company QR (UPI)';
+    if (!extractedVendor) extractedVendor = 'RONAV Technologies';
+  } else if (extractedChannel === 'pinelabs' || rLow.includes('pine')) {
+    extractedChannel = 'pinelabs';
+    if (!extractedPos) extractedPos = 'Pine Labs';
+    if (!extractedVendor) extractedVendor = 'Rose Navaneetham Enterprises';
+  } else {
+    extractedPos = extractedPos || fallbackProv;
+    extractedChannel = normalizeChannelKey(extractedPos);
+    extractedVendor = extractedVendor || fallbackVend;
+  }
+
+  return {
+    channel: extractedChannel || 'pinelabs',
+    pos_provider: extractedPos || 'Pine Labs',
+    pos_vendor: extractedVendor || 'Rose Navaneetham Enterprises',
+    pos_terminal: extractedTerminal
+  };
+}
+
+// ----------------------------------------------------
 // TRANSACTION CHANNEL CLASSIFIER (CENTRAL SOURCE OF TRUTH)
 // ----------------------------------------------------
 export function classifyTransactionChannel(item) {
@@ -1347,59 +1416,58 @@ export function classifyTransactionChannel(item) {
     if (ch.includes('pine')) return 'pinelabs';
   }
 
+  // 1. Check notes / parsed card swipe metadata
+  if (item.notes && typeof item.notes === 'string') {
+    if (item.notes.includes('[CARD_SWIPE_ENTRY]')) {
+      try {
+        const jsonPart = item.notes.slice(item.notes.indexOf('{'));
+        const meta = JSON.parse(jsonPart);
+        const metaProv = (meta.pos_provider || '').toLowerCase();
+        if (metaProv.includes('swiff')) return 'payswiff';
+        if (metaProv.includes('qr') || metaProv.includes('upi')) return 'qr';
+        if (metaProv.includes('pine')) return 'pinelabs';
+
+        const userNotes = (meta.user_notes || '').toLowerCase();
+        if (userNotes.includes('swiff') || userNotes.includes('payswiff')) return 'payswiff';
+        if (userNotes.includes('qr') || userNotes.includes('upi')) return 'qr';
+        if (userNotes.includes('pine')) return 'pinelabs';
+      } catch (_) {}
+    } else {
+      const n = item.notes.toLowerCase();
+      if (n.includes('swiff') || n.includes('payswiff')) return 'payswiff';
+      if (n.includes('qr') || n.includes('upi')) return 'qr';
+      if (n.includes('pine')) return 'pinelabs';
+    }
+  }
+
+  // 2. Check admin_remark (explicit POS / Channel tag for withdrawals & audits)
+  if (item.admin_remark && typeof item.admin_remark === 'string') {
+    const r = item.admin_remark.toLowerCase();
+    if (r.includes('pos: payswiff') || r.includes('channel: payswiff') || r.includes('payswiff') || r.includes('swiff')) return 'payswiff';
+    if (r.includes('pos: company qr') || r.includes('channel: qr') || r.includes('qr_scan') || r.includes('qr_payout') || r.includes('qr') || r.includes('upi')) return 'qr';
+    if (r.includes('pos: pine labs') || r.includes('channel: pinelabs') || r.includes('pine labs') || r.includes('pinelabs')) return 'pinelabs';
+  }
+
   const type = (item.type || '').toUpperCase();
   const provider = (item.pos_provider || item.provider || '').toLowerCase();
   const id = (item.id || '').toUpperCase();
 
-  // 1. Explicit QR Scan / QR payment type
+  // 3. Explicit QR Scan / QR payment type
   if (type === 'QR_SCAN' || type === 'QR' || type === 'QR_PAYMENT' || type === 'QR_PAYOUT') return 'qr';
 
-  // 2. Provider or ID indicates QR/UPI (excluding hardware swipe providers)
+  // 4. Provider or ID indicates QR/UPI (excluding hardware swipe providers)
   if ((provider.includes('qr') || provider.includes('upi') || id.startsWith('TXN-QR-')) && !provider.includes('swiff') && !provider.includes('pine')) {
     return 'qr';
   }
 
-  // 3. Provider or ID indicates Payswiff
+  // 5. Provider or ID indicates Payswiff
   if (provider.includes('swiff') || id.startsWith('TXN-SW-') || id.includes('SWIFF')) {
     return 'payswiff';
   }
 
-  // 4. Provider or ID indicates Pine Labs
+  // 6. Provider or ID indicates Pine Labs
   if (provider.includes('pine') || id.startsWith('TXN-PL-') || id.includes('PINE')) {
     return 'pinelabs';
-  }
-
-  // 5. Check parsed swipe metadata if available (never raw string search)
-  if (item.notes && typeof item.notes === 'string' && item.notes.includes('[CARD_SWIPE_ENTRY]')) {
-    try {
-      const jsonPart = item.notes.slice(item.notes.indexOf('{'));
-      const meta = JSON.parse(jsonPart);
-      const metaProv = (meta.pos_provider || '').toLowerCase();
-      if (metaProv.includes('swiff')) return 'payswiff';
-      if (metaProv.includes('pine')) return 'pinelabs';
-      if (metaProv.includes('qr') || metaProv.includes('upi')) return 'qr';
-
-      const userNotes = (meta.user_notes || '').toLowerCase();
-      if (userNotes.includes('swiff') || userNotes.includes('payswiff')) return 'payswiff';
-      if (userNotes.includes('pine')) return 'pinelabs';
-      if (userNotes.includes('qr') || userNotes.includes('upi')) return 'qr';
-    } catch (_) {}
-  }
-
-  // 6. Plain text notes (only for legacy transactions without [CARD_SWIPE_ENTRY])
-  if (item.notes && typeof item.notes === 'string' && !item.notes.includes('[CARD_SWIPE_ENTRY]')) {
-    const n = item.notes.toLowerCase();
-    if (n.includes('swiff') || n.includes('payswiff')) return 'payswiff';
-    if (n.includes('qr') || n.includes('upi')) return 'qr';
-    if (n.includes('pine')) return 'pinelabs';
-  }
-
-  // 7. Check admin remark for withdrawals or overrides
-  if (item.admin_remark && typeof item.admin_remark === 'string') {
-    const r = item.admin_remark.toLowerCase();
-    if (r.includes('pos: payswiff') || r.includes('swiff') || r.includes('payswiff')) return 'payswiff';
-    if (r.includes('pos: company qr') || r.includes('channel: qr') || r.includes('qr') || r.includes('upi')) return 'qr';
-    if (r.includes('pos: pine labs') || r.includes('pine')) return 'pinelabs';
   }
 
   return 'pinelabs';
@@ -2414,6 +2482,9 @@ export async function getAdminPending() {
           if (matchMob) custMob = matchMob[1].trim();
           if (matchMode) settMode = matchMode[1].trim();
         }
+
+        const metaParsed = parseRemarkMetadata(w.admin_remark, p);
+
         return {
           ...w,
           merchant_name: u.name || w.merchant_id,
@@ -2426,9 +2497,10 @@ export async function getAdminPending() {
           customer_name: custName,
           customer_mobile: custMob,
           settlement_mode: settMode,
-          pos_provider: p.provider || 'Pine Labs',
-          pos_vendor: p.vendor_entity || ((p.provider === 'Pine Labs') ? 'Rose Navaneetham Enterprises' : 'RONAV Technologies'),
-          pos_terminal: p.terminal_id || ''
+          channel: metaParsed.channel,
+          pos_provider: metaParsed.pos_provider,
+          pos_vendor: metaParsed.pos_vendor,
+          pos_terminal: metaParsed.pos_terminal
         };
       });
 
@@ -2437,8 +2509,12 @@ export async function getAdminPending() {
       const u = userMap[t.merchant_id] || {};
       const p = posMap[t.merchant_id] || {};
       const meta = parseSwipeMeta(t.notes);
+      const ch = classifyTransactionChannel(t);
+      const providerResolved = meta.pos_provider || t.provider || (ch === 'qr' ? 'Company QR (UPI)' : (ch === 'payswiff' ? 'Payswiff' : (p.provider || 'Pine Labs')));
+      const vendorResolved = meta.pos_vendor || p.vendor_entity || ((providerResolved === 'Pine Labs' || ch === 'pinelabs') ? 'Rose Navaneetham Enterprises' : 'RONAV Technologies');
       return {
         ...t,
+        channel: ch,
         merchant_name: u.name || t.merchant_id,
         customer_name: meta.customer_name || 'Counter Customer',
         customer_mobile: meta.customer_mobile || t.customer_mobile || '',
@@ -2446,8 +2522,8 @@ export async function getAdminPending() {
         settlement_type: meta.settlement_type || 'T1',
         merchant_commission: meta.merchant_commission || 0,
         company_fee: meta.company_fee || 0,
-        pos_provider: meta.pos_provider || t.provider || p.provider || 'Pine Labs',
-        pos_vendor: meta.pos_vendor || p.vendor_entity || ((t.provider || p.provider) === 'Pine Labs' ? 'Rose Navaneetham Enterprises' : 'RONAV Technologies'),
+        pos_provider: providerResolved,
+        pos_vendor: vendorResolved,
         pos_terminal: meta.terminal_id || p.terminal_id || '',
         pos_rate: p.commission_rate || 1.50
       };
@@ -2566,6 +2642,9 @@ export async function getAdminPending() {
         const utrMatch = w.admin_remark.match(/UTR:\s*([A-Za-z0-9_-]+)/i);
         if (utrMatch) utrNumber = utrMatch[1];
       }
+
+      const metaParsed = parseRemarkMetadata(w.admin_remark, p);
+
       return {
         ...w,
         merchant_name: u.name || w.merchant_id,
@@ -2576,9 +2655,10 @@ export async function getAdminPending() {
         customer_mobile: custMob,
         settlement_mode: settMode,
         utr_number: utrNumber,
-        pos_provider: p.provider || 'Pine Labs',
-        pos_vendor: p.vendor_entity || '',
-        pos_terminal: p.terminal_id || ''
+        channel: metaParsed.channel,
+        pos_provider: metaParsed.pos_provider,
+        pos_vendor: metaParsed.pos_vendor,
+        pos_terminal: metaParsed.pos_terminal
       };
     });
 
@@ -3536,6 +3616,8 @@ export async function getMerchantWithdrawals(merchantId) {
         }
       }
 
+      const metaParsed = parseRemarkMetadata(w.admin_remark);
+
       return {
         ...w,
         utr_number: utrNumber,
@@ -3547,7 +3629,11 @@ export async function getMerchantWithdrawals(merchantId) {
         customer_mobile: customerMobile,
         settlement_mode: settlementMode,
         is_pending_to_disburse: isPendingToDisburse,
-        is_submitted_to_bank: isSubmittedToBank
+        is_submitted_to_bank: isSubmittedToBank,
+        channel: metaParsed.channel,
+        pos_provider: metaParsed.pos_provider,
+        pos_vendor: metaParsed.pos_vendor,
+        pos_terminal: metaParsed.pos_terminal
       };
     });
 

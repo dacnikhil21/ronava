@@ -7606,6 +7606,23 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         const isExpanded = expandedPayoutId === cardId;
                         const displayDate = formatPayoutDateTime(item.created_at || item.verified_at);
 
+                        const itemChannel = classifyTransactionChannel(item);
+                        let sourceChannelLabel = 'Pine Labs';
+                        let sourceVendorLabel = 'Rose Navaneetham Enterprises';
+                        if (itemChannel === 'qr') {
+                          sourceChannelLabel = 'Company QR (UPI)';
+                          sourceVendorLabel = 'RONAV Technologies';
+                        } else if (itemChannel === 'payswiff') {
+                          const v = (item.pos_vendor || '').toLowerCase();
+                          const notes = (item.notes || item.admin_remark || '').toLowerCase();
+                          const isRp = v.includes('rp') || notes.includes('r.p.') || notes.includes('rp tech') || notes.includes('rp_');
+                          sourceChannelLabel = isRp ? 'Payswiff (RP Tech)' : 'Payswiff (Ronav Tech)';
+                          sourceVendorLabel = isRp ? 'R.P. Technologies' : 'RONAV Technologies';
+                        } else {
+                          sourceChannelLabel = 'Pine Labs';
+                          sourceVendorLabel = 'Rose Navaneetham Enterprises';
+                        }
+
                         let merchantTitle = '';
                         let amountStr = '';
                         let rrnOrUtr = '';
@@ -7616,9 +7633,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           amountStr = `+₹${parseFloat(item.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
                           merchantTitle = item.merchant_name || 'Merchant';
                           rrnOrUtr = item.rrn_number || item.ref_number || item.id || 'N/A';
-                          channelTag = item.pos_vendor 
-                            ? (item.pos_vendor.toLowerCase().includes('rp') ? 'Payswiff (RP Tech)' : 'Payswiff (Ronav Tech)')
-                            : (item.pos_provider || 'POS');
+                          channelTag = sourceChannelLabel;
                         } else {
                           // Withdrawal
                           details = parsePayoutDetails(item);
@@ -7702,6 +7717,25 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                     lineHeight: 1.2
                                   }}>
                                     {isSwipe ? '💳 Swipe' : (details.isCommission ? '💎 Commission Payout' : '🏦 Regular Settlement')}
+                                  </span>
+
+                                  {/* Channel Badge */}
+                                  <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    fontSize: '0.6875rem',
+                                    fontWeight: 700,
+                                    padding: '2px 7px',
+                                    borderRadius: '5px',
+                                    background: itemChannel === 'payswiff' ? '#FFFBEB' : (itemChannel === 'qr' ? '#F5F3FF' : '#F1F5F9'),
+                                    color: itemChannel === 'payswiff' ? '#B45309' : (itemChannel === 'qr' ? '#7C3AED' : '#334155'),
+                                    border: itemChannel === 'payswiff' ? '1px solid #FDE68A' : (itemChannel === 'qr' ? '1px solid #DDD6FE' : '1px solid #CBD5E1'),
+                                    letterSpacing: '0.01em',
+                                    whiteSpace: 'nowrap',
+                                    lineHeight: 1.2
+                                  }}>
+                                    {itemChannel === 'payswiff' ? `⚡ ${sourceChannelLabel}` : (itemChannel === 'qr' ? '📱 Company QR' : '💳 Pine Labs')}
                                   </span>
                                 </div>
 
@@ -7852,7 +7886,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                   )}
                                 </button>
 
-                                {selectedChannel === 'qr' && (
+                                {itemChannel === 'qr' && (
                                   <span style={{
                                     display: 'inline-flex',
                                     alignItems: 'center',
@@ -8032,6 +8066,20 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                           ({item.merchant_id})
                                         </span>
                                       </div>
+                                    </div>
+
+                                    <div style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      padding: '0.65rem 0.85rem',
+                                      borderBottom: '1px solid #F1F5F9',
+                                      fontSize: '0.78125rem'
+                                    }}>
+                                      <span style={{ color: '#64748B', fontWeight: 600 }}>POS Channel / Source</span>
+                                      <span style={{ color: '#0F172A', fontWeight: 700 }}>
+                                        {itemChannel === 'payswiff' ? `⚡ ${sourceChannelLabel}` : (itemChannel === 'qr' ? '📱 Company QR (UPI)' : '💳 Pine Labs POS')}
+                                      </span>
                                     </div>
 
                                     <div style={{
