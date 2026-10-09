@@ -207,6 +207,169 @@ export function downloadBankBatchFile(payoutsList, options = {}) {
 }
 
 /**
+ * Commission & Partner Profit Disbursal Export Utility
+ * Generates Excel/CSV tailored specifically for Self-Commission and Profit Margin Disbursals
+ * across Super Distributors, Master Distributors, District Distributors, Distributors, and Merchants.
+ * Note: Excludes card swipe slip UTRs & POS modes since this is partner profit earnings.
+ */
+export function generateCommissionBatchCSV(commissionPayoutsList, options = {}) {
+  const headers = [
+    'Sl No',
+    'User ID (Partner ID)',
+    'Partner Role / Tier',
+    'Partner Name (Store / Legal Owner)',
+    'Mobile Number',
+    'Beneficiary Name (Account Holder)',
+    'Account Number',
+    'IFSC Code',
+    'Bank Name',
+    'Commission Amount (INR)',
+    'Payout Purpose',
+    'Senior Upline / Distributor',
+    'Payout Reference ID',
+    'Request Date & Time',
+    'Status'
+  ];
+
+  const escapeCSV = (val) => {
+    if (val === null || val === undefined) return '""';
+    const str = String(val).replace(/"/g, '""').trim();
+    return `"${str}"`;
+  };
+
+  const rows = commissionPayoutsList.map((item, index) => {
+    const slNo = index + 1;
+    const userId = item.merchant_id || item.user_id || 'UID-UNKNOWN';
+
+    // Tier/Role determination
+    let partnerRole = item.role || item.user_role || '';
+    if (!partnerRole) {
+      const uIdUpper = String(userId).toUpperCase();
+      if (uIdUpper.startsWith('SD')) partnerRole = 'Super Distributor';
+      else if (uIdUpper.startsWith('DD')) partnerRole = 'District Distributor';
+      else if (uIdUpper.startsWith('DIST')) partnerRole = 'Distributor';
+      else if (uIdUpper.startsWith('MD')) partnerRole = 'Master Distributor';
+      else if (uIdUpper.startsWith('MID')) partnerRole = 'Merchant';
+      else partnerRole = 'Partner';
+    } else {
+      partnerRole = partnerRole.replace(/_/g, ' ');
+    }
+
+    const partnerName = item.merchant_name || item.name || 'Partner Name';
+    const rawMob = String(item.merchant_mobile || item.mobile || '').replace(/[^0-9]/g, '').trim();
+    const formattedMob = rawMob ? `="${rawMob}"` : '""';
+
+    let beneficiary = item.customer_name || item.holder_name || item.beneficiary_name || '';
+    if (!beneficiary && item.admin_remark) {
+      const nameMatch = item.admin_remark.match(/Name:\s*([^|•\r\n]+)/i);
+      if (nameMatch && !nameMatch[1].toLowerCase().includes('self')) beneficiary = nameMatch[1].trim();
+    }
+    if (!beneficiary) beneficiary = partnerName;
+
+    const rawAcc = String(item.account_number || item.accountNumber || item.bank_account || '').replace(/[^0-9]/g, '').trim();
+    const formattedAcc = rawAcc ? `="${rawAcc}"` : '""';
+
+    const ifsc = String(item.ifsc_code || item.ifsc || '').toUpperCase().trim();
+    const bankName = item.bank_name || item.bankName || 'Bank';
+    const amt = parseFloat(item.amount || 0).toFixed(2);
+
+    const upline = item.creator_name ? `${item.creator_name} (${item.creator_id || 'DIRECT'})` : (item.parent_id || item.creator_id || 'Super Admin (Direct)');
+    const purpose = 'Commission & Profit Margin Payout';
+    const refId = item.id || item.ref_number || item.payout_id || 'N/A';
+    const dateStr = item.created_at ? new Date(item.created_at).toLocaleString('en-IN') : 'N/A';
+    const status = item.status || 'PENDING';
+
+    return [
+      slNo,
+      escapeCSV(userId),
+      escapeCSV(partnerRole),
+      escapeCSV(partnerName),
+      formattedMob,
+      escapeCSV(beneficiary),
+      formattedAcc,
+      escapeCSV(ifsc),
+      escapeCSV(bankName),
+      amt,
+      escapeCSV(purpose),
+      escapeCSV(upline),
+      escapeCSV(refId),
+      escapeCSV(dateStr),
+      escapeCSV(status)
+    ].join(',');
+  });
+
+  const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+  return { success: true, csvContent, count: commissionPayoutsList.length };
+}
+
+export function downloadCommissionBatchFile(commissionPayoutsList, options = {}) {
+  if (!commissionPayoutsList || commissionPayoutsList.length === 0) {
+    return { success: false, count: 0, error: 'No commission payout records to export' };
+  }
+
+  const { csvContent, count } = generateCommissionBatchCSV(commissionPayoutsList, options);
+  const today = new Date().toISOString().slice(0, 10);
+  const fileName = options.fileName || `RONAV_Commission_Payouts_${today}.csv`;
+
+  try {
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = (window.URL || window.webkitURL).createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.setAttribute('download', fileName);
+    link.style.position = 'fixed';
+    link.style.top = '-9999px';
+    link.style.left = '-9999px';
+    link.style.opacity = '0';
+    document.body.appendChild(link);
+    
+    link.click();
+    
+    try {
+      const clickEvent = new MouseEvent('click', {
+        view: window,
+        bubbles: true,
+        cancelable: true
+      });
+      link.dispatchEvent(clickEvent);
+    } catch (_) {}
+
+    setTimeout(() => {
+      try {
+        if (document.body.contains(link)) {
+          document.body.removeChild(link);
+        }
+        (window.URL || window.webkitURL).revokeObjectURL(url);
+      } catch (_) {}
+    }, 10000);
+
+    return { success: true, count, fileName };
+  } catch (blobErr) {
+    try {
+      const encodedUri = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        try {
+          if (document.body.contains(link)) {
+            document.body.removeChild(link);
+          }
+        } catch (_) {}
+      }, 5000);
+      return { success: true, count, fileName };
+    } catch (dataErr) {
+      console.error('Download error:', dataErr);
+      return { success: false, count: 0, error: dataErr.message };
+    }
+  }
+}
+
+/**
  * GST & Tax Audit Ledger Export Utility (For CA / Income Tax / GST Filing)
  * Exports completed merchant transactions with gross volume, convenience fees, 18% GST, and Bank UTRs.
  */

@@ -9,7 +9,7 @@ import {
   Download, Edit3, UserCheck, UserX, FileText, MapPin, BadgeCheck, Key,
   Trash2
 } from 'lucide-react';
-import { downloadBankBatchFile, downloadGstAuditFile, downloadRentalReportFile } from '../utils/bankExportUtils.js';
+import { downloadBankBatchFile, downloadCommissionBatchFile, downloadGstAuditFile, downloadRentalReportFile } from '../utils/bankExportUtils.js';
 import { 
   getCommissionPayoutConfig,
   saveCommissionPayoutConfig,
@@ -6254,6 +6254,38 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 }
               };
 
+              const handleDownloadCommissionBatch = () => {
+                setIsExportMenuOpen(false);
+
+                // Get all commission withdrawals across the network
+                const allCommPayouts = allWithdrawals.filter(item => 
+                  item._entityType === 'WITHDRAWAL' &&
+                  ((item.admin_remark || '').includes('[COMMISSION_PAYOUT]') || item.payout_purpose === 'COMMISSION' || item.is_commission_payout)
+                );
+
+                // Filter by date if active
+                const filteredComm = filterByDate(allCommPayouts);
+
+                if (filteredComm.length === 0) {
+                  triggerToast('No partner commission payout requests found for current filter.', 'info');
+                  return;
+                }
+
+                const today = new Date().toISOString().slice(0, 10);
+                const dateLabel = payoutDateFilter === 'CUSTOM' 
+                  ? (payoutFromDate && payoutToDate ? `${payoutFromDate}_to_${payoutToDate}` : (payoutFromDate || payoutCustomDate || 'Custom_Range')) 
+                  : payoutDateFilter;
+                const dateSlug = dateLabel.replace(/[^a-zA-Z0-9_-]/g, '_');
+                const fileName = `RONAV_Partner_Commission_Payouts_${dateSlug}_${today}.csv`;
+
+                const res = downloadCommissionBatchFile(filteredComm, { fileName });
+                if (res && res.success) {
+                  triggerToast(`📥 Downloaded ${filteredComm.length} Commission Payout(s) for Partner Disbursal!`, 'success');
+                } else {
+                  triggerToast(res?.error || 'Failed to download commission batch file.', 'error');
+                }
+              };
+
               const handleRevertSingleToPending = async (itemId) => {
                 await revertWithdrawalsToPending([itemId]);
                 await fetchAdminData();
@@ -6434,9 +6466,30 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         {!commissionPayoutActive ? 'Downlines Frozen' : 'Withdrawals Allowed'}
                       </h4>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-                        <span style={{ fontSize: '0.6rem', color: '#64748B' }}>
-                          {!commissionPayoutActive ? 'Uplines cannot withdraw' : 'Audit window open'}
-                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDownloadCommissionBatch();
+                          }}
+                          style={{
+                            background: '#7C3AED',
+                            color: '#FFFFFF',
+                            border: 'none',
+                            borderRadius: '4px',
+                            padding: '2px 6px',
+                            fontSize: '0.6rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '3px'
+                          }}
+                          title="Download Commission Payouts Sheet"
+                        >
+                          <Download style={{ width: '10px', height: '10px' }} />
+                          <span>Download Sheet</span>
+                        </button>
                         <button
                           type="button"
                           onClick={() => handleToggleCommissionPayout()}
@@ -6693,6 +6746,64 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                   </div>
                                   <div style={{ fontSize: '0.71875rem', color: '#64748B', marginTop: '2px', lineHeight: 1.3 }}>
                                     For your CA / Tax filing. Settled sales for <strong>{payoutDateFilter === 'CUSTOM' ? (payoutCustomDate || 'Selected Date') : payoutDateFilter}</strong> with 18% GST & Bank UTRs.
+                                  </div>
+                                </div>
+                              </button>
+
+                              {/* Option: Download Commission Payouts Sheet */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsExportMenuOpen(false);
+                                  handleDownloadCommissionBatch();
+                                }}
+                                style={{
+                                  width: '100%',
+                                  textAlign: 'left',
+                                  background: '#F8FAFC',
+                                  border: '1px solid #E2E8F0',
+                                  borderRadius: '10px',
+                                  padding: '8px 10px',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'flex-start',
+                                  gap: '10px',
+                                  transition: 'all 0.15s ease'
+                                }}
+                                onMouseEnter={e => {
+                                  e.currentTarget.style.background = '#FAF5FF';
+                                  e.currentTarget.style.borderColor = '#E9D5FF';
+                                }}
+                                onMouseLeave={e => {
+                                  e.currentTarget.style.background = '#F8FAFC';
+                                  e.currentTarget.style.borderColor = '#E2E8F0';
+                                }}
+                              >
+                                <div style={{
+                                  width: '28px',
+                                  height: '28px',
+                                  borderRadius: '8px',
+                                  background: '#F3E8FF',
+                                  color: '#7C3AED',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  flexShrink: 0,
+                                  marginTop: '2px'
+                                }}>
+                                  <Crown style={{ width: '15px', height: '15px' }} />
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '4px' }}>
+                                    <strong style={{ fontSize: '0.8125rem', color: '#0F172A' }}>
+                                      Download Commission Payout Sheet
+                                    </strong>
+                                    <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#F5F3FF', color: '#7C3AED', padding: '1px 5px', borderRadius: '4px', whiteSpace: 'nowrap' }}>
+                                      Partners
+                                    </span>
+                                  </div>
+                                  <div style={{ fontSize: '0.71875rem', color: '#64748B', marginTop: '2px', lineHeight: 1.3 }}>
+                                    Disbursal sheet for Super Distributors, Distributors &amp; Merchants with bank accounts &amp; partner tiers.
                                   </div>
                                 </div>
                               </button>
