@@ -1833,7 +1833,8 @@ export async function handleApiRequest(req, res) {
         const idList = withdrawalIds.map(id => String(id));
         const timestamp = new Date().toISOString();
 
-        if (action === 'SUBMITTED_TO_BANK') {
+        const normalizedAction = (action || '').toUpperCase();
+        if (normalizedAction === 'SUBMITTED_TO_BANK' || normalizedAction === 'SUBMIT_TO_BANK') {
           for (const wId of idList) {
             const current = (await pgQuery(`SELECT * FROM withdrawals WHERE id = $1`, [wId]))[0];
             if (current) {
@@ -1842,7 +1843,9 @@ export async function handleApiRequest(req, res) {
                 .replace(/\[BATCH:[^\]]+\]\s*/g, '')
                 .replace(/\[BATCH_NAME:[^\]]+\]\s*/g, '')
                 .trim();
-              const newRemark = `[SUBMITTED_TO_BANK] ${batchTag || ''} ${batchNameTag || ''} ${existing}`.trim();
+              const tagStr = batchTag || (batchReference ? `[BATCH:${batchReference}]` : '');
+              const nameTagStr = batchNameTag || (bankName ? `[BATCH_NAME:${bankName}]` : '');
+              const newRemark = `[SUBMITTED_TO_BANK] ${tagStr} ${nameTagStr} ${existing}`.trim();
               await pgQuery(`
                 UPDATE withdrawals 
                 SET admin_remark = $1, submitted_to_bank_at = $2, updated_at = CURRENT_TIMESTAMP
@@ -1851,7 +1854,7 @@ export async function handleApiRequest(req, res) {
             }
           }
           return sendJson(res, 200, { success: true, message: `Successfully marked ${idList.length} payout(s) as Submitted to Bank!` });
-        } else if (action === 'REVERT_PENDING') {
+        } else if (normalizedAction === 'REVERT_PENDING') {
           for (const wId of idList) {
             const current = (await pgQuery(`SELECT * FROM withdrawals WHERE id = $1`, [wId]))[0];
             if (current) {
