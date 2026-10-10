@@ -1398,7 +1398,7 @@ export async function handleApiRequest(req, res) {
               received_sales = received_sales + $2,
               total_sales = total_sales + $2,
               updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = $3
+          WHERE UPPER(user_id) = UPPER($3)
           RETURNING *
         `, [newAvail, numAmount, merchant.id]);
         updatedMerchantWallet = updMWalletRes.rows[0];
@@ -1408,13 +1408,16 @@ export async function handleApiRequest(req, res) {
           const uId = split.user_id;
           const commAmt = parseFloat(split.amount) || 0;
           if (commAmt > 0) {
-            const uWallets = (await client.query(`SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`, [uId])).rows;
+            const uWallets = (await client.query(`SELECT * FROM wallets WHERE UPPER(user_id) = UPPER($1) FOR UPDATE`, [uId])).rows;
             let uWallet = uWallets[0];
             if (!uWallet) {
-              uWallet = (await client.query(`
+              const insU = await client.query(`
                 INSERT INTO wallets (user_id, available_balance, total_sales, received_sales, pending_balance, withdrawn_amount)
-                VALUES ($1, 0.0, 0.0, 0.0, 0.0, 0.0) RETURNING *
-              `, [uId])).rows[0];
+                VALUES ($1, 0.0, 0.0, 0.0, 0.0, 0.0)
+                ON CONFLICT (user_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+                RETURNING *
+              `, [uId]);
+              uWallet = insU.rows[0];
             }
 
             const uAvail = parseFloat(uWallet.available_balance || 0);
@@ -1425,21 +1428,21 @@ export async function handleApiRequest(req, res) {
               SET available_balance = $1,
                   total_sales = total_sales + $2,
                   updated_at = CURRENT_TIMESTAMP
-              WHERE user_id = $3
+              WHERE UPPER(user_id) = UPPER($3)
             `, [uNewAvail, numAmount, uId]);
           }
         }
 
         // Credit Admin Profit
         if (adminNetMargin > 0) {
-          const aWallets = (await client.query(`SELECT * FROM wallets WHERE user_id = 'ADM001' FOR UPDATE`)).rows;
+          const aWallets = (await client.query(`SELECT * FROM wallets WHERE UPPER(user_id) = 'ADM001' FOR UPDATE`)).rows;
           if (aWallets.length > 0) {
             await client.query(`
               UPDATE wallets 
               SET available_balance = available_balance + $1,
                   total_sales = total_sales + $2,
                   updated_at = CURRENT_TIMESTAMP
-              WHERE user_id = 'ADM001'
+              WHERE UPPER(user_id) = 'ADM001'
             `, [adminNetMargin, numAmount]);
           }
         }
