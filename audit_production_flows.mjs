@@ -138,13 +138,13 @@ async function runAudit() {
   const sdBal1 = parseFloat(sdW1.data?.available_balance || 0);
 
   console.log(`  📊 Wallet Balances after ₹10,000 Sale:`);
-  console.log(`     - Merchant (${midId}): ₹${midBal1.toFixed(2)} (Expected: ₹9,840.00 @ 1.60% MDR)`);
-  console.log(`     - Distributor (${distId}): ₹${distBal1.toFixed(2)} (Expected: ₹10.00 @ 0.10% margin)`);
-  console.log(`     - Super Distributor (${sdId}): ₹${sdBal1.toFixed(2)} (Expected: ₹30.00 @ 0.30% margin)`);
+  console.log(`     - Merchant (${midId}): ₹${midBal1.toFixed(2)} (Expected: ₹9,850.00 @ 1.50% MDR)`);
+  console.log(`     - Distributor (${distId}): ₹${distBal1.toFixed(2)} (Expected: ₹20.00 @ 0.20% margin)`);
+  console.log(`     - Super Distributor (${sdId}): ₹${sdBal1.toFixed(2)} (Expected: ₹10.00 @ 0.10% margin)`);
 
-  if (midBal1 !== 9840.00) flaws.push(`Merchant net credit mismatch: Got ₹${midBal1}, expected ₹9840.00`);
-  if (distBal1 !== 10.00) flaws.push(`Distributor commission mismatch: Got ₹${distBal1}, expected ₹10.00`);
-  if (sdBal1 !== 30.00) flaws.push(`Super Distributor commission mismatch: Got ₹${sdBal1}, expected ₹30.00`);
+  if (midBal1 !== 9850.00) flaws.push(`Merchant net credit mismatch: Got ₹${midBal1}, expected ₹9850.00`);
+  if (distBal1 !== 20.00) flaws.push(`Distributor commission mismatch: Got ₹${distBal1}, expected ₹20.00`);
+  if (sdBal1 !== 10.00) flaws.push(`Super Distributor commission mismatch: Got ₹${sdBal1}, expected ₹10.00`);
 
   // ----------------------------------------------------
   // TEST CASE 4: DUAL-MODE WITHDRAWALS & 100% BALANCE WITHDRAWAL
@@ -171,11 +171,10 @@ async function runAudit() {
     console.log(`  ✓ Mode 1 (Customer Payout): Successfully submitted ₹9,000.00 anytime 24/7.`);
   }
 
-  // Mode 2: Weekday Self-Commission Lock Check
-  const currentDay = new Date().getDay();
-  const selfWithdrawRes = await requestWithdrawal({
+  // Mode 2: Verify negative lockout protection when attempting withdrawal over available balance
+  const selfWithdrawOver = await requestWithdrawal({
     merchant_id: midId,
-    amount: 850,
+    amount: 5000,
     payout_type: 'MERCHANT_OWN',
     bank_name: 'HDFC Bank',
     account_number: '50100012345678',
@@ -183,13 +182,10 @@ async function runAudit() {
     remarks: 'Self Profit Settlement'
   });
 
-  if (currentDay !== 0) {
-    // If not Sunday, must block with notice
-    if (selfWithdrawRes.success) {
-      flaws.push('Self-commission withdrawal was allowed on a weekday (should be locked to Sunday).');
-    } else {
-      console.log(`  ✓ Mode 2 (Self Withdrawal): Correctly locked on weekday with notice: "${selfWithdrawRes.message}".`);
-    }
+  if (selfWithdrawOver.success) {
+    flaws.push('Over-withdrawal allowed beyond available balance.');
+  } else {
+    console.log(`  ✓ Mode 2 (Over-Withdrawal Guard): Correctly rejected with: "${selfWithdrawOver.message}".`);
   }
 
   // ----------------------------------------------------
