@@ -1825,7 +1825,7 @@ export async function handleApiRequest(req, res) {
 
     if (pathname === '/api/admin/withdrawals/batch-status' && method === 'POST') {
       try {
-        const { withdrawalIds, status, adminRemark, batchTag, batchNameTag, action } = await parseJsonBody(req);
+        const { withdrawalIds, status, adminRemark, batchTag, batchNameTag, batchReference, bankName, action } = await parseJsonBody(req);
         if (!Array.isArray(withdrawalIds) || withdrawalIds.length === 0) {
           return sendJson(res, 400, { success: false, message: 'withdrawalIds array is required.' });
         }
