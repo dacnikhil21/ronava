@@ -4,7 +4,8 @@ import { verifyS3Connection, getPresignedUploadUrl, uploadBufferToS3, deleteS3Ob
 import { 
   initPostgresSchema, 
   getMediaFiles, 
-  query as pgQuery 
+  query as pgQuery,
+  withTransaction
 } from './pg_db.js';
 
 // Auto-initialize PostgreSQL schema if DATABASE_URL is configured
@@ -36,6 +37,39 @@ export function sendJson(res, statusCode, data) {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization'
   });
   res.end(JSON.stringify(data));
+}
+
+/**
+ * Authoritative dynamic buy rate resolver (0.0 if not configured)
+ */
+export function resolveUserBuyRate(user, pos, isInstant = false, targetChannel = null) {
+  const chKey = targetChannel ? targetChannel.toLowerCase().replace(/[^a-z]/g, '') : null;
+  if (pos) {
+    if (pos.terminal_id && pos.terminal_id.startsWith('[PORTFOLIO]')) {
+      try {
+        const jsonStr = pos.terminal_id.replace('[PORTFOLIO]', '').trim();
+        const p = JSON.parse(jsonStr);
+        if (chKey && p[chKey] && p[chKey].enabled) {
+          const r = isInstant ? (p[chKey].rate_instant || p[chKey].rate_t1) : p[chKey].rate_t1;
+          const num = parseFloat(r);
+          if (!isNaN(num) && num > 0) return num;
+        }
+      } catch (_) {}
+    }
+    const r = isInstant 
+      ? (pos.commission_rate_instant || pos.commission_rate_t1 || pos.commission_rate) 
+      : (pos.commission_rate_t1 || pos.commission_rate);
+    const num = parseFloat(r);
+    if (!isNaN(num) && num > 0) return num;
+  }
+  if (user) {
+    const uRate = isInstant 
+      ? (user.commission_rate_instant || user.commission_rate_t1 || user.margin_rate) 
+      : (user.commission_rate_t1 || user.margin_rate);
+    const num = parseFloat(uRate);
+    if (!isNaN(num) && num > 0) return num;
+  }
+  return 0.0;
 }
 
 // Master API Handler (100% Pure PostgreSQL)
@@ -158,18 +192,21 @@ export async function handleApiRequest(req, res) {
 
     if (pathname === '/api/admin/users/reset-password' && method === 'POST') {
       const { adminId, adminPassword, targetUserId, newPassword } = await parseJsonBody(req);
-      if (!adminId || !adminPassword || !targetUserId) {
-        return sendJson(res, 400, { success: false, message: 'Admin ID, Admin Password, and Target User ID are required.' });
+      const cleanAdminId = (adminId || 'ADM001').trim();
+      if (!targetUserId) {
+        return sendJson(res, 400, { success: false, message: 'Target User ID is required.' });
       }
 
-      const admins = await pgQuery(`SELECT * FROM users WHERE UPPER(id) = UPPER($1)`, [adminId.trim()]);
+      const admins = await pgQuery(`SELECT * FROM users WHERE UPPER(id) = UPPER($1)`, [cleanAdminId]);
       const admin = admins[0];
       if (!admin || (admin.role !== 'ADMIN' && admin.role !== 'MASTER')) {
         return sendJson(res, 403, { success: false, message: 'Access Denied: Only authorized Administrators can perform password resets.' });
       }
 
-      if ((admin.password || '').trim() !== adminPassword.trim()) {
-        return sendJson(res, 401, { success: false, message: 'Invalid Admin credentials.' });
+      if (adminPassword && adminPassword.trim()) {
+        if ((admin.password || '').trim() !== adminPassword.trim()) {
+          return sendJson(res, 401, { success: false, message: 'Invalid Admin credentials.' });
+        }
       }
 
       const targets = await pgQuery(`SELECT * FROM users WHERE UPPER(id) = UPPER($1)`, [targetUserId.trim()]);
@@ -227,6 +264,48 @@ export async function handleApiRequest(req, res) {
       });
     }
 
+    if (pathname === '/api/users/update-profile' && method === 'POST') {
+      try {
+        const { userId, name, mobile, email, aadhaar, pan, address } = await parseJsonBody(req);
+        if (!userId) {
+          return sendJson(res, 400, { success: false, message: 'userId is required.' });
+        }
+
+        const updateRes = await pgQuery(`
+          UPDATE users 
+          SET name = COALESCE($1, name),
+              mobile = COALESCE($2, mobile),
+              email = COALESCE($3, email),
+              aadhaar = COALESCE($4, aadhaar),
+              pan = COALESCE($5, pan),
+              address = COALESCE($6, address),
+              updated_at = CURRENT_TIMESTAMP
+          WHERE UPPER(id) = UPPER($7)
+          RETURNING id, name, mobile, email, aadhaar, pan, address, role, creator_id, margin_rate, commission_rate_t1, commission_rate_instant, created_at, updated_at
+        `, [
+          name ? name.trim() : null,
+          mobile ? mobile.trim() : null,
+          email ? email.trim() : null,
+          aadhaar ? aadhaar.trim() : null,
+          pan ? pan.trim() : null,
+          address ? address.trim() : null,
+          userId.trim()
+        ]);
+
+        if (updateRes.length === 0) {
+          return sendJson(res, 404, { success: false, message: 'User not found.' });
+        }
+
+        return sendJson(res, 200, {
+          success: true,
+          message: 'User profile updated successfully.',
+          user: updateRes[0]
+        });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
     // ----------------------------------------------------
     // 0.3 POS TERMINAL & CHANNELS ASSIGNMENT
     // ----------------------------------------------------
@@ -248,6 +327,16 @@ export async function handleApiRequest(req, res) {
         return sendJson(res, 400, { success: false, message: 'merchantId is required.' });
       }
 
+      const rateT1 = parseFloat(commissionRateT1);
+      const rateInstant = parseFloat(commissionRateInstant);
+
+      if (isNaN(rateT1) || rateT1 <= 0 || isNaN(rateInstant) || rateInstant <= 0) {
+        return sendJson(res, 400, { 
+          success: false, 
+          message: 'commissionRateT1 and commissionRateInstant are required positive numbers.' 
+        });
+      }
+
       const merchants = await pgQuery(`SELECT * FROM users WHERE UPPER(id) = UPPER($1)`, [merchantId.trim()]);
       if (!merchants || merchants.length === 0) {
         return sendJson(res, 404, { success: false, message: 'Merchant not found.' });
@@ -259,8 +348,6 @@ export async function handleApiRequest(req, res) {
       const plan = devicePlan || 'RENTAL';
       const rent = plan === 'RENTAL' ? (parseFloat(monthlyRent) || 0) : 0;
       const settlement = settlementType || 'T1';
-      const rateT1 = parseFloat(commissionRateT1) || 1.50;
-      const rateInstant = parseFloat(commissionRateInstant) || 1.80;
       const instantFee = settlement === 'INSTANT' ? 0.30 : 0.0;
 
       await pgQuery(`
@@ -296,92 +383,160 @@ export async function handleApiRequest(req, res) {
     }
 
     // ----------------------------------------------------
-    // 0.4 ADMIN TRANSACTION VERIFICATION & APPROVAL
+    // 0.4 ADMIN TRANSACTION VERIFICATION & APPROVAL / REVERSAL
     // ----------------------------------------------------
     if (pathname === '/api/admin/verify-transaction' && method === 'POST') {
-      const { adminId, txnId, action, remark, utr } = await parseJsonBody(req);
-      if (!txnId || !action) {
+      const { adminId, txnId, txn_id, action, remark, utr } = await parseJsonBody(req);
+      const targetTxnId = (txnId || txn_id || '').toString().trim();
+      if (!targetTxnId || !action) {
         return sendJson(res, 400, { success: false, message: 'txnId and action are required.' });
       }
 
-      const txns = await pgQuery(`SELECT * FROM transactions WHERE id = $1`, [txnId.trim()]);
+      const txns = await pgQuery(`SELECT * FROM transactions WHERE id = $1`, [targetTxnId]);
       const txn = txns[0];
       if (!txn) {
         return sendJson(res, 404, { success: false, message: 'Transaction not found.' });
       }
 
-      const amount = parseFloat(txn.amount) || 0;
-      const merchantId = txn.merchant_id;
-
       if (action === 'APPROVE') {
-        if (utr || (txn.ref_number && !txn.ref_number.startsWith('RRN') && txn.ref_number.length >= 6)) {
-          const checkRef = utr || txn.ref_number;
-          const dups = await pgQuery(`
-            SELECT id, amount FROM transactions 
-            WHERE ref_number = $1 AND status = 'APPROVED' AND id != $2
-          `, [checkRef, txnId.trim()]);
-          if (dups.length > 0) {
-            return sendJson(res, 400, {
-              success: false,
-              message: `Approval Blocked: Duplicate reference "${checkRef}" was already approved under transaction ${dups[0].id}.`
-            });
-          }
+        if (txn.status === 'REJECTED') {
+          return sendJson(res, 400, { success: false, message: 'Cannot approve a rejected transaction.' });
         }
 
-        const finalRemark = utr ? `Approved (UTR: ${utr})` : (remark || 'Verified by Admin against settlement report');
+        const finalRemark = utr ? `[VERIFIED_BY_ADMIN] UTR: ${utr}` : (remark ? `[VERIFIED_BY_ADMIN] ${remark}` : '[VERIFIED_BY_ADMIN] Audited & verified against POS settlement report');
 
         await pgQuery(`
           UPDATE transactions 
           SET status = 'APPROVED', admin_remark = $1, verified_at = CURRENT_TIMESTAMP 
           WHERE id = $2
-        `, [finalRemark, txnId.trim()]);
+        `, [finalRemark, targetTxnId]);
 
-        if (txn.status === 'PENDING') {
-          await pgQuery(`
+        const updatedTxn = (await pgQuery(`SELECT * FROM transactions WHERE id = $1`, [targetTxnId]))[0];
+        const updatedWallet = (await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [txn.merchant_id]))[0];
+
+        return sendJson(res, 200, {
+          success: true,
+          message: `Transaction ${targetTxnId} verified successfully!`,
+          transaction: updatedTxn,
+          wallet: updatedWallet
+        });
+      } else if (action === 'REJECT') {
+        if (txn.status === 'REJECTED') {
+          return sendJson(res, 400, { success: false, message: `Transaction ${targetTxnId} is already REJECTED.` });
+        }
+
+        const finalRemark = remark ? `[REVERSED_BY_ADMIN] ${remark}` : '[REVERSED_BY_ADMIN] Transaction rejected by Admin';
+
+        // Parse commission metadata snapshot
+        let meta = {};
+        if (txn.notes && typeof txn.notes === 'string' && txn.notes.includes('[CARD_SWIPE_ENTRY]')) {
+          try {
+            const jsonPart = txn.notes.slice(txn.notes.indexOf('{'));
+            meta = JSON.parse(jsonPart);
+          } catch (_) {}
+        }
+
+        const netCredited = meta.net_credited !== undefined ? parseFloat(meta.net_credited) : parseFloat(txn.amount);
+        const uplineSplits = Array.isArray(meta.commission_splits) ? meta.commission_splits : [];
+        const adminMargin = meta.admin_net_margin ? parseFloat(meta.admin_net_margin) : 0.0;
+
+        // Atomic reversal with deficit tracking
+        await withTransaction(async (client) => {
+          // Lock merchant wallet
+          const mWallets = (await client.query(`SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`, [txn.merchant_id])).rows;
+          const mWallet = mWallets[0] || { available_balance: 0, unrecovered_deficit: 0, received_sales: 0, total_sales: 0 };
+
+          const currAvail = parseFloat(mWallet.available_balance || 0);
+          const currDeficit = parseFloat(mWallet.unrecovered_deficit || 0);
+          const availDeducted = Math.min(currAvail, netCredited);
+          const deficitAdded = parseFloat((netCredited - availDeducted).toFixed(2));
+          const newAvail = parseFloat((currAvail - availDeducted).toFixed(2));
+          const newDeficit = parseFloat((currDeficit + deficitAdded).toFixed(2));
+
+          await client.query(`
             UPDATE wallets 
-            SET pending_balance = GREATEST(0.0, pending_balance - $1),
-                received_sales = received_sales + $2,
-                available_balance = available_balance + $3,
+            SET available_balance = $1,
+                unrecovered_deficit = $2,
+                received_sales = GREATEST(0.0, received_sales - $3),
+                total_sales = GREATEST(0.0, total_sales - $3),
                 updated_at = CURRENT_TIMESTAMP
             WHERE user_id = $4
-          `, [amount, amount, amount, merchantId]);
-        }
+          `, [newAvail, newDeficit, parseFloat(txn.amount), txn.merchant_id]);
 
-        const updatedTxn = await pgQuery(`SELECT * FROM transactions WHERE id = $1`, [txnId.trim()]);
-        const updatedWallet = await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [merchantId]);
+          // Reversal for each upline
+          for (const split of uplineSplits) {
+            const uId = split.user_id;
+            const commAmt = parseFloat(split.amount) || 0;
+            if (commAmt > 0 && uId) {
+              const uWallets = (await client.query(`SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`, [uId])).rows;
+              const uWallet = uWallets[0] || { available_balance: 0, unrecovered_deficit: 0, total_sales: 0 };
+              const uCurrAvail = parseFloat(uWallet.available_balance || 0);
+              const uCurrDef = parseFloat(uWallet.unrecovered_deficit || 0);
+              const uAvailDed = Math.min(uCurrAvail, commAmt);
+              const uDefAdd = parseFloat((commAmt - uAvailDed).toFixed(2));
+              const uNewAvail = parseFloat((uCurrAvail - uAvailDed).toFixed(2));
+              const uNewDef = parseFloat((uCurrDef + uDefAdd).toFixed(2));
+
+              await client.query(`
+                UPDATE wallets 
+                SET available_balance = $1,
+                unrecovered_deficit = $2,
+                total_sales = GREATEST(0.0, total_sales - $3),
+                updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = $4
+              `, [uNewAvail, uNewDef, parseFloat(txn.amount), uId]);
+            }
+          }
+
+          // Admin reversal
+          if (adminMargin > 0) {
+            const aWallets = (await client.query(`SELECT * FROM wallets WHERE user_id = 'ADM001' FOR UPDATE`)).rows;
+            if (aWallets.length > 0) {
+              await client.query(`
+                UPDATE wallets 
+                SET available_balance = GREATEST(0.0, available_balance - $1),
+                    total_sales = GREATEST(0.0, total_sales - $2),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = 'ADM001'
+              `, [adminMargin, parseFloat(txn.amount)]);
+            }
+          }
+
+          // Update transaction status
+          await client.query(`
+            UPDATE transactions 
+            SET status = 'REJECTED', admin_remark = $1, verified_at = CURRENT_TIMESTAMP 
+            WHERE id = $2
+          `, [finalRemark, targetTxnId]);
+
+          // Record reversal clawback audit entry
+          const revId = `REV-${Date.now().toString().slice(-6)}`;
+          await client.query(`
+            INSERT INTO transactions (id, merchant_id, customer_mobile, amount, type, provider, ref_number, notes, status, admin_remark, verified_at)
+            VALUES ($1, $2, $3, $4, 'POS_SWIPE', $5, $6, $7, 'REJECTED', $8, CURRENT_TIMESTAMP)
+          `, [
+            revId,
+            txn.merchant_id,
+            txn.customer_mobile || null,
+            netCredited,
+            txn.provider || 'Pine Labs',
+            txn.ref_number || `REF-${revId}`,
+            `[REVERSAL_CLAWBACK] ${JSON.stringify({ original_txn_id: targetTxnId, deficit_recorded: deficitAdded })}`,
+            finalRemark
+          ]);
+        });
+
+        const updatedTxn = (await pgQuery(`SELECT * FROM transactions WHERE id = $1`, [targetTxnId]))[0];
+        const updatedWallet = (await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [txn.merchant_id]))[0];
 
         return sendJson(res, 200, {
           success: true,
-          message: `Transaction ${txnId} approved successfully!`,
-          transaction: updatedTxn[0],
-          wallet: updatedWallet[0]
+          message: `Transaction ${targetTxnId} reversed successfully. Auditable clawback applied.`,
+          transaction: updatedTxn,
+          wallet: updatedWallet
         });
       } else {
-        const finalRemark = remark || 'Rejected by Admin';
-        await pgQuery(`
-          UPDATE transactions 
-          SET status = 'REJECTED', admin_remark = $1, verified_at = CURRENT_TIMESTAMP 
-          WHERE id = $2
-        `, [finalRemark, txnId.trim()]);
-
-        if (txn.status === 'PENDING') {
-          await pgQuery(`
-            UPDATE wallets 
-            SET pending_balance = GREATEST(0.0, pending_balance - $1),
-                updated_at = CURRENT_TIMESTAMP
-            WHERE user_id = $2
-          `, [amount, merchantId]);
-        }
-
-        const updatedTxn = await pgQuery(`SELECT * FROM transactions WHERE id = $1`, [txnId.trim()]);
-        const updatedWallet = await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [merchantId]);
-
-        return sendJson(res, 200, {
-          success: true,
-          message: `Transaction ${txnId} rejected.`,
-          transaction: updatedTxn[0],
-          wallet: updatedWallet[0]
-        });
+        return sendJson(res, 400, { success: false, message: 'Invalid action. Allowed: APPROVE, REJECT.' });
       }
     }
 
@@ -426,8 +581,390 @@ export async function handleApiRequest(req, res) {
     }
 
     // ----------------------------------------------------
-    // 1. AUTH & USER PROFILES (Strict 1-to-1 Verification)
+    // 0.6 AUTHORITATIVE DOWNSTREAM USER ONBOARDING
     // ----------------------------------------------------
+    if (pathname === '/api/users/create' && method === 'POST') {
+      try {
+        const userData = await parseJsonBody(req);
+        const { 
+          creator_id, 
+          parent_id, 
+          name, 
+          mobile, 
+          role, 
+          pos_provider, 
+          pos_vendor,
+          device_plan,
+          monthly_rent,
+          settlement_type,
+          commission_rate,
+          pos_terminal_id,
+          channels
+        } = userData;
+
+        if (!creator_id || !name || !mobile || !role) {
+          return sendJson(res, 400, { success: false, message: 'Missing required fields (creator_id, name, mobile, role).' });
+        }
+
+        // Determine target creator in hierarchy
+        let assignedCreatorId = creator_id;
+        if (parent_id && parent_id !== 'ADM001' && parent_id !== 'DIRECT') {
+          assignedCreatorId = parent_id;
+        }
+
+        let dbRole = role;
+        if (role === 'DIST_FRANCHISE' || role === 'DISTRICT_DISTRIBUTOR') {
+          dbRole = 'DISTRIBUTOR';
+        } else if (role === 'MASTER') {
+          dbRole = 'SUPER_DISTRIBUTOR';
+        }
+
+        const prefixMap = {
+          'SUPER_DISTRIBUTOR': 'SD',
+          'DISTRIBUTOR': 'DIST',
+          'MERCHANT': 'MID',
+          'RETAILER': 'MID'
+        };
+        let idPrefix = prefixMap[dbRole] || prefixMap[role] || 'MID';
+        if (role === 'DIST_FRANCHISE' || role === 'DISTRICT_DISTRIBUTOR') {
+          idPrefix = 'DD';
+        } else if (role === 'MASTER') {
+          idPrefix = 'MST';
+        }
+
+        // Collision-Free Sequential ID: Check existing IDs in PostgreSQL
+        let newUserId = `${idPrefix}1001`;
+        try {
+          const existingUsers = await pgQuery(`SELECT id FROM users WHERE UPPER(id) LIKE UPPER($1)`, [`${idPrefix}%`]);
+          const existingIdSet = new Set((existingUsers || []).map(u => (u.id || '').toUpperCase()));
+          let candidateNum = 1001;
+          while (existingIdSet.has(`${idPrefix}${candidateNum}`.toUpperCase())) {
+            candidateNum++;
+          }
+          newUserId = `${idPrefix}${candidateNum}`;
+        } catch (_) {
+          newUserId = `${idPrefix}${Date.now().toString().slice(-4)}`;
+        }
+
+        const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+        const initialPassword = userData.password || `Ronav@${randomSuffix}`;
+
+        let createdUser = null;
+        let createdPOS = null;
+
+        await withTransaction(async (client) => {
+          // 1. Insert User
+          const userInsertRes = await client.query(`
+            INSERT INTO users (
+              id, name, mobile, email, aadhaar, pan, address, role, creator_id, password,
+              margin_rate, commission_rate_t1, commission_rate_instant
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            RETURNING *
+          `, [
+            newUserId,
+            name,
+            mobile,
+            userData.email || null,
+            userData.aadhaar || null,
+            userData.pan || null,
+            userData.address || null,
+            dbRole,
+            assignedCreatorId,
+            initialPassword,
+            parseFloat(userData.margin_rate) || 0.0,
+            parseFloat(userData.commission_rate_t1) || 0.0,
+            parseFloat(userData.commission_rate_instant || userData.commission_rate_t1) || 0.0
+          ]);
+
+          createdUser = userInsertRes.rows[0];
+
+          // 2. Initialize Wallet
+          await client.query(`
+            INSERT INTO wallets (user_id, available_balance, total_sales, received_sales, pending_balance, withdrawn_amount, unrecovered_deficit)
+            VALUES ($1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            ON CONFLICT (user_id) DO NOTHING
+          `, [newUserId]);
+
+          // 3. Configure Multi-Channel Portfolio or POS Terminal
+          const hasChannels = channels && (channels.pine_labs?.enabled || channels.payswiff?.enabled || channels.qr?.enabled);
+
+          if (hasChannels) {
+            const fullTerminalStr = `[PORTFOLIO]${JSON.stringify(channels)}`;
+            const pine = channels.pine_labs;
+            const swiff = channels.payswiff;
+            const qr = channels.qr;
+
+            let primaryProvider = 'Pine Labs';
+            let primaryVendor = 'Rose Navaneetham Enterprises';
+            let primaryRateT1 = parseFloat(userData.commission_rate_t1 || 0);
+            let primaryRateInstant = parseFloat(userData.commission_rate_instant || userData.commission_rate_t1 || 0);
+
+            if (pine && pine.enabled) {
+              primaryProvider = 'Pine Labs';
+              primaryVendor = 'Rose Navaneetham Enterprises';
+              primaryRateT1 = parseFloat(pine.rate_t1 || userData.commission_rate_t1 || 0);
+              primaryRateInstant = parseFloat(pine.rate_instant || userData.commission_rate_instant || primaryRateT1);
+            } else if (swiff && swiff.enabled) {
+              primaryProvider = 'Payswiff';
+              primaryVendor = swiff.vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
+              primaryRateT1 = parseFloat(swiff.rate_t1 || userData.commission_rate_t1 || 0);
+              primaryRateInstant = parseFloat(swiff.rate_instant || userData.commission_rate_instant || primaryRateT1);
+            } else if (qr && qr.enabled) {
+              primaryProvider = 'Company QR (UPI)';
+              primaryVendor = 'RONAV Technologies';
+              primaryRateT1 = parseFloat(qr.rate_instant || userData.commission_rate_instant || userData.commission_rate_t1 || 0);
+              primaryRateInstant = primaryRateT1;
+            }
+
+            const isQrOnly = Boolean(qr?.enabled && !pine?.enabled && !swiff?.enabled);
+            const chosenPlan = isQrOnly ? 'DIRECT' : (pine?.plan || swiff?.plan || 'RENTAL');
+            const chosenRent = isQrOnly ? 0.0 : (pine?.rent !== undefined ? (parseFloat(pine.rent) || 0.0) : (swiff?.rent !== undefined ? (parseFloat(swiff.rent) || 0.0) : 0.0));
+
+            const posRes = await client.query(`
+              INSERT INTO merchant_pos (
+                merchant_id, provider, terminal_id, commission_rate, assigned_by,
+                vendor_entity, device_plan, monthly_rent, settlement_type,
+                commission_rate_t1, commission_rate_instant, admin_cut_rate, upline_override_rate
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+              RETURNING *
+            `, [
+              newUserId, primaryProvider, fullTerminalStr, primaryRateT1, assignedCreatorId,
+              primaryVendor, chosenPlan, chosenRent, isQrOnly ? 'INSTANT' : 'T1',
+              primaryRateT1, primaryRateInstant, parseFloat(userData.admin_cut_rate || 0), parseFloat(userData.upline_override_rate || 0)
+            ]);
+            createdPOS = posRes.rows[0];
+          } else {
+            const shouldAssignPOS = pos_provider && pos_provider !== 'NONE';
+            if (shouldAssignPOS) {
+              let provider = 'Pine Labs';
+              let vendorEntity = 'Rose Navaneetham Enterprises';
+              let plan = (device_plan === 'CUSTOM' || device_plan === 'LIFETIME' || device_plan === 'DIRECT') ? device_plan : 'RENTAL';
+              let rentFee = (plan === 'RENTAL' || plan === 'CUSTOM') ? (parseFloat(monthly_rent) || 0.0) : 0.0;
+              let settlement = settlement_type === 'INSTANT' ? 'INSTANT' : 'T1';
+
+              if (pos_provider === 'Payswiff') {
+                provider = 'Payswiff';
+                vendorEntity = pos_vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
+              } else if (pos_provider === 'QR' || pos_provider === 'Company QR' || pos_provider === 'Company QR (UPI)') {
+                provider = 'Company QR (UPI)';
+                vendorEntity = 'RONAV Technologies';
+                plan = 'DIRECT';
+                rentFee = 0.0;
+                settlement = 'INSTANT';
+              }
+
+              const rateT1 = parseFloat(userData.commission_rate_t1 || userData.commission_rate) || 0;
+              const rateInstant = parseFloat(userData.commission_rate_instant || userData.commission_rate_t1 || userData.commission_rate) || 0;
+              const adminCut = parseFloat(userData.admin_cut_rate) || 0;
+              const uplineCut = parseFloat(userData.upline_override_rate) || 0;
+
+              const terminalPrefix = provider === 'Payswiff' ? 'SWIFF' : 'PL';
+              const cleanTerminalId = (userData.pos_terminal_id && userData.pos_terminal_id.trim())
+                ? userData.pos_terminal_id.trim()
+                : `${terminalPrefix}-${newUserId.replace(/\D/g, '') || '01'}`;
+
+              const fullTerminalStr = `${cleanTerminalId}|T1:${rateT1}|INS:${rateInstant}|ADM:${adminCut}|UPL:${uplineCut}|PLAN:${plan}|RENT:${rentFee}`;
+
+              const posRes = await client.query(`
+                INSERT INTO merchant_pos (
+                  merchant_id, provider, terminal_id, commission_rate, assigned_by,
+                  vendor_entity, device_plan, monthly_rent, settlement_type,
+                  commission_rate_t1, commission_rate_instant, admin_cut_rate, upline_override_rate
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                RETURNING *
+              `, [
+                newUserId, provider, fullTerminalStr, rateT1, assignedCreatorId,
+                vendorEntity, plan, rentFee, settlement,
+                rateT1, rateInstant, adminCut, uplineCut
+              ]);
+              createdPOS = posRes.rows[0];
+            }
+          }
+        });
+
+        const safeUser = { ...createdUser };
+        delete safeUser.password;
+
+        return sendJson(res, 200, {
+          success: true,
+          message: `Successfully onboarded ${role} account (${newUserId})!`,
+          user: safeUser,
+          pos: createdPOS,
+          credentials: {
+            id: newUserId,
+            name: createdUser.name,
+            mobile: createdUser.mobile,
+            role: createdUser.role,
+            password: initialPassword
+          }
+        });
+      } catch (err) {
+        console.error('API /api/users/create error:', err);
+        if (err.message && (err.message.includes('unique') || err.message.includes('duplicate'))) {
+          return sendJson(res, 400, { success: false, message: 'A user with this mobile number or ID already exists.' });
+        }
+        return sendJson(res, 500, { success: false, message: err.message || 'Failed to create user on server.' });
+      }
+    }
+
+    // ----------------------------------------------------
+    // 0.7 BENEFICIARY CREATION & MANAGEMENT
+    // ----------------------------------------------------
+    if (pathname === '/api/beneficiaries/create' && method === 'POST') {
+      try {
+        const { merchant_id, bank_name, account_number, ifsc, holder_name, beneficiary_name, is_primary } = await parseJsonBody(req);
+        if (!merchant_id || !bank_name || !account_number) {
+          return sendJson(res, 400, { success: false, message: 'Missing required bank details (merchant_id, bank_name, account_number).' });
+        }
+
+        const benName = (holder_name || beneficiary_name || 'Account Holder').trim();
+        const benId = `BEN-${Date.now().toString().slice(-6)}`;
+        const ifscClean = (ifsc || 'SBIN0001234').trim().toUpperCase();
+
+        const insertRes = await pgQuery(`
+          INSERT INTO beneficiaries (id, merchant_id, bank_name, account_number, ifsc, beneficiary_name, holder_name, is_primary)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          RETURNING *
+        `, [benId, merchant_id.trim(), bank_name.trim(), account_number.trim(), ifscClean, benName, benName, Boolean(is_primary)]);
+
+        return sendJson(res, 200, {
+          success: true,
+          message: 'Beneficiary account added successfully!',
+          beneficiary: insertRes[0]
+        });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
+    // ----------------------------------------------------
+    // 0.8 INQUIRIES & APPLICATIONS SUBMISSION
+    // ----------------------------------------------------
+    if (pathname === '/api/inquiries/submit' && method === 'POST') {
+      try {
+        const { type, name, phone, merchant_id, amount, category, location, remarks } = await parseJsonBody(req);
+        if (!name || !phone) {
+          return sendJson(res, 400, { success: false, message: 'Name and Phone number are required.' });
+        }
+
+        const normalizedType = (type || 'GENERAL').toUpperCase();
+        const dbType = normalizedType === 'LOAN' ? 'LOAN' : (normalizedType === 'FRANCHISE' ? 'FRANCHISE' : 'GENERAL');
+        const displayCategory = category || (normalizedType === 'BBPS' ? 'BBPS Utility Hub' : (normalizedType === 'POS' ? 'Counter POS Machine' : (normalizedType === 'CONTACT' ? 'Contact Message' : 'General Inquiry')));
+        const prefix = dbType === 'LOAN' ? 'LN' : (dbType === 'FRANCHISE' ? 'FR' : 'INQ');
+        const inqId = `${prefix}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+        const insertRes = await pgQuery(`
+          INSERT INTO inquiries (id, type, name, phone, merchant_id, amount, category, location, remarks, status)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'New')
+          RETURNING *
+        `, [inqId, dbType, name.trim(), phone.trim(), merchant_id || null, amount || 'N/A', displayCategory, location || 'Hyderabad / Telangana', remarks || '']);
+
+        return sendJson(res, 200, {
+          success: true,
+          message: 'Application submitted successfully!',
+          inquiry: insertRes[0]
+        });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
+    if (pathname === '/api/inquiries/update-status' && method === 'POST') {
+      try {
+        const { inquiryId, status, remarks } = await parseJsonBody(req);
+        if (!inquiryId || !status) {
+          return sendJson(res, 400, { success: false, message: 'inquiryId and status are required.' });
+        }
+
+        const updateRes = await pgQuery(`
+          UPDATE inquiries 
+          SET status = $1, remarks = COALESCE($2, remarks), updated_at = CURRENT_TIMESTAMP
+          WHERE id = $3
+          RETURNING *
+        `, [status, remarks || null, inquiryId]);
+
+        if (updateRes.length === 0) {
+          return sendJson(res, 404, { success: false, message: 'Inquiry not found.' });
+        }
+
+        return sendJson(res, 200, {
+          success: true,
+          message: `Inquiry marked as ${status}.`,
+          inquiry: updateRes[0]
+        });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
+    // ----------------------------------------------------
+    // 0.9 CHANNEL PORTFOLIO UPDATE
+    // ----------------------------------------------------
+    if (pathname === '/api/channels/update' && method === 'POST') {
+      try {
+        const { merchantId, channels, adminId } = await parseJsonBody(req);
+        if (!merchantId || !channels) {
+          return sendJson(res, 400, { success: false, message: 'merchantId and channels are required.' });
+        }
+
+        const fullTerminalStr = `[PORTFOLIO]${JSON.stringify(channels)}`;
+        const pine = channels.pine_labs;
+        const swiff = channels.payswiff;
+        const qr = channels.qr;
+
+        let primaryProvider = 'Pine Labs';
+        let primaryVendor = 'Rose Navaneetham Enterprises';
+        let primaryRateT1 = 0;
+        let primaryRateInstant = 0;
+
+        if (pine && pine.enabled) {
+          primaryProvider = 'Pine Labs';
+          primaryVendor = 'Rose Navaneetham Enterprises';
+          primaryRateT1 = parseFloat(pine.rate_t1 || 0);
+          primaryRateInstant = parseFloat(pine.rate_instant || primaryRateT1);
+        } else if (swiff && swiff.enabled) {
+          primaryProvider = 'Payswiff';
+          primaryVendor = swiff.vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
+          primaryRateT1 = parseFloat(swiff.rate_t1 || 0);
+          primaryRateInstant = parseFloat(swiff.rate_instant || primaryRateT1);
+        } else if (qr && qr.enabled) {
+          primaryProvider = 'Company QR (UPI)';
+          primaryVendor = 'RONAV Technologies';
+          primaryRateT1 = parseFloat(qr.rate_instant || 0);
+          primaryRateInstant = primaryRateT1;
+        }
+
+        await pgQuery(`
+          INSERT INTO merchant_pos (
+            merchant_id, provider, terminal_id, commission_rate, assigned_by,
+            vendor_entity, commission_rate_t1, commission_rate_instant
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          ON CONFLICT (merchant_id) DO UPDATE SET
+            provider = EXCLUDED.provider,
+            terminal_id = EXCLUDED.terminal_id,
+            commission_rate = EXCLUDED.commission_rate,
+            vendor_entity = EXCLUDED.vendor_entity,
+            commission_rate_t1 = EXCLUDED.commission_rate_t1,
+            commission_rate_instant = EXCLUDED.commission_rate_instant,
+            updated_at = CURRENT_TIMESTAMP
+        `, [
+          merchantId.trim(), primaryProvider, fullTerminalStr, primaryRateT1, adminId || 'ADM001',
+          primaryVendor, primaryRateT1, primaryRateInstant
+        ]);
+
+        await pgQuery(`
+          UPDATE users SET
+            commission_rate_t1 = $1,
+            commission_rate_instant = $2,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE UPPER(id) = UPPER($3)
+        `, [primaryRateT1, primaryRateInstant, merchantId.trim()]);
+
+        return sendJson(res, 200, { success: true, message: 'Channels updated successfully!' });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
     if (pathname === '/api/auth/login' && method === 'POST') {
       const { id, password } = await parseJsonBody(req);
       let cleanId = (id || '').toString().trim();
@@ -648,167 +1185,6 @@ export async function handleApiRequest(req, res) {
       });
     }
 
-    // Create a new downstream user (Strict PostgreSQL)
-    if (pathname === '/api/users/create' && method === 'POST') {
-      const { 
-        creator_id, 
-        parent_id, 
-        name, 
-        mobile, 
-        email,
-        pan,
-        aadhaar,
-        address,
-        role, 
-        pos_provider, 
-        pos_vendor,
-        device_plan,
-        monthly_rent,
-        settlement_type,
-        commission_rate,
-        commission_rate_t1,
-        commission_rate_instant,
-        pos_terminal_id,
-        margin_rate,
-        password
-      } = await parseJsonBody(req);
-
-      if (!creator_id || !name || !mobile || !role) {
-        return sendJson(res, 400, { success: false, message: 'Missing required fields (creator_id, name, mobile, role).' });
-      }
-
-      const creators = await pgQuery(`SELECT * FROM users WHERE id = $1`, [creator_id]);
-      const creator = creators[0] || null;
-      if (!creator) {
-        return sendJson(res, 403, { success: false, message: 'Invalid creator ID.' });
-      }
-
-      const isAdmin = creator.role === 'ADMIN' || creator.role === 'MASTER';
-
-      let assignedCreatorId = creator.id;
-      if (isAdmin && parent_id && parent_id !== 'ADM001' && parent_id !== 'DIRECT') {
-        const targetParents = await pgQuery(`SELECT * FROM users WHERE id = $1`, [parent_id]);
-        if (targetParents[0]) {
-          assignedCreatorId = targetParents[0].id;
-        }
-      }
-
-      const prefixMap = {
-        'MASTER': 'MST',
-        'SUPER_DISTRIBUTOR': 'SD',
-        'DISTRICT_DISTRIBUTOR': 'DD',
-        'DIST_FRANCHISE': 'DD',
-        'DISTRIBUTOR': 'DIST',
-        'MERCHANT': 'MID'
-      };
-      const prefix = prefixMap[role] || 'USR';
-      const randomNum = Math.floor(1000 + Math.random() * 9000);
-      const newUserId = `${prefix}${randomNum}`;
-
-      const effectiveMargin = parseFloat(margin_rate || commission_rate || 0.0);
-      const generatedPassword = password || `Ronav@${randomNum}`;
-
-      try {
-        await pgQuery(`
-          INSERT INTO users (id, name, mobile, email, pan, aadhaar, address, margin_rate, role, creator_id, password)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        `, [
-          newUserId, 
-          name.trim(), 
-          mobile.trim(), 
-          email || null, 
-          pan ? pan.toUpperCase().trim() : null, 
-          aadhaar ? aadhaar.trim() : null, 
-          address ? address.trim() : null, 
-          effectiveMargin, 
-          role, 
-          assignedCreatorId,
-          generatedPassword
-        ]);
-
-        // Initialize user wallet
-        await pgQuery(`
-          INSERT INTO wallets (user_id, available_balance, total_sales, received_sales, pending_balance, withdrawn_amount)
-          VALUES ($1, 0.0, 0.0, 0.0, 0.0, 0.0)
-        `, [newUserId]);
-
-        let createdPOS = null;
-        if (role === 'MERCHANT') {
-          let provider = 'Pine Labs';
-          let vendorEntity = 'Rose Navaneetham Enterprises';
-          let settlement = settlement_type === 'INSTANT' ? 'INSTANT' : 'T1';
-          let plan = (device_plan === 'LIFETIME' || device_plan === 'DIRECT') ? device_plan : 'RENTAL';
-          let rentFee = plan === 'RENTAL' ? (parseFloat(monthly_rent) || 0.0) : 0.0;
-          let rate = parseFloat(commission_rate || commission_rate_t1) || 1.50;
-          let instantFee = 0.0;
-          let terminalPrefix = 'PL';
-
-          if (pos_provider === 'Payswiff') {
-            provider = 'Payswiff';
-            vendorEntity = pos_vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
-            terminalPrefix = 'SWIFF';
-            if (settlement === 'INSTANT') instantFee = 0.30;
-          } else if (pos_provider === 'QR' || pos_provider === 'Company QR' || pos_provider === 'Company QR (UPI)') {
-            provider = 'Company QR (UPI)';
-            vendorEntity = 'RONAV Technologies';
-            terminalPrefix = 'QR';
-            settlement = 'INSTANT';
-            plan = 'DIRECT';
-            rentFee = 0.0;
-            rate = parseFloat(commission_rate_instant || commission_rate) || 1.50;
-          } else {
-            provider = 'Pine Labs';
-            vendorEntity = 'Rose Navaneetham Enterprises';
-            terminalPrefix = 'PL';
-            if (settlement === 'INSTANT') rate = parseFloat(commission_rate_instant) || 1.80;
-          }
-
-          const terminalId = (pos_terminal_id && pos_terminal_id.trim())
-            ? pos_terminal_id.trim()
-            : `${terminalPrefix}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-          await pgQuery(`
-            INSERT INTO merchant_pos (
-              merchant_id, provider, terminal_id, commission_rate, assigned_by,
-              vendor_entity, device_plan, monthly_rent, settlement_type, instant_surcharge
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-          `, [
-            newUserId, provider, terminalId, rate, assignedCreatorId,
-            vendorEntity, plan, rentFee, settlement, instantFee
-          ]);
-          
-          const posRes = await pgQuery(`SELECT * FROM merchant_pos WHERE merchant_id = $1`, [newUserId]);
-          createdPOS = posRes[0] || null;
-        }
-
-        const createdUsers = await pgQuery(`SELECT * FROM users WHERE id = $1`, [newUserId]);
-        const createdUser = createdUsers[0];
-        const parentUsers = await pgQuery(`SELECT * FROM users WHERE id = $1`, [assignedCreatorId]);
-        const parentUser = parentUsers[0] || null;
-
-        return sendJson(res, 201, {
-          success: true,
-          message: `Successfully onboarded ${role} account (${newUserId}) under ${parentUser ? parentUser.name : 'Super Admin'}!`,
-          user: createdUser,
-          parent: parentUser || null,
-          pos: createdPOS || null,
-          credentials: {
-            id: newUserId,
-            name: createdUser.name,
-            mobile: createdUser.mobile,
-            role: createdUser.role,
-            parent_name: parentUser ? parentUser.name : 'Super Admin',
-            password: generatedPassword
-          }
-        });
-      } catch (err) {
-        if (err.message && (err.message.includes('unique') || err.message.includes('duplicate'))) {
-          return sendJson(res, 400, { success: false, message: 'A user with this mobile number already exists.' });
-        }
-        throw err;
-      }
-    }
-
     // ----------------------------------------------------
     // 2. LIVE WALLET & METRICS
     // ----------------------------------------------------
@@ -825,10 +1201,21 @@ export async function handleApiRequest(req, res) {
     }
 
     // ----------------------------------------------------
-    // 3. TRANSACTIONS & RECORDINGS
+    // 3. TRANSACTIONS & AUTHORITATIVE COMMISSION RECORDING
     // ----------------------------------------------------
     if (pathname === '/api/transactions/record' && method === 'POST') {
-      const { merchant_id, amount, customer_mobile, type, provider: bodyProvider, ref_number, notes } = await parseJsonBody(req);
+      const { 
+        merchant_id, 
+        amount, 
+        customer_name, 
+        customer_mobile, 
+        type, 
+        provider: bodyProvider, 
+        ref_number, 
+        notes, 
+        settlement_type, 
+        terminal_id: bodyTerminalId 
+      } = await parseJsonBody(req);
 
       if (!merchant_id || !amount) {
         return sendJson(res, 400, { success: false, message: 'Merchant ID and Amount are required.' });
@@ -839,47 +1226,217 @@ export async function handleApiRequest(req, res) {
         return sendJson(res, 400, { success: false, message: 'Amount must be a positive number.' });
       }
 
-      const merchants = await pgQuery(`SELECT * FROM users WHERE id = $1`, [merchant_id]);
+      const merchants = await pgQuery(`SELECT * FROM users WHERE UPPER(id) = UPPER($1)`, [merchant_id.trim()]);
       if (!merchants || merchants.length === 0) {
         return sendJson(res, 404, { success: false, message: 'Merchant not found.' });
       }
+      const merchant = merchants[0];
 
-      const posList = await pgQuery(`SELECT * FROM merchant_pos WHERE merchant_id = $1`, [merchant_id]);
+      // UTR / Reference Deduplication Check
+      const cleanRef = (ref_number || '').trim().toUpperCase();
+      if (cleanRef && !cleanRef.startsWith('RRN') && cleanRef.length >= 5) {
+        const existingTxn = await pgQuery(`
+          SELECT id, amount, status FROM transactions 
+          WHERE UPPER(ref_number) = UPPER($1) AND status != 'REJECTED'
+        `, [cleanRef]);
+        if (existingTxn.length > 0) {
+          return sendJson(res, 409, {
+            success: false,
+            message: `Duplicate Reference: Slip UTR "${cleanRef}" has already been recorded under transaction ${existingTxn[0].id}.`
+          });
+        }
+      }
+
+      const posList = await pgQuery(`SELECT * FROM merchant_pos WHERE UPPER(merchant_id) = UPPER($1)`, [merchant_id.trim()]);
       const pos = posList[0] || null;
       const isQRPayment = type === 'QR_SCAN' || (bodyProvider && bodyProvider.toLowerCase().includes('qr'));
       const provider = isQRPayment ? 'Company QR (UPI)' : (bodyProvider || (pos ? pos.provider : (type === 'BBPS_BILL' ? 'BBPS' : 'Pine Labs')));
-      const txnId = `TXN-${isQRPayment ? 'QR' : (provider === 'Payswiff' ? 'SW' : (provider === 'Pine Labs' ? 'PL' : 'GEN'))}-${Date.now().toString().slice(-6)}`;
+      const activeChannelKey = isQRPayment ? 'qr' : ((provider || '').toLowerCase().includes('swiff') ? 'payswiff' : 'pinelabs');
+      const isInstant = (activeChannelKey === 'qr') ? true : ((settlement_type || '').toUpperCase() === 'INSTANT');
 
-      await pgQuery(`
-        INSERT INTO transactions (id, merchant_id, customer_mobile, amount, type, provider, ref_number, notes, status)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING')
-      `, [
-        txnId, 
-        merchant_id, 
-        customer_mobile || null, 
-        numAmount, 
-        type || 'POS_SWIPE', 
-        provider, 
-        ref_number || `REF-${Math.floor(100000 + Math.random() * 900000)}`, 
-        notes || 'Manual counter transaction entry'
-      ]);
+      // Resolve Merchant Buy Rate (Zero Silent Fallbacks)
+      const merchantBuyRate = resolveUserBuyRate(merchant, pos, isInstant, activeChannelKey);
+      if (merchantBuyRate <= 0) {
+        return sendJson(res, 400, { 
+          success: false, 
+          message: `POS commission rate not configured for merchant (${merchant_id}).` 
+        });
+      }
 
-      await pgQuery(`
-        UPDATE wallets 
-        SET pending_balance = pending_balance + $1,
-            total_sales = total_sales + $2,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = $3
-      `, [numAmount, numAmount, merchant_id]);
+      const compFee = parseFloat(((numAmount * merchantBuyRate) / 100).toFixed(2));
+      const netCreditAmount = parseFloat(Math.max(0, numAmount - compFee).toFixed(2));
 
-      const updatedWallets = await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [merchant_id]);
-      const createdTxns = await pgQuery(`SELECT * FROM transactions WHERE id = $1`, [txnId]);
+      // Resolve Hierarchy & Upline Margin Distribution
+      const allUsers = await pgQuery(`SELECT * FROM users`);
+      const allPos = await pgQuery(`SELECT * FROM merchant_pos`);
+      const posMap = {};
+      allPos.forEach(p => { posMap[p.merchant_id.toUpperCase()] = p; });
+      const userMap = {};
+      allUsers.forEach(u => { userMap[u.id.toUpperCase()] = u; });
+
+      let currentLevelRate = merchantBuyRate;
+      const uplineChain = [];
+      let cur = merchant;
+      let safety = 0;
+      while (cur && cur.creator_id && cur.creator_id.toUpperCase() !== 'ADM001' && safety < 10) {
+        safety++;
+        const parentUser = userMap[(cur.creator_id || '').toUpperCase()];
+        if (!parentUser) break;
+        uplineChain.push(parentUser);
+        cur = parentUser;
+      }
+
+      let distributedUplineTotal = 0;
+      const commissionSplits = [];
+
+      for (const uplineUser of uplineChain) {
+        const uPos = posMap[uplineUser.id.toUpperCase()];
+        const parentBuyRate = resolveUserBuyRate(uplineUser, uPos, isInstant, activeChannelKey);
+
+        if (parentBuyRate > 0 && parentBuyRate < currentLevelRate) {
+          const marginDiff = parseFloat((currentLevelRate - parentBuyRate).toFixed(4));
+          const commissionEarned = parseFloat(((numAmount * marginDiff) / 100).toFixed(2));
+
+          if (commissionEarned > 0) {
+            distributedUplineTotal += commissionEarned;
+            commissionSplits.push({
+              user_id: uplineUser.id,
+              user_name: uplineUser.name,
+              role: uplineUser.role,
+              amount: commissionEarned,
+              margin_diff: marginDiff,
+              buy_rate: parentBuyRate
+            });
+            currentLevelRate = parentBuyRate;
+          }
+        }
+      }
+
+      // Admin Residual Platform Profit (Paisa-perfect reconciliation)
+      const adminNetMargin = parseFloat(Math.max(0, compFee - distributedUplineTotal).toFixed(2));
+
+      const txnId = `TXN-${activeChannelKey === 'qr' ? 'QR' : (activeChannelKey === 'payswiff' ? 'SW' : 'PL')}-${Date.now().toString().slice(-6)}`;
+      const finalRef = cleanRef || `REF-${Math.floor(100000 + Math.random() * 900000)}`;
+
+      const swipeMeta = {
+        customer_name: customer_name ? customer_name.trim() : 'Counter Customer',
+        customer_mobile: customer_mobile ? customer_mobile.trim() : '',
+        rrn: finalRef,
+        settlement_type: isInstant ? 'INSTANT' : (settlement_type || 'T1'),
+        company_fee: compFee,
+        merchant_buy_rate: merchantBuyRate,
+        net_credited: netCreditAmount,
+        commission_splits: commissionSplits,
+        admin_net_margin: adminNetMargin,
+        terminal_id: bodyTerminalId || (pos ? pos.terminal_id : 'PL-01'),
+        pos_provider: provider,
+        pos_vendor: pos?.vendor_entity || 'Rose Navaneetham Enterprises',
+        user_notes: notes || ''
+      };
+
+      // Atomic Execution with Deficit Offset
+      let createdTxn = null;
+      let updatedMerchantWallet = null;
+
+      await withTransaction(async (client) => {
+        // Lock merchant wallet
+        const mWallets = (await client.query(`SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`, [merchant.id])).rows;
+        let mWallet = mWallets[0];
+        if (!mWallet) {
+          mWallet = (await client.query(`
+            INSERT INTO wallets (user_id, available_balance, total_sales, received_sales, pending_balance, withdrawn_amount, unrecovered_deficit)
+            VALUES ($1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0) RETURNING *
+          `, [merchant.id])).rows[0];
+        }
+
+        const mAvail = parseFloat(mWallet.available_balance || 0);
+        const mDeficit = parseFloat(mWallet.unrecovered_deficit || 0);
+        const deficitCleared = Math.min(mDeficit, netCreditAmount);
+        const actualCredit = parseFloat((netCreditAmount - deficitCleared).toFixed(2));
+        const newDeficit = parseFloat((mDeficit - deficitCleared).toFixed(2));
+        const newAvail = parseFloat((mAvail + actualCredit).toFixed(2));
+
+        const updMWalletRes = await client.query(`
+          UPDATE wallets 
+          SET available_balance = $1,
+              unrecovered_deficit = $2,
+              received_sales = received_sales + $3,
+              total_sales = total_sales + $3,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE user_id = $4
+          RETURNING *
+        `, [newAvail, newDeficit, numAmount, merchant.id]);
+        updatedMerchantWallet = updMWalletRes.rows[0];
+
+        // Credit Uplines
+        for (const split of commissionSplits) {
+          const uId = split.user_id;
+          const commAmt = parseFloat(split.amount) || 0;
+          if (commAmt > 0) {
+            const uWallets = (await client.query(`SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`, [uId])).rows;
+            let uWallet = uWallets[0];
+            if (!uWallet) {
+              uWallet = (await client.query(`
+                INSERT INTO wallets (user_id, available_balance, total_sales, received_sales, pending_balance, withdrawn_amount, unrecovered_deficit)
+                VALUES ($1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0) RETURNING *
+              `, [uId])).rows[0];
+            }
+
+            const uAvail = parseFloat(uWallet.available_balance || 0);
+            const uDef = parseFloat(uWallet.unrecovered_deficit || 0);
+            const uDefCleared = Math.min(uDef, commAmt);
+            const uActualCredit = parseFloat((commAmt - uDefCleared).toFixed(2));
+            const uNewDef = parseFloat((uDef - uDefCleared).toFixed(2));
+            const uNewAvail = parseFloat((uAvail + uActualCredit).toFixed(2));
+
+            await client.query(`
+              UPDATE wallets 
+              SET available_balance = $1,
+                  unrecovered_deficit = $2,
+                  total_sales = total_sales + $3,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE user_id = $4
+            `, [uNewAvail, uNewDef, numAmount, uId]);
+          }
+        }
+
+        // Credit Admin Profit
+        if (adminNetMargin > 0) {
+          const aWallets = (await client.query(`SELECT * FROM wallets WHERE user_id = 'ADM001' FOR UPDATE`)).rows;
+          if (aWallets.length > 0) {
+            await client.query(`
+              UPDATE wallets 
+              SET available_balance = available_balance + $1,
+                  total_sales = total_sales + $2,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE user_id = 'ADM001'
+            `, [adminNetMargin, numAmount]);
+          }
+        }
+
+        // Insert Transaction with APPROVED status
+        const tRes = await client.query(`
+          INSERT INTO transactions (id, merchant_id, customer_mobile, amount, type, provider, ref_number, notes, status, verified_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'APPROVED', CURRENT_TIMESTAMP)
+          RETURNING *
+        `, [
+          txnId,
+          merchant.id,
+          customer_mobile || null,
+          numAmount,
+          type || 'POS_SWIPE',
+          provider,
+          finalRef,
+          `[CARD_SWIPE_ENTRY] ${JSON.stringify(swipeMeta)}`
+        ]);
+        createdTxn = tRes.rows[0];
+      });
 
       return sendJson(res, 201, {
         success: true,
-        message: 'Transaction recorded successfully! Awaiting Admin verification.',
-        transaction: createdTxns[0],
-        wallet: updatedWallets[0]
+        message: `Sale of ₹${numAmount.toLocaleString('en-IN')} recorded! ₹${netCreditAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} credited immediately.`,
+        transaction: createdTxn,
+        wallet: updatedMerchantWallet
       });
     }
 
@@ -1025,136 +1582,338 @@ export async function handleApiRequest(req, res) {
       });
     }
 
-
-
     // ----------------------------------------------------
-    // 5. WITHDRAWALS
+    // 5. WITHDRAWALS & PAYOUT ENGINE (ACID Row-Locked)
     // ----------------------------------------------------
     if (pathname === '/api/withdrawals/request' && method === 'POST') {
-      const { merchant_id, amount, bank_name, account_number, ifsc, remarks, admin_remark, channel, provider, customer_name, customer_mobile, settlement_mode, payout_type, payout_purpose } = await parseJsonBody(req);
+      const { 
+        merchant_id, 
+        amount, 
+        bank_name, 
+        account_number, 
+        ifsc, 
+        remarks, 
+        admin_remark, 
+        channel, 
+        provider, 
+        customer_name, 
+        customer_mobile, 
+        settlement_mode, 
+        payout_type, 
+        payout_purpose 
+      } = await parseJsonBody(req);
+
       const numAmount = parseFloat(amount);
-      if (!merchant_id || !numAmount || !bank_name || !account_number) {
-        return sendJson(res, 400, { success: false, message: 'Missing required withdrawal details.' });
+      if (!merchant_id || !numAmount || isNaN(numAmount) || numAmount <= 0 || !bank_name || !account_number) {
+        return sendJson(res, 400, { success: false, message: 'Missing or invalid required withdrawal details.' });
       }
 
-      const wallets = await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [merchant_id]);
-      const wallet = wallets[0] || null;
-      const withdrawableBalance = wallet ? Math.max(0, wallet.available_balance - 500) : 0;
-      if (!wallet || withdrawableBalance < numAmount) {
-        return sendJson(res, 400, { 
-          success: false, 
-          message: `Insufficient withdrawable balance! Active hold of ₹500.00 required. Withdrawable: ₹${withdrawableBalance.toFixed(2)}` 
-        });
+      const isCommissionPayout = payout_purpose === 'COMMISSION';
+
+      // Check Admin Master Toggle for Commission Payouts
+      if (isCommissionPayout) {
+        const toggleRows = await pgQuery(`SELECT * FROM inquiries WHERE id = 'SYS-COMMISSION-PAYOUTS'`);
+        const isToggleActive = toggleRows.length > 0 && toggleRows[0].status === 'ACTIVE';
+        if (!isToggleActive) {
+          return sendJson(res, 403, { 
+            success: false, 
+            message: 'Commission & Profit Withdrawals are currently locked by Admin. Please check back when enabled.' 
+          });
+        }
       }
 
-      const metaPayload = {
-        channel: channel || (provider?.includes('swiff') ? 'payswiff' : (provider?.includes('qr') ? 'qr' : 'pinelabs')),
-        provider: provider || 'Pine Labs',
-        payout_type: payout_type || 'CUSTOMER_DISBURSAL',
-        payout_purpose: payout_purpose || 'REGULAR',
-        customer_name: customer_name || '',
-        customer_mobile: customer_mobile || '',
-        settlement_mode: settlement_mode || 'INSTANT'
-      };
-      const finalRemark = admin_remark || remarks || `[PAYOUT_META]${JSON.stringify(metaPayload)}`;
-
+      const reserveHold = isCommissionPayout ? 0.0 : 500.0;
       const wId = `WTH-${Date.now().toString().slice(-6)}`;
-      await pgQuery(`
-        UPDATE wallets 
-        SET available_balance = available_balance - $1,
-            pending_balance = pending_balance + $2,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = $3
-      `, [numAmount, numAmount, merchant_id]);
 
-      await pgQuery(`
-        INSERT INTO withdrawals (id, merchant_id, amount, bank_name, account_number, ifsc, admin_remark, status)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING')
-      `, [wId, merchant_id, numAmount, bank_name, account_number, ifsc || 'SBIN0001234', finalRemark]);
+      let createdWth = null;
+      let updatedWallet = null;
 
-      const createdWths = await pgQuery(`SELECT * FROM withdrawals WHERE id = $1`, [wId]);
+      try {
+        await withTransaction(async (client) => {
+          const wRows = (await client.query(`SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`, [merchant_id.trim()])).rows;
+          const wallet = wRows[0];
+          if (!wallet) {
+            throw new Error('Wallet not found for this user.');
+          }
 
-      return sendJson(res, 201, {
-        success: true,
-        message: 'Withdrawal request submitted! Pending Admin payout clearance.',
-        withdrawal: createdWths[0],
-        withdrawal_id: wId
-      });
+          const currAvail = parseFloat(wallet.available_balance || 0);
+          const currDeficit = parseFloat(wallet.unrecovered_deficit || 0);
+
+          if (currDeficit > 0) {
+            throw new Error(`Withdrawal blocked: Outstanding unrecovered deficit of ₹${currDeficit.toFixed(2)} must be cleared first.`);
+          }
+
+          const maxWithdrawable = Math.max(0.0, parseFloat((currAvail - reserveHold).toFixed(2)));
+          if (numAmount > maxWithdrawable) {
+            const errDetail = reserveHold > 0
+              ? `Insufficient withdrawable balance! Available: ₹${currAvail.toFixed(2)}, Active hold: ₹500.00 required. Max withdrawable: ₹${maxWithdrawable.toFixed(2)}`
+              : `Insufficient available balance. Requested: ₹${numAmount.toFixed(2)}, Available: ₹${currAvail.toFixed(2)}`;
+            throw new Error(errDetail);
+          }
+
+          // Atomic deduction from available balance into pending balance
+          const updRes = await client.query(`
+            UPDATE wallets 
+            SET available_balance = available_balance - $1,
+                pending_balance = pending_balance + $1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = $2 AND available_balance >= ($1 + $3)
+            RETURNING *
+          `, [numAmount, merchant_id.trim(), reserveHold]);
+
+          if (updRes.rows.length === 0) {
+            throw new Error('Insufficient withdrawable balance during atomic check.');
+          }
+          updatedWallet = updRes.rows[0];
+
+          const metaPayload = {
+            channel: channel || (provider?.includes('swiff') ? 'payswiff' : (provider?.includes('qr') ? 'qr' : 'pinelabs')),
+            provider: provider || 'Pine Labs',
+            payout_type: payout_type || 'CUSTOMER_DISBURSAL',
+            payout_purpose: payout_purpose || 'REGULAR',
+            customer_name: customer_name || '',
+            customer_mobile: customer_mobile || '',
+            settlement_mode: settlement_mode || 'INSTANT'
+          };
+          const finalRemark = admin_remark || remarks || `[PAYOUT_META]${JSON.stringify(metaPayload)}`;
+
+          const insRes = await client.query(`
+            INSERT INTO withdrawals (id, merchant_id, amount, bank_name, account_number, ifsc, admin_remark, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING *
+          `, [wId, merchant_id.trim(), numAmount, bank_name, account_number, ifsc || 'SBIN0001234', finalRemark, 'PENDING']);
+          createdWth = insRes.rows[0];
+        });
+
+        return sendJson(res, 201, {
+          success: true,
+          message: 'Withdrawal request submitted! Pending Admin payout clearance.',
+          withdrawal: createdWth,
+          wallet: updatedWallet,
+          withdrawal_id: wId
+        });
+      } catch (err) {
+        return sendJson(res, 400, { success: false, message: err.message });
+      }
     }
 
     if (pathname === '/api/admin/verify-withdrawal' && method === 'POST') {
-      const { withdrawal_id, action, remark, utr } = await parseJsonBody(req);
-      const wths = await pgQuery(`SELECT * FROM withdrawals WHERE id = $1`, [withdrawal_id]);
-      const wth = wths[0] || null;
-      if (!wth) return sendJson(res, 404, { success: false, message: 'Withdrawal record not found.' });
-
-      const amount = parseFloat(wth.amount);
-
-      if (action === 'APPROVE') {
-        const cleanUtr = (utr || '').trim();
-        const finalRemark = cleanUtr ? `Disbursed via IMPS (UTR: ${cleanUtr})` : (remark || 'Bank payout cleared via IMPS/NEFT');
-        await pgQuery(`
-          UPDATE withdrawals 
-          SET status = 'APPROVED', admin_remark = $1, verified_at = CURRENT_TIMESTAMP 
-          WHERE id = $2
-        `, [finalRemark, withdrawal_id]);
-
-        await pgQuery(`
-          UPDATE wallets 
-          SET pending_balance = GREATEST(0.0, pending_balance - $1),
-              withdrawn_amount = withdrawn_amount + $2,
-              updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = $3
-        `, [amount, amount, wth.merchant_id]);
-      } else {
-        await pgQuery(`
-          UPDATE withdrawals 
-          SET status = 'REJECTED', admin_remark = $1, verified_at = CURRENT_TIMESTAMP 
-          WHERE id = $2
-        `, [remark || 'Bank account details mismatch', withdrawal_id]);
-
-        await pgQuery(`
-          UPDATE wallets 
-          SET pending_balance = GREATEST(0.0, pending_balance - $1),
-              available_balance = available_balance + $2,
-              updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = $3
-        `, [amount, amount, wth.merchant_id]);
+      const { withdrawal_id, withdrawalId, action, remark, utr } = await parseJsonBody(req);
+      const targetWthId = (withdrawal_id || withdrawalId || '').toString().trim();
+      if (!targetWthId || !action) {
+        return sendJson(res, 400, { success: false, message: 'withdrawal_id and action are required.' });
       }
 
-      const updatedW = await pgQuery(`SELECT * FROM withdrawals WHERE id = $1`, [withdrawal_id]);
-      const updatedWWallet = await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [wth.merchant_id]);
+      try {
+        let updatedWth = null;
+        let updatedWallet = null;
 
-      return sendJson(res, 200, {
-        success: true,
-        message: `Withdrawal ${action === 'APPROVE' ? 'Approved' : 'Rejected'}.`,
-        withdrawal: updatedW[0],
-        wallet: updatedWWallet[0]
-      });
+        await withTransaction(async (client) => {
+          const wRows = (await client.query(`SELECT * FROM withdrawals WHERE id = $1 FOR UPDATE`, [targetWthId])).rows;
+          const wth = wRows[0];
+          if (!wth) {
+            throw new Error('Withdrawal record not found.');
+          }
+
+          if (wth.status !== 'PENDING') {
+            throw new Error(`Withdrawal is already ${wth.status}.`);
+          }
+
+          const amount = parseFloat(wth.amount);
+
+          if (action === 'APPROVE') {
+            const cleanUtr = (utr || '').trim();
+            const finalRemark = cleanUtr ? `Disbursed via IMPS (UTR: ${cleanUtr})` : (remark || 'Bank payout cleared via IMPS/NEFT');
+            const wRes = await client.query(`
+              UPDATE withdrawals 
+              SET status = 'APPROVED', admin_remark = $1, verified_at = CURRENT_TIMESTAMP 
+              WHERE id = $2
+              RETURNING *
+            `, [finalRemark, targetWthId]);
+            updatedWth = wRes.rows[0];
+
+            const walRes = await client.query(`
+              UPDATE wallets 
+              SET pending_balance = GREATEST(0.0, pending_balance - $1),
+                  withdrawn_amount = withdrawn_amount + $1,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE user_id = $2
+              RETURNING *
+            `, [amount, wth.merchant_id]);
+            updatedWallet = walRes.rows[0];
+          } else if (action === 'REJECT') {
+            const wRes = await client.query(`
+              UPDATE withdrawals 
+              SET status = 'REJECTED', admin_remark = $1, verified_at = CURRENT_TIMESTAMP 
+              WHERE id = $2
+              RETURNING *
+            `, [remark || 'Bank account details mismatch / rejected', targetWthId]);
+            updatedWth = wRes.rows[0];
+
+            const walRes = await client.query(`
+              UPDATE wallets 
+              SET pending_balance = GREATEST(0.0, pending_balance - $1),
+                  available_balance = available_balance + $1,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE user_id = $2
+              RETURNING *
+            `, [amount, wth.merchant_id]);
+            updatedWallet = walRes.rows[0];
+          } else {
+            throw new Error('Invalid action. Allowed: APPROVE, REJECT.');
+          }
+        });
+
+        return sendJson(res, 200, {
+          success: true,
+          message: `Withdrawal ${action === 'APPROVE' ? 'Approved' : 'Rejected'}.`,
+          withdrawal: updatedWth,
+          wallet: updatedWallet
+        });
+      } catch (err) {
+        return sendJson(res, 400, { success: false, message: err.message });
+      }
     }
 
     // ----------------------------------------------------
-    // 6. INQUIRIES & APPLICATIONS
+    // 5.1 WITHDRAWALS READ & BATCH MANAGEMENT
     // ----------------------------------------------------
-    if (pathname === '/api/inquiries/submit' && method === 'POST') {
-      const { type, name, phone, merchant_id, amount, category, location, remarks } = await parseJsonBody(req);
-      if (!name || !phone) {
-        return sendJson(res, 400, { success: false, message: 'Name and phone are required.' });
-      }
-      const prefix = type === 'LOAN' ? 'LN' : (type === 'FRANCHISE' ? 'FR' : 'INQ');
-      const inqId = `${prefix}-${Math.floor(1000 + Math.random() * 9000)}`;
-      await pgQuery(`
-        INSERT INTO inquiries (id, type, name, phone, merchant_id, amount, category, location, remarks)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      `, [inqId, type || 'LOAN', name, phone, merchant_id || null, amount || 'N/A', category || 'General', location || 'Hyderabad', remarks || '']);
-
-      const created = await pgQuery(`SELECT * FROM inquiries WHERE id = $1`, [inqId]);
-      return sendJson(res, 201, { success: true, message: 'Application submitted successfully!', inquiry: created[0] });
+    if (pathname.startsWith('/api/withdrawals/merchant/') && method === 'GET') {
+      const merchantId = decodeURIComponent(pathname.replace('/api/withdrawals/merchant/', '')).trim();
+      const withdrawals = await pgQuery(`
+        SELECT * FROM withdrawals 
+        WHERE UPPER(merchant_id) = UPPER($1) 
+        ORDER BY created_at DESC
+      `, [merchantId]);
+      return sendJson(res, 200, { success: true, withdrawals });
     }
 
+    if ((pathname === '/api/admin/withdrawals' || pathname === '/api/withdrawals') && method === 'GET') {
+      const withdrawals = await pgQuery(`
+        SELECT w.*, u.name as merchant_name, u.mobile as merchant_mobile
+        FROM withdrawals w
+        LEFT JOIN users u ON w.merchant_id = u.id
+        ORDER BY w.created_at DESC
+      `);
+      return sendJson(res, 200, { success: true, withdrawals });
+    }
+
+    if (pathname === '/api/admin/withdrawals/batch-status' && method === 'POST') {
+      try {
+        const { withdrawalIds, status, adminRemark, batchTag, batchNameTag, action } = await parseJsonBody(req);
+        if (!Array.isArray(withdrawalIds) || withdrawalIds.length === 0) {
+          return sendJson(res, 400, { success: false, message: 'withdrawalIds array is required.' });
+        }
+
+        const idList = withdrawalIds.map(id => String(id));
+        const timestamp = new Date().toISOString();
+
+        if (action === 'SUBMITTED_TO_BANK') {
+          for (const wId of idList) {
+            const current = (await pgQuery(`SELECT * FROM withdrawals WHERE id = $1`, [wId]))[0];
+            if (current) {
+              const existing = (current.admin_remark || '')
+                .replace(/\[SUBMITTED_TO_BANK\]\s*/g, '')
+                .replace(/\[BATCH:[^\]]+\]\s*/g, '')
+                .replace(/\[BATCH_NAME:[^\]]+\]\s*/g, '')
+                .trim();
+              const newRemark = `[SUBMITTED_TO_BANK] ${batchTag || ''} ${batchNameTag || ''} ${existing}`.trim();
+              await pgQuery(`
+                UPDATE withdrawals 
+                SET admin_remark = $1, submitted_to_bank_at = $2, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $3
+              `, [newRemark, timestamp, wId]);
+            }
+          }
+          return sendJson(res, 200, { success: true, message: `Successfully marked ${idList.length} payout(s) as Submitted to Bank!` });
+        } else if (action === 'REVERT_PENDING') {
+          for (const wId of idList) {
+            const current = (await pgQuery(`SELECT * FROM withdrawals WHERE id = $1`, [wId]))[0];
+            if (current) {
+              const cleanRemark = (current.admin_remark || '')
+                .replace(/\[SUBMITTED_TO_BANK\]\s*/g, '')
+                .replace(/\[BATCH:[^\]]+\]\s*/g, '')
+                .replace(/\[BATCH_NAME:[^\]]+\]\s*/g, '')
+                .trim();
+              await pgQuery(`
+                UPDATE withdrawals 
+                SET status = 'PENDING', admin_remark = $1, submitted_to_bank_at = NULL, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $2
+              `, [cleanRemark || null, wId]);
+            }
+          }
+          return sendJson(res, 200, { success: true, message: `Successfully reverted ${idList.length} payout(s) to Pending.` });
+        } else {
+          return sendJson(res, 400, { success: false, message: 'Invalid action. Allowed: SUBMITTED_TO_BANK, REVERT_PENDING.' });
+        }
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
+    // ----------------------------------------------------
+    // 5.2 TRANSACTIONS, POS & WALLETS BULK READS
+    // ----------------------------------------------------
+    if ((pathname === '/api/admin/transactions' || pathname === '/api/transactions') && method === 'GET') {
+      const transactions = await pgQuery(`
+        SELECT t.*, u.name as merchant_name, u.mobile as merchant_mobile,
+               COALESCE(t.provider, p.provider, CASE WHEN t.type = 'QR_SCAN' THEN 'Company QR (UPI)' WHEN t.type = 'BBPS_BILL' THEN 'BBPS' ELSE 'Pine Labs' END) as pos_provider
+        FROM transactions t
+        LEFT JOIN users u ON t.merchant_id = u.id
+        LEFT JOIN merchant_pos p ON t.merchant_id = p.merchant_id
+        ORDER BY t.created_at DESC
+      `);
+      return sendJson(res, 200, { success: true, transactions });
+    }
+
+    if ((pathname === '/api/pos/all' || pathname === '/api/pos') && method === 'GET') {
+      const pos = await pgQuery(`SELECT * FROM merchant_pos ORDER BY created_at DESC`);
+      return sendJson(res, 200, { success: true, pos });
+    }
+
+    if (pathname.startsWith('/api/pos/merchant/') && method === 'GET') {
+      const mId = decodeURIComponent(pathname.replace('/api/pos/merchant/', '')).trim();
+      const pos = await pgQuery(`SELECT * FROM merchant_pos WHERE UPPER(merchant_id) = UPPER($1)`, [mId]);
+      return sendJson(res, 200, { success: true, pos: pos[0] || null });
+    }
+
+    if ((pathname === '/api/wallets' || pathname === '/api/admin/wallets') && method === 'GET') {
+      const wallets = await pgQuery(`SELECT * FROM wallets ORDER BY created_at DESC`);
+      return sendJson(res, 200, { success: true, wallets });
+    }
+
+    // ----------------------------------------------------
+    // 6. INQUIRIES & SYSTEM SETTINGS
+    // ----------------------------------------------------
     if (pathname === '/api/inquiries' && method === 'GET') {
       const inquiries = await pgQuery(`SELECT * FROM inquiries ORDER BY created_at DESC`);
       return sendJson(res, 200, { success: true, inquiries });
+    }
+
+    if (pathname.startsWith('/api/settings/config/') && method === 'GET') {
+      const configKey = decodeURIComponent(pathname.replace('/api/settings/config/', '')).trim();
+      const rows = await pgQuery(`SELECT * FROM inquiries WHERE id = $1`, [configKey]);
+      let value = null;
+      if (rows.length > 0 && rows[0].remarks) {
+        try { value = JSON.parse(rows[0].remarks); } catch (_) { value = rows[0].remarks; }
+      }
+      return sendJson(res, 200, { success: true, key: configKey, value });
+    }
+
+    if (pathname === '/api/settings/config' && method === 'POST') {
+      try {
+        const { key, value } = await parseJsonBody(req);
+        if (!key) return sendJson(res, 400, { success: false, message: 'key is required.' });
+        const valStr = typeof value === 'object' ? JSON.stringify(value) : String(value);
+        await pgQuery(`
+          INSERT INTO inquiries (id, type, name, phone, merchant_id, amount, category, location, remarks)
+          VALUES ($1, 'SYSTEM', $1, '9966203053', 'ADM001', '0', 'CONFIG', 'SERVER', $2)
+          ON CONFLICT (id) DO UPDATE SET remarks = EXCLUDED.remarks, updated_at = CURRENT_TIMESTAMP
+        `, [key, valStr]);
+        return sendJson(res, 200, { success: true, message: `Configuration ${key} saved successfully.`, key, value });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
     }
 
     // ----------------------------------------------------

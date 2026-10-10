@@ -578,255 +578,16 @@ export async function getHierarchyTree() {
 
 export async function createDownstreamUser(userData) {
   try {
-    const { 
-      creator_id, 
-      parent_id, 
-      name, 
-      mobile, 
-      role, 
-      pos_provider, 
-      pos_vendor,
-      device_plan,
-      monthly_rent,
-      settlement_type,
-      commission_rate,
-      pos_terminal_id
-    } = userData;
-
-    if (!creator_id || !name || !mobile || !role) {
-      return { success: false, message: 'Missing required fields (creator_id, name, mobile, role).' };
-    }
-
-    // Determine target creator in hierarchy
-    let assignedCreatorId = creator_id;
-    if (parent_id && parent_id !== 'ADM001' && parent_id !== 'DIRECT') {
-      assignedCreatorId = parent_id;
-    }
-
-    // Map role to valid Supabase database check constraint value ('ADMIN', 'SUPER_DISTRIBUTOR', 'DISTRIBUTOR', 'MERCHANT')
-    let dbRole = role;
-    if (role === 'DIST_FRANCHISE' || role === 'DISTRICT_DISTRIBUTOR') {
-      dbRole = 'DISTRIBUTOR';
-    } else if (role === 'MASTER') {
-      dbRole = 'SUPER_DISTRIBUTOR';
-    }
-
-    const prefixMap = {
-      'SUPER_DISTRIBUTOR': 'SD',
-      'DISTRIBUTOR': 'DIST',
-      'MERCHANT': 'MID',
-      'RETAILER': 'MID'
-    };
-    let idPrefix = prefixMap[dbRole] || prefixMap[role] || 'MID';
-    if (role === 'DIST_FRANCHISE' || role === 'DISTRICT_DISTRIBUTOR') {
-      idPrefix = 'DD';
-    } else if (role === 'MASTER') {
-      idPrefix = 'MST';
-    }
-
-    // Collision-Free Sequential ID: Check existing IDs in Supabase and pick the next available clean number
-    let newUserId = `${idPrefix}1001`;
-    try {
-      const { data: existingUsers } = await supabase
-        .from('users')
-        .select('id')
-        .like('id', `${idPrefix}%`);
-
-      const existingIdSet = new Set((existingUsers || []).map(u => (u.id || '').toUpperCase()));
-
-      let candidateNum = 1001;
-      while (existingIdSet.has(`${idPrefix}${candidateNum}`.toUpperCase())) {
-        candidateNum++;
-      }
-      newUserId = `${idPrefix}${candidateNum}`;
-    } catch (_) {
-      newUserId = `${idPrefix}${Date.now().toString().slice(-4)}`;
-    }
-
-    // 1. Generate unique temporary password and Insert User
-    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-    const initialPassword = userData.password || `Ronav@${randomSuffix}`;
-
-    let newUser = null;
-    const { data: insertedWithPass, error: uErrWithPass } = await supabase
-      .from('users')
-      .insert({
-        id: newUserId,
-        name,
-        mobile,
-        email: userData.email || null,
-        aadhaar: userData.aadhaar || null,
-        pan: userData.pan || null,
-        address: userData.address || null,
-        role: dbRole,
-        creator_id: assignedCreatorId,
-        password: initialPassword,
-        margin_rate: parseFloat(userData.margin_rate) || 0.0,
-        commission_rate_t1: parseFloat(userData.commission_rate_t1) || 0.0,
-        commission_rate_instant: parseFloat(userData.commission_rate_instant || userData.commission_rate_t1) || 0.0
-      })
-      .select()
-      .maybeSingle();
-
-    if (uErrWithPass) {
-      if (uErrWithPass.message && (uErrWithPass.message.includes('unique') || uErrWithPass.message.includes('duplicate'))) {
-        return { success: false, message: 'A user with this mobile number or ID already exists.' };
-      }
-      return { success: false, message: uErrWithPass.message || 'Failed to create user in database.' };
-    }
-    newUser = insertedWithPass;
-
-    // 2. Initialize Wallet
-    await supabase.from('wallets').insert({
-      user_id: newUserId,
-      available_balance: 0.0,
-      total_sales: 0.0,
-      received_sales: 0.0,
-      pending_balance: 0.0,
-      withdrawn_amount: 0.0
+    const res = await fetchWithTimeout(getApiUrl('/api/users/create'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(userData)
     });
-
-    // 3. Configure Multi-Channel Portfolio or POS Terminal for any role
-    let createdPOS = null;
-    const hasChannels = userData.channels && (userData.channels.pine_labs?.enabled || userData.channels.payswiff?.enabled || userData.channels.qr?.enabled);
-
-    if (hasChannels) {
-      const fullTerminalStr = serializeMerchantChannels(userData.channels);
-      const pine = userData.channels.pine_labs;
-      const swiff = userData.channels.payswiff;
-      const qr = userData.channels.qr;
-
-      let primaryProvider = 'Pine Labs';
-      let primaryVendor = 'Rose Navaneetham Enterprises';
-      let primaryRateT1 = parseFloat(userData.commission_rate_t1 || 0);
-      let primaryRateInstant = parseFloat(userData.commission_rate_instant || userData.commission_rate_t1 || 0);
-
-      if (pine && pine.enabled) {
-        primaryProvider = 'Pine Labs';
-        primaryVendor = 'Rose Navaneetham Enterprises';
-        primaryRateT1 = parseFloat(pine.rate_t1 || userData.commission_rate_t1 || 0);
-        primaryRateInstant = parseFloat(pine.rate_instant || userData.commission_rate_instant || primaryRateT1);
-      } else if (swiff && swiff.enabled) {
-        primaryProvider = 'Payswiff';
-        primaryVendor = swiff.vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
-        primaryRateT1 = parseFloat(swiff.rate_t1 || userData.commission_rate_t1 || 0);
-        primaryRateInstant = parseFloat(swiff.rate_instant || userData.commission_rate_instant || primaryRateT1);
-      } else if (qr && qr.enabled) {
-        primaryProvider = 'Company QR (UPI)';
-        primaryVendor = 'RONAV Technologies';
-        primaryRateT1 = parseFloat(qr.rate_instant || userData.commission_rate_instant || userData.commission_rate_t1 || 0);
-        primaryRateInstant = primaryRateT1;
-      }
-
-      const isQrOnly = Boolean(qr?.enabled && !pine?.enabled && !swiff?.enabled);
-      const chosenPlan = isQrOnly ? 'DIRECT' : (pine?.plan || swiff?.plan || 'RENTAL');
-      const chosenRent = isQrOnly ? 0.0 : (pine?.rent !== undefined ? (parseFloat(pine.rent) || 0.0) : (swiff?.rent !== undefined ? (parseFloat(swiff.rent) || 0.0) : 0.0));
-
-      const { data: posData, error: posErr } = await supabase
-        .from('merchant_pos')
-        .insert({
-          merchant_id: newUserId,
-          provider: primaryProvider,
-          terminal_id: fullTerminalStr,
-          commission_rate: primaryRateT1,
-          assigned_by: assignedCreatorId,
-          vendor_entity: primaryVendor,
-          device_plan: chosenPlan,
-          monthly_rent: chosenRent,
-          settlement_type: isQrOnly ? 'INSTANT' : 'T1',
-          commission_rate_t1: primaryRateT1,
-          commission_rate_instant: primaryRateInstant,
-          admin_cut_rate: parseFloat(userData.admin_cut_rate || 0),
-          upline_override_rate: parseFloat(userData.upline_override_rate || 0)
-        })
-        .select()
-        .maybeSingle();
-
-      if (posErr) {
-        console.warn('POS creation notice (non-fatal):', posErr.message);
-      } else {
-        createdPOS = posData;
-      }
-    } else {
-      const shouldAssignPOS = pos_provider && pos_provider !== 'NONE';
-
-      if (shouldAssignPOS) {
-        let provider = 'Pine Labs';
-        let vendorEntity = 'Rose Navaneetham Enterprises';
-        let plan = (device_plan === 'CUSTOM' || device_plan === 'LIFETIME' || device_plan === 'DIRECT') ? device_plan : 'RENTAL';
-        let rentFee = (plan === 'RENTAL' || plan === 'CUSTOM') ? (parseFloat(monthly_rent) || 0.0) : 0.0;
-        let settlement = settlement_type === 'INSTANT' ? 'INSTANT' : 'T1';
-
-        if (pos_provider === 'Payswiff') {
-          provider = 'Payswiff';
-          vendorEntity = pos_vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
-        } else if (pos_provider === 'QR' || pos_provider === 'Company QR' || pos_provider === 'Company QR (UPI)') {
-          provider = 'Company QR (UPI)';
-          vendorEntity = 'RONAV Technologies';
-          plan = 'DIRECT';
-          rentFee = 0.0;
-          settlement = 'INSTANT';
-        }
-
-        // Dynamic Commission Rates configured by Admin (No hardcoded values)
-        const rateT1 = parseFloat(userData.commission_rate_t1 || userData.commission_rate) || 0;
-        const rateInstant = parseFloat(userData.commission_rate_instant || userData.commission_rate_t1 || userData.commission_rate) || 0;
-        const adminCut = parseFloat(userData.admin_cut_rate) || 0;
-        const uplineCut = parseFloat(userData.upline_override_rate) || 0;
-
-        // Real Machine Serial Number entered by Admin / Distributor
-        const terminalPrefix = provider === 'Payswiff' ? 'SWIFF' : 'PL';
-        const cleanTerminalId = (userData.pos_terminal_id && userData.pos_terminal_id.trim())
-          ? userData.pos_terminal_id.trim()
-          : `${terminalPrefix}-${newUserId.replace(/\D/g, '') || '01'}`;
-
-        // Encode dynamic rates and plan in terminal identifier so they persist in database and are universally accessible
-        const fullTerminalStr = `${cleanTerminalId}|T1:${rateT1}|INS:${rateInstant}|ADM:${adminCut}|UPL:${uplineCut}|PLAN:${plan}|RENT:${rentFee}`;
-
-        const { data: posData, error: posErr } = await supabase
-          .from('merchant_pos')
-          .insert({
-            merchant_id: newUserId,
-            provider,
-            terminal_id: fullTerminalStr,
-            commission_rate: rateT1,
-            assigned_by: assignedCreatorId,
-            vendor_entity: vendorEntity,
-            device_plan: plan,
-            monthly_rent: rentFee,
-            settlement_type: settlement,
-            commission_rate_t1: rateT1,
-            commission_rate_instant: rateInstant,
-            admin_cut_rate: adminCut,
-            upline_override_rate: uplineCut
-          })
-          .select()
-          .maybeSingle();
-
-        if (posErr) {
-          console.warn('POS creation notice (non-fatal):', posErr.message);
-        } else {
-          createdPOS = posData;
-        }
-      }
-    }
-
-    return {
-      success: true,
-      message: `Successfully onboarded ${role} account (${newUserId})!`,
-      user: newUser,
-      pos: createdPOS,
-      credentials: {
-        id: newUserId,
-        name: newUser.name,
-        mobile: newUser.mobile,
-        role: newUser.role,
-        password: initialPassword
-      }
-    };
+    const data = await res.json();
+    return data;
   } catch (err) {
     console.error('createDownstreamUser error:', err);
-    return { success: false, message: err.message };
+    return { success: false, message: err.message || 'Failed to create user on server.' };
   }
 }
 
@@ -969,69 +730,16 @@ export function serializeMerchantChannels(channels) {
 
 export async function updateMerchantChannels(merchantId, channels) {
   try {
-    const fullTerminalStr = serializeMerchantChannels(channels);
-    const pine = channels.pine_labs;
-    const swiff = channels.payswiff;
-    const qr = channels.qr;
-
-    let primaryProvider = 'Pine Labs';
-    let primaryVendor = 'Rose Navaneetham Enterprises';
-    let primaryRateT1 = 0;
-    let primaryRateInstant = 0;
-
-    if (pine && pine.enabled) {
-      primaryProvider = 'Pine Labs';
-      primaryVendor = 'Rose Navaneetham Enterprises';
-      primaryRateT1 = parseFloat(pine.rate_t1) || 0;
-      primaryRateInstant = parseFloat(pine.rate_instant || primaryRateT1) || 0;
-    } else if (swiff && swiff.enabled) {
-      primaryProvider = 'Payswiff';
-      primaryVendor = swiff.vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
-      primaryRateT1 = parseFloat(swiff.rate_t1) || 0;
-      primaryRateInstant = parseFloat(swiff.rate_instant || primaryRateT1) || 0;
-    } else if (qr && qr.enabled) {
-      primaryProvider = 'Company QR (UPI)';
-      primaryVendor = 'RONAV Technologies';
-      primaryRateT1 = parseFloat(qr.rate_instant) || 0;
-      primaryRateInstant = parseFloat(qr.rate_instant) || 0;
-    }
-
-    const { data: existing } = await supabase.from('merchant_pos').select('*').eq('merchant_id', merchantId).maybeSingle();
-
-    if (existing) {
-      await supabase.from('merchant_pos').update({
-        provider: primaryProvider,
-        terminal_id: fullTerminalStr,
-        vendor_entity: primaryVendor,
-        commission_rate_t1: primaryRateT1,
-        commission_rate_instant: primaryRateInstant,
-        commission_rate: primaryRateT1
-      }).eq('merchant_id', merchantId);
-    } else {
-      await supabase.from('merchant_pos').insert({
-        merchant_id: merchantId,
-        provider: primaryProvider,
-        terminal_id: fullTerminalStr,
-        assigned_by: 'ADM001',
-        vendor_entity: primaryVendor,
-        commission_rate_t1: primaryRateT1,
-        commission_rate_instant: primaryRateInstant,
-        commission_rate: primaryRateT1
-      });
-    }
-
-    // Sync users table with active rates and primary POS details
-    await supabase.from('users').update({
-      commission_rate_t1: primaryRateT1,
-      commission_rate_instant: primaryRateInstant,
-      pos_provider: primaryProvider,
-      pos_terminal: (pine?.enabled ? pine.terminal_id : (swiff?.enabled ? swiff.terminal_id : 'RONAV-UPI-HQ')) || 'RONAV-UPI-HQ'
-    }).eq('id', merchantId);
-
-    return { success: true, message: 'Channels updated successfully!' };
+    const res = await fetchWithTimeout(getApiUrl('/api/channels/update'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ merchantId, channels, adminId: 'ADM001' })
+    });
+    const data = await res.json();
+    return data;
   } catch (err) {
     console.error('updateMerchantChannels error:', err);
-    return { success: false, message: err.message };
+    return { success: false, message: err.message || 'Failed to update channels on server.' };
   }
 }
 
@@ -1400,14 +1108,11 @@ export async function recordMerchantSale(saleData) {
       customer_name, 
       customer_mobile, 
       type, 
-      provider: bodyProvider, 
+      provider, 
       ref_number, 
       rrn_number,
       settlement_type,
-      customer_charge,
-      company_fee,
-      merchant_commission,
-      terminal_id: bodyTerminalId,
+      terminal_id,
       notes 
     } = saleData;
 
@@ -1415,324 +1120,30 @@ export async function recordMerchantSale(saleData) {
       return { success: false, message: 'Merchant ID and Amount are required.' };
     }
 
-    const numAmount = parseFloat(amount);
-    if (isNaN(numAmount) || numAmount <= 0) {
-      return { success: false, message: 'Amount must be a positive number.' };
-    }
-
-    // Fetch merchant details & POS
-    const [merchantRes, posRes, allUsersRes] = await Promise.all([
-      supabase.from('users').select('*').eq('id', merchant_id).single(),
-      supabase.from('merchant_pos').select('*').eq('merchant_id', merchant_id).maybeSingle(),
-      supabase.from('users').select('*')
-    ]);
-
-    if (!merchantRes.data) {
-      return { success: false, message: 'Merchant not found in system.' };
-    }
-
-    const merchant = merchantRes.data;
-    const pos = posRes.data;
-    const isQRPayment = (type === 'QR_SCAN' || type === 'QR' || type === 'QR_PAYMENT' || (bodyProvider && bodyProvider.toLowerCase().includes('qr')) || (!bodyProvider && pos?.channels?.qr?.enabled && !pos?.channels?.pine_labs?.enabled && !pos?.channels?.payswiff?.enabled));
-    
-    let provider = bodyProvider;
-    if (isQRPayment) {
-      provider = 'Company QR (UPI)';
-    } else if (!provider) {
-      if (pos?.provider) {
-        provider = pos.provider;
-      } else if (type === 'BBPS_BILL') {
-        provider = 'BBPS';
-      } else {
-        const chs = parseMerchantChannels(pos);
-        if (chs.payswiff?.enabled && !chs.pine_labs?.enabled) {
-          provider = 'Payswiff';
-        } else if (chs.qr?.enabled && !chs.pine_labs?.enabled) {
-          provider = 'Company QR (UPI)';
-        } else {
-          provider = 'Pine Labs';
-        }
-      }
-    }
-
-    const activeChannelKey = isQRPayment ? 'qr' : ((provider || '').toLowerCase().includes('swiff') ? 'payswiff' : 'pinelabs');
-    const txnId = `TXN-${activeChannelKey === 'qr' ? 'QR' : (activeChannelKey === 'payswiff' ? 'SW' : 'PL')}-${Date.now().toString().slice(-6)}`;
-    
-    // Strict vendor entity determination
-    let finalVendor = 'Rose Navaneetham Enterprises';
-    if (isQRPayment || activeChannelKey === 'qr') {
-      finalVendor = 'RONAV Technologies';
-    } else if (activeChannelKey === 'payswiff' || provider === 'Payswiff') {
-      finalVendor = (pos?.vendor_entity === 'R.P. Technologies' || pos?.pos_vendor === 'R.P. Technologies')
-        ? 'R.P. Technologies' 
-        : 'RONAV Technologies';
-    } else if (activeChannelKey === 'pinelabs' || provider === 'Pine Labs') {
-      finalVendor = 'Rose Navaneetham Enterprises';
-    } else {
-      finalVendor = pos?.vendor_entity || 'RONAV Technologies';
-    }
-
-    const finalRrn = (rrn_number || ref_number || '').trim().toUpperCase() || `RRN${Date.now().toString().slice(-8)}`;
-
-    // Item #7: Strict Unique UTR Validation for Card Swipes & UPI Sales
-    if (finalRrn && !finalRrn.startsWith('RRN') && finalRrn.length >= 5) {
-      const utrValidation = await validateUtrUniqueness(finalRrn, null, null, 'SALE');
-      if (!utrValidation.isUnique) {
-        return {
-          success: false,
-          message: utrValidation.message
-        };
-      }
-    }
-
-    // Resolve specific terminal ID cleanly (never serialize raw [PORTFOLIO] JSON into notes)
-    let specificTerminalId = bodyTerminalId || '';
-    if (!specificTerminalId && pos) {
-      if (pos.terminal_id && pos.terminal_id.startsWith('[PORTFOLIO]')) {
-        const channels = parseMerchantChannels(pos);
-        if (activeChannelKey === 'qr') {
-          specificTerminalId = 'QR-UPI-HQ';
-        } else if (activeChannelKey === 'payswiff') {
-          specificTerminalId = channels.payswiff?.terminal_id || 'SWIFF-01';
-        } else if (activeChannelKey === 'pinelabs') {
-          specificTerminalId = channels.pine_labs?.terminal_id || 'PL-01';
-        } else {
-          specificTerminalId = 'RONAV-UPI-HQ';
-        }
-      } else {
-        specificTerminalId = activeChannelKey === 'qr' ? 'QR-UPI-HQ' : (pos.terminal_id || (activeChannelKey === 'payswiff' ? 'SWIFF-01' : 'PL-01'));
-      }
-    }
-    if (!specificTerminalId) {
-      specificTerminalId = activeChannelKey === 'qr' ? 'QR-UPI-HQ' : (activeChannelKey === 'payswiff' ? 'SWIFF-01' : 'PL-01');
-    }
-
-    // Resolve active wholesale percentage rate dynamically (Zero hardcoded percentages, channel-isolated)
-    const isInstant = (activeChannelKey === 'qr') ? true : ((settlement_type || '').toUpperCase() === 'INSTANT');
-    let merchantBuyRate = getUserBuyRate(merchant, pos, isInstant, activeChannelKey);
-    const compFee = parseFloat(((numAmount * merchantBuyRate) / 100).toFixed(2));
-    const netCreditAmount = parseFloat(Math.max(0, numAmount - compFee).toFixed(2));
-
-    // Package extended metadata safely in notes
-    const swipeMeta = {
-      customer_name: customer_name ? customer_name.trim() : 'Counter Customer',
-      customer_mobile: customer_mobile ? customer_mobile.trim() : '',
-      rrn: finalRrn,
-      settlement_type: isQRPayment ? 'INSTANT' : (settlement_type || 'T1'),
-      customer_charge: parseFloat(customer_charge) || 0,
-      company_fee: compFee,
-      merchant_buy_rate: merchantBuyRate,
-      net_credited: netCreditAmount,
-      merchant_commission: parseFloat(merchant_commission) || 0,
-      terminal_id: specificTerminalId,
-      pos_provider: provider,
-      pos_vendor: finalVendor,
-      user_notes: notes || ''
+    const payload = {
+      merchant_id,
+      amount: parseFloat(amount),
+      customer_name: customer_name || 'Counter Customer',
+      customer_mobile: customer_mobile || '',
+      type: type || 'POS_SWIPE',
+      provider: provider || 'Pine Labs',
+      ref_number: rrn_number || ref_number || '',
+      settlement_type: settlement_type || 'T1',
+      terminal_id: terminal_id || '',
+      notes: notes || ''
     };
 
-    const notesPayload = `[CARD_SWIPE_ENTRY] ${JSON.stringify(swipeMeta)}`;
+    const res = await fetchWithTimeout(getApiUrl('/api/transactions/record'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
 
-    // Sanitize and strictly map transaction type to PostgreSQL constraint: 'POS_SWIPE' | 'BBPS_BILL' | 'QR_SCAN'
-    let finalTxnType = 'POS_SWIPE';
-    if (type === 'BBPS_BILL' || provider === 'BBPS') {
-      finalTxnType = 'BBPS_BILL';
-    } else if (isQRPayment || type === 'QR_SCAN' || type === 'QR' || type === 'QR_PAYMENT' || provider === 'RONAV_QR' || provider === 'QR' || provider === 'Company QR (UPI)') {
-      finalTxnType = 'QR_SCAN';
-    } else {
-      finalTxnType = 'POS_SWIPE';
-    }
-
-    // 1. Insert Transaction with APPROVED status (Instant Business Continuity 24/7)
-    const { data: createdTxn, error: tErr } = await supabase
-      .from('transactions')
-      .insert({
-        id: txnId,
-        merchant_id,
-        amount: numAmount,
-        type: finalTxnType,
-        provider,
-        ref_number: finalRrn,
-        notes: notesPayload,
-        status: 'APPROVED',
-        verified_at: new Date().toISOString()
-      })
-      .select()
-      .single();
-
-    if (tErr) {
-      return { success: false, message: tErr.message };
-    }
-
-    // 2. Merchant Wallet Balance Update
-    const { data: merchantWallet } = await supabase
-      .from('wallets')
-      .select('*')
-      .eq('user_id', merchant_id)
-      .maybeSingle();
-
-    const currAvail = parseFloat(merchantWallet?.available_balance || 0);
-    const currTotal = parseFloat(merchantWallet?.total_sales || 0);
-    const currRec = parseFloat(merchantWallet?.received_sales || 0);
-
-    const isBbpsBill = (finalTxnType === 'BBPS_BILL');
-
-    // For BBPS Utility & Recharge Payments: Debit merchant wallet
-    if (isBbpsBill) {
-      if (currAvail < numAmount) {
-        // Rollback transaction if insufficient balance
-        await supabase.from('transactions').delete().eq('id', txnId);
-        return {
-          success: false,
-          message: `Insufficient wallet balance for bill payment. Available Balance: ₹${currAvail.toLocaleString('en-IN', { minimumFractionDigits: 2 })}, Bill Amount: ₹${numAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`
-        };
-      }
-
-      const { data: updatedMerchantWallet } = await supabase
-        .from('wallets')
-        .update({
-          available_balance: parseFloat(Math.max(0, currAvail - numAmount).toFixed(2)),
-          updated_at: new Date().toISOString()
-        })
-        .eq('user_id', merchant_id)
-        .select()
-        .single();
-
-      return {
-        success: true,
-        message: `✓ Bill Payment of ₹${numAmount.toLocaleString('en-IN')} Successful! Deducted from wallet balance.`,
-        transaction: createdTxn,
-        wallet: updatedMerchantWallet
-      };
-    }
-
-    const { data: updatedMerchantWallet } = await supabase
-      .from('wallets')
-      .update({
-        available_balance: parseFloat((currAvail + netCreditAmount).toFixed(2)),
-        received_sales: parseFloat((currRec + numAmount).toFixed(2)),
-        total_sales: parseFloat((currTotal + numAmount).toFixed(2)),
-        updated_at: new Date().toISOString()
-      })
-      .eq('user_id', merchant_id)
-      .select()
-      .single();
-
-    // 3. Dynamic Real-Time Margin-Difference Distribution to All Uplines
-    try {
-      const [allUsersRes, allPosRes] = await Promise.all([
-        supabase.from('users').select('*'),
-        supabase.from('merchant_pos').select('*')
-      ]);
-
-      const allUsers = allUsersRes?.data || [];
-      const allPos = allPosRes?.data || [];
-      const posMap = {};
-      allPos.forEach(p => { posMap[p.merchant_id] = p; });
-
-      let currentLevelRate = merchantBuyRate;
-
-      // Trace upline chain from direct sponsor up to Super Admin
-      const uplineChain = [];
-      let cur = merchant;
-      let safety = 0;
-      while (cur && cur.creator_id && cur.creator_id !== 'ADM001' && safety < 10) {
-        safety++;
-        const parentUser = allUsers.find(u => u.id === cur.creator_id);
-        if (!parentUser) break;
-        uplineChain.push(parentUser);
-        cur = parentUser;
-      }
-
-      let distributedUplineTotal = 0;
-      const commissionSplits = [];
-
-      for (const uplineUser of uplineChain) {
-        const uPos = posMap[uplineUser.id];
-        const parentBuyRate = getUserBuyRate(uplineUser, uPos, isInstant, activeChannelKey);
-
-        // Exact margin difference: Child rate minus Parent buy rate
-        const marginDiff = Math.max(0, currentLevelRate - parentBuyRate);
-        const commissionEarned = parseFloat(((numAmount * marginDiff) / 100).toFixed(2));
-
-        if (commissionEarned > 0) {
-          distributedUplineTotal += commissionEarned;
-          commissionSplits.push({
-            user_id: uplineUser.id,
-            user_name: uplineUser.name,
-            role: uplineUser.role,
-            amount: commissionEarned,
-            margin_diff: marginDiff,
-            buy_rate: parentBuyRate
-          });
-
-          const { data: pWallet } = await supabase
-            .from('wallets')
-            .select('*')
-            .eq('user_id', uplineUser.id)
-            .maybeSingle();
-
-          if (pWallet) {
-            const pBal = parseFloat(pWallet.available_balance || 0);
-            const pTotal = parseFloat(pWallet.total_sales || 0);
-            await supabase
-              .from('wallets')
-              .update({
-                available_balance: parseFloat((pBal + commissionEarned).toFixed(2)),
-                total_sales: parseFloat((pTotal + numAmount).toFixed(2)),
-                updated_at: new Date().toISOString()
-              })
-              .eq('user_id', uplineUser.id);
-          }
-        }
-
-        currentLevelRate = Math.min(currentLevelRate, parentBuyRate);
-      }
-
-      // Admin Master Wallet: Realized Admin Profit (Wholesale fee minus downline payouts)
-      const adminNetMargin = parseFloat(Math.max(0, compFee - distributedUplineTotal).toFixed(2));
-      if (adminNetMargin > 0) {
-        const { data: aWallet } = await supabase
-          .from('wallets')
-          .select('*')
-          .eq('user_id', 'ADM001')
-          .maybeSingle();
-
-        if (aWallet) {
-          const aBal = parseFloat(aWallet.available_balance || 0);
-          const aTotal = parseFloat(aWallet.total_sales || 0);
-          await supabase
-            .from('wallets')
-            .update({
-              available_balance: parseFloat((aBal + adminNetMargin).toFixed(2)),
-              total_sales: parseFloat((aTotal + numAmount).toFixed(2)),
-              updated_at: new Date().toISOString()
-            })
-            .eq('user_id', 'ADM001');
-        }
-      }
-
-      // Permanently lock exact commission snapshot into transaction receipt notes
-      swipeMeta.commission_splits = commissionSplits;
-      swipeMeta.admin_net_margin = adminNetMargin;
-      await supabase
-        .from('transactions')
-        .update({
-          notes: `[CARD_SWIPE_ENTRY] ${JSON.stringify(swipeMeta)}`
-        })
-        .eq('id', txnId);
-    } catch (uplineErr) {
-      console.error('Upline margin split error:', uplineErr);
-    }
-
-    return {
-      success: true,
-      message: `✓ Sale of ₹${numAmount.toLocaleString('en-IN')} recorded! ₹${netCreditAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} credited instantly to wallet.`,
-      transaction: createdTxn,
-      wallet: updatedMerchantWallet
-    };
+    const data = await res.json();
+    return data;
   } catch (err) {
     console.error('recordMerchantSale error:', err);
-    return { success: false, message: err.message };
+    return { success: false, message: err.message || 'Failed to record transaction on server.' };
   }
 }
 
@@ -2167,33 +1578,16 @@ export async function getBeneficiaries(merchantId) {
 
 export async function addBeneficiary(data) {
   try {
-    const { merchant_id, bank_name, account_number, ifsc, holder_name, beneficiary_name, is_primary } = data;
-    if (!merchant_id || !bank_name || !account_number) {
-      return { success: false, message: 'Missing required bank details.' };
-    }
-
-    const benName = (holder_name || beneficiary_name || 'Account Holder').trim();
-    const benId = `BEN-${Date.now().toString().slice(-6)}`;
-    const { data: created, error } = await supabase
-      .from('beneficiaries')
-      .insert({
-        id: benId,
-        merchant_id,
-        bank_name: bank_name.trim(),
-        account_number: account_number.trim(),
-        ifsc: (ifsc || 'SBIN0001234').trim().toUpperCase(),
-        beneficiary_name: benName,
-        holder_name: benName,
-        is_primary: Boolean(is_primary)
-      })
-      .select()
-      .single();
-
-    if (error) return { success: false, message: error.message };
-    return { success: true, message: 'Beneficiary account added successfully!', beneficiary: created };
+    const res = await fetchWithTimeout(getApiUrl('/api/beneficiaries/create'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const resData = await res.json();
+    return resData;
   } catch (err) {
     console.error('addBeneficiary error:', err);
-    return { success: false, message: err.message };
+    return { success: false, message: err.message || 'Failed to add beneficiary on server.' };
   }
 }
 
@@ -2481,508 +1875,23 @@ export async function getAdminPending() {
   }
 }
 
-export async function verifyTransaction(txnId, action, remark = '') {
+export async function verifyTransaction(txnId, action, remark = '', utr = '') {
   try {
-    const { data: txn, error: tErr } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('id', txnId)
-      .single();
-
-    if (tErr || !txn) {
-      return { success: false, message: 'Transaction not found.' };
-    }
-
-    if (txn.status === 'REVERSED' || txn.status === 'REJECTED') {
-      return { success: false, message: `Transaction is already ${txn.status}.` };
-    }
-
-    // 1. If transaction was already credited instantly (status === 'APPROVED'):
-    if (txn.status === 'APPROVED') {
-      if (action === 'APPROVE') {
-        const auditRemark = remark && remark.trim() ? remark.trim() : '[VERIFIED_BY_ADMIN] Audited & verified against POS settlement report';
-        const finalRemark = auditRemark.includes('[VERIFIED_BY_ADMIN]') ? auditRemark : `[VERIFIED_BY_ADMIN] ${auditRemark}`;
-        
-        await supabase
-          .from('transactions')
-          .update({
-            admin_remark: finalRemark,
-            verified_at: new Date().toISOString()
-          })
-          .eq('id', txnId);
-
-        const { data: updatedTxn } = await supabase.from('transactions').select('*').eq('id', txnId).single();
-        return {
-          success: true,
-          message: `✓ Transaction ${txnId} verified successfully!`,
-          transaction: updatedTxn
-        };
-      } else {
-        // Rejecting an already-credited transaction -> Execute Reversal & Commission Rollback
-        return await clawbackTransaction(txnId, remark || 'Cancelled by Admin');
-      }
-    }
-
-    const amount = parseFloat(txn.amount);
-    const merchantId = txn.merchant_id;
-
-    // Fetch merchant wallet
-    const { data: wallet } = await supabase
-      .from('wallets')
-      .select('*')
-      .eq('user_id', merchantId)
-      .single();
-
-    let updatedWallet = null;
-
-    if (action === 'APPROVE') {
-      // Item #7: Ensure this UTR/RRN is unique and hasn't been approved under another transaction
-      if (txn.ref_number && !txn.ref_number.startsWith('RRN') && txn.ref_number.length >= 6) {
-        const { data: duplicateApproved } = await supabase
-          .from('transactions')
-          .select('id, ref_number, status, amount')
-          .eq('ref_number', txn.ref_number)
-          .eq('status', 'APPROVED')
-          .neq('id', txnId)
-          .maybeSingle();
-
-        if (duplicateApproved) {
-          return {
-            success: false,
-            message: `Approval Blocked: Duplicate UTR / RRN "${txn.ref_number}" was already approved under transaction ${duplicateApproved.id} (₹${duplicateApproved.amount}).`
-          };
-        }
-      }
-
-      await supabase
-        .from('transactions')
-        .update({
-          status: 'APPROVED',
-          admin_remark: remark || '[VERIFIED_BY_ADMIN] Verified and approved against POS Machine back-office portal',
-          verified_at: new Date().toISOString()
-        })
-        .eq('id', txnId);
-
-      // Dynamic Company Fee calculation based on specific machine & onboarding rate
-      let compFee = 0;
-      if (txn.notes && typeof txn.notes === 'string') {
-        try {
-          const jsonPart = txn.notes.slice(txn.notes.indexOf('{'));
-          const meta = JSON.parse(jsonPart);
-          if (meta.company_fee) compFee = parseFloat(meta.company_fee) || 0;
-        } catch (_) {}
-      }
-      if (compFee <= 0) {
-        const { data: posRec } = await supabase
-          .from('merchant_pos')
-          .select('*')
-          .eq('merchant_id', merchantId)
-          .maybeSingle();
-        const posRates = parsePosTerminalRates(posRec?.terminal_id, posRec?.commission_rate);
-        const rate = (txn.settlement_type === 'INSTANT' ? posRates.rateInstant : posRates.rateT1) || parseFloat(posRec?.commission_rate || 0);
-        compFee = (amount * rate) / 100;
-      }
-
-      // Net settlement amount credited to merchant available balance (gross amount minus company cut)
-      const netCreditAmount = Math.max(0, amount - compFee);
-
-      const currAvail = parseFloat(wallet?.available_balance || 0);
-      const currRec = parseFloat(wallet?.received_sales || 0);
-      const currPend = parseFloat(wallet?.pending_balance || 0);
-
-      const { data: wRes } = await supabase
-        .from('wallets')
-        .update({
-          available_balance: parseFloat((currAvail + netCreditAmount).toFixed(2)),
-          received_sales: parseFloat((currRec + amount).toFixed(2)),
-          pending_balance: Math.max(0.0, currPend - amount),
-          updated_at: new Date().toISOString()
-        })
-        .eq('user_id', merchantId)
-        .select()
-        .single();
-
-      updatedWallet = wRes;
-
-      // Phase 2: Dynamic Margin-Difference Upline Distribution
-      try {
-        const [posRes, allUsersRes, allPosRes] = await Promise.all([
-          supabase.from('merchant_pos').select('*').eq('merchant_id', merchantId).maybeSingle(),
-          supabase.from('users').select('*'),
-          supabase.from('merchant_pos').select('*')
-        ]);
-
-        const pos = posRes?.data;
-        const allUsers = allUsersRes?.data || [];
-        const allPos = allPosRes?.data || [];
-        const merchant = allUsers.find(u => u.id === merchantId);
-
-        const posMap = {};
-        allPos.forEach(p => { posMap[p.merchant_id] = p; });
-
-        // Determine this transaction's active percentage rate (e.g. 2.00%)
-        const isInstant = txn.settlement_type === 'INSTANT';
-        const getRateForUser = (u, p) => {
-          if (p) {
-            const parsed = parsePosTerminalRates(p.terminal_id, p.commission_rate);
-            const r = isInstant ? (p.commission_rate_instant || parsed.rateInstant) : (p.commission_rate_t1 || parsed.rateT1);
-            if (r && !isNaN(parseFloat(r)) && parseFloat(r) > 0) return parseFloat(r);
-          }
-          if (u) {
-            const uRate = isInstant ? u.commission_rate_instant : u.commission_rate_t1;
-            if (uRate && !isNaN(parseFloat(uRate)) && parseFloat(uRate) > 0) return parseFloat(uRate);
-          }
-          return 0;
-        };
-
-        let currentLevelRate = getRateForUser(merchant, pos);
-
-        // Build upline chain from direct parent up to Admin
-        const uplineChain = [];
-        let cur = merchant;
-        let safety = 0;
-        while (cur && cur.creator_id && cur.creator_id !== 'ADM001' && safety < 10) {
-          safety++;
-          const parentUser = allUsers.find(u => u.id === cur.creator_id);
-          if (!parentUser) break;
-          uplineChain.push(parentUser);
-          cur = parentUser;
-        }
-
-        let distributedUplineTotal = 0;
-
-        for (const uplineUser of uplineChain) {
-          const uPos = posMap[uplineUser.id];
-          const parentBuyRate = getRateForUser(uplineUser, uPos);
-
-          // Margin difference between child level rate and this upline's buy rate
-          const marginDiff = Math.max(0, currentLevelRate - parentBuyRate);
-          const commissionEarned = parseFloat(((amount * marginDiff) / 100).toFixed(2));
-
-          if (commissionEarned > 0) {
-            distributedUplineTotal += commissionEarned;
-            const { data: pWallet } = await supabase
-              .from('wallets')
-              .select('*')
-              .eq('user_id', uplineUser.id)
-              .maybeSingle();
-
-            if (pWallet) {
-              const pBal = parseFloat(pWallet.available_balance || 0);
-              const pTotal = parseFloat(pWallet.total_sales || 0);
-              await supabase
-                .from('wallets')
-                .update({
-                  available_balance: parseFloat((pBal + commissionEarned).toFixed(2)),
-                  total_sales: parseFloat((pTotal + amount).toFixed(2)),
-                  updated_at: new Date().toISOString()
-                })
-                .eq('user_id', uplineUser.id);
-            }
-          }
-
-          // Advance currentLevelRate to this parent's buy rate for the next level
-          currentLevelRate = Math.min(currentLevelRate, parentBuyRate);
-        }
-
-        // Admin Wallet Credit: Remainder of the company fee (Net Realized Admin Profit)
-        const adminNetMargin = parseFloat(Math.max(0, compFee - distributedUplineTotal).toFixed(2));
-        if (adminNetMargin > 0) {
-          const { data: aWallet } = await supabase
-            .from('wallets')
-            .select('*')
-            .eq('user_id', 'ADM001')
-            .maybeSingle();
-
-          if (aWallet) {
-            const aBal = parseFloat(aWallet.available_balance || 0);
-            const aTotal = parseFloat(aWallet.total_sales || 0);
-            await supabase
-              .from('wallets')
-              .update({
-                available_balance: parseFloat((aBal + adminNetMargin).toFixed(2)),
-                total_sales: parseFloat((aTotal + amount).toFixed(2)),
-                updated_at: new Date().toISOString()
-              })
-              .eq('user_id', 'ADM001');
-          }
-        }
-      } catch (commErr) {
-        console.error('Commission distribution error on approval:', commErr);
-      }
-    } else {
-      await supabase
-        .from('transactions')
-        .update({
-          status: 'REJECTED',
-          admin_remark: remark || 'Transaction rejected by Admin. Invalid reference.',
-          verified_at: new Date().toISOString()
-        })
-        .eq('id', txnId);
-
-      const currPend = parseFloat(wallet?.pending_balance || 0);
-      const currTotal = parseFloat(wallet?.total_sales || 0);
-
-      const { data: wRes } = await supabase
-        .from('wallets')
-        .update({
-          pending_balance: Math.max(0.0, currPend - amount),
-          total_sales: Math.max(0.0, currTotal - amount),
-          updated_at: new Date().toISOString()
-        })
-        .eq('user_id', merchantId)
-        .select()
-        .single();
-
-      updatedWallet = wRes;
-      // Since uplines and Admin were never credited during pending state,
-      // no rollback is necessary and balances remain 100% clean.
-    }
-
-    const { data: updatedTxn } = await supabase.from('transactions').select('*').eq('id', txnId).single();
-
-    return {
-      success: true,
-      message: `Transaction ${txnId} marked as ${action === 'APPROVE' ? 'Approved' : 'Rejected'}.`,
-      transaction: updatedTxn,
-      wallet: updatedWallet
-    };
+    const res = await fetchWithTimeout(getApiUrl('/api/admin/verify-transaction'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ txn_id: txnId, action, remark, utr })
+    });
+    const data = await res.json();
+    return data;
   } catch (err) {
     console.error('verifyTransaction error:', err);
-    return { success: false, message: err.message };
+    return { success: false, message: err.message || 'Failed to verify transaction on server.' };
   }
 }
 
 export async function clawbackTransaction(txnId, adminReason = 'Payment Cancelled by Admin') {
-  try {
-    const { data: txn, error: tErr } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('id', txnId)
-      .single();
-
-    if (tErr || !txn) {
-      return { success: false, message: 'Transaction not found.' };
-    }
-
-    if (txn.status === 'REVERSED' || txn.status === 'REJECTED') {
-      return { success: false, message: `Transaction is already ${txn.status}.` };
-    }
-
-    const amount = parseFloat(txn.amount) || 0;
-    const merchantId = txn.merchant_id;
-
-    // Parse swipe metadata to find exact net credited and saved commission splits
-    let netCredited = amount;
-    let compFee = 0;
-    let merchantBuyRate = 0;
-    let savedSplits = [];
-    let savedAdminNet = null;
-
-    if (txn.notes && typeof txn.notes === 'string' && txn.notes.includes('{')) {
-      try {
-        const jsonPart = txn.notes.slice(txn.notes.indexOf('{'));
-        const meta = JSON.parse(jsonPart);
-        if (meta.net_credited) netCredited = parseFloat(meta.net_credited);
-        if (meta.company_fee) compFee = parseFloat(meta.company_fee);
-        if (meta.merchant_buy_rate) merchantBuyRate = parseFloat(meta.merchant_buy_rate);
-        if (Array.isArray(meta.commission_splits)) savedSplits = meta.commission_splits;
-        if (meta.admin_net_margin !== undefined) savedAdminNet = parseFloat(meta.admin_net_margin);
-      } catch (_) {}
-    }
-
-    if (netCredited === amount && compFee === 0 && merchantBuyRate > 0) {
-      compFee = parseFloat(((amount * merchantBuyRate) / 100).toFixed(2));
-      netCredited = parseFloat((amount - compFee).toFixed(2));
-    }
-
-    // 1. Mark transaction as REVERSED in database
-    await supabase
-      .from('transactions')
-      .update({
-        status: 'REVERSED',
-        admin_remark: `[REVERSED_BY_ADMIN] ${adminReason}`,
-        verified_at: new Date().toISOString()
-      })
-      .eq('id', txnId);
-
-    // 2. Debit the merchant wallet
-    const { data: mWallet } = await supabase
-      .from('wallets')
-      .select('*')
-      .eq('user_id', merchantId)
-      .maybeSingle();
-
-    if (mWallet) {
-      const curAvail = parseFloat(mWallet.available_balance || 0);
-      const curTotal = parseFloat(mWallet.total_sales || 0);
-      const curRec = parseFloat(mWallet.received_sales || 0);
-      const newAvail = parseFloat((curAvail - netCredited).toFixed(2));
-
-      await supabase
-        .from('wallets')
-        .update({
-          available_balance: newAvail,
-          total_sales: Math.max(0, parseFloat((curTotal - amount).toFixed(2))),
-          received_sales: Math.max(0, parseFloat((curRec - amount).toFixed(2))),
-          updated_at: new Date().toISOString()
-        })
-        .eq('user_id', merchantId);
-
-      // If wallet drops negative, automatically suspend user account
-      if (newAvail < 0) {
-        await supabase
-          .from('users')
-          .update({ status: 'SUSPENDED' })
-          .eq('id', merchantId);
-      }
-    }
-
-    // 3. Rollback Upline Commissions using Exact Historical Snapshot
-    try {
-      if (savedSplits.length > 0) {
-        let distributedUplineTotal = 0;
-        for (const split of savedSplits) {
-          const splitAmount = parseFloat(split.amount || 0);
-          if (splitAmount > 0) {
-            distributedUplineTotal += splitAmount;
-            const { data: pWallet } = await supabase
-              .from('wallets')
-              .select('*')
-              .eq('user_id', split.user_id)
-              .maybeSingle();
-
-            if (pWallet) {
-              const pBal = parseFloat(pWallet.available_balance || 0);
-              const pTotal = parseFloat(pWallet.total_sales || 0);
-              await supabase
-                .from('wallets')
-                .update({
-                  available_balance: parseFloat((pBal - splitAmount).toFixed(2)),
-                  total_sales: Math.max(0, parseFloat((pTotal - amount).toFixed(2))),
-                  updated_at: new Date().toISOString()
-                })
-                .eq('user_id', split.user_id);
-            }
-          }
-        }
-
-        // Rollback Admin Net Profit
-        const adminNetMargin = savedAdminNet !== null ? savedAdminNet : parseFloat(Math.max(0, compFee - distributedUplineTotal).toFixed(2));
-        if (adminNetMargin > 0) {
-          const { data: aWallet } = await supabase
-            .from('wallets')
-            .select('*')
-            .eq('user_id', 'ADM001')
-            .maybeSingle();
-
-          if (aWallet) {
-            const aBal = parseFloat(aWallet.available_balance || 0);
-            const aTotal = parseFloat(aWallet.total_sales || 0);
-            await supabase
-              .from('wallets')
-              .update({
-                available_balance: parseFloat((aBal - adminNetMargin).toFixed(2)),
-                total_sales: Math.max(0, parseFloat((aTotal - amount).toFixed(2))),
-                updated_at: new Date().toISOString()
-              })
-              .eq('user_id', 'ADM001');
-          }
-        }
-      } else {
-        // Fallback for legacy records
-        const [allUsersRes, allPosRes] = await Promise.all([
-          supabase.from('users').select('*'),
-          supabase.from('merchant_pos').select('*')
-        ]);
-
-        const allUsers = allUsersRes?.data || [];
-        const allPos = allPosRes?.data || [];
-        const posMap = {};
-        allPos.forEach(p => { posMap[p.merchant_id] = p; });
-
-        const merchant = allUsers.find(u => u.id === merchantId);
-        const isInstant = txn.settlement_type === 'INSTANT';
-        let currentLevelRate = merchantBuyRate;
-
-        const uplineChain = [];
-        let cur = merchant;
-        let safety = 0;
-        while (cur && cur.creator_id && cur.creator_id !== 'ADM001' && safety < 10) {
-          safety++;
-          const parentUser = allUsers.find(u => u.id === cur.creator_id);
-          if (!parentUser) break;
-          uplineChain.push(parentUser);
-          cur = parentUser;
-        }
-
-        let distributedUplineTotal = 0;
-        const txnChannel = classifyTransactionChannel(txn);
-        for (const uplineUser of uplineChain) {
-          const uPos = posMap[uplineUser.id];
-          const parentBuyRate = getUserBuyRate(uplineUser, uPos, isInstant, txnChannel);
-          const marginDiff = Math.max(0, currentLevelRate - parentBuyRate);
-          const commissionEarned = parseFloat(((amount * marginDiff) / 100).toFixed(2));
-
-          if (commissionEarned > 0) {
-            distributedUplineTotal += commissionEarned;
-            const { data: pWallet } = await supabase
-              .from('wallets')
-              .select('*')
-              .eq('user_id', uplineUser.id)
-              .maybeSingle();
-
-            if (pWallet) {
-              const pBal = parseFloat(pWallet.available_balance || 0);
-              const pTotal = parseFloat(pWallet.total_sales || 0);
-              await supabase
-                .from('wallets')
-                .update({
-                  available_balance: parseFloat((pBal - commissionEarned).toFixed(2)),
-                  total_sales: Math.max(0, parseFloat((pTotal - amount).toFixed(2))),
-                  updated_at: new Date().toISOString()
-                })
-                .eq('user_id', uplineUser.id);
-            }
-          }
-          currentLevelRate = Math.min(currentLevelRate, parentBuyRate);
-        }
-
-        // Rollback Admin Net Profit
-        const adminNetMargin = parseFloat(Math.max(0, compFee - distributedUplineTotal).toFixed(2));
-        if (adminNetMargin > 0) {
-          const { data: aWallet } = await supabase
-            .from('wallets')
-            .select('*')
-            .eq('user_id', 'ADM001')
-            .maybeSingle();
-
-          if (aWallet) {
-            const aBal = parseFloat(aWallet.available_balance || 0);
-            const aTotal = parseFloat(aWallet.total_sales || 0);
-            await supabase
-              .from('wallets')
-              .update({
-                available_balance: parseFloat((aBal - adminNetMargin).toFixed(2)),
-                total_sales: Math.max(0, parseFloat((aTotal - amount).toFixed(2))),
-                updated_at: new Date().toISOString()
-              })
-              .eq('user_id', 'ADM001');
-          }
-        }
-      }
-    } catch (rbErr) {
-      console.error('Upline rollback error:', rbErr);
-    }
-
-    return {
-      success: true,
-      message: `✓ Transaction ${txnId} cancelled & reversed successfully. ₹${netCredited.toLocaleString('en-IN', { minimumFractionDigits: 2 })} deducted from merchant wallet.`
-    };
-  } catch (err) {
-    console.error('clawbackTransaction error:', err);
-    return { success: false, message: err.message };
-  }
+  return verifyTransaction(txnId, 'REJECT', adminReason);
 }
 
 // ----------------------------------------------------
@@ -2990,364 +1899,31 @@ export async function clawbackTransaction(txnId, adminReason = 'Payment Cancelle
 // ----------------------------------------------------
 export async function requestWithdrawal(withdrawalData) {
   try {
-    const { 
-      merchant_id, 
-      amount, 
-      bank_name, 
-      account_number, 
-      ifsc,
-      payout_type = 'CUSTOMER_DISBURSAL', // 'CUSTOMER_DISBURSAL' | 'MERCHANT_OWN'
-      payout_purpose = 'REGULAR', // 'REGULAR' (Sales Settlement) | 'COMMISSION' (Commission Disbursal)
-      remarks = '',
-      customer_name = '',
-      customer_mobile = '',
-      settlement_mode = 'T1', // 'T1' | 'INSTANT'
-      channel = '',
-      provider = ''
-    } = withdrawalData;
-    
-    const numAmount = parseFloat(amount);
-    const cleanMerchantId = (merchant_id || '').replace(/^MID:\s*/i, '').trim();
-
-    if (!cleanMerchantId || !numAmount || !bank_name || !account_number) {
-      return { success: false, message: 'Missing required withdrawal details.' };
-    }
-
-    // Admin Dynamic Master Toggle Enforcement for Commission Withdrawals
-    const isSelfWithdrawal = payout_type === 'MERCHANT_OWN' || payout_purpose === 'COMMISSION';
-    if (isSelfWithdrawal) {
-      const commissionConfig = await getCommissionPayoutConfig();
-      if (!commissionConfig.enabled) {
-        return {
-          success: false,
-          message: '⚠️ Commission & Profit Withdrawals are currently locked by Admin. Please check back when enabled by Administrator.'
-        };
-      }
-    }
-
-    // 1. Fetch live transactions, withdrawals, and wallet record for this merchant
-    const [walletRes, txnsRes, wthsRes] = await Promise.all([
-      supabase.from('wallets').select('*').eq('user_id', cleanMerchantId).maybeSingle(),
-      supabase.from('transactions').select('*').eq('merchant_id', cleanMerchantId),
-      supabase.from('withdrawals').select('*').eq('merchant_id', cleanMerchantId)
-    ]);
-
-    const wallet = walletRes?.data;
-    const txns = txnsRes?.data || [];
-    const wths = wthsRes?.data || [];
-
-    // Robust channel matching helper (normalizes 'pine_labs' / 'pinelabs' / 'payswiff' / 'qr')
-    const normChannel = (channel || '').toLowerCase().replace(/[^a-z]/g, '');
-    const isPineTarget = normChannel.includes('pine');
-    const isPayswiffTarget = normChannel.includes('swiff');
-    const isQrTarget = normChannel.includes('qr') || normChannel.includes('upi');
-
-    const matchesChannel = (item) => {
-      if (!normChannel) return true;
-      const ch = classifyTransactionChannel(item);
-      if (isQrTarget) return ch === 'qr';
-      if (isPayswiffTarget) return ch === 'payswiff';
-      if (isPineTarget) return ch === 'pinelabs';
-      return ch === normChannel;
-    };
-
-    const targetTxns = normChannel ? txns.filter(matchesChannel) : txns;
-    const targetWths = normChannel ? wths.filter(matchesChannel) : wths;
-
-    const calcNetSales = (txnList) => {
-      const approved = txnList.filter(t => (t.status || '').toUpperCase() === 'APPROVED');
-      return approved.reduce((sum, t) => {
-        const gross = parseFloat(t.amount) || 0;
-        let fee = 0;
-        if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
-          try {
-            const jsonPart = t.notes.slice(t.notes.indexOf('{'));
-            const meta = JSON.parse(jsonPart);
-            fee = parseFloat(meta.company_fee) || 0;
-          } catch (_) {}
-        }
-        return sum + Math.max(0, gross - fee);
-      }, 0);
-    };
-
-    const channelReceivedSales = calcNetSales(targetTxns);
-    const channelWithdrawn = targetWths.filter(w => (w.status || '').toUpperCase() === 'APPROVED').reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
-    const channelPendingWithdrawn = targetWths.filter(w => (w.status || '').toUpperCase() === 'PENDING').reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
-    const channelLiveAvail = Math.max(0, parseFloat((channelReceivedSales - channelWithdrawn - channelPendingWithdrawn).toFixed(2)));
-
-    const allReceivedSales = calcNetSales(txns);
-    const allWithdrawn = wths.filter(w => (w.status || '').toUpperCase() === 'APPROVED').reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
-    const allPendingWithdrawn = wths.filter(w => (w.status || '').toUpperCase() === 'PENDING').reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
-    const allLiveAvail = Math.max(0, parseFloat((allReceivedSales - allWithdrawn - allPendingWithdrawn).toFixed(2)));
-
-    const staticWalletAvail = parseFloat(wallet?.available_balance || 0);
-
-    // Strict Negative Balance Lockout Protection
-    if (staticWalletAvail <= 0) {
-      return {
-        success: false,
-        message: `⚠️ Withdrawal Locked: Your wallet balance is ₹${staticWalletAvail.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (zero or negative). New payouts are strictly blocked until the balance is positive.`
-      };
-    }
-
-    const currAvail = staticWalletAvail;
-    const holdAmount = isSelfWithdrawal ? 0.0 : 500.0;
-    const maxWithdrawable = Math.max(0, parseFloat((currAvail - holdAmount).toFixed(2)));
-
-    if (numAmount > maxWithdrawable) {
-      return {
-        success: false,
-        message: holdAmount > 0 
-          ? `Insufficient withdrawable balance. Total Balance is ₹${currAvail.toLocaleString('en-IN', { minimumFractionDigits: 2 })}. A minimum reserve balance of ₹500.00 must be maintained. Maximum withdrawable amount is ₹${maxWithdrawable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`
-          : `Insufficient balance. Available Balance: ₹${currAvail.toLocaleString('en-IN', { minimumFractionDigits: 2 })}, Requested: ₹${numAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`
-      };
-    }
-
-    const wId = `WTH-${Date.now().toString().slice(-6)}`;
-
-    // Deduct from available balance and hold in pending
-    const currPend = parseFloat(wallet?.pending_balance || 0);
-    const newAvail = Math.max(0, parseFloat((currAvail - numAmount).toFixed(2)));
-    const newPend = parseFloat((currPend + numAmount).toFixed(2));
-
-    if (wallet) {
-      await supabase
-        .from('wallets')
-        .update({
-          available_balance: newAvail,
-          pending_balance: newPend,
-          updated_at: new Date().toISOString()
-        })
-        .eq('user_id', cleanMerchantId);
-    } else {
-      await supabase
-        .from('wallets')
-        .insert({
-          user_id: cleanMerchantId,
-          available_balance: newAvail,
-          pending_balance: newPend,
-          total_sales: allReceivedSales,
-          received_sales: allReceivedSales,
-          withdrawn_amount: allWithdrawn,
-          updated_at: new Date().toISOString()
-        });
-    }
-
-    const { data: posRec } = await supabase
-      .from('merchant_pos')
-      .select('provider, vendor_entity, terminal_id')
-      .eq('merchant_id', cleanMerchantId)
-      .maybeSingle();
-
-    const isQrPayout = channel === 'qr' || (provider && provider.toLowerCase().includes('qr'));
-    const targetProvider = isQrPayout ? 'Company QR (UPI)' : (provider || (channel === 'payswiff' ? 'Payswiff' : (posRec?.provider || 'Pine Labs')));
-    const targetVendor = isQrPayout 
-      ? 'RONAV Technologies' 
-      : ((targetProvider.toLowerCase().includes('swiff') && (posRec?.vendor_entity === 'R.P. Technologies' || posRec?.vendor_entity?.includes('RP'))) 
-          ? 'R.P. Technologies' 
-          : (targetProvider.toLowerCase().includes('swiff') ? 'RONAV Technologies' : (posRec?.vendor_entity || 'Rose Navaneetham Enterprises')));
-    const posTag = ` | POS: ${targetProvider} | Channel: ${isQrPayout ? 'qr' : (channel || 'default')} | Vendor: ${targetVendor}`;
-    const cleanRemarks = remarks ? remarks.trim() : '';
-    const noteTag = cleanRemarks ? ` | Note: ${cleanRemarks}` : '';
-    const cleanUtr = (withdrawalData.utr_number || withdrawalData.ref_number || withdrawalData.utr || '').trim().toUpperCase();
-    
-    // Strict Unique UTR Validation on Payout / Disbursal Request (Prevents double withdrawal on the same slip)
-    if (cleanUtr && !cleanUtr.startsWith('RRN') && cleanUtr.length >= 5) {
-      const utrValidation = await validateUtrUniqueness(cleanUtr, null, null, 'WITHDRAWAL');
-      if (!utrValidation.isUnique) {
-        return {
-          success: false,
-          message: utrValidation.message
-        };
-      }
-    }
-
-    const utrTag = cleanUtr ? ` | UTR: ${cleanUtr}` : '';
-
-    // Formulate descriptive remark header for clarity in DB
-    const headerTag = isSelfWithdrawal 
-      ? '[COMMISSION_PAYOUT]' 
-      : '[CUSTOMER_PAYOUT]';
-
-    const initialRemark = `${headerTag}${utrTag}${noteTag} | Name: ${customer_name ? customer_name.trim() : (isSelfWithdrawal ? 'Self Payout' : 'Customer Payout')} | Mob: ${customer_mobile ? customer_mobile.trim() : 'N/A'} | Mode: ${settlement_mode}${posTag}`;
-
-    const { data: createdWth, error: wErr } = await supabase
-      .from('withdrawals')
-      .insert({
-        id: wId,
-        merchant_id: cleanMerchantId,
-        amount: numAmount,
-        bank_name,
-        account_number,
-        ifsc: ifsc || 'SBIN0001234',
-        admin_remark: initialRemark,
-        status: 'PENDING'
-      })
-      .select()
-      .single();
-
-    if (wErr) return { success: false, message: wErr.message };
-
-    const purposeLabel = payout_purpose === 'COMMISSION' ? 'Commission Disbursal' : 'Sales Settlement';
-    return {
-      success: true,
-      message: `✓ ${purposeLabel} request for ₹${numAmount.toLocaleString('en-IN')} submitted to ${bank_name}! Pending Admin disbursal clearance. (₹500 Active Account Reserve retained in wallet)`,
-      withdrawal: createdWth,
-      withdrawal_id: wId
-    };
+    const res = await fetchWithTimeout(getApiUrl('/api/withdrawals/request'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(withdrawalData)
+    });
+    const data = await res.json();
+    return data;
   } catch (err) {
     console.error('requestWithdrawal error:', err);
-    return { success: false, message: err.message };
+    return { success: false, message: err.message || 'Failed to submit withdrawal request.' };
   }
 }
 
 export async function verifyWithdrawal(withdrawalId, action, remark = '', utrNumber = '') {
   try {
-    const { data: wth, error: wErr } = await supabase
-      .from('withdrawals')
-      .select('*')
-      .eq('id', withdrawalId)
-      .single();
-
-    if (wErr || !wth) return { success: false, message: 'Withdrawal record not found.' };
-
-    const { data: wallet } = await supabase
-      .from('wallets')
-      .select('*')
-      .eq('user_id', wth.merchant_id)
-      .single();
-
-    const currPend = parseFloat(wallet?.pending_balance || 0);
-    const currWithdrawn = parseFloat(wallet?.withdrawn_amount || 0);
-    const currAvail = parseFloat(wallet?.available_balance || 0);
-    const amount = parseFloat(wth.amount);
-
-    let updatedWallet = null;
-
-    if (action === 'DISPATCH' || action === 'PENDING_TO_DISBURSE') {
-      const mode = remark || 'T+1 Standard Bank Transfer';
-      const cleanRef = (utrNumber || '').trim();
-      const existingRemark = wth.admin_remark || '';
-      const refTag = cleanRef ? `Ref: ${cleanRef} • ` : '';
-      const finalRemark = `[PENDING_TO_DISBURSE] Initiated via ${mode} • ${refTag}Awaiting Bank Clearance (T+1) • ${existingRemark}`;
-
-      await supabase
-        .from('withdrawals')
-        .update({
-          status: 'PENDING',
-          admin_remark: finalRemark
-        })
-        .eq('id', withdrawalId);
-
-      const { data: updatedW } = await supabase.from('withdrawals').select('*').eq('id', withdrawalId).single();
-      return {
-        success: true,
-        message: `Payout moved to Pending to Disburse (${mode}).`,
-        withdrawal: updatedW,
-        wallet: wallet
-      };
-    } else if (action === 'APPROVE') {
-      let cleanUtr = (utrNumber || '').trim();
-
-      // If no explicit UTR was passed or is generic, check if the withdrawal already has an existing UTR in remark
-      if (!cleanUtr || cleanUtr === 'CMS-SETTLED' || cleanUtr === 'BATCH-DISBURSED' || cleanUtr === 'BANK-DISBURSED') {
-        const existingUtrMatch = (wth.admin_remark || '').match(/UTR:?\s*([A-Za-z0-9_-]+)/i);
-        if (existingUtrMatch) {
-          cleanUtr = existingUtrMatch[1].trim();
-        } else {
-          cleanUtr = `CMS-${wth.id}`;
-        }
-      }
-
-      // Only check duplicates if cleanUtr is a real external UTR (not CMS- or BATCH- generated IDs)
-      const isGenericUtr = cleanUtr.startsWith('CMS-') || cleanUtr.startsWith('BATCH-') || cleanUtr.startsWith('RRN') || cleanUtr.startsWith('TXN-') || cleanUtr === 'CMS-SETTLED';
-
-      if (!isGenericUtr && cleanUtr.length >= 5) {
-        const { data: dupWithdrawals } = await supabase
-          .from('withdrawals')
-          .select('id, amount, status, admin_remark')
-          .eq('status', 'APPROVED')
-          .neq('id', withdrawalId);
-
-        const isDuplicate = dupWithdrawals?.some(w => {
-          const m = (w.admin_remark || '').match(/UTR:\s*([A-Za-z0-9_-]+)/i);
-          return m && m[1].trim().toLowerCase() === cleanUtr.toLowerCase();
-        });
-
-        if (isDuplicate) {
-          return {
-            success: false,
-            message: `Approval Blocked: Bank UTR "${cleanUtr}" has already been issued for another approved disbursal. Each payout requires a unique bank reference.`
-          };
-        }
-      }
-
-      const existingRemark = (wth.admin_remark || '')
-        .replace(/\[PENDING_TO_DISBURSE\][^•]*•/g, '')
-        .replace(/\[SUBMITTED_TO_BANK\]\s*/g, '')
-        .trim();
-      const utrPrefix = `UTR: ${cleanUtr}`;
-      const finalRemark = `${utrPrefix} • ${remark || 'Disbursed by Admin'} • ${existingRemark}`;
-
-      await supabase
-        .from('withdrawals')
-        .update({
-          status: 'APPROVED',
-          admin_remark: finalRemark,
-          verified_at: new Date().toISOString()
-        })
-        .eq('id', withdrawalId);
-
-      if (wallet) {
-        const { data: wRes } = await supabase
-          .from('wallets')
-          .update({
-            pending_balance: Math.max(0.0, currPend - amount),
-            withdrawn_amount: currWithdrawn + amount,
-            updated_at: new Date().toISOString()
-          })
-          .eq('user_id', wth.merchant_id)
-          .select()
-          .maybeSingle();
-
-        updatedWallet = wRes;
-      }
-    } else {
-      await supabase
-        .from('withdrawals')
-        .update({
-          status: 'REJECTED',
-          admin_remark: remark || 'Bank account details mismatch',
-          verified_at: new Date().toISOString()
-        })
-        .eq('id', withdrawalId);
-
-      // Refund back to available balance
-      const { data: wRes } = await supabase
-        .from('wallets')
-        .update({
-          pending_balance: Math.max(0.0, currPend - amount),
-          available_balance: currAvail + amount,
-          updated_at: new Date().toISOString()
-        })
-        .eq('user_id', wth.merchant_id)
-        .select()
-        .single();
-
-      updatedWallet = wRes;
-    }
-
-    const { data: updatedW } = await supabase.from('withdrawals').select('*').eq('id', withdrawalId).single();
-
-    return {
-      success: true,
-      message: `Withdrawal ${action === 'APPROVE' ? 'Approved & Settled' : 'Rejected'}.`,
-      withdrawal: updatedW,
-      wallet: updatedWallet
-    };
+    const res = await fetchWithTimeout(getApiUrl('/api/admin/verify-withdrawal'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ withdrawal_id: withdrawalId, action, remark, utr: utrNumber })
+    });
+    const data = await res.json();
+    return data;
   } catch (err) {
     console.error('verifyWithdrawal error:', err);
-    return { success: false, message: err.message };
+    return { success: false, message: err.message || 'Failed to verify withdrawal on server.' };
   }
 }
 
@@ -3371,44 +1947,18 @@ export async function verifyWithdrawalsBatch(withdrawalIds, action, remark = '',
 export async function markWithdrawalsSubmittedToBank(withdrawalIds, batchMeta = {}) {
   try {
     if (!withdrawalIds || withdrawalIds.length === 0) return { success: true };
-    const idSet = new Set((withdrawalIds || []).map(id => String(id)));
-    
-    // Fetch records to preserve customer/merchant context in admin_remark
-    const { data: rawRecords, error: fetchErr } = await supabase
-      .from('withdrawals')
-      .select('id, admin_remark')
-      .in('id', withdrawalIds);
-
-    if (fetchErr) throw fetchErr;
-
-    // Strict safety check: only update IDs explicitly passed
-    const records = (rawRecords || []).filter(r => idSet.has(String(r.id)));
-
-    const timestamp = batchMeta.submittedAt || new Date().toISOString();
-    const batchTag = batchMeta.batchId ? `[BATCH:${batchMeta.batchId}]` : '';
-    const batchNameTag = batchMeta.batchName ? `[BATCH_NAME:${batchMeta.batchName}]` : '';
-
-    for (const r of records) {
-      const existing = (r.admin_remark || '')
-        .replace(/\[SUBMITTED_TO_BANK\]\s*/g, '')
-        .replace(/\[BATCH:[^\]]+\]\s*/g, '')
-        .replace(/\[BATCH_NAME:[^\]]+\]\s*/g, '')
-        .trim();
-
-      const newRemark = `[SUBMITTED_TO_BANK] ${batchTag} ${batchNameTag} ${existing}`.trim();
-      await supabase
-        .from('withdrawals')
-        .update({
-          admin_remark: newRemark,
-          submitted_to_bank_at: timestamp
-        })
-        .eq('id', r.id);
-    }
-
-    return { 
-      success: true, 
-      message: `Successfully marked ${records.length} payout(s) as Submitted to Bank!` 
-    };
+    const res = await fetchWithTimeout(getApiUrl('/api/admin/withdrawals/batch-status'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        withdrawalIds,
+        action: 'SUBMITTED_TO_BANK',
+        batchTag: batchMeta.batchId ? `[BATCH:${batchMeta.batchId}]` : '',
+        batchNameTag: batchMeta.batchName ? `[BATCH_NAME:${batchMeta.batchName}]` : ''
+      })
+    });
+    const data = await res.json();
+    return data;
   } catch (err) {
     console.error('markWithdrawalsSubmittedToBank error:', err);
     return { success: false, message: err.message };
@@ -3418,38 +1968,16 @@ export async function markWithdrawalsSubmittedToBank(withdrawalIds, batchMeta = 
 export async function revertWithdrawalsToPending(withdrawalIds) {
   try {
     if (!withdrawalIds || withdrawalIds.length === 0) return { success: true };
-    const idSet = new Set((withdrawalIds || []).map(id => String(id)));
-
-    const { data: rawRecords, error: fetchErr } = await supabase
-      .from('withdrawals')
-      .select('id, admin_remark')
-      .in('id', withdrawalIds);
-
-    if (fetchErr) throw fetchErr;
-
-    // Strict safety check: only update IDs explicitly passed
-    const records = (rawRecords || []).filter(r => idSet.has(String(r.id)));
-
-    for (const r of records) {
-      const cleanRemark = (r.admin_remark || '')
-        .replace(/\[SUBMITTED_TO_BANK\]\s*/g, '')
-        .replace(/\[BATCH:[^\]]+\]\s*/g, '')
-        .replace(/\[BATCH_NAME:[^\]]+\]\s*/g, '')
-        .trim();
-      await supabase
-        .from('withdrawals')
-        .update({
-          status: 'PENDING',
-          admin_remark: cleanRemark || null,
-          submitted_to_bank_at: null
-        })
-        .eq('id', r.id);
-    }
-
-    return { 
-      success: true, 
-      message: `Successfully reverted ${records.length} payout(s) back to Pending!` 
-    };
+    const res = await fetchWithTimeout(getApiUrl('/api/admin/withdrawals/batch-status'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        withdrawalIds,
+        action: 'REVERT_PENDING'
+      })
+    });
+    const data = await res.json();
+    return data;
   } catch (err) {
     console.error('revertWithdrawalsToPending error:', err);
     return { success: false, message: err.message };
@@ -3458,13 +1986,9 @@ export async function revertWithdrawalsToPending(withdrawalIds) {
 
 export async function getMerchantWithdrawals(merchantId) {
   try {
-    const { data: withdrawals, error } = await supabase
-      .from('withdrawals')
-      .select('*')
-      .eq('merchant_id', merchantId)
-      .order('created_at', { ascending: false });
-
-    if (error) return { success: false, message: error.message, withdrawals: [] };
+    const res = await fetchWithTimeout(getApiUrl(`/api/withdrawals/merchant/${encodeURIComponent(merchantId)}`));
+    const data = await res.json();
+    const withdrawals = data.withdrawals || [];
     
     const enriched = (withdrawals || []).map(w => {
       let utrNumber = '';
@@ -3479,7 +2003,6 @@ export async function getMerchantWithdrawals(merchantId) {
       const isSubmittedToBank = (w.admin_remark || '').includes('[SUBMITTED_TO_BANK]') || Boolean(w.submitted_to_bank_at);
 
       if (w.admin_remark) {
-        // Extract UTR if present: UTR: <utr>
         const utrMatch = w.admin_remark.match(/UTR:\s*([A-Z0-9_-]+)/i);
         if (utrMatch) {
           utrNumber = utrMatch[1].trim();
@@ -3488,7 +2011,6 @@ export async function getMerchantWithdrawals(merchantId) {
         const matchNote = w.admin_remark.match(/Note:\s*([^|•\r\n]+)/i);
         if (matchNote) merchantNote = matchNote[1].trim();
 
-        // Extract [CUSTOMER_PAYOUT] json or text if present
         if (w.admin_remark.includes('[CUSTOMER_PAYOUT]') || w.admin_remark.includes('[COMMISSION_PAYOUT]') || w.admin_remark.includes('[REGULAR_SETTLEMENT]')) {
           const matchName = w.admin_remark.match(/Name:\s*([^|]+)/i);
           const matchMob = w.admin_remark.match(/Mob:\s*([^|]+)/i);
@@ -3534,147 +2056,61 @@ export async function getMerchantWithdrawals(merchantId) {
 // ----------------------------------------------------
 export async function submitInquiry(inquiryData) {
   try {
-    const { type, name, phone, mobile, merchant_id, amount, category, location, remarks } = inquiryData;
-    const phoneNum = phone || mobile;
-    if (!name || !phoneNum) {
-      return { success: false, message: 'Name and phone are required.' };
-    }
-
-    // Sanitize type to strictly obey PostgreSQL check constraint: (type IN ('LOAN', 'FRANCHISE'))
-    const normalizedType = (type || '').toUpperCase();
-    const dbType = normalizedType === 'LOAN' ? 'LOAN' : 'FRANCHISE';
-    const displayCategory = category || (normalizedType === 'BBPS' ? 'BBPS Utility Hub' : (normalizedType === 'POS' ? 'Counter POS Machine' : (normalizedType === 'CONTACT' ? 'Contact Message' : 'General Inquiry')));
-
-    const prefix = dbType === 'LOAN' ? 'LN' : 'FR';
-    const inqId = `${prefix}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-    const { data: created, error } = await supabase
-      .from('inquiries')
-      .insert({
-        id: inqId,
-        type: dbType,
-        name,
-        phone: phoneNum,
-        merchant_id: merchant_id || null,
-        amount: amount || 'N/A',
-        category: displayCategory,
-        location: location || 'Hyderabad / Telangana',
-        remarks: remarks || '',
-        status: 'New'
-      })
-      .select()
-      .single();
-
-    if (error) return { success: false, message: error.message };
-    return { success: true, message: 'Application submitted successfully!', inquiry: created };
+    const res = await fetchWithTimeout(getApiUrl('/api/inquiries/submit'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(inquiryData)
+    });
+    const data = await res.json();
+    return data;
   } catch (err) {
     console.error('submitInquiry error:', err);
-    return { success: false, message: err.message };
+    return { success: false, message: err.message || 'Failed to submit inquiry on server.' };
   }
 }
 
 export async function updateInquiryStatus(inquiryId, status, remarks = '') {
   try {
-    const updatePayload = { status };
-    if (remarks) updatePayload.remarks = remarks;
-
-    const { data, error } = await supabase
-      .from('inquiries')
-      .update(updatePayload)
-      .eq('id', inquiryId)
-      .select()
-      .single();
-
-    if (error) {
-      console.warn('Supabase updateInquiryStatus warning:', error.message);
-      return { success: false, message: error.message };
-    }
-    return { success: true, inquiry: data, message: `Inquiry marked as ${status}.` };
+    const res = await fetchWithTimeout(getApiUrl('/api/inquiries/update-status'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inquiryId, status, remarks })
+    });
+    const data = await res.json();
+    return data;
   } catch (err) {
     console.error('updateInquiryStatus error:', err);
-    return { success: false, message: err.message };
+    return { success: false, message: err.message || 'Failed to update inquiry status on server.' };
   }
 }
 
 export async function updateUserStatus(userId, status) {
   try {
-    // 1. Fetch current status registry from Supabase
-    let statusMap = {};
-    const { data: existing } = await supabase
-      .from('inquiries')
-      .select('*')
-      .eq('id', 'SYS-USER-STATUSES')
-      .maybeSingle();
-
-    if (existing?.remarks) {
-      try { statusMap = JSON.parse(existing.remarks); } catch (_) {}
-    }
-    statusMap[userId] = status;
-
-    // 2. Persist updated status map to Supabase for multi-device sync
-    const { error: upsertErr } = await supabase
-      .from('inquiries')
-      .upsert({
-        id: 'SYS-USER-STATUSES',
-        type: 'FRANCHISE',
-        name: 'RONAV_USER_STATUS_REGISTRY',
-        phone: '9966203038',
-        category: 'PLATFORM_SETTINGS',
-        location: 'SYSTEM',
-        remarks: JSON.stringify(statusMap),
-        status: 'ACTIVE'
-      });
-
-    if (upsertErr) {
-      console.warn('updateUserStatus Supabase error:', upsertErr.message);
-    }
-
-    // 3. Keep local fallback in sync
-    try {
-      localStorage.setItem('ronav_user_status_overrides', JSON.stringify(statusMap));
-    } catch (_) {}
-
-    return { 
-      success: true, 
-      user: { id: userId, status }, 
-      message: `Partner status updated to ${status} across all devices.` 
-    };
+    const res = await fetchWithTimeout(getApiUrl('/api/admin/users/toggle-status'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ targetUserId: userId, status, adminId: 'ADM001' })
+    });
+    const data = await res.json();
+    return data;
   } catch (err) {
     console.error('updateUserStatus error:', err);
-    return { success: false, message: err.message };
+    return { success: false, message: err.message || 'Failed to update user status on server.' };
   }
 }
 
 export async function updateUserDetails(userId, updates) {
   try {
-    const payload = {};
-    if (updates.name) payload.name = updates.name.trim();
-    if (updates.mobile) payload.mobile = updates.mobile.trim();
-    if (updates.email !== undefined) payload.email = (updates.email || '').trim() || null;
-    payload.updated_at = new Date().toISOString();
-
-    const { data, error } = await supabase
-      .from('users')
-      .update(payload)
-      .eq('id', userId)
-      .select()
-      .single();
-
-    // Cache locally as well
-    try {
-      const detailsOverrides = JSON.parse(localStorage.getItem('ronav_user_details_overrides') || '{}');
-      detailsOverrides[userId] = { ...detailsOverrides[userId], ...payload };
-      localStorage.setItem('ronav_user_details_overrides', JSON.stringify(detailsOverrides));
-    } catch (_) {}
-
-    return { 
-      success: true, 
-      user: data || { id: userId, ...payload }, 
-      message: 'Partner profile details updated successfully.' 
-    };
+    const res = await fetchWithTimeout(getApiUrl('/api/users/update-profile'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, ...updates })
+    });
+    const data = await res.json();
+    return data;
   } catch (err) {
     console.error('updateUserDetails error:', err);
-    return { success: false, message: err.message };
+    return { success: false, message: err.message || 'Failed to update user details on server.' };
   }
 }
 
@@ -3707,94 +2143,69 @@ export async function getInquiries() {
 // ----------------------------------------------------
 export async function getPlatformQrConfig() {
   try {
-    const { data, error } = await supabase
-      .from('inquiries')
-      .select('*')
-      .eq('id', 'SYS-CONFIG-QR')
-      .maybeSingle();
-
-    if (!error && data) {
-      const image = data.remarks || null;
-      const name = data.location || 'RONAV TECHNOLOGIES';
-      // Sync local cache
-      try {
-        if (image) localStorage.setItem('ronav_company_qr_image', image);
-        localStorage.setItem('ronav_company_qr_name', name);
-      } catch (e) {}
-      return { success: true, image, name };
+    const res = await fetchWithTimeout(getApiUrl('/api/settings/config/SYS-CONFIG-QR'));
+    const data = await res.json();
+    if (data.success && data.value) {
+      const cfg = typeof data.value === 'object' ? data.value : { image: data.value, name: 'RONAV TECHNOLOGIES' };
+      return { success: true, image: cfg.image || null, name: cfg.name || 'RONAV TECHNOLOGIES' };
     }
   } catch (e) {
-    console.warn('Could not fetch QR config from Supabase:', e);
+    console.warn('Could not fetch QR config from server:', e);
   }
 
   // Fallback to local storage
   try {
-    const localImg = localStorage.getItem('ronav_company_qr_image') || null;
-    const localName = localStorage.getItem('ronav_company_qr_name') || 'RONAV TECHNOLOGIES';
-    return { success: true, image: localImg, name: localName };
-  } catch (e) {
-    return { success: true, image: null, name: 'RONAV TECHNOLOGIES' };
-  }
+    if (typeof localStorage !== 'undefined') {
+      const localImg = localStorage.getItem('ronav_company_qr_image') || null;
+      const localName = localStorage.getItem('ronav_company_qr_name') || 'RONAV TECHNOLOGIES';
+      return { success: true, image: localImg, name: localName };
+    }
+  } catch (e) {}
+  return { success: true, image: null, name: 'RONAV TECHNOLOGIES' };
 }
 
 export async function savePlatformQrConfig({ image, name }) {
   const payeeName = (name || 'RONAV TECHNOLOGIES').trim();
-  let supabaseSuccess = false;
-
   try {
-    const { error } = await supabase
-      .from('inquiries')
-      .upsert({
-        id: 'SYS-CONFIG-QR',
-        type: 'FRANCHISE',
-        name: 'RONAV_COMPANY_QR',
-        phone: '9966203038',
-        category: 'PLATFORM_SETTINGS',
-        location: payeeName,
-        remarks: image || '',
-        status: 'ACTIVE'
-      });
-    if (!error) supabaseSuccess = true;
-    else console.warn('Supabase QR save error:', error);
+    const res = await fetchWithTimeout(getApiUrl('/api/settings/config'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        key: 'SYS-CONFIG-QR',
+        value: { image: image || '', name: payeeName }
+      })
+    });
+    const data = await res.json();
+    if (typeof localStorage !== 'undefined') {
+      if (image) localStorage.setItem('ronav_company_qr_image', image);
+      else localStorage.removeItem('ronav_company_qr_image');
+      localStorage.setItem('ronav_company_qr_name', payeeName);
+    }
+    return { success: true, image, name: payeeName, syncedToSupabase: data.success };
   } catch (err) {
-    console.warn('Supabase QR config upsert exception:', err);
+    console.warn('savePlatformQrConfig server error:', err);
+    return { success: true, image, name: payeeName, syncedToSupabase: false };
   }
-
-  // Also update local storage on current machine
-  try {
-    if (image) localStorage.setItem('ronav_company_qr_image', image);
-    else localStorage.removeItem('ronav_company_qr_image');
-    localStorage.setItem('ronav_company_qr_name', payeeName);
-  } catch (e) {}
-
-  return { success: true, image, name: payeeName, syncedToSupabase: supabaseSuccess };
 }
 
 export async function getCommissionPayoutConfig() {
   try {
-    // 1. Try fetching from Supabase system inquiries/settings table
-    const { data, error } = await supabase
-      .from('inquiries')
-      .select('*')
-      .eq('id', 'SYS-CONFIG-COMMISSION-PAYOUT')
-      .maybeSingle();
-
-    if (!error && data) {
-      const isEnabled = data.status === 'ACTIVE';
-      try {
-        localStorage.setItem('ronav_commission_payout_active', isEnabled ? 'true' : 'false');
-      } catch (e) {}
+    const res = await fetchWithTimeout(getApiUrl('/api/settings/config/SYS-COMMISSION-PAYOUTS'));
+    const data = await res.json();
+    if (data.success && data.value !== null && data.value !== undefined) {
+      const isEnabled = data.value === true || data.value === 'true' || data.value === 'ACTIVE';
       return { success: true, enabled: isEnabled };
     }
   } catch (err) {
-    console.warn('Supabase commission config fetch error:', err);
+    console.warn('getCommissionPayoutConfig error:', err);
   }
 
-  // 2. Fallback to localStorage (Default: true / active for seamless operational flow)
   try {
-    const localVal = localStorage.getItem('ronav_commission_payout_active');
-    if (localVal !== null) {
-      return { success: true, enabled: localVal === 'true' };
+    if (typeof localStorage !== 'undefined') {
+      const localVal = localStorage.getItem('ronav_commission_payout_active');
+      if (localVal !== null) {
+        return { success: true, enabled: localVal === 'true' };
+      }
     }
   } catch (e) {}
 
@@ -3803,35 +2214,25 @@ export async function getCommissionPayoutConfig() {
 
 export async function saveCommissionPayoutConfig(enabled) {
   const isEnabled = Boolean(enabled);
-  let supabaseSuccess = false;
-
   try {
-    const { error } = await supabase
-      .from('inquiries')
-      .upsert({
-        id: 'SYS-CONFIG-COMMISSION-PAYOUT',
-        type: 'COMMISSION_CONFIG',
-        name: 'COMMISSION_PAYOUT_SETTING',
-        phone: '9966203038',
-        category: 'PLATFORM_SETTINGS',
-        location: isEnabled ? 'GLOBAL_ACTIVE' : 'GLOBAL_LOCKED',
-        remarks: isEnabled ? 'Commission payouts enabled globally by Admin' : 'Commission payouts locked globally by Admin',
-        status: isEnabled ? 'ACTIVE' : 'INACTIVE'
-      });
-    if (!error) supabaseSuccess = true;
-    else console.warn('Supabase commission config save error:', error);
+    const res = await fetchWithTimeout(getApiUrl('/api/settings/config'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        key: 'SYS-COMMISSION-PAYOUTS',
+        value: isEnabled
+      })
+    });
+    const data = await res.json();
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('ronav_commission_payout_active', isEnabled ? 'true' : 'false');
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('storage'));
+    }
+    return { success: true, enabled: isEnabled, syncedToSupabase: data.success };
   } catch (err) {
-    console.warn('Supabase commission config upsert exception:', err);
+    console.warn('saveCommissionPayoutConfig error:', err);
+    return { success: true, enabled: isEnabled, syncedToSupabase: false };
   }
-
-  // Also update local storage on current machine
-  try {
-    localStorage.setItem('ronav_commission_payout_active', isEnabled ? 'true' : 'false');
-    // Dispatch cross-tab storage event
-    window.dispatchEvent(new Event('storage'));
-  } catch (e) {}
-
-  return { success: true, enabled: isEnabled, syncedToSupabase: supabaseSuccess };
 }
 
 // ----------------------------------------------------
