@@ -2070,6 +2070,25 @@ export async function handleApiRequest(req, res) {
       }
     }
 
+    if (pathname.startsWith('/api/settings/config') && method === 'GET') {
+      const key = pathname.replace('/api/settings/config/', '').replace('/api/settings/config', '').trim() || 'SYS-COMMISSION-PAYOUTS';
+      const rows = await pgQuery(`SELECT * FROM inquiries WHERE UPPER(id) = UPPER($1)`, [key]);
+      const status = rows.length > 0 && rows[0].status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE';
+      return sendJson(res, 200, { success: true, key, status, enabled: status === 'ACTIVE', config: rows[0] || null });
+    }
+
+    if (pathname === '/api/settings/config' && method === 'POST') {
+      const { key, status, enabled } = await parseJsonBody(req);
+      const cleanKey = (key || 'SYS-COMMISSION-PAYOUTS').trim().toUpperCase();
+      const finalStatus = (status || (enabled ? 'ACTIVE' : 'INACTIVE')).toUpperCase();
+      await pgQuery(`
+        INSERT INTO inquiries (id, type, name, phone, status, remarks)
+        VALUES ($1, 'SYS_CONFIG', $1, '9966203053', $2, 'Master System Configuration Toggle')
+        ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, updated_at = CURRENT_TIMESTAMP
+      `, [cleanKey, finalStatus]);
+      return sendJson(res, 200, { success: true, message: `Setting ${cleanKey} updated to ${finalStatus}`, status: finalStatus, enabled: finalStatus === 'ACTIVE' });
+    }
+
     // ----------------------------------------------------
     // AUTOMATIC GITHUB AUTO-DEPLOY WEBHOOK
     // ----------------------------------------------------

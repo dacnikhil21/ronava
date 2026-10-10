@@ -98,8 +98,8 @@ async function runWithdrawalLifecycleAudit() {
     })
   }).then(r => r.json());
 
-  console.log('  Valid Regular Payout Request (₹5,000):', wthRes1.success ? `✅ CREATED (${wthRes1.withdrawal_id})` : '❌ FAILED');
-  assert.strictEqual(wthRes1.success, true);
+  console.log('  wthRes1:', wthRes1);
+  assert.strictEqual(wthRes1.success, true, `Valid payout request failed: ${wthRes1.message}`);
   const wthId1 = wthRes1.withdrawal_id;
 
   const walletAfterWth1 = await getWallet('MID1001');
@@ -155,7 +155,38 @@ async function runWithdrawalLifecycleAudit() {
   console.log(`  SD1001 Available Commission Balance: ₹${sdAvail.toFixed(2)}`);
 
   if (sdAvail > 0) {
-    // Withdraw 100% of commission (₹0 reserve held)
+    // 1. Verify locked when toggle is INACTIVE
+    await fetch(`${baseUrl}/api/settings/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'SYS-COMMISSION-PAYOUTS', status: 'INACTIVE' })
+    });
+
+    const lockedWthRes = await fetch(`${baseUrl}/api/withdrawals/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        merchant_id: 'SD1001',
+        amount: sdAvail,
+        bank_name: 'ICICI Bank',
+        account_number: '123405009876',
+        ifsc: 'ICIC0001234',
+        payout_purpose: 'COMMISSION',
+        payout_type: 'MERCHANT_OWN'
+      })
+    }).then(r => r.json());
+
+    console.log('  Lockout Check (Toggle OFF):', !lockedWthRes.success ? `✅ BLOCKED AS EXPECTED (${lockedWthRes.message})` : '❌ UNEXPECTED SUCCESS');
+    assert.strictEqual(lockedWthRes.success, false);
+
+    // 2. Enable toggle
+    await fetch(`${baseUrl}/api/settings/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'SYS-COMMISSION-PAYOUTS', status: 'ACTIVE' })
+    });
+
+    // 3. Withdraw 100% of commission (₹0 reserve held)
     const commWthRes = await fetch(`${baseUrl}/api/withdrawals/request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
