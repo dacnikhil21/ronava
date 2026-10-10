@@ -157,6 +157,26 @@ async function handleMockQuery(sql, params = []) {
       localMockDb.wallets.push(row);
       return [{ ...row }];
     }
+  if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('received_sales = GREATEST')) {
+    const targetUserId = (params[2] || '').toString().toUpperCase();
+    const w = localMockDb.wallets.find(x => (x.user_id || '').toUpperCase() === targetUserId);
+    if (w) {
+      w.available_balance = parseFloat(params[0]);
+      w.received_sales = Math.max(0.0, parseFloat((parseFloat(w.received_sales || 0) - parseFloat(params[1])).toFixed(2)));
+      w.total_sales = Math.max(0.0, parseFloat((parseFloat(w.total_sales || 0) - parseFloat(params[1])).toFixed(2)));
+      return [{ ...w }];
+    }
+    return [];
+  }
+  if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('total_sales = GREATEST')) {
+    const targetUserId = (params[2] || '').toString().toUpperCase();
+    const w = localMockDb.wallets.find(x => (x.user_id || '').toUpperCase() === targetUserId);
+    if (w) {
+      w.available_balance = parseFloat(params[0]);
+      w.total_sales = Math.max(0.0, parseFloat((parseFloat(w.total_sales || 0) - parseFloat(params[1])).toFixed(2)));
+      return [{ ...w }];
+    }
+    return [];
   }
   if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('received_sales = received_sales + $2')) {
     const targetUserId = (params[2] || '').toString().toUpperCase();
