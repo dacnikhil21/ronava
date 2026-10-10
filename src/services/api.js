@@ -1271,27 +1271,21 @@ export async function getDownstreamNetwork(creatorId) {
     const downstreamUsers = allUsers.filter(u => downstreamIds.has(u.id));
     const todayStr = new Date().toISOString().slice(0, 10);
 
-    // Helper to find all merchant IDs under any given user (including themselves if merchant)
-    const getMerchantsUnderUser = (rootId) => {
-      const uObj = userMap[rootId];
-      if (!uObj) return [];
-      if (uObj.role === 'MERCHANT' || rootId.startsWith('MID')) {
-        return [rootId];
-      }
-      const mList = [];
+    // Helper to find all transacting user IDs under any given user (including themselves and all their downlines)
+    const getTransactingAccountsUnderUser = (rootId) => {
+      const transactingIds = new Set([rootId]);
       const q = [rootId];
       while (q.length > 0) {
         const pId = q.shift();
         const ch = allUsers.filter(u => u.creator_id === pId);
         ch.forEach(c => {
-          if (c.role === 'MERCHANT' || c.id.startsWith('MID')) {
-            mList.push(c.id);
-          } else {
+          if (!transactingIds.has(c.id)) {
+            transactingIds.add(c.id);
             q.push(c.id);
           }
         });
       }
-      return mList;
+      return Array.from(transactingIds);
     };
 
     // Helper to find direct branch child of creator that leads to any downline user
@@ -1313,9 +1307,9 @@ export async function getDownstreamNetwork(creatorId) {
       const isDirect = p.creator_id === creatorId;
       const directParent = userMap[p.creator_id];
 
-      // Find all merchants contributing volume to this partner card
-      const merchantIds = getMerchantsUnderUser(p.id);
-      const partnerTxns = allTxns.filter(t => merchantIds.includes(t.merchant_id));
+      // Find all transacting accounts contributing volume to this partner card (themselves + all downlines)
+      const transactingIds = getTransactingAccountsUnderUser(p.id);
+      const partnerTxns = allTxns.filter(t => transactingIds.includes(t.merchant_id));
 
       const totalVolume = partnerTxns
         .filter(t => t.status === 'APPROVED')
@@ -1447,11 +1441,11 @@ export async function getDownstreamNetwork(creatorId) {
     let todayProfitPayswiff = 0;
     let todayProfitQr = 0;
 
-    const allUniqueDownlineMerchantIds = Array.from(new Set(
-      downstreamUsers.filter(u => u.role === 'MERCHANT' || u.id.startsWith('MID')).map(u => u.id)
+    const allUniqueDownlineUserIds = Array.from(new Set(
+      downstreamUsers.map(u => u.id)
     ));
     
-    allUniqueDownlineMerchantIds.forEach(mId => {
+    allUniqueDownlineUserIds.forEach(mId => {
       const mObj = userMap[mId];
       const directBranch = getDirectBranchChild(mObj);
 
@@ -1554,30 +1548,24 @@ export async function getPartnerTransactions(creatorId, partnerId) {
     const partnerBuyRate = getUserBuyRate(partner, posMap[partnerId], false);
     const commRate = parseFloat(Math.max(0, partnerBuyRate - creatorBuyRate).toFixed(2));
 
-    // Gather all merchant IDs under partnerId
-    const getMerchantsUnderUser = (rootId) => {
-      const uObj = userMap[rootId];
-      if (!uObj) return [];
-      if (uObj.role === 'MERCHANT' || rootId.startsWith('MID')) {
-        return [rootId];
-      }
-      const mList = [];
+    // Gather all transacting user IDs under partnerId (partner themselves + all their downlines)
+    const getTransactingAccountsUnderUser = (rootId) => {
+      const transactingIds = new Set([rootId]);
       const q = [rootId];
       while (q.length > 0) {
         const pId = q.shift();
         const ch = allUsers.filter(u => u.creator_id === pId);
         ch.forEach(c => {
-          if (c.role === 'MERCHANT' || c.id.startsWith('MID')) {
-            mList.push(c.id);
-          } else {
+          if (!transactingIds.has(c.id)) {
+            transactingIds.add(c.id);
             q.push(c.id);
           }
         });
       }
-      return mList;
+      return Array.from(transactingIds);
     };
 
-    const mIds = getMerchantsUnderUser(partnerId);
+    const mIds = getTransactingAccountsUnderUser(partnerId);
     const relevantTxns = allTxns.filter(t => mIds.includes(t.merchant_id));
 
     const enrichedTxns = relevantTxns.map(t => {
