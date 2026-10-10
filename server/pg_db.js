@@ -358,9 +358,13 @@ async function handleMockQuery(sql, params = []) {
   }
   if (cleanSql.startsWith('INSERT INTO inquiries')) {
     const inqId = params[0];
-    const remarksVal = params[1] || params[params.length - 1] || '';
+    const statusVal = params[1] === 'ACTIVE' || params[1] === 'INACTIVE' || params[1] === 'SUSPENDED' ? params[1] : (params[params.length - 2] || 'ACTIVE');
+    const remarksVal = params[params.length - 1] || '';
     const existing = localMockDb.inquiries.find(x => x.id === inqId);
     if (existing) {
+      if (params[1] === 'ACTIVE' || params[1] === 'INACTIVE' || params[1] === 'SUSPENDED') {
+        existing.status = params[1];
+      }
       existing.remarks = remarksVal;
       existing.updated_at = new Date().toISOString();
       return [{ ...existing }];
@@ -375,7 +379,7 @@ async function handleMockQuery(sql, params = []) {
         category: 'CONFIG',
         location: 'SERVER',
         remarks: remarksVal,
-        status: 'ACTIVE',
+        status: statusVal,
         created_at: new Date().toISOString()
       };
       localMockDb.inquiries.push(row);
