@@ -467,7 +467,7 @@ export async function handleApiRequest(req, res) {
         // Atomic reversal with deficit tracking
         await withTransaction(async (client) => {
           // Lock merchant wallet
-          const mWallets = (await client.query(`SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`, [txn.merchant_id])).rows;
+          const mWallets = (await client.query(`SELECT * FROM wallets WHERE UPPER(user_id) = UPPER($1) FOR UPDATE`, [txn.merchant_id])).rows;
           const mWallet = mWallets[0] || { available_balance: 0, unrecovered_deficit: 0, received_sales: 0, total_sales: 0 };
 
           const currAvail = parseFloat(mWallet.available_balance || 0);
@@ -483,7 +483,7 @@ export async function handleApiRequest(req, res) {
                 received_sales = GREATEST(0.0, received_sales - $2),
                 total_sales = GREATEST(0.0, total_sales - $2),
                 updated_at = CURRENT_TIMESTAMP
-            WHERE user_id = $3
+            WHERE UPPER(user_id) = UPPER($3)
           `, [newAvail, parseFloat(txn.amount), txn.merchant_id]);
 
           // Reversal for each upline
@@ -491,7 +491,7 @@ export async function handleApiRequest(req, res) {
             const uId = split.user_id;
             const commAmt = parseFloat(split.amount) || 0;
             if (commAmt > 0 && uId) {
-              const uWallets = (await client.query(`SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`, [uId])).rows;
+              const uWallets = (await client.query(`SELECT * FROM wallets WHERE UPPER(user_id) = UPPER($1) FOR UPDATE`, [uId])).rows;
               const uWallet = uWallets[0] || { available_balance: 0, total_sales: 0 };
               const uCurrAvail = parseFloat(uWallet.available_balance || 0);
               const uAvailDed = Math.min(uCurrAvail, commAmt);
@@ -502,21 +502,21 @@ export async function handleApiRequest(req, res) {
                 SET available_balance = $1,
                     total_sales = GREATEST(0.0, total_sales - $2),
                     updated_at = CURRENT_TIMESTAMP
-                WHERE user_id = $3
+                WHERE UPPER(user_id) = UPPER($3)
               `, [uNewAvail, parseFloat(txn.amount), uId]);
             }
           }
 
           // Admin reversal
           if (adminMargin > 0) {
-            const aWallets = (await client.query(`SELECT * FROM wallets WHERE user_id = 'ADM001' FOR UPDATE`)).rows;
+            const aWallets = (await client.query(`SELECT * FROM wallets WHERE UPPER(user_id) = 'ADM001' FOR UPDATE`)).rows;
             if (aWallets.length > 0) {
               await client.query(`
                 UPDATE wallets 
                 SET available_balance = GREATEST(0.0, available_balance - $1),
                     total_sales = GREATEST(0.0, total_sales - $2),
                     updated_at = CURRENT_TIMESTAMP
-                WHERE user_id = 'ADM001'
+                WHERE UPPER(user_id) = 'ADM001'
               `, [adminMargin, parseFloat(txn.amount)]);
             }
           }
