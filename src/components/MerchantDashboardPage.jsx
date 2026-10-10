@@ -156,7 +156,16 @@ const isPineLabsTxn = (t) => classifyTransactionChannel(t) === 'pinelabs';
 
 
 export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
-  const merchantId = user?.id || (user?.mid ? user.mid.replace('MID: ', '').trim() : '');
+  const merchantId = (
+    user?.id || 
+    user?.user_id || 
+    user?.merchant_id || 
+    user?.user?.id || 
+    user?.user?.user_id || 
+    (user?.mid ? user.mid.replace('MID: ', '').trim() : '') || 
+    (user?.user?.mid ? user.user.mid.replace('MID: ', '').trim() : '') || 
+    ''
+  ).trim();
   const [merchantName, setMerchantName] = useState(() => user?.name || 'Partner Account');
   const userRole = user?.role ? (user.role === 'MERCHANT' ? 'Retailer' : user.role) : 'Retailer';
 
@@ -1664,8 +1673,15 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       const companyFee = (amountVal * companyRate) / 100;
       const netSettlement = Math.max(0, amountVal - companyFee);
 
+      const effectiveMid = merchantId || userProfile?.id || user?.id || '';
+      if (!effectiveMid) {
+        showToast('⚠️ Session expired or merchant ID missing. Please log in again.');
+        setIsSubmittingSale(false);
+        return;
+      }
+
       const res = await recordMerchantSale({
-        merchant_id: merchantId,
+        merchant_id: effectiveMid,
         amount: amountVal,
         customer_name: (saleForm.customer_name || 'Customer').trim(),
         customer_mobile: (saleForm.customer_mobile || '').trim(),
