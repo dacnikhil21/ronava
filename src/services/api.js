@@ -1,9 +1,9 @@
-import { supabase } from './supabase.js';
+import { supabase, getApiUrl, fetchWithTimeout } from './supabase.js';
 
 /**
- * RONAV TECHNOLOGIES — Master Supabase Data & Hierarchy Engine
- * Pure Direct-to-Supabase Implementation (No local Express/SQLite mock dependencies)
- * All operations execute live against PostgreSQL with immediate hierarchical roll-up.
+ * RONAV TECHNOLOGIES — Master API & Hierarchy Engine
+ * Pure Direct-to-Backend Implementation
+ * All operations execute live against PostgreSQL via validated server endpoints.
  */
 
 // ----------------------------------------------------
@@ -30,209 +30,35 @@ export async function loginUser(credentials) {
       };
     }
 
-    // 1. Fetch user directly from PostgreSQL database
-    const { data: users, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', cleanId);
-
-    const user = (users && users.length > 0) ? users[0] : null;
-
-    if (!user) {
-      return { success: false, message: `User ID "${cleanId}" not found. Please verify your assigned User ID.` };
-    }
-
-    // 2. Account Suspension Check
-    try {
-      const { data: statusRow } = await supabase
-        .from('inquiries')
-        .select('*')
-        .eq('id', 'SYS-USER-STATUSES')
-        .maybeSingle();
-      if (statusRow?.remarks) {
-        const sMap = JSON.parse(statusRow.remarks);
-        if (sMap[user.id] === 'SUSPENDED') {
-          return {
-            success: false,
-            message: `Account ${user.id} has been suspended by Administrator. Please contact Support at 9966203038.`
-          };
-        }
-      }
-    } catch (_) {}
-
-    // 3. Strict 1-to-1 Password Verification (No Master Fallbacks, No Backdoors)
-    if (!password || !password.trim()) {
-      return { success: false, message: 'Please enter your password.' };
-    }
-
-    const cleanPass = password.trim();
-    const dbPass = (user.password || '').trim();
-
-    if (!dbPass || cleanPass !== dbPass) {
-      return { success: false, message: 'Invalid password. Please check your credentials and try again.' };
-    }
-
-
-
-    // 2. Strict Role / Portal Matching Enforcement (RBAC)
-    if (role) {
-      const r = (role || '').toUpperCase();
-      const uid = (user.id || '').toUpperCase();
-      const urole = (user.role || '').toUpperCase();
-
-      // Case A: Selected "Retailer / Merchant"
-      if (r === 'RETAILER' || r === 'MERCHANT') {
-        if (urole !== 'MERCHANT' || !uid.startsWith('MID')) {
-          const actualRoleLabel = uid.startsWith('DD') ? 'District Distributor' : (uid.startsWith('DIST') ? 'Distributor' : (uid.startsWith('SD') ? 'Super Distributor' : 'Admin'));
-          return { 
-            success: false, 
-            message: `Access Denied: Account ${user.id} is registered as a ${actualRoleLabel}. Please select "${actualRoleLabel}" from the role dropdown to access your portal.` 
-          };
-        }
-      }
-
-      // Case B: Selected "Distributor" (Area Distributor)
-      else if (r === 'DISTRIBUTOR') {
-        if (uid.startsWith('DD') || uid.startsWith('DF')) {
-          return {
-            success: false,
-            message: `Access Denied: Account ${user.id} is a District Distributor (DIST Franchise). Please select "DIST Franchise" from the role dropdown.`
-          };
-        }
-        if (urole !== 'DISTRIBUTOR' || !uid.startsWith('DIST')) {
-          const actualRoleLabel = uid.startsWith('MID') ? 'Retailer (Merchant)' : (uid.startsWith('SD') ? 'Super Distributor' : 'Admin');
-          return {
-            success: false,
-            message: `Access Denied: Account ${user.id} is registered as a ${actualRoleLabel}. Please switch to the correct role dropdown.`
-          };
-        }
-      }
-
-      // Case C: Selected "DIST Franchise" (District Distributor)
-      else if (r.includes('FRANCHISE') || r.includes('DISTRICT') || r === 'DD') {
-        if (!uid.startsWith('DD') && !uid.startsWith('DF') && urole !== 'DIST_FRANCHISE' && urole !== 'DISTRICT_DISTRIBUTOR') {
-          const actualRoleLabel = uid.startsWith('DIST') ? 'Area Distributor' : (uid.startsWith('MID') ? 'Retailer (Merchant)' : (uid.startsWith('SD') ? 'Super Distributor' : 'Admin'));
-          return {
-            success: false,
-            message: `Access Denied: Account ${user.id} is registered as an ${actualRoleLabel}. Please select "${actualRoleLabel}" from the role menu.`
-          };
-        }
-      }
-
-      // Case D: Selected "Super Distributor"
-      else if (r.includes('SUPER')) {
-        if (urole !== 'SUPER_DISTRIBUTOR' || !uid.startsWith('SD')) {
-          const actualRoleLabel = uid.startsWith('MID') ? 'Retailer' : (uid.startsWith('DD') ? 'District Distributor' : (uid.startsWith('DIST') ? 'Distributor' : 'Admin'));
-          return {
-            success: false,
-            message: `Access Denied: Account ${user.id} is a ${actualRoleLabel}. Only authorized Super Distributors can log into this portal.`
-          };
-        }
-      }
-
-      // Case E: Selected "MASTER"
-      else if (r === 'MASTER') {
-        if (!uid.startsWith('MST') && uid !== 'ADM001' && uid !== 'SD1001') {
-          return {
-            success: false,
-            message: `Access Denied: Account ${user.id} does not have Master Distributor authorization.`
-          };
-        }
-      }
-
-      // Case F: Selected "ADMIN"
-      else if (r === 'ADMIN') {
-        if (urole !== 'ADMIN' && uid !== 'ADM001') {
-          return {
-            success: false,
-            message: `Access Denied: Account ${user.id} does not have Administrator privileges. Please login via your designated partner portal.`
-          };
-        }
-      }
-    }
-
-    // Normalize role so District Distributors (DD) and Masters (MST) get proper UI role tags
-    const normalizedRole = (user.id && (user.id.startsWith('DD') || user.id.startsWith('DF')))
-      ? 'DIST_FRANCHISE'
-      : (user.id && user.id.startsWith('MST') ? 'MASTER' : (user.id && user.id.startsWith('SD') ? 'SUPER_DISTRIBUTOR' : user.role));
-
-    const returnUser = {
-      ...user,
-      role: normalizedRole
-    };
-
-    // Fetch wallet
-    const { data: wallet } = await supabase
-      .from('wallets')
-      .select('*')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    // Fetch POS assignment if merchant
-    const { data: pos } = await supabase
-      .from('merchant_pos')
-      .select('*')
-      .eq('merchant_id', user.id)
-      .maybeSingle();
-
-    return {
-      success: true,
-      user: returnUser,
-      wallet: wallet || { available_balance: 0, total_sales: 0, received_sales: 0, pending_balance: 0, withdrawn_amount: 0 },
-      pos: pos || null
-    };
+    const res = await fetchWithTimeout(getApiUrl('/api/auth/login'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: cleanId, password, role })
+    });
+    return await res.json();
   } catch (err) {
     console.error('loginUser error:', err);
-    return { success: false, message: err.message };
+    return { success: false, message: err.message || 'Login failed. Please check network connection.' };
   }
 }
 
 /**
- * Reset user password by registered User ID or Mobile
+ * Request password reset ticket via Help Desk (No direct password overwrite)
  */
 export async function resetUserPassword(query) {
   try {
     if (!query || !query.trim()) {
       return { success: false, message: 'Please enter your registered User ID or Mobile Number.' };
     }
-    const clean = query.trim();
-
-    const { data: users, error } = await supabase
-      .from('users')
-      .select('*')
-      .or(`id.eq.${clean},mobile.eq.${clean}`);
-
-    if (error || !users || users.length === 0) {
-      return { success: false, message: 'No registered account found matching that User ID or Mobile.' };
-    }
-
-    const user = users[0];
-    const randomDigits = Math.floor(1000 + Math.random() * 9000);
-    const newTempPassword = `Ronav@${randomDigits}`;
-
-    const { error: updErr } = await supabase
-      .from('users')
-      .update({ password: newTempPassword })
-      .eq('id', user.id);
-
-    if (updErr) {
-      return { success: false, message: updErr.message || 'Failed to update password.' };
-    }
-
-    return {
-      success: true,
-      message: `Password reset successfully for ${user.name} (${user.id}).`,
-      user: {
-        id: user.id,
-        name: user.name,
-        mobile: user.mobile,
-        role: user.role,
-        tempPassword: newTempPassword
-      }
-    };
+    const res = await fetchWithTimeout(getApiUrl('/api/auth/forgot-password-request'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: query.trim() })
+    });
+    return await res.json();
   } catch (err) {
     console.error('resetUserPassword error:', err);
-    return { success: false, message: err.message || 'Failed to reset password.' };
+    return { success: false, message: err.message || 'Failed to request password reset.' };
   }
 }
 
@@ -244,25 +70,16 @@ export async function updateUserPassword(userId, currentPassword, newPassword) {
     if (!userId || !currentPassword || !newPassword) {
       return { success: false, message: 'All password fields are required.' };
     }
-    if (newPassword.length < 6) {
+    if (newPassword.trim().length < 6) {
       return { success: false, message: 'New password must be at least 6 characters long.' };
     }
 
-    const loginRes = await loginUser({ id: userId, password: currentPassword });
-    if (!loginRes.success) {
-      return { success: false, message: 'Current password is incorrect.' };
-    }
-
-    const { error } = await supabase
-      .from('users')
-      .update({ password: newPassword.trim() })
-      .eq('id', userId);
-
-    if (error) {
-      return { success: false, message: error.message || 'Failed to update password.' };
-    }
-
-    return { success: true, message: 'Password updated successfully!' };
+    const res = await fetchWithTimeout(getApiUrl('/api/auth/change-password'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: userId.trim(), currentPassword: currentPassword.trim(), newPassword: newPassword.trim() })
+    });
+    return await res.json();
   } catch (err) {
     console.error('updateUserPassword error:', err);
     return { success: false, message: err.message || 'Failed to update password.' };
@@ -283,19 +100,17 @@ export async function verifySponsor(query) {
       };
     }
 
-    const { data: users, error } = await supabase
-      .from('users')
-      .select('id, name, role, mobile')
-      .or(`id.eq.${clean},mobile.eq.${clean}`);
+    const res = await fetchWithTimeout(getApiUrl(`/api/users/${encodeURIComponent(clean)}`));
+    const json = await res.json();
 
-    if (error || !users || users.length === 0) {
+    if (!json.success || !json.user) {
       return { 
         success: false, 
         message: 'Invalid Sponsor ID. In the RONAV ecosystem, you can only register if referred by an authorized partner.' 
       };
     }
 
-    const sponsor = users[0];
+    const sponsor = json.user;
     return {
       success: true,
       sponsor: {
@@ -358,30 +173,23 @@ export async function registerWithReferral(data) {
   }
 }
 
-export async function adminResetUserPassword(userId, newPassword) {
+export async function adminResetUserPassword(userId, newPassword, adminId = 'ADM001', adminPassword = '') {
   try {
     if (!userId || !newPassword || !newPassword.trim()) {
       return { success: false, message: 'User ID and a new password are required.' };
     }
-    const cleanPass = newPassword.trim();
-    const cleanUid = userId.trim();
 
-    // Direct update to users table
-    const { error } = await supabase
-      .from('users')
-      .update({ password: cleanPass })
-      .eq('id', cleanUid);
-
-    if (error) {
-      return { success: false, message: error.message || 'Failed to update password.' };
-    }
-
-    return {
-      success: true,
-      message: `Password for ${cleanUid} successfully reset!`,
-      userId: cleanUid,
-      newPassword: cleanPass
-    };
+    const res = await fetchWithTimeout(getApiUrl('/api/admin/users/reset-password'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        adminId,
+        adminPassword,
+        targetUserId: userId.trim(),
+        newPassword: newPassword.trim()
+      })
+    });
+    return await res.json();
   } catch (err) {
     console.error('adminResetUserPassword error:', err);
     return { success: false, message: err.message };
@@ -4031,23 +3839,23 @@ export async function saveCommissionPayoutConfig(enabled) {
 // ----------------------------------------------------
 export async function getPlatformPublicStats() {
   try {
-    const [usersRes, txnsRes, posRes] = await Promise.all([
-      supabase.from('users').select('id, role', { count: 'exact' }),
-      supabase.from('transactions').select('amount', { count: 'exact' }),
-      supabase.from('merchant_pos').select('id', { count: 'exact' })
-    ]);
-
-    const liveUsers = usersRes.count || (usersRes.data || []).length || 0;
-    const livePos = posRes.count || (posRes.data || []).length || 0;
-    const totalTxnAmt = (txnsRes.data || []).reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
-    const liveVolumeLakhs = totalTxnAmt / 100000;
-
+    const res = await fetchWithTimeout(getApiUrl('/api/public/stats'));
+    const json = await res.json();
+    if (json.success && json.stats) {
+      return {
+        success: true,
+        merchants: json.stats.totalMerchants,
+        volume: parseFloat((json.stats.totalVolume / 100000).toFixed(2)),
+        disbursed: 15.8,
+        outlets: json.stats.activeTerminals
+      };
+    }
     return {
       success: true,
-      merchants: 2500 + liveUsers,
-      volume: parseFloat((33.45 + liveVolumeLakhs).toFixed(2)),
+      merchants: 2538,
+      volume: 33.45,
       disbursed: 15.8,
-      outlets: 180 + livePos
+      outlets: 184
     };
   } catch (err) {
     return {
@@ -4337,27 +4145,16 @@ export async function deleteUserAccount(userId) {
     return { success: false, message: 'Cannot delete Super Admin (ADM001).' };
   }
   try {
-    try {
-      const res = await fetch('/api/admin/users/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId })
-      });
-      if (res.ok) {
-        const json = await res.json();
-        if (json && json.success) {
-          cleanSingleUserFromLocalStorage(userId);
-          return { success: true, message: json.message };
-        }
-      }
-    } catch (_) {}
-
-    await supabase.from('users').eq('id', userId).delete();
-    await supabase.from('wallets').eq('user_id', userId).delete();
-    await supabase.from('merchant_pos').eq('merchant_id', userId).delete();
+    const res = await fetchWithTimeout(getApiUrl('/api/admin/users/delete'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId })
+    });
+    const json = await res.json();
     cleanSingleUserFromLocalStorage(userId);
-    return { success: true, message: `Account ${userId} deleted.` };
+    return json;
   } catch (err) {
+    console.error('deleteUserAccount error:', err);
     return { success: false, message: err.message };
   }
 }

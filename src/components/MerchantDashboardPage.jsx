@@ -597,26 +597,22 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   // Dynamic User Profile Sync: Fetch fresh registered details (Mobile, Gmail, KYC) from database on mount
   useEffect(() => {
     if (!merchantId) return;
-    import('../services/supabase').then(({ supabase }) => {
-      supabase
-        .from('users')
-        .select('*')
-        .eq('id', merchantId)
-        .maybeSingle()
-        .then(({ data: freshUser }) => {
-          if (freshUser) {
-            setUserProfile(freshUser);
-            if (freshUser.name) setMerchantName(freshUser.name);
-            setProfileFormData(prev => ({
-              ...prev,
-              mobile: freshUser.mobile || prev.mobile || '',
-              email: freshUser.email || prev.email || '',
-              name: freshUser.name || prev.name || ''
-            }));
-          }
-        })
-        .catch(() => {});
-    });
+    fetch(`/api/users/${encodeURIComponent(merchantId)}`)
+      .then(res => res.json())
+      .then(json => {
+        const freshUser = json.user;
+        if (freshUser) {
+          setUserProfile(freshUser);
+          if (freshUser.name) setMerchantName(freshUser.name);
+          setProfileFormData(prev => ({
+            ...prev,
+            mobile: freshUser.mobile || prev.mobile || '',
+            email: freshUser.email || prev.email || '',
+            name: freshUser.name || prev.name || ''
+          }));
+        }
+      })
+      .catch(() => {});
   }, [merchantId]);
 
   // Real-time mobile wake-up sync: Re-fetches fresh data when app returns from background / lockscreen

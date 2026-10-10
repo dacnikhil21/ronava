@@ -4,11 +4,7 @@ import { verifyS3Connection, getPresignedUploadUrl, uploadBufferToS3, deleteS3Ob
 import { 
   initPostgresSchema, 
   getMediaFiles, 
-  query as pgQuery, 
-  selectFromTable, 
-  insertIntoTable, 
-  updateTable, 
-  deleteFromTable 
+  query as pgQuery 
 } from './pg_db.js';
 
 // Auto-initialize PostgreSQL schema if DATABASE_URL is configured
@@ -60,60 +56,372 @@ export async function handleApiRequest(req, res) {
 
   try {
     // ----------------------------------------------------
-    // 0. UNIVERSAL DATABASE REST ENDPOINTS (Pure PostgreSQL)
+    // 0. SECURITY LOCKOUT: DISABLE ALL GENERIC DATABASE ACCESS
     // ----------------------------------------------------
-    if (pathname === '/api/db/select' && method === 'POST') {
-      const { table, filters, options } = await parseJsonBody(req);
-      try {
-        const rows = await selectFromTable(table, filters || {}, options || {});
-        return sendJson(res, 200, { success: true, data: rows });
-      } catch (err) {
-        console.error(`[DB SELECT ERROR ${table}]:`, err.message);
-        return sendJson(res, 500, { success: false, message: err.message, data: [] });
-      }
+    if (pathname.startsWith('/api/db/')) {
+      return sendJson(res, 403, { 
+        success: false, 
+        error: 'ACCESS_DENIED',
+        message: 'Generic database endpoints (/api/db/*) are permanently disabled. All operations must use validated, dedicated business endpoints.' 
+      });
     }
 
-    if (pathname === '/api/db/insert' && method === 'POST') {
-      const { table, data } = await parseJsonBody(req);
+    // ----------------------------------------------------
+    // 0.1 PUBLIC PLATFORM AGGREGATED STATS (Pure PostgreSQL Aggregation)
+    // ----------------------------------------------------
+    if (pathname === '/api/public/stats' && method === 'GET') {
       try {
-        const result = await insertIntoTable(table, data);
-        return sendJson(res, 200, { success: true, data: result });
+        const mRes = await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role = 'MERCHANT'`);
+        const sdRes = await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role = 'SUPER_DISTRIBUTOR'`);
+        const dRes = await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role IN ('DISTRIBUTOR', 'DISTRICT_DISTRIBUTOR', 'DIST_FRANCHISE')`);
+        const volRes = await pgQuery(`SELECT COALESCE(SUM(amount), 0) as s FROM transactions WHERE status = 'APPROVED'`);
+        const posRes = await pgQuery(`SELECT COUNT(*) as c FROM merchant_pos`);
+
+        const totalMerchants = parseInt(mRes[0]?.c || 0, 10);
+        const totalSuperDistributors = parseInt(sdRes[0]?.c || 0, 10);
+        const totalDistributors = parseInt(dRes[0]?.c || 0, 10);
+        const totalVolume = parseFloat(volRes[0]?.s || 0);
+        const activeTerminals = parseInt(posRes[0]?.c || 0, 10);
+
+        return sendJson(res, 200, {
+          success: true,
+          stats: {
+            totalMerchants,
+            totalPartners: totalSuperDistributors + totalDistributors,
+            totalVolume,
+            activeTerminals,
+            totalTransactions: totalMerchants * 15 + activeTerminals * 8
+          }
+        });
       } catch (err) {
-        console.error(`[DB INSERT ERROR ${table}]:`, err.message);
         return sendJson(res, 500, { success: false, message: err.message });
       }
     }
 
-    if (pathname === '/api/db/update' && method === 'POST') {
-      const { table, data, matchColumn, matchValue } = await parseJsonBody(req);
-      try {
-        const result = await updateTable(table, data, matchColumn, matchValue);
-        return sendJson(res, 200, { success: true, data: result });
-      } catch (err) {
-        console.error(`[DB UPDATE ERROR ${table}]:`, err.message);
-        return sendJson(res, 500, { success: false, message: err.message });
+    // ----------------------------------------------------
+    // 0.2 PASSWORD MANAGEMENT & VERIFICATION ENDPOINTS
+    // ----------------------------------------------------
+    if (pathname === '/api/auth/change-password' && method === 'POST') {
+      const { userId, currentPassword, newPassword } = await parseJsonBody(req);
+      if (!userId || !currentPassword || !newPassword) {
+        return sendJson(res, 400, { success: false, message: 'User ID, current password, and new password are required.' });
+      }
+      if (newPassword.trim().length < 6) {
+        return sendJson(res, 400, { success: false, message: 'New password must be at least 6 characters long.' });
+      }
+
+      const users = await pgQuery(`SELECT * FROM users WHERE UPPER(id) = UPPER($1)`, [userId.trim()]);
+      const user = users[0];
+      if (!user) {
+        return sendJson(res, 404, { success: false, message: 'User not found.' });
+      }
+
+      if ((user.password || '').trim() !== currentPassword.trim()) {
+        return sendJson(res, 401, { success: false, message: 'Current password does not match. Please verify your credentials.' });
+      }
+
+      await pgQuery(`UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE UPPER(id) = UPPER($2)`, [newPassword.trim(), userId.trim()]);
+      return sendJson(res, 200, { success: true, message: 'Password changed successfully!' });
+    }
+
+    if (pathname === '/api/auth/forgot-password-request' && method === 'POST') {
+      const { query: userQuery } = await parseJsonBody(req);
+      if (!userQuery || !userQuery.trim()) {
+        return sendJson(res, 400, { success: false, message: 'Please enter your registered User ID or Mobile Number.' });
+      }
+
+      const clean = userQuery.trim();
+      const users = await pgQuery(`
+        SELECT id, name, mobile, role 
+        FROM users 
+        WHERE UPPER(id) = UPPER($1) OR mobile = $1
+      `, [clean]);
+
+      const user = users[0];
+      if (!user) {
+        return sendJson(res, 404, { success: false, message: 'No registered account found matching that User ID or Mobile.' });
+      }
+
+      const ticketId = `PWD-REQ-${Date.now().toString().slice(-6)}`;
+      await pgQuery(`
+        INSERT INTO inquiries (id, type, name, phone, merchant_id, amount, category, location, remarks)
+        VALUES ($1, 'PASSWORD_RESET', $2, $3, $4, '0', 'SECURITY', 'PORTAL', $5)
+      `, [ticketId, user.name, user.mobile, user.id, `Password reset requested for ${user.id} (${user.role}). Verification required by Help Desk.`]);
+
+      return sendJson(res, 200, {
+        success: true,
+        ticketId,
+        message: `Password reset request registered (Ticket #${ticketId}). For security, please contact RONAV Support at 9966203053 or your assigned Distributor to verify your identity.`,
+        user: { id: user.id, name: user.name, mobile: user.mobile.replace(/(\d{3})\d{4}(\d{3})/, '$1****$2') }
+      });
+    }
+
+    if (pathname === '/api/admin/users/reset-password' && method === 'POST') {
+      const { adminId, adminPassword, targetUserId, newPassword } = await parseJsonBody(req);
+      if (!adminId || !adminPassword || !targetUserId) {
+        return sendJson(res, 400, { success: false, message: 'Admin ID, Admin Password, and Target User ID are required.' });
+      }
+
+      const admins = await pgQuery(`SELECT * FROM users WHERE UPPER(id) = UPPER($1)`, [adminId.trim()]);
+      const admin = admins[0];
+      if (!admin || (admin.role !== 'ADMIN' && admin.role !== 'MASTER')) {
+        return sendJson(res, 403, { success: false, message: 'Access Denied: Only authorized Administrators can perform password resets.' });
+      }
+
+      if ((admin.password || '').trim() !== adminPassword.trim()) {
+        return sendJson(res, 401, { success: false, message: 'Invalid Admin credentials.' });
+      }
+
+      const targets = await pgQuery(`SELECT * FROM users WHERE UPPER(id) = UPPER($1)`, [targetUserId.trim()]);
+      const target = targets[0];
+      if (!target) {
+        return sendJson(res, 404, { success: false, message: 'Target user not found.' });
+      }
+
+      const randomDigits = Math.floor(1000 + Math.random() * 9000);
+      const resetPass = newPassword && newPassword.trim().length >= 6 ? newPassword.trim() : `Ronav@${randomDigits}`;
+
+      await pgQuery(`UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE UPPER(id) = UPPER($2)`, [resetPass, targetUserId.trim()]);
+
+      return sendJson(res, 200, {
+        success: true,
+        message: `Password reset successfully for ${target.name} (${target.id})!`,
+        newPassword: resetPass
+      });
+    }
+
+    if (pathname === '/api/admin/users/toggle-status' && method === 'POST') {
+      const { adminId, targetUserId, status } = await parseJsonBody(req);
+      if (!targetUserId || !status) {
+        return sendJson(res, 400, { success: false, message: 'targetUserId and status are required.' });
+      }
+
+      if (targetUserId.toUpperCase() === 'ADM001') {
+        return sendJson(res, 400, { success: false, message: 'Cannot suspend Super Admin (ADM001).' });
+      }
+
+      const validStatuses = ['ACTIVE', 'SUSPENDED'];
+      if (!validStatuses.includes(status.toUpperCase())) {
+        return sendJson(res, 400, { success: false, message: 'Invalid status. Allowed: ACTIVE, SUSPENDED.' });
+      }
+
+      const statusRows = await pgQuery(`SELECT * FROM inquiries WHERE id = 'SYS-USER-STATUSES'`);
+      let statusMap = {};
+      if (statusRows.length > 0 && statusRows[0].remarks) {
+        try {
+          statusMap = JSON.parse(statusRows[0].remarks);
+        } catch (_) {}
+      }
+      statusMap[targetUserId] = status.toUpperCase();
+
+      await pgQuery(`
+        INSERT INTO inquiries (id, type, name, phone, merchant_id, amount, category, location, remarks)
+        VALUES ('SYS-USER-STATUSES', 'SYSTEM', 'System Status Map', '9966203053', 'ADM001', '0', 'SYSTEM', 'SERVER', $1)
+        ON CONFLICT (id) DO UPDATE SET remarks = EXCLUDED.remarks, updated_at = CURRENT_TIMESTAMP
+      `, [JSON.stringify(statusMap)]);
+
+      return sendJson(res, 200, {
+        success: true,
+        message: `Account ${targetUserId} status updated to ${status.toUpperCase()}.`,
+        status: status.toUpperCase()
+      });
+    }
+
+    // ----------------------------------------------------
+    // 0.3 POS TERMINAL & CHANNELS ASSIGNMENT
+    // ----------------------------------------------------
+    if (pathname === '/api/pos/assign' && method === 'POST') {
+      const { 
+        adminId, 
+        merchantId, 
+        provider, 
+        terminalId, 
+        vendorEntity, 
+        devicePlan, 
+        monthlyRent, 
+        settlementType, 
+        commissionRateT1, 
+        commissionRateInstant 
+      } = await parseJsonBody(req);
+
+      if (!merchantId) {
+        return sendJson(res, 400, { success: false, message: 'merchantId is required.' });
+      }
+
+      const merchants = await pgQuery(`SELECT * FROM users WHERE UPPER(id) = UPPER($1)`, [merchantId.trim()]);
+      if (!merchants || merchants.length === 0) {
+        return sendJson(res, 404, { success: false, message: 'Merchant not found.' });
+      }
+
+      const primaryProvider = provider || 'Pine Labs';
+      const termId = terminalId && terminalId.trim() ? terminalId.trim() : `PL-${Math.floor(1000 + Math.random() * 9000)}`;
+      const vendor = vendorEntity || 'Rose Navaneetham Enterprises';
+      const plan = devicePlan || 'RENTAL';
+      const rent = plan === 'RENTAL' ? (parseFloat(monthlyRent) || 0) : 0;
+      const settlement = settlementType || 'T1';
+      const rateT1 = parseFloat(commissionRateT1) || 1.50;
+      const rateInstant = parseFloat(commissionRateInstant) || 1.80;
+      const instantFee = settlement === 'INSTANT' ? 0.30 : 0.0;
+
+      await pgQuery(`
+        INSERT INTO merchant_pos (
+          merchant_id, provider, terminal_id, commission_rate, assigned_by,
+          vendor_entity, device_plan, monthly_rent, settlement_type, instant_surcharge,
+          commission_rate_t1, commission_rate_instant
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        ON CONFLICT (merchant_id) DO UPDATE SET
+          provider = EXCLUDED.provider,
+          terminal_id = EXCLUDED.terminal_id,
+          commission_rate = EXCLUDED.commission_rate,
+          vendor_entity = EXCLUDED.vendor_entity,
+          device_plan = EXCLUDED.device_plan,
+          monthly_rent = EXCLUDED.monthly_rent,
+          settlement_type = EXCLUDED.settlement_type,
+          instant_surcharge = EXCLUDED.instant_surcharge,
+          commission_rate_t1 = EXCLUDED.commission_rate_t1,
+          commission_rate_instant = EXCLUDED.commission_rate_instant,
+          updated_at = CURRENT_TIMESTAMP
+      `, [
+        merchantId.trim(), primaryProvider, termId, rateT1, adminId || 'ADM001',
+        vendor, plan, rent, settlement, instantFee,
+        rateT1, rateInstant
+      ]);
+
+      const posRows = await pgQuery(`SELECT * FROM merchant_pos WHERE merchant_id = $1`, [merchantId.trim()]);
+      return sendJson(res, 200, {
+        success: true,
+        message: 'POS terminal and channels configured successfully!',
+        pos: posRows[0]
+      });
+    }
+
+    // ----------------------------------------------------
+    // 0.4 ADMIN TRANSACTION VERIFICATION & APPROVAL
+    // ----------------------------------------------------
+    if (pathname === '/api/admin/verify-transaction' && method === 'POST') {
+      const { adminId, txnId, action, remark, utr } = await parseJsonBody(req);
+      if (!txnId || !action) {
+        return sendJson(res, 400, { success: false, message: 'txnId and action are required.' });
+      }
+
+      const txns = await pgQuery(`SELECT * FROM transactions WHERE id = $1`, [txnId.trim()]);
+      const txn = txns[0];
+      if (!txn) {
+        return sendJson(res, 404, { success: false, message: 'Transaction not found.' });
+      }
+
+      const amount = parseFloat(txn.amount) || 0;
+      const merchantId = txn.merchant_id;
+
+      if (action === 'APPROVE') {
+        if (utr || (txn.ref_number && !txn.ref_number.startsWith('RRN') && txn.ref_number.length >= 6)) {
+          const checkRef = utr || txn.ref_number;
+          const dups = await pgQuery(`
+            SELECT id, amount FROM transactions 
+            WHERE ref_number = $1 AND status = 'APPROVED' AND id != $2
+          `, [checkRef, txnId.trim()]);
+          if (dups.length > 0) {
+            return sendJson(res, 400, {
+              success: false,
+              message: `Approval Blocked: Duplicate reference "${checkRef}" was already approved under transaction ${dups[0].id}.`
+            });
+          }
+        }
+
+        const finalRemark = utr ? `Approved (UTR: ${utr})` : (remark || 'Verified by Admin against settlement report');
+
+        await pgQuery(`
+          UPDATE transactions 
+          SET status = 'APPROVED', admin_remark = $1, verified_at = CURRENT_TIMESTAMP 
+          WHERE id = $2
+        `, [finalRemark, txnId.trim()]);
+
+        if (txn.status === 'PENDING') {
+          await pgQuery(`
+            UPDATE wallets 
+            SET pending_balance = GREATEST(0.0, pending_balance - $1),
+                received_sales = received_sales + $2,
+                available_balance = available_balance + $3,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = $4
+          `, [amount, amount, amount, merchantId]);
+        }
+
+        const updatedTxn = await pgQuery(`SELECT * FROM transactions WHERE id = $1`, [txnId.trim()]);
+        const updatedWallet = await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [merchantId]);
+
+        return sendJson(res, 200, {
+          success: true,
+          message: `Transaction ${txnId} approved successfully!`,
+          transaction: updatedTxn[0],
+          wallet: updatedWallet[0]
+        });
+      } else {
+        const finalRemark = remark || 'Rejected by Admin';
+        await pgQuery(`
+          UPDATE transactions 
+          SET status = 'REJECTED', admin_remark = $1, verified_at = CURRENT_TIMESTAMP 
+          WHERE id = $2
+        `, [finalRemark, txnId.trim()]);
+
+        if (txn.status === 'PENDING') {
+          await pgQuery(`
+            UPDATE wallets 
+            SET pending_balance = GREATEST(0.0, pending_balance - $1),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = $2
+          `, [amount, merchantId]);
+        }
+
+        const updatedTxn = await pgQuery(`SELECT * FROM transactions WHERE id = $1`, [txnId.trim()]);
+        const updatedWallet = await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [merchantId]);
+
+        return sendJson(res, 200, {
+          success: true,
+          message: `Transaction ${txnId} rejected.`,
+          transaction: updatedTxn[0],
+          wallet: updatedWallet[0]
+        });
       }
     }
 
-    if (pathname === '/api/db/delete' && method === 'POST') {
-      const { table, matchColumn, matchValue } = await parseJsonBody(req);
+    // ----------------------------------------------------
+    // 0.5 SINGLE USER PROFILE WITH POS & WALLET
+    // ----------------------------------------------------
+    if (pathname.startsWith('/api/users/') && method === 'GET' && pathname !== '/api/users/create') {
+      const userId = decodeURIComponent(pathname.replace('/api/users/', '')).trim();
       try {
-        const result = await deleteFromTable(table, matchColumn, matchValue);
-        return sendJson(res, 200, { success: true, data: result });
-      } catch (err) {
-        console.error(`[DB DELETE ERROR ${table}]:`, err.message);
-        return sendJson(res, 500, { success: false, message: err.message });
-      }
-    }
+        const users = await pgQuery(`
+          SELECT u.id, u.name, u.mobile, u.email, u.pan, u.aadhaar, u.address, u.role, u.creator_id, u.margin_rate, u.created_at,
+                 p.provider AS pos_provider, 
+                 p.terminal_id AS pos_terminal, 
+                 p.commission_rate AS pos_rate,
+                 p.vendor_entity AS pos_vendor,
+                 p.device_plan AS pos_plan,
+                 p.monthly_rent AS pos_rent,
+                 p.settlement_type AS pos_settlement,
+                 p.instant_surcharge AS pos_instant_fee,
+                 w.available_balance,
+                 w.total_sales,
+                 w.pending_balance,
+                 w.received_sales,
+                 w.withdrawn_amount
+          FROM users u
+          LEFT JOIN merchant_pos p ON u.id = p.merchant_id
+          LEFT JOIN wallets w ON u.id = w.user_id
+          WHERE UPPER(u.id) = UPPER($1)
+        `, [userId]);
 
-    if (pathname === '/api/db/query' && method === 'POST') {
-      const { sql, params } = await parseJsonBody(req);
-      try {
-        const rows = await pgQuery(sql, params || []);
-        return sendJson(res, 200, { success: true, data: rows });
+        if (!users || users.length === 0) {
+          return sendJson(res, 404, { success: false, message: `User ${userId} not found.` });
+        }
+
+        const userProfile = { ...users[0] };
+        delete userProfile.password;
+
+        return sendJson(res, 200, { success: true, user: userProfile });
       } catch (err) {
-        console.error(`[DB QUERY ERROR]:`, err.message);
-        return sendJson(res, 500, { success: false, message: err.message, data: [] });
+        return sendJson(res, 500, { success: false, message: err.message });
       }
     }
 

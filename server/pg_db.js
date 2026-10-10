@@ -18,14 +18,19 @@ try {
   console.error('[PostgreSQL] Database pool initialization error:', err.message);
 }
 
-export function getPool() {
-  return pool;
+let mockQueryHandler = null;
+
+export function setMockQueryHandler(fn) {
+  mockQueryHandler = fn;
 }
 
 /**
  * Execute raw SQL parameterized query strictly against PostgreSQL
  */
 export async function query(sql, params = []) {
+  if (mockQueryHandler) {
+    return await mockQueryHandler(sql, params);
+  }
   if (!pool) {
     throw new Error('[Database Error] PostgreSQL pool is not initialized.');
   }

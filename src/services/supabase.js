@@ -4,7 +4,7 @@
  * Zero localStorage database tables or mock fallbacks.
  */
 
-function getApiUrl(endpoint) {
+export function getApiUrl(endpoint) {
   if (typeof window !== 'undefined' && window.location && window.location.origin) {
     const origin = window.location.origin;
     if (origin.includes('13.201.4.145') || origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes(':3000') || origin.includes(':5173')) {
@@ -17,7 +17,7 @@ function getApiUrl(endpoint) {
   return `${base}${endpoint}`;
 }
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
+export async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
   if (typeof AbortController === 'undefined') {
     return fetch(url, options);
   }
@@ -39,7 +39,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
 class TableQueryBuilder {
   constructor(table) {
     this.table = table;
-    this._action = 'select'; // 'select' | 'insert' | 'update' | 'delete'
+    this._action = 'select';
     this._data = null;
     this._filters = {};
     this._options = {};
@@ -70,9 +70,6 @@ class TableQueryBuilder {
   }
 
   in(column, values) {
-    if (!this._inFilters) this._inFilters = {};
-    const arr = Array.isArray(values) ? values : [values];
-    this._inFilters[column] = new Set(arr.map(v => String(v).toUpperCase()));
     return this;
   }
 
@@ -98,101 +95,62 @@ class TableQueryBuilder {
   }
 
   insert(data) {
-    this._action = 'insert';
-    this._data = data;
-    return this;
+    throw new Error(`[SECURITY LOCKOUT] Direct database insert on "${this.table}" is disabled. Use server-side validated API endpoints.`);
   }
 
   upsert(data) {
-    this._action = 'insert';
-    this._data = data;
-    return this;
+    throw new Error(`[SECURITY LOCKOUT] Direct database upsert on "${this.table}" is disabled. Use server-side validated API endpoints.`);
   }
 
   update(data) {
-    this._action = 'update';
-    this._data = data;
-    return this;
+    throw new Error(`[SECURITY LOCKOUT] Direct database update on "${this.table}" is disabled. Use server-side validated API endpoints.`);
   }
 
   delete() {
-    this._action = 'delete';
-    return this;
+    throw new Error(`[SECURITY LOCKOUT] Direct database delete on "${this.table}" is disabled. Use server-side validated API endpoints.`);
   }
 
   async execute() {
+    // Route legacy select queries to explicit API endpoints where available
     try {
-      if (this._action === 'delete') {
-        const filterKeys = Object.keys(this._filters);
-        const matchCol = filterKeys[0] || 'id';
-        const matchVal = this._filters[matchCol];
-
-        const res = await fetchWithTimeout(getApiUrl('/api/db/delete'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            table: this.table,
-            matchColumn: matchCol,
-            matchValue: matchVal,
-          }),
-        });
+      if (this.table === 'users' && this._filters.id) {
+        const res = await fetchWithTimeout(getApiUrl(`/api/users/${encodeURIComponent(this._filters.id)}`));
         const json = await res.json();
-        return { data: json.data || true, error: json.success ? null : new Error(json.message) };
+        if (json.success && json.user) {
+          return { data: this._single || this._maybeSingle ? json.user : [json.user], error: null };
+        }
+        return { data: this._single || this._maybeSingle ? null : [], error: new Error(json.message || 'User not found') };
       }
 
-      if (this._action === 'insert') {
-        const isArray = Array.isArray(this._data);
-        const items = isArray ? this._data : [this._data];
-
-        const res = await fetchWithTimeout(getApiUrl('/api/db/insert'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ table: this.table, data: items[0] }),
-        });
+      if (this.table === 'wallets' && this._filters.user_id) {
+        const res = await fetchWithTimeout(getApiUrl(`/api/wallet/${encodeURIComponent(this._filters.user_id)}`));
         const json = await res.json();
-        return { data: isArray ? [json.data] : json.data, error: json.success ? null : new Error(json.message) };
+        if (json.success && json.wallet) {
+          return { data: this._single || this._maybeSingle ? json.wallet : [json.wallet], error: null };
+        }
+        return { data: this._single || this._maybeSingle ? null : [], error: new Error(json.message || 'Wallet not found') };
       }
 
-      if (this._action === 'update') {
-        const filterKeys = Object.keys(this._filters);
-        const matchCol = filterKeys[0] || 'id';
-        const matchVal = this._filters[matchCol];
-
-        const res = await fetchWithTimeout(getApiUrl('/api/db/update'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            table: this.table,
-            data: this._data,
-            matchColumn: matchCol,
-            matchValue: matchVal,
-          }),
-        });
+      if (this.table === 'transactions' && this._filters.merchant_id) {
+        const res = await fetchWithTimeout(getApiUrl(`/api/transactions/merchant/${encodeURIComponent(this._filters.merchant_id)}`));
         const json = await res.json();
-        return { data: json.data || this._data, error: json.success ? null : new Error(json.message) };
+        if (json.success && json.transactions) {
+          return { data: json.transactions, error: null };
+        }
+        return { data: [], error: new Error(json.message || 'Transactions failed') };
       }
 
-      // Default: select
-      const res = await fetchWithTimeout(getApiUrl('/api/db/select'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          table: this.table,
-          filters: this._filters,
-          options: this._options,
-        }),
-      });
-
-      const json = await res.json();
-      if (json && json.success) {
-        let data = json.data || [];
-        if (this._single) data = data[0] || null;
-        else if (this._maybeSingle) data = data[0] || null;
-        return { data, error: null };
+      if (this.table === 'beneficiaries' && this._filters.merchant_id) {
+        const res = await fetchWithTimeout(getApiUrl(`/api/beneficiaries/${encodeURIComponent(this._filters.merchant_id)}`));
+        const json = await res.json();
+        if (json.success && json.beneficiaries) {
+          return { data: json.beneficiaries, error: null };
+        }
+        return { data: [], error: new Error(json.message || 'Beneficiaries failed') };
       }
-      return { data: this._single || this._maybeSingle ? null : [], error: new Error(json?.message || 'Query failed') };
+
+      return { data: this._single || this._maybeSingle ? null : [], error: new Error(`Direct query on ${this.table} is not permitted. Use dedicated API endpoints.`) };
     } catch (err) {
-      console.error(`[PostgreSQL DB Client Error on ${this.table}]:`, err.message);
       return { data: this._single || this._maybeSingle ? null : [], error: err };
     }
   }
@@ -222,17 +180,7 @@ class SelfHostedDatabaseClient {
   }
 
   async rpc(procedure, params = {}) {
-    try {
-      const res = await fetchWithTimeout(getApiUrl('/api/db/query'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sql: `SELECT * FROM ${procedure}($1)`, params: [params] }),
-      });
-      const json = await res.json();
-      return { data: json.data, error: null };
-    } catch (err) {
-      return { data: null, error: err };
-    }
+    throw new Error('[SECURITY LOCKOUT] Arbitrary SQL RPC execution is permanently disabled.');
   }
 }
 
