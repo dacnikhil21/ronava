@@ -479,7 +479,7 @@ export async function getAllUsers() {
         pos_rate: p.commission_rate || null,
         pos_vendor: p.vendor_entity || 'Rose Navaneetham Enterprises',
         pos_plan: p.device_plan || 'RENTAL',
-        pos_rent: p.monthly_rent || 499.0,
+        pos_rent: parseFloat(p.monthly_rent || 0.0),
         pos_settlement: p.settlement_type || 'T1',
         pos_instant_fee: p.instant_surcharge || 0.0,
         creator_name: meta.creator_name,
@@ -1251,13 +1251,13 @@ export function formatTerminalDisplay(terminalStr, defaultProvider = 'Pine Labs'
   return `${defaultProvider} (${terminalStr.split('|')[0]})`;
 }
 
-export function parsePosTerminalRates(terminalStr, baseRate = 1.50) {
+export function parsePosTerminalRates(terminalStr, baseRate = 0.0) {
   const str = terminalStr || '';
   let cleanId = str;
   let rateT1 = typeof baseRate === 'number' ? baseRate : (parseFloat(baseRate) || 0);
   let rateInstant = rateT1;
-  let adminCut = 1.20;
-  let uplineCut = 0.20;
+  let adminCut = 0.0;
+  let uplineCut = 0.0;
 
   const channels = {
     pinelabs: { enabled: false, terminal_id: '', rateT1, rateInstant },
@@ -1508,41 +1508,14 @@ export function getUserBuyRate(user, pos, isInstant = false, targetChannel = nul
     }
   }
 
-  // Tiered wholesale buy rates per channel (Strictly isolated without defaulting to Pine Labs)
-  if (chKey === 'qr') {
-    if (role === 'MERCHANT' || uid.startsWith('MID')) return 1.80;
-    if (role === 'DISTRIBUTOR' || uid.startsWith('DIST')) return 1.55; // 0.25% margin
-    if (role.includes('DISTRICT') || uid.startsWith('DD')) return 1.35; // 0.20% margin
-    if (role.includes('SUPER') || uid.startsWith('SD')) return 1.15; // 0.20% margin
-    if (role === 'ADMIN' || uid.startsWith('ADM')) return 0.00;
-    return 1.80;
-  }
-
-  if (chKey === 'payswiff') {
-    if (role === 'MERCHANT' || uid.startsWith('MID')) return isInstant ? 2.80 : 2.10;
-    if (role === 'DISTRIBUTOR' || uid.startsWith('DIST')) return isInstant ? 2.40 : 1.90; // 0.20% margin
-    if (role.includes('DISTRICT') || uid.startsWith('DD')) return isInstant ? 2.20 : 1.70; // 0.20% margin
-    if (role.includes('SUPER') || uid.startsWith('SD')) return isInstant ? 2.00 : 1.50; // 0.20% margin
-    if (role === 'ADMIN' || uid.startsWith('ADM')) return 0.00;
-    return isInstant ? 2.80 : 2.10;
-  }
-
-  if (chKey === 'pinelabs') {
-    if (role === 'MERCHANT' || uid.startsWith('MID')) return isInstant ? 1.70 : 1.60;
-    if (role === 'DISTRIBUTOR' || uid.startsWith('DIST')) return isInstant ? 1.60 : 1.50; // 0.10% margin
-    if (role.includes('DISTRICT') || uid.startsWith('DD')) return isInstant ? 1.50 : 1.40; // 0.10% margin
-    if (role.includes('SUPER') || uid.startsWith('SD')) return isInstant ? 1.30 : 1.20; // 0.20% margin
-    if (role === 'ADMIN' || uid.startsWith('ADM')) return 0.00;
-    return isInstant ? 1.70 : 1.60;
-  }
-
   if (user) {
-    const uRate = isInstant ? user.commission_rate_instant : (user.commission_rate_t1 || user.commission_rate || user.margin_rate);
+    const uRate = isInstant ? (user.commission_rate_instant || user.commission_rate_t1 || user.margin_rate) : (user.commission_rate_t1 || user.margin_rate);
     if (uRate !== undefined && uRate !== null && !isNaN(parseFloat(uRate)) && parseFloat(uRate) > 0) {
       return parseFloat(uRate);
     }
   }
-  return isInstant ? 1.80 : 1.50;
+
+  return 0.0;
 }
 
 export async function validateUtrUniqueness(utr, excludeTxnId = null, excludeWithdrawalId = null, scope = 'ALL') {
@@ -2246,7 +2219,7 @@ export async function getDownstreamNetwork(creatorId) {
       success: true,
       creator,
       creator_pos: creatorPos,
-      commission_rate_pct: parseFloat(Math.max(0, 1.50 - creatorBuyRate).toFixed(2)),
+      commission_rate_pct: parseFloat((creator?.margin_rate || creator?.upline_override_rate || Math.max(0, (creator?.commission_rate_instant || creator?.commission_rate_t1 || 0) - creatorBuyRate) || 0).toFixed(2)),
       partners: enrichedPartners,
       total_partners: enrichedPartners.length,
       total_commission_earned: parseFloat(totalCommissionAll.toFixed(2)),

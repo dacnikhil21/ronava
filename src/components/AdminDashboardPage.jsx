@@ -5643,7 +5643,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               }}>
                                 {m.status === 'SUSPENDED' ? '⚠️ Suspended' : '✓ Active'}
                               </span>
-                              <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: '#ECFDF5', color: '#059669', border: '1px solid #A7F3D0' }}>
+                              <span style={{
+                                fontSize: '0.625rem',
+                                fontWeight: 800,
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                background: parseFloat(m.available_balance || 0) < 0 ? '#FEF2F2' : '#ECFDF5',
+                                color: parseFloat(m.available_balance || 0) < 0 ? '#DC2626' : '#059669',
+                                border: parseFloat(m.available_balance || 0) < 0 ? '1px solid #FECACA' : '1px solid #A7F3D0'
+                              }}>
                                 Wallet: ₹{parseFloat(m.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                               </span>
                             </div>
@@ -5699,8 +5707,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           {/* 4 Financial Metrics Grid */}
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.375rem', marginTop: '0.625rem', background: '#F8FAFC', padding: '0.5rem 0.625rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
                             <div>
-                              <span style={{ fontSize: '0.55rem', color: '#0F52BA', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Available Wallet</span>
-                              <strong style={{ fontSize: '0.8125rem', color: '#0F52BA', fontWeight: 900 }}>
+                              <span style={{ fontSize: '0.55rem', color: parseFloat(m.available_balance || 0) < 0 ? '#DC2626' : '#0F52BA', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Available Wallet</span>
+                              <strong style={{ fontSize: '0.8125rem', color: parseFloat(m.available_balance || 0) < 0 ? '#DC2626' : '#0F52BA', fontWeight: 900 }}>
                                 ₹{parseFloat(m.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                               </strong>
                             </div>
