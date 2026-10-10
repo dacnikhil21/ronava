@@ -1683,14 +1683,15 @@ export async function handleApiRequest(req, res) {
           }
 
           // Atomic deduction from available balance into pending balance
+          const minRequiredBalance = parseFloat((numAmount + reserveHold).toFixed(2));
           const updRes = await client.query(`
             UPDATE wallets 
             SET available_balance = available_balance - $1,
                 pending_balance = pending_balance + $1,
                 updated_at = CURRENT_TIMESTAMP
-            WHERE user_id = $2 AND available_balance >= ($1 + $3)
+            WHERE UPPER(user_id) = UPPER($2) AND available_balance >= $3
             RETURNING *
-          `, [numAmount, merchant_id.trim(), reserveHold]);
+          `, [numAmount, merchant_id.trim(), minRequiredBalance]);
 
           if (updRes.rows.length === 0) {
             throw new Error('Insufficient withdrawable balance during atomic check.');
