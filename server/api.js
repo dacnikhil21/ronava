@@ -246,7 +246,8 @@ export async function handleApiRequest(req, res) {
       let statusMap = {};
       if (statusRows.length > 0 && statusRows[0].remarks) {
         try {
-          statusMap = JSON.parse(statusRows[0].remarks);
+          const parsed = JSON.parse(statusRows[0].remarks);
+          if (parsed && typeof parsed === 'object') statusMap = parsed;
         } catch (_) {}
       }
       statusMap[targetUserId] = status.toUpperCase();
@@ -1417,7 +1418,7 @@ export async function handleApiRequest(req, res) {
         // Insert Transaction with APPROVED status
         const tRes = await client.query(`
           INSERT INTO transactions (id, merchant_id, customer_mobile, amount, type, provider, ref_number, notes, status, verified_at)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'APPROVED', CURRENT_TIMESTAMP)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
           RETURNING *
         `, [
           txnId,
@@ -1427,7 +1428,8 @@ export async function handleApiRequest(req, res) {
           type || 'POS_SWIPE',
           provider,
           finalRef,
-          `[CARD_SWIPE_ENTRY] ${JSON.stringify(swipeMeta)}`
+          `[CARD_SWIPE_ENTRY] ${JSON.stringify(swipeMeta)}`,
+          'APPROVED'
         ]);
         createdTxn = tRes.rows[0];
       });

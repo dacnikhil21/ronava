@@ -82,17 +82,39 @@ async function handleMockQuery(sql, params = []) {
     return [{ s: sum }];
   }
 
-  // Users
-  if (cleanSql === 'SELECT * FROM users' || cleanSql.includes('SELECT u.*') || cleanSql.includes('FROM users u')) {
-    return localMockDb.users.map(u => ({ ...u }));
-  }
-  if (cleanSql.startsWith('SELECT * FROM users WHERE UPPER(id) = UPPER($1)') || cleanSql.startsWith('SELECT * FROM users WHERE id = $1')) {
-    const u = localMockDb.users.find(x => x.id.toUpperCase() === (params[0] || '').toString().toUpperCase());
-    return u ? [{ ...u }] : [];
+  // Specific user lookup by ID
+  if (cleanSql.includes('FROM users') && (cleanSql.includes('WHERE UPPER(u.id) = UPPER($1)') || cleanSql.includes('WHERE UPPER(id) = UPPER($1)') || cleanSql.includes('WHERE id = $1') || cleanSql.includes('WHERE u.id = $1'))) {
+    const targetId = (params[0] || '').toString().toUpperCase();
+    const u = localMockDb.users.find(x => (x.id || '').toUpperCase() === targetId);
+    if (u) {
+      const pos = localMockDb.merchant_pos.find(p => (p.merchant_id || '').toUpperCase() === targetId);
+      const w = localMockDb.wallets.find(w => (w.user_id || '').toUpperCase() === targetId) || { available_balance: 0, total_sales: 0, received_sales: 0, pending_balance: 0, withdrawn_amount: 0 };
+      return [{
+        ...u,
+        pos_provider: pos?.provider,
+        pos_terminal: pos?.terminal_id,
+        pos_rate: pos?.commission_rate,
+        pos_vendor: pos?.vendor_entity,
+        pos_plan: pos?.device_plan,
+        pos_rent: pos?.monthly_rent,
+        pos_settlement: pos?.settlement_type,
+        pos_instant_fee: pos?.instant_surcharge,
+        available_balance: w.available_balance,
+        total_sales: w.total_sales,
+        pending_balance: w.pending_balance,
+        received_sales: w.received_sales,
+        withdrawn_amount: w.withdrawn_amount
+      }];
+    }
+    return [];
   }
   if (cleanSql.includes('FROM users WHERE UPPER(id) = UPPER($1) OR mobile = $1')) {
-    const u = localMockDb.users.find(x => x.id.toUpperCase() === (params[0] || '').toString().toUpperCase() || x.mobile === params[0]);
+    const target = (params[0] || '').toString().toUpperCase();
+    const u = localMockDb.users.find(x => (x.id || '').toUpperCase() === target || x.mobile === params[0]);
     return u ? [{ ...u }] : [];
+  }
+  if (cleanSql === 'SELECT * FROM users' || cleanSql.includes('SELECT u.*') || cleanSql.includes('FROM users u') || cleanSql.includes('FROM users')) {
+    return localMockDb.users.map(u => ({ ...u }));
   }
   if (cleanSql.startsWith('INSERT INTO users')) {
     const match = cleanSql.match(/INSERT INTO users \((.*?)\) VALUES/i);
@@ -263,12 +285,28 @@ async function handleMockQuery(sql, params = []) {
     return localMockDb.transactions.filter(t => t.merchant_id === params[0]).map(t => ({ ...t }));
   }
   if (cleanSql.startsWith('INSERT INTO transactions')) {
-    const match = cleanSql.match(/INSERT INTO transactions \((.*?)\) VALUES/i);
-    if (match) {
-      const cols = match[1].split(',').map(c => c.trim());
+    const matchCols = cleanSql.match(/INSERT INTO transactions \((.*?)\) VALUES/i);
+    const matchVals = cleanSql.match(/VALUES \((.*?)\)/i);
+    if (matchCols && matchVals) {
+      const cols = matchCols[1].split(',').map(c => c.trim());
+      const valTokens = matchVals[1].split(',').map(v => v.trim());
       const row = {};
-      cols.forEach((col, idx) => { row[col] = params[idx]; });
-      localMockDb.transactions.push(row);
+      let paramIdx = 0;
+      cols.forEach((col, idx) => {
+        const token = valTokens[idx] || '';
+        if (token.startsWith('$')) {
+          row[col] = params[paramIdx++];
+        } else if (token.startsWith("'") && token.endsWith("'")) {
+          row[col] = token.slice(1, -1);
+        } else if (token.toUpperCase() === 'CURRENT_TIMESTAMP') {
+          row[col] = new Date().toISOString();
+        } else {
+          row[col] = params[paramIdx++];
+        }
+      });
+      if (!row.status) row.status = 'APPROVED';
+      if (!row.created_at) row.created_at = new Date().toISOString();
+      localMockDb.transactions.unshift(row);
       return [{ ...row }];
     }
   }
@@ -326,33 +364,34 @@ async function handleMockQuery(sql, params = []) {
   if (cleanSql.startsWith('SELECT * FROM beneficiaries WHERE merchant_id = $1')) {
     return localMockDb.beneficiaries.filter(b => b.merchant_id === params[0]).map(b => ({ ...b }));
   }
-  if (cleanSql === 'SELECT * FROM inquiries' || cleanSql.startsWith('SELECT * FROM inquiries ORDER BY')) {
-    return localMockDb.inquiries.map(i => ({ ...i }));
-  }
-  if (cleanSql.startsWith('SELECT * FROM inquiries WHERE id = \'SYS-COMMISSION-PAYOUTS\'') || cleanSql.startsWith('SELECT * FROM inquiries WHERE id = $1')) {
-    const inq = localMockDb.inquiries.find(x => x.id === (params[0] || 'SYS-COMMISSION-PAYOUTS'));
+  if (cleanSql.includes('FROM inquiries WHERE id =') || cleanSql.includes('FROM inquiries WHERE UPPER(id) =')) {
+    const literalMatch = cleanSql.match(/WHERE (?:UPPER\()?id\)?\s*=\s*'([^']+)'/i);
+    const targetKey = params[0] ? params[0].toString() : (literalMatch ? literalMatch[1] : 'SYS-COMMISSION-PAYOUTS');
+    const inq = localMockDb.inquiries.find(x => x.id === targetKey);
     return inq ? [{ ...inq }] : [];
+  }
+  if (cleanSql === 'SELECT * FROM inquiries' || cleanSql.startsWith('SELECT * FROM inquiries ORDER BY') || cleanSql.includes('FROM inquiries')) {
+    return localMockDb.inquiries.map(i => ({ ...i }));
   }
   if (cleanSql.startsWith('INSERT INTO inquiries')) {
     const inqId = params[0];
+    const remarksVal = params[1] || params[params.length - 1] || '';
     const existing = localMockDb.inquiries.find(x => x.id === inqId);
     if (existing) {
-      if (cleanSql.includes('remarks = EXCLUDED.remarks')) {
-        existing.remarks = params[1] || params[params.length - 1];
-        existing.updated_at = new Date().toISOString();
-      }
+      existing.remarks = remarksVal;
+      existing.updated_at = new Date().toISOString();
       return [{ ...existing }];
     } else {
       const row = {
         id: inqId,
-        type: params[1] || 'GENERAL',
-        name: params[2] || inqId,
-        phone: params[3] || '9966203053',
-        merchant_id: params[4] || null,
-        amount: params[5] || '0',
-        category: params[6] || 'CONFIG',
-        location: params[7] || 'SERVER',
-        remarks: params[8] || params[1] || '',
+        type: 'SYSTEM',
+        name: inqId,
+        phone: '9966203053',
+        merchant_id: 'ADM001',
+        amount: '0',
+        category: 'CONFIG',
+        location: 'SERVER',
+        remarks: remarksVal,
         status: 'ACTIVE',
         created_at: new Date().toISOString()
       };
