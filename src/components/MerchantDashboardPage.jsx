@@ -160,6 +160,21 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   const [merchantName, setMerchantName] = useState(() => user?.name || 'Partner Account');
   const userRole = user?.role ? (user.role === 'MERCHANT' ? 'Retailer' : user.role) : 'Retailer';
 
+  // Interactive Profile Details (Available from login and refreshed dynamically)
+  const [userProfile, setUserProfile] = useState(() => ({
+    name: user?.name || user?.user?.name || '',
+    mobile: user?.mobile || user?.user?.mobile || user?.phone || '',
+    email: user?.email || user?.user?.email || '',
+    aadhaar: user?.aadhaar || user?.user?.aadhaar || '',
+    pan: user?.pan || user?.user?.pan || '',
+    address: user?.address || user?.user?.address || '',
+    role: user?.role || user?.user?.role || 'MERCHANT',
+    commission_rate_t1: user?.commission_rate_t1 || user?.user?.commission_rate_t1 || null,
+    commission_rate_instant: user?.commission_rate_instant || user?.user?.commission_rate_instant || null,
+    margin_rate: user?.margin_rate || user?.user?.margin_rate || null,
+    created_at: user?.created_at || user?.user?.created_at || null
+  }));
+
   const [showBalance, setShowBalance] = useState(true);
   // Views: 'home' | 'record-sale' | 'withdraw' | 'bbps' | 'history'
   const [activeTab, setActiveTab] = useState(() => {
@@ -398,12 +413,15 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     const base = POS_MACHINES_DATA[effectiveKey] || POS_MACHINES_DATA.pine_labs;
 
     const ch = merchantChannels?.[effectiveKey];
+    const profile = userProfile || user;
+    const profileRateT1 = parseFloat(profile?.commission_rate_t1 || profile?.commission_rate || 0);
+    const profileRateInstant = parseFloat(profile?.commission_rate_instant || profileRateT1 || 0);
 
     // QR Channel: Strictly inherits merchant's assigned custom Instant fee % and RONAV Technologies corporate entity
     if (effectiveKey === 'qr') {
       const instantRate = parseFloat((ch && ch.rate_instant)
         ? ch.rate_instant
-        : ((userPosRates && userPosRates.rateInstant) || merchantProfile?.commission_rate_instant || merchantProfile?.commission_rate_t1 || 0));
+        : ((userPosRates && userPosRates.rateInstant) || profileRateInstant || profileRateT1 || base.rateInstant || 0));
       return {
         ...base,
         provider: 'Company QR (UPI)',
@@ -420,8 +438,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
     // Hardware POS terminals (Pine Labs or Payswiff)
     if (ch && ch.enabled) {
-      const rateT1 = parseFloat(ch.rate_t1 || merchantProfile?.commission_rate_t1 || 0);
-      const rateInstant = parseFloat(ch.rate_instant || merchantProfile?.commission_rate_instant || rateT1);
+      const rateT1 = parseFloat(ch.rate_t1 || profileRateT1 || base.rateT1 || 0);
+      const rateInstant = parseFloat(ch.rate_instant || profileRateInstant || rateT1 || base.rateInstant || 0);
       return {
         ...base,
         provider: effectiveKey === 'payswiff' ? 'Payswiff' : 'Pine Labs',
@@ -439,20 +457,22 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     }
 
     if (userPos && userPosRates) {
+      const rateT1 = parseFloat(userPosRates.rateT1 || profileRateT1 || base.rateT1 || 0);
+      const rateInstant = parseFloat(userPosRates.rateInstant || profileRateInstant || rateT1 || base.rateInstant || 0);
       return {
         ...base,
         provider: userPos.provider || base.provider,
         terminal_id: userPosRates.terminal_id || userPos.terminal_id || base.terminal_id,
-        rateT1: userPosRates.rateT1 || base.rateT1,
-        rateInstant: userPosRates.rateInstant || base.rateInstant,
-        rateStrT1: `${(userPosRates.rateT1 || base.rateT1).toFixed(2)}%`,
-        rateStrInstant: `${(userPosRates.rateInstant || base.rateInstant).toFixed(2)}%`,
-        rate: `${(userPosRates.rateT1 || base.rateT1).toFixed(2)}%`,
-        rateNum: userPosRates.rateT1 || base.rateT1
+        rateT1,
+        rateInstant,
+        rateStrT1: `${rateT1.toFixed(2)}%`,
+        rateStrInstant: `${rateInstant.toFixed(2)}%`,
+        rate: `${rateT1.toFixed(2)}%`,
+        rateNum: rateT1
       };
     }
     return base;
-  }, [selectedMachineKey, userPos, userPosRates, availableMachineTabs, merchantChannels]);
+  }, [selectedMachineKey, userPos, userPosRates, availableMachineTabs, merchantChannels, userProfile, user]);
 
   // Live Wallet State (Pure Dynamic DB)
   const [wallet, setWallet] = useState({
@@ -575,16 +595,6 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
   // Interactive Profile Contact Details Edit State (Requirement #8: Mobile Number & Gmail)
   const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [userProfile, setUserProfile] = useState(() => ({
-    name: user?.name || user?.user?.name || '',
-    mobile: user?.mobile || user?.user?.mobile || user?.phone || '',
-    email: user?.email || user?.user?.email || '',
-    aadhaar: user?.aadhaar || user?.user?.aadhaar || '',
-    pan: user?.pan || user?.user?.pan || '',
-    address: user?.address || user?.user?.address || '',
-    role: user?.role || user?.user?.role || 'MERCHANT',
-    created_at: user?.created_at || user?.user?.created_at || null
-  }));
 
   const [profileFormData, setProfileFormData] = useState({
     mobile: user?.mobile || user?.user?.mobile || user?.phone || '',
@@ -2988,7 +2998,12 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                   {(() => {
                     const cardSwipeAmount = parseFloat(saleForm.amount) || 0;
                     const isInstant = saleForm.settlement_type === 'INSTANT';
-                    const companyRate = isInstant ? (parseFloat(activeMachine.rateInstant) || parseFloat(activeMachine.rateT1) || parseFloat(merchantProfile?.commission_rate_instant) || parseFloat(merchantProfile?.commission_rate_t1) || 0) : (parseFloat(activeMachine.rateT1) || parseFloat(merchantProfile?.commission_rate_t1) || 0);
+                    const profile = userProfile || user;
+                    const profileRateT1 = parseFloat(profile?.commission_rate_t1 || profile?.commission_rate || 0);
+                    const profileRateInstant = parseFloat(profile?.commission_rate_instant || profileRateT1 || 0);
+                    const companyRate = isInstant 
+                      ? (parseFloat(activeMachine.rateInstant) || parseFloat(activeMachine.rateT1) || profileRateInstant || profileRateT1 || 0) 
+                      : (parseFloat(activeMachine.rateT1) || profileRateT1 || 0);
                     const companyFee = (cardSwipeAmount * companyRate) / 100;
                     const netSettlement = Math.max(0, cardSwipeAmount - companyFee);
 

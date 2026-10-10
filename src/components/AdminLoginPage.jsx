@@ -70,7 +70,7 @@ export default function AdminLoginPage({ onLoginSuccess, onBackToHome }) {
       });
 
       if (res && res.success && (res.user?.role === 'ADMIN' || res.user?.id === 'ADM001')) {
-        onLoginSuccess();
+        onLoginSuccess(res.user);
       } else {
         setLoginError(res?.message || 'Access Denied: You do not have Administrator privileges. Please login through your designated partner portal.');
       }

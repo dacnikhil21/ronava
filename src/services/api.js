@@ -63,6 +63,66 @@ export async function resetUserPassword(query) {
 }
 
 /**
+ * UNIFIED SESSION LIFECYCLE MANAGEMENT
+ * Guarantees consistent session preservation across page reloads without role collision.
+ */
+export function getAuthSession() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem('ronav_session');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.user) return parsed;
+    }
+  } catch (_) {}
+
+  // Fallback / legacy compatibility
+  const rawMerchant = sessionStorage.getItem('ronav_merchant_user');
+  if (rawMerchant) {
+    try {
+      const u = JSON.parse(rawMerchant);
+      if (u && u.id) return { role: u.role || 'MERCHANT', user: u };
+    } catch (_) {}
+  }
+  if (sessionStorage.getItem('ronav_admin_session') === 'true') {
+    return { role: 'ADMIN', user: { id: 'ADM001', name: 'Super Admin', role: 'ADMIN' } };
+  }
+  return null;
+}
+
+export function setAuthSession(sessionData) {
+  if (typeof window === 'undefined') return;
+  if (!sessionData || !sessionData.user) {
+    clearAuthSession();
+    return;
+  }
+  const payload = {
+    role: sessionData.role || sessionData.user.role || 'MERCHANT',
+    user: sessionData.user,
+    timestamp: Date.now()
+  };
+  sessionStorage.setItem('ronav_session', JSON.stringify(payload));
+  if (payload.role === 'ADMIN' || payload.user.id === 'ADM001') {
+    sessionStorage.setItem('ronav_admin_session', 'true');
+    sessionStorage.removeItem('ronav_merchant_user');
+  } else {
+    sessionStorage.setItem('ronav_merchant_user', JSON.stringify(payload.user));
+    sessionStorage.removeItem('ronav_admin_session');
+  }
+}
+
+export function clearAuthSession() {
+  if (typeof window === 'undefined') return;
+  sessionStorage.removeItem('ronav_session');
+  sessionStorage.removeItem('ronav_admin_session');
+  sessionStorage.removeItem('ronav_merchant_user');
+  sessionStorage.removeItem('ronav_current_view');
+  sessionStorage.removeItem('ronav_merchant_active_tab');
+  sessionStorage.removeItem('ronav_user_pos');
+  sessionStorage.removeItem('ronav_merchant_selected_machine');
+}
+
+/**
  * Update user password with current password verification
  */
 export async function updateUserPassword(userId, currentPassword, newPassword) {
