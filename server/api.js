@@ -1931,27 +1931,40 @@ export async function handleApiRequest(req, res) {
       return sendJson(res, 200, { success: true, inquiries });
     }
 
-    if (pathname.startsWith('/api/settings/config/') && method === 'GET') {
-      const configKey = decodeURIComponent(pathname.replace('/api/settings/config/', '')).trim();
-      const rows = await pgQuery(`SELECT * FROM inquiries WHERE id = $1`, [configKey]);
+    if (pathname.startsWith('/api/settings/config') && method === 'GET') {
+      const configKey = decodeURIComponent(pathname.replace('/api/settings/config/', '').replace('/api/settings/config', '')).trim() || 'SYS-COMMISSION-PAYOUTS';
+      const rows = await pgQuery(`SELECT * FROM inquiries WHERE UPPER(id) = UPPER($1)`, [configKey]);
       let value = null;
-      if (rows.length > 0 && rows[0].remarks) {
+      let status = 'INACTIVE';
+      if (rows.length > 0) {
+        status = rows[0].status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE';
         try { value = JSON.parse(rows[0].remarks); } catch (_) { value = rows[0].remarks; }
       }
-      return sendJson(res, 200, { success: true, key: configKey, value });
+      return sendJson(res, 200, { success: true, key: configKey, status, enabled: status === 'ACTIVE', value });
     }
 
     if (pathname === '/api/settings/config' && method === 'POST') {
       try {
-        const { key, value } = await parseJsonBody(req);
+        const { key, value, status, enabled } = await parseJsonBody(req);
         if (!key) return sendJson(res, 400, { success: false, message: 'key is required.' });
-        const valStr = typeof value === 'object' ? JSON.stringify(value) : String(value);
+        const cleanKey = key.trim().toUpperCase();
+        const finalStatus = (status || (enabled !== undefined ? (enabled ? 'ACTIVE' : 'INACTIVE') : 'ACTIVE')).toUpperCase();
+        const valStr = typeof value === 'object' ? JSON.stringify(value) : (value !== undefined ? String(value) : finalStatus);
+        
         await pgQuery(`
-          INSERT INTO inquiries (id, type, name, phone, merchant_id, amount, category, location, remarks)
-          VALUES ($1, 'SYSTEM', $1, '9966203053', 'ADM001', '0', 'CONFIG', 'SERVER', $2)
-          ON CONFLICT (id) DO UPDATE SET remarks = EXCLUDED.remarks, updated_at = CURRENT_TIMESTAMP
-        `, [key, valStr]);
-        return sendJson(res, 200, { success: true, message: `Configuration ${key} saved successfully.`, key, value });
+          INSERT INTO inquiries (id, type, name, phone, status, remarks)
+          VALUES ($1, 'SYS_CONFIG', $1, '9966203053', $2, $3)
+          ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, remarks = EXCLUDED.remarks, updated_at = CURRENT_TIMESTAMP
+        `, [cleanKey, finalStatus, valStr]);
+
+        return sendJson(res, 200, { 
+          success: true, 
+          message: `Configuration ${cleanKey} updated to ${finalStatus}`, 
+          key: cleanKey, 
+          status: finalStatus, 
+          enabled: finalStatus === 'ACTIVE',
+          value 
+        });
       } catch (err) {
         return sendJson(res, 500, { success: false, message: err.message });
       }
@@ -2074,25 +2087,6 @@ export async function handleApiRequest(req, res) {
       } catch (err) {
         return sendJson(res, 500, { success: false, message: err.message });
       }
-    }
-
-    if (pathname.startsWith('/api/settings/config') && method === 'GET') {
-      const key = pathname.replace('/api/settings/config/', '').replace('/api/settings/config', '').trim() || 'SYS-COMMISSION-PAYOUTS';
-      const rows = await pgQuery(`SELECT * FROM inquiries WHERE UPPER(id) = UPPER($1)`, [key]);
-      const status = rows.length > 0 && rows[0].status === 'ACTIVE' ? 'ACTIVE' : 'INACTIVE';
-      return sendJson(res, 200, { success: true, key, status, enabled: status === 'ACTIVE', config: rows[0] || null });
-    }
-
-    if (pathname === '/api/settings/config' && method === 'POST') {
-      const { key, status, enabled } = await parseJsonBody(req);
-      const cleanKey = (key || 'SYS-COMMISSION-PAYOUTS').trim().toUpperCase();
-      const finalStatus = (status || (enabled ? 'ACTIVE' : 'INACTIVE')).toUpperCase();
-      await pgQuery(`
-        INSERT INTO inquiries (id, type, name, phone, status, remarks)
-        VALUES ($1, 'SYS_CONFIG', $1, '9966203053', $2, 'Master System Configuration Toggle')
-        ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, updated_at = CURRENT_TIMESTAMP
-      `, [cleanKey, finalStatus]);
-      return sendJson(res, 200, { success: true, message: `Setting ${cleanKey} updated to ${finalStatus}`, status: finalStatus, enabled: finalStatus === 'ACTIVE' });
     }
 
     // ----------------------------------------------------
