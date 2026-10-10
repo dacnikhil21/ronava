@@ -480,12 +480,11 @@ export async function handleApiRequest(req, res) {
           await client.query(`
             UPDATE wallets 
             SET available_balance = $1,
-                unrecovered_deficit = $2,
-                received_sales = GREATEST(0.0, received_sales - $3),
-                total_sales = GREATEST(0.0, total_sales - $3),
+                received_sales = GREATEST(0.0, received_sales - $2),
+                total_sales = GREATEST(0.0, total_sales - $2),
                 updated_at = CURRENT_TIMESTAMP
-            WHERE user_id = $4
-          `, [newAvail, newDeficit, parseFloat(txn.amount), txn.merchant_id]);
+            WHERE user_id = $3
+          `, [newAvail, parseFloat(txn.amount), txn.merchant_id]);
 
           // Reversal for each upline
           for (const split of uplineSplits) {
@@ -493,22 +492,18 @@ export async function handleApiRequest(req, res) {
             const commAmt = parseFloat(split.amount) || 0;
             if (commAmt > 0 && uId) {
               const uWallets = (await client.query(`SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`, [uId])).rows;
-              const uWallet = uWallets[0] || { available_balance: 0, unrecovered_deficit: 0, total_sales: 0 };
+              const uWallet = uWallets[0] || { available_balance: 0, total_sales: 0 };
               const uCurrAvail = parseFloat(uWallet.available_balance || 0);
-              const uCurrDef = parseFloat(uWallet.unrecovered_deficit || 0);
               const uAvailDed = Math.min(uCurrAvail, commAmt);
-              const uDefAdd = parseFloat((commAmt - uAvailDed).toFixed(2));
               const uNewAvail = parseFloat((uCurrAvail - uAvailDed).toFixed(2));
-              const uNewDef = parseFloat((uCurrDef + uDefAdd).toFixed(2));
 
               await client.query(`
                 UPDATE wallets 
                 SET available_balance = $1,
-                unrecovered_deficit = $2,
-                total_sales = GREATEST(0.0, total_sales - $3),
-                updated_at = CURRENT_TIMESTAMP
-                WHERE user_id = $4
-              `, [uNewAvail, uNewDef, parseFloat(txn.amount), uId]);
+                    total_sales = GREATEST(0.0, total_sales - $2),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = $3
+              `, [uNewAvail, parseFloat(txn.amount), uId]);
             }
           }
 
@@ -704,8 +699,8 @@ export async function handleApiRequest(req, res) {
 
           // 2. Initialize Wallet
           await client.query(`
-            INSERT INTO wallets (user_id, available_balance, total_sales, received_sales, pending_balance, withdrawn_amount, unrecovered_deficit)
-            VALUES ($1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            INSERT INTO wallets (user_id, available_balance, total_sales, received_sales, pending_balance, withdrawn_amount)
+            VALUES ($1, 0.0, 0.0, 0.0, 0.0, 0.0)
             ON CONFLICT (user_id) DO NOTHING
           `, [newUserId]);
 
@@ -1377,19 +1372,17 @@ export async function handleApiRequest(req, res) {
         const mDeficit = parseFloat(mWallet.unrecovered_deficit || 0);
         const deficitCleared = Math.min(mDeficit, netCreditAmount);
         const actualCredit = parseFloat((netCreditAmount - deficitCleared).toFixed(2));
-        const newDeficit = parseFloat((mDeficit - deficitCleared).toFixed(2));
-        const newAvail = parseFloat((mAvail + actualCredit).toFixed(2));
+        const newAvail = parseFloat((mAvail + netCreditAmount).toFixed(2));
 
         const updMWalletRes = await client.query(`
           UPDATE wallets 
           SET available_balance = $1,
-              unrecovered_deficit = $2,
-              received_sales = received_sales + $3,
-              total_sales = total_sales + $3,
+              received_sales = received_sales + $2,
+              total_sales = total_sales + $2,
               updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = $4
+          WHERE user_id = $3
           RETURNING *
-        `, [newAvail, newDeficit, numAmount, merchant.id]);
+        `, [newAvail, numAmount, merchant.id]);
         updatedMerchantWallet = updMWalletRes.rows[0];
 
         // Credit Uplines
@@ -1401,26 +1394,21 @@ export async function handleApiRequest(req, res) {
             let uWallet = uWallets[0];
             if (!uWallet) {
               uWallet = (await client.query(`
-                INSERT INTO wallets (user_id, available_balance, total_sales, received_sales, pending_balance, withdrawn_amount, unrecovered_deficit)
-                VALUES ($1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0) RETURNING *
+                INSERT INTO wallets (user_id, available_balance, total_sales, received_sales, pending_balance, withdrawn_amount)
+                VALUES ($1, 0.0, 0.0, 0.0, 0.0, 0.0) RETURNING *
               `, [uId])).rows[0];
             }
 
             const uAvail = parseFloat(uWallet.available_balance || 0);
-            const uDef = parseFloat(uWallet.unrecovered_deficit || 0);
-            const uDefCleared = Math.min(uDef, commAmt);
-            const uActualCredit = parseFloat((commAmt - uDefCleared).toFixed(2));
-            const uNewDef = parseFloat((uDef - uDefCleared).toFixed(2));
-            const uNewAvail = parseFloat((uAvail + uActualCredit).toFixed(2));
+            const uNewAvail = parseFloat((uAvail + commAmt).toFixed(2));
 
             await client.query(`
               UPDATE wallets 
               SET available_balance = $1,
-                  unrecovered_deficit = $2,
-                  total_sales = total_sales + $3,
+                  total_sales = total_sales + $2,
                   updated_at = CURRENT_TIMESTAMP
-              WHERE user_id = $4
-            `, [uNewAvail, uNewDef, numAmount, uId]);
+              WHERE user_id = $3
+            `, [uNewAvail, numAmount, uId]);
           }
         }
 

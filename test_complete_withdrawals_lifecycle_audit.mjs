@@ -24,11 +24,12 @@ async function runWithdrawalLifecycleAudit() {
       { creator_id: 'DIST1001', name: 'Retail Merchant Store', mobile: '9876543205', role: 'MERCHANT', password: 'Ronav@123', margin_rate: '0.00', commission_rate_t1: '1.80', commission_rate_instant: '2.00', channels: { pine_labs: { enabled: true, terminal_id: 'PL-MID1001', vendor: 'Rose Navaneetham Enterprises', plan: 'RENTAL', rent: '499', rate_t1: '1.80', rate_instant: '2.00' } } }
     ];
     for (const u of usersToCreate) {
-      await fetch(`${baseUrl}/api/users/create`, {
+      const uRes = await fetch(`${baseUrl}/api/users/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(u)
-      });
+      }).then(r => r.json());
+      console.log(`  Auto-created ${u.name}:`, uRes.success ? `✅ (ID: ${uRes.user?.id})` : `❌ (${uRes.message})`);
     }
   }
 
