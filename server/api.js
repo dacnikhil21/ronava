@@ -2047,6 +2047,15 @@ export async function handleApiRequest(req, res) {
       }
     }
 
+    if (pathname === '/api/admin/system/migrate' && (method === 'POST' || method === 'GET')) {
+      try {
+        const ok = await initPostgresSchema();
+        return sendJson(res, 200, { success: true, message: 'Database schema migration executed successfully.', status: ok });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
     // ----------------------------------------------------
     // AUTOMATIC GITHUB AUTO-DEPLOY WEBHOOK
     // ----------------------------------------------------

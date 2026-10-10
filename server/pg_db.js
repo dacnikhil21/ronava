@@ -593,25 +593,25 @@ export async function withTransaction(callback) {
  * Auto-Initialize & Verify PostgreSQL Connection
  */
 export async function initPostgresSchema() {
-  if (useMockFallback || !pool) return true;
+  if (!pool) return true;
   try {
     const client = await pool.connect();
     try {
+      await client.query(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS unrecovered_deficit NUMERIC DEFAULT 0.0`).catch(e => console.error('[Migration Error wallets.unrecovered_deficit]:', e.message));
+      await client.query(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawn_amount NUMERIC DEFAULT 0.0`).catch(e => console.error('[Migration Error wallets.withdrawn_amount]:', e.message));
+      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS channels JSONB DEFAULT '{}'::jsonb`).catch(e => console.error('[Migration Error users.channels]:', e.message));
       await client.query(`
-        ALTER TABLE wallets ADD COLUMN IF NOT EXISTS unrecovered_deficit NUMERIC DEFAULT 0.0;
         CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_ref_number 
         ON transactions (ref_number) 
         WHERE ref_number IS NOT NULL AND ref_number != '' AND ref_number NOT LIKE 'RRN%';
-      `);
-    } catch (mErr) {
-      // Non-fatal if index/column already exists
+      `).catch(e => console.error('[Migration Error uq_transactions_ref_number]:', e.message));
     } finally {
       client.release();
     }
     return true;
   } catch (err) {
+    console.error('[PostgreSQL Sandbox] pool.connect error:', err.message);
     useMockFallback = true;
-    console.log('[PostgreSQL Sandbox] Local PostgreSQL unavailable. Activated safe local in-memory sandbox database.');
     return true;
   }
 }
