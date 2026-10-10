@@ -599,6 +599,24 @@ export async function handleApiRequest(req, res) {
       }
     }
 
+    if (pathname.startsWith('/api/wallet/') && method === 'GET') {
+      const userId = decodeURIComponent(pathname.replace('/api/wallet/', '')).trim();
+      try {
+        const wallets = await pgQuery(`SELECT * FROM wallets WHERE UPPER(user_id) = UPPER($1)`, [userId]);
+        const pos = (await pgQuery(`SELECT * FROM merchant_pos WHERE UPPER(merchant_id) = UPPER($1)`, [userId]))[0] || null;
+        if (!wallets || wallets.length === 0) {
+          return sendJson(res, 200, {
+            success: true,
+            wallet: { user_id: userId, available_balance: 0, total_sales: 0, received_sales: 0, pending_balance: 0, withdrawn_amount: 0 },
+            pos
+          });
+        }
+        return sendJson(res, 200, { success: true, wallet: wallets[0], pos });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
     // ----------------------------------------------------
     // 0.6 AUTHORITATIVE DOWNSTREAM USER ONBOARDING
     // ----------------------------------------------------
