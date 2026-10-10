@@ -1643,7 +1643,7 @@ export async function handleApiRequest(req, res) {
 
       // Check Admin Master Toggle for Commission Payouts
       if (isCommissionPayout) {
-        const toggleRows = await pgQuery(`SELECT * FROM inquiries WHERE id = 'SYS-COMMISSION-PAYOUTS'`);
+        const toggleRows = await pgQuery(`SELECT * FROM inquiries WHERE UPPER(id) = 'SYS-COMMISSION-PAYOUTS'`);
         const isToggleActive = toggleRows.length > 0 && toggleRows[0].status === 'ACTIVE';
         if (!isToggleActive) {
           return sendJson(res, 403, { 
@@ -1661,10 +1661,13 @@ export async function handleApiRequest(req, res) {
 
       try {
         await withTransaction(async (client) => {
-          const wRows = (await client.query(`SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`, [merchant_id.trim()])).rows;
-          const wallet = wRows[0];
+          let wRows = (await client.query(`SELECT * FROM wallets WHERE UPPER(user_id) = UPPER($1) FOR UPDATE`, [merchant_id.trim()])).rows;
+          let wallet = wRows[0];
           if (!wallet) {
-            throw new Error('Wallet not found for this user.');
+            wallet = (await client.query(`
+              INSERT INTO wallets (user_id, available_balance, total_sales, received_sales, pending_balance, withdrawn_amount)
+              VALUES ($1, 0.0, 0.0, 0.0, 0.0, 0.0) RETURNING *
+            `, [merchant_id.trim()])).rows[0];
           }
 
           const currAvail = parseFloat(wallet.available_balance || 0);
