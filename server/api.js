@@ -265,6 +265,21 @@ export async function handleApiRequest(req, res) {
       });
     }
 
+    if (pathname === '/api/admin/system/purge-demo-templates' && method === 'POST') {
+      try {
+        const demoIds = ['SD101', 'DD101', 'DIST101', 'MID101'];
+        await pgQuery(`DELETE FROM transactions WHERE merchant_id = ANY($1)`, [demoIds]);
+        await pgQuery(`DELETE FROM withdrawals WHERE merchant_id = ANY($1)`, [demoIds]);
+        await pgQuery(`DELETE FROM beneficiaries WHERE merchant_id = ANY($1)`, [demoIds]);
+        await pgQuery(`DELETE FROM merchant_pos WHERE merchant_id = ANY($1)`, [demoIds]);
+        await pgQuery(`DELETE FROM wallets WHERE user_id = ANY($1)`, [demoIds]);
+        await pgQuery(`DELETE FROM users WHERE id = ANY($1)`, [demoIds]);
+        return sendJson(res, 200, { success: true, message: 'Template demo accounts removed successfully.' });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
     if (pathname === '/api/users/update-profile' && method === 'POST') {
       try {
         const { userId, name, mobile, email, aadhaar, pan, address } = await parseJsonBody(req);

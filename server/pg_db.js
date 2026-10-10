@@ -21,27 +21,15 @@ try {
 // Built-in Isolated In-Memory Sandbox for Local Testing
 const localMockDb = {
   users: [
-    { id: 'ADM001', name: 'Super Admin', mobile: '9966203038', role: 'ADMIN', creator_id: null, password: 'Ronav@123' },
-    { id: 'SD101', name: 'Super Dist Alpha', mobile: '9966201001', role: 'SUPER_DISTRIBUTOR', creator_id: 'ADM001', commission_rate_t1: 1.20, commission_rate_instant: 1.40, password: 'Ronav@101' },
-    { id: 'DD101', name: 'District Dist Bravo', mobile: '9966201002', role: 'DISTRICT_DISTRIBUTOR', creator_id: 'SD101', commission_rate_t1: 1.40, commission_rate_instant: 1.60, password: 'Ronav@102' },
-    { id: 'DIST101', name: 'Area Dist Charlie', mobile: '9966201003', role: 'DISTRIBUTOR', creator_id: 'DD101', commission_rate_t1: 1.60, commission_rate_instant: 1.80, password: 'Ronav@103' },
-    { id: 'MID101', name: 'Merchant Delta Store', mobile: '9966201004', role: 'MERCHANT', creator_id: 'DIST101', commission_rate_t1: 1.80, commission_rate_instant: 2.00, password: 'Ronav@104' }
+    { id: 'ADM001', name: 'Super Admin', mobile: '9966203038', role: 'ADMIN', creator_id: null, password: 'Ronav@123' }
   ],
   wallets: [
-    { user_id: 'ADM001', available_balance: 5000.0, total_sales: 50000.0, received_sales: 0.0, pending_balance: 0.0, withdrawn_amount: 0.0, unrecovered_deficit: 0.0 },
-    { user_id: 'SD101', available_balance: 1200.0, total_sales: 20000.0, received_sales: 0.0, pending_balance: 0.0, withdrawn_amount: 0.0, unrecovered_deficit: 0.0 },
-    { user_id: 'DD101', available_balance: 800.0, total_sales: 15000.0, received_sales: 0.0, pending_balance: 0.0, withdrawn_amount: 0.0, unrecovered_deficit: 0.0 },
-    { user_id: 'DIST101', available_balance: 600.0, total_sales: 10000.0, received_sales: 0.0, pending_balance: 0.0, withdrawn_amount: 0.0, unrecovered_deficit: 0.0 },
-    { user_id: 'MID101', available_balance: 10000.0, total_sales: 10000.0, received_sales: 10000.0, pending_balance: 0.0, withdrawn_amount: 0.0, unrecovered_deficit: 0.0 }
+    { user_id: 'ADM001', available_balance: 0.0, total_sales: 0.0, received_sales: 0.0, pending_balance: 0.0, withdrawn_amount: 0.0, unrecovered_deficit: 0.0 }
   ],
-  merchant_pos: [
-    { merchant_id: 'MID101', terminal_id: 'PL-MID101', provider: 'Pine Labs', commission_rate: 1.80, commission_rate_t1: 1.80, commission_rate_instant: 2.00, vendor_entity: 'Rose Navaneetham Enterprises' }
-  ],
+  merchant_pos: [],
   transactions: [],
   withdrawals: [],
-  beneficiaries: [
-    { id: 'BEN-001', merchant_id: 'MID101', bank_name: 'State Bank of India', account_number: '987654321012', ifsc: 'SBIN0001234', holder_name: 'Merchant Delta Store', is_primary: 1 }
-  ],
+  beneficiaries: [],
   inquiries: [
     { id: 'SYS-COMMISSION-PAYOUTS', type: 'SYS_CONFIG', name: 'Commission Payout Master Toggle', phone: '9966203038', status: 'ACTIVE' }
   ]
