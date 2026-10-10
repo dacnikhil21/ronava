@@ -157,46 +157,31 @@ async function handleMockQuery(sql, params = []) {
       return [{ ...row }];
     }
   }
-  if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('unrecovered_deficit = $2') && cleanSql.includes('received_sales = GREATEST')) {
-    const w = localMockDb.wallets.find(x => x.user_id === params[3]);
-    if (w) {
-      w.available_balance = parseFloat(params[0]);
-      w.unrecovered_deficit = parseFloat(params[1]);
-      w.received_sales = Math.max(0.0, parseFloat(w.received_sales || 0) - parseFloat(params[2]));
-      w.total_sales = Math.max(0.0, parseFloat(w.total_sales || 0) - parseFloat(params[2]));
-      return [{ ...w }];
+  if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('received_sales = received_sales + $2')) {
+    const targetUserId = (params[2] || '').toString().toUpperCase();
+    let w = localMockDb.wallets.find(x => (x.user_id || '').toUpperCase() === targetUserId);
+    if (!w) {
+      w = { user_id: targetUserId, available_balance: 0, total_sales: 0, received_sales: 0, pending_balance: 0, withdrawn_amount: 0 };
+      localMockDb.wallets.push(w);
     }
+    w.available_balance = parseFloat(params[0]);
+    w.received_sales = parseFloat((parseFloat(w.received_sales || 0) + parseFloat(params[1])).toFixed(2));
+    w.total_sales = parseFloat((parseFloat(w.total_sales || 0) + parseFloat(params[1])).toFixed(2));
+    return [{ ...w }];
   }
-  if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('unrecovered_deficit = $2') && cleanSql.includes('total_sales = GREATEST')) {
-    const w = localMockDb.wallets.find(x => x.user_id === params[3]);
-    if (w) {
-      w.available_balance = parseFloat(params[0]);
-      w.unrecovered_deficit = parseFloat(params[1]);
-      w.total_sales = Math.max(0.0, parseFloat(w.total_sales || 0) - parseFloat(params[2]));
-      return [{ ...w }];
+  if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('total_sales = total_sales + $2')) {
+    const targetUserId = (params[2] || '').toString().toUpperCase();
+    let w = localMockDb.wallets.find(x => (x.user_id || '').toUpperCase() === targetUserId);
+    if (!w) {
+      w = { user_id: targetUserId, available_balance: 0, total_sales: 0, received_sales: 0, pending_balance: 0, withdrawn_amount: 0 };
+      localMockDb.wallets.push(w);
     }
+    w.available_balance = parseFloat(params[0]);
+    w.total_sales = parseFloat((parseFloat(w.total_sales || 0) + parseFloat(params[1])).toFixed(2));
+    return [{ ...w }];
   }
-  if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('unrecovered_deficit = $2') && cleanSql.includes('received_sales = received_sales + $3')) {
-    const w = localMockDb.wallets.find(x => x.user_id === params[3]);
-    if (w) {
-      w.available_balance = parseFloat(params[0]);
-      w.unrecovered_deficit = parseFloat(params[1]);
-      w.received_sales = parseFloat((parseFloat(w.received_sales || 0) + parseFloat(params[2])).toFixed(2));
-      w.total_sales = parseFloat((parseFloat(w.total_sales || 0) + parseFloat(params[2])).toFixed(2));
-      return [{ ...w }];
-    }
-  }
-  if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('unrecovered_deficit = $2') && cleanSql.includes('total_sales = total_sales + $3')) {
-    const w = localMockDb.wallets.find(x => x.user_id === params[3]);
-    if (w) {
-      w.available_balance = parseFloat(params[0]);
-      w.unrecovered_deficit = parseFloat(params[1]);
-      w.total_sales = parseFloat((parseFloat(w.total_sales || 0) + parseFloat(params[2])).toFixed(2));
-      return [{ ...w }];
-    }
-  }
-  if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('WHERE user_id = \'ADM001\'')) {
-    const w = localMockDb.wallets.find(x => x.user_id === 'ADM001');
+  if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('WHERE UPPER(user_id) = \'ADM001\'')) {
+    const w = localMockDb.wallets.find(x => (x.user_id || '').toUpperCase() === 'ADM001');
     if (w) {
       if (cleanSql.includes('available_balance + $1')) {
         w.available_balance = parseFloat((parseFloat(w.available_balance || 0) + parseFloat(params[0])).toFixed(2));
@@ -209,32 +194,38 @@ async function handleMockQuery(sql, params = []) {
     }
   }
   if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('pending_balance = pending_balance + $1')) {
-    const w = localMockDb.wallets.find(x => x.user_id === params[1]);
+    const targetUserId = (params[1] || '').toString().toUpperCase();
+    const w = localMockDb.wallets.find(x => (x.user_id || '').toUpperCase() === targetUserId);
     const numAmt = parseFloat(params[0]);
-    const reserve = parseFloat(params[2]);
-    if (w && (parseFloat(w.available_balance) >= numAmt + reserve)) {
-      w.available_balance = parseFloat((parseFloat(w.available_balance) - numAmt).toFixed(2));
+    const minReq = parseFloat(params[2]);
+    if (w && (parseFloat(w.available_balance || 0) >= minReq)) {
+      w.available_balance = parseFloat((parseFloat(w.available_balance || 0) - numAmt).toFixed(2));
       w.pending_balance = parseFloat((parseFloat(w.pending_balance || 0) + numAmt).toFixed(2));
       return [{ ...w }];
     }
+    return [];
   }
   if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('withdrawn_amount = withdrawn_amount + $1')) {
-    const w = localMockDb.wallets.find(x => x.user_id === params[1]);
+    const targetUserId = (params[1] || '').toString().toUpperCase();
+    const w = localMockDb.wallets.find(x => (x.user_id || '').toUpperCase() === targetUserId);
     if (w) {
       const amt = parseFloat(params[0]);
       w.pending_balance = Math.max(0.0, parseFloat((parseFloat(w.pending_balance || 0) - amt).toFixed(2)));
       w.withdrawn_amount = parseFloat((parseFloat(w.withdrawn_amount || 0) + amt).toFixed(2));
       return [{ ...w }];
     }
+    return [];
   }
   if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('pending_balance = GREATEST') && cleanSql.includes('available_balance = available_balance + $1')) {
-    const w = localMockDb.wallets.find(x => x.user_id === params[1]);
+    const targetUserId = (params[1] || '').toString().toUpperCase();
+    const w = localMockDb.wallets.find(x => (x.user_id || '').toUpperCase() === targetUserId);
     if (w) {
       const amt = parseFloat(params[0]);
       w.pending_balance = Math.max(0.0, parseFloat((parseFloat(w.pending_balance || 0) - amt).toFixed(2)));
       w.available_balance = parseFloat((parseFloat(w.available_balance || 0) + amt).toFixed(2));
       return [{ ...w }];
     }
+    return [];
   }
 
   // Merchant POS
