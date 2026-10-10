@@ -325,23 +325,50 @@ async function handleMockQuery(sql, params = []) {
       return [{ ...row }];
     }
   }
+  if (cleanSql.includes('UPDATE withdrawals') && cleanSql.includes('submitted_to_bank_at = $2')) {
+    const targetWId = (params[2] || '').toString().toUpperCase();
+    const wth = localMockDb.withdrawals.find(x => (x.id || '').toUpperCase() === targetWId);
+    if (wth) {
+      wth.admin_remark = params[0];
+      wth.submitted_to_bank_at = params[1];
+      wth.updated_at = new Date().toISOString();
+      return [{ ...wth }];
+    }
+    return [];
+  }
+  if (cleanSql.includes('UPDATE withdrawals') && cleanSql.includes('status = \'PENDING\'')) {
+    const targetWId = (params[1] || '').toString().toUpperCase();
+    const wth = localMockDb.withdrawals.find(x => (x.id || '').toUpperCase() === targetWId);
+    if (wth) {
+      wth.status = 'PENDING';
+      wth.admin_remark = params[0];
+      wth.submitted_to_bank_at = null;
+      wth.updated_at = new Date().toISOString();
+      return [{ ...wth }];
+    }
+    return [];
+  }
   if (cleanSql.includes('UPDATE withdrawals') && cleanSql.includes('status = \'APPROVED\'')) {
-    const wth = localMockDb.withdrawals.find(x => x.id === params[1]);
+    const targetWId = (params[1] || '').toString().toUpperCase();
+    const wth = localMockDb.withdrawals.find(x => (x.id || '').toUpperCase() === targetWId);
     if (wth) {
       wth.status = 'APPROVED';
       wth.admin_remark = params[0];
       wth.verified_at = new Date().toISOString();
       return [{ ...wth }];
     }
+    return [];
   }
   if (cleanSql.includes('UPDATE withdrawals') && cleanSql.includes('status = \'REJECTED\'')) {
-    const wth = localMockDb.withdrawals.find(x => x.id === params[1]);
+    const targetWId = (params[1] || '').toString().toUpperCase();
+    const wth = localMockDb.withdrawals.find(x => (x.id || '').toUpperCase() === targetWId);
     if (wth) {
       wth.status = 'REJECTED';
       wth.admin_remark = params[0];
       wth.verified_at = new Date().toISOString();
       return [{ ...wth }];
     }
+    return [];
   }
 
   // Beneficiaries & Inquiries
