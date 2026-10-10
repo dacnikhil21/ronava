@@ -401,9 +401,9 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
     // QR Channel: Strictly inherits merchant's assigned custom Instant fee % and RONAV Technologies corporate entity
     if (effectiveKey === 'qr') {
-      const instantRate = (ch && ch.rate_instant)
+      const instantRate = parseFloat((ch && ch.rate_instant)
         ? ch.rate_instant
-        : ((userPosRates && userPosRates.rateInstant) || base.rateInstant || 1.80);
+        : ((userPosRates && userPosRates.rateInstant) || merchantProfile?.commission_rate_instant || merchantProfile?.commission_rate_t1 || 0));
       return {
         ...base,
         provider: 'Company QR (UPI)',
@@ -420,8 +420,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
     // Hardware POS terminals (Pine Labs or Payswiff)
     if (ch && ch.enabled) {
-      const rateT1 = ch.rate_t1 || 1.50;
-      const rateInstant = ch.rate_instant || 1.80;
+      const rateT1 = parseFloat(ch.rate_t1 || merchantProfile?.commission_rate_t1 || 0);
+      const rateInstant = parseFloat(ch.rate_instant || merchantProfile?.commission_rate_instant || rateT1);
       return {
         ...base,
         provider: effectiveKey === 'payswiff' ? 'Payswiff' : 'Pine Labs',
@@ -1074,7 +1074,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           today_network_profit: res.today_network_profit || 0,
           total_downline_volume: res.total_downline_volume || 0,
           today_downline_volume: res.today_downline_volume || 0,
-          commission_rate_pct: res.commission_rate_pct || 0.25,
+          commission_rate_pct: res.commission_rate_pct || 0,
           channel_commissions: res.channel_commissions || { pinelabs: 0, payswiff: 0, qr: 0 },
           channel_volumes: res.channel_volumes || { pinelabs: 0, payswiff: 0, qr: 0, all: 0 }
         });
@@ -1144,7 +1144,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         label: 'All Terminals',
         volume: chVol.all || networkData.total_downline_volume || 0,
         profit: networkData.total_commission_earned || 0,
-        marginPct: networkData.commission_rate_pct || 0.25,
+        marginPct: networkData.commission_rate_pct || 0,
         todayVolume: chVol.today_all || networkData.today_downline_volume || 0,
         todayProfit: networkData.today_network_profit || 0,
         themeColor: '#0F52BA'
@@ -1646,8 +1646,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     try {
       const isInstant = saleForm.settlement_type === 'INSTANT' || selectedMachineKey === 'qr';
       const companyRate = selectedMachineKey === 'qr'
-        ? (activeMachine.rateInstant || activeMachine.rateT1 || 1.80)
-        : (isInstant ? (activeMachine.rateInstant || 1.80) : (activeMachine.rateT1 || 1.50));
+        ? (parseFloat(activeMachine.rateInstant) || parseFloat(activeMachine.rateT1) || 0)
+        : (isInstant ? (parseFloat(activeMachine.rateInstant) || parseFloat(activeMachine.rateT1) || 0) : (parseFloat(activeMachine.rateT1) || 0));
 
       if (companyRate === undefined || companyRate === null || isNaN(companyRate) || companyRate <= 0) {
         showToast('⚠️ No active commission rate configured for this terminal. Please contact Admin.');
@@ -2992,7 +2992,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                   {(() => {
                     const cardSwipeAmount = parseFloat(saleForm.amount) || 0;
                     const isInstant = saleForm.settlement_type === 'INSTANT';
-                    const companyRate = isInstant ? (activeMachine.rateInstant || 1.80) : (activeMachine.rateT1 || 1.50);
+                    const companyRate = isInstant ? (parseFloat(activeMachine.rateInstant) || parseFloat(activeMachine.rateT1) || parseFloat(merchantProfile?.commission_rate_instant) || parseFloat(merchantProfile?.commission_rate_t1) || 0) : (parseFloat(activeMachine.rateT1) || parseFloat(merchantProfile?.commission_rate_t1) || 0);
                     const companyFee = (cardSwipeAmount * companyRate) / 100;
                     const netSettlement = Math.max(0, cardSwipeAmount - companyFee);
 
@@ -6224,7 +6224,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                         ₹{networkSummaryStats.profit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h3>
                       <span style={{ fontSize: '0.59rem', color: '#0F52BA', fontWeight: 800, background: '#EFF6FF', padding: '1px 5px', borderRadius: '4px', display: 'inline-block' }}>
-                        +{networkSummaryStats.marginPct || 0.25}% Cut
+                        +{networkSummaryStats.marginPct || 0}% Cut
                       </span>
                     </div>
 
@@ -8222,13 +8222,13 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                             <div>
                               <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>T+1 MDR</span>
                               <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#059669' }}>
-                                {(parseFloat(merchantChannels.pine_labs.rate_t1) || 1.50).toFixed(2)}%
+                                {(parseFloat(merchantChannels.pine_labs.rate_t1) || 0).toFixed(2)}%
                               </span>
                             </div>
                             <div>
                               <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>Instant MDR</span>
                               <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#D97706' }}>
-                                {(parseFloat(merchantChannels.pine_labs.rate_instant) || 1.80).toFixed(2)}%
+                                {(parseFloat(merchantChannels.pine_labs.rate_instant || merchantChannels.pine_labs.rate_t1) || 0).toFixed(2)}%
                               </span>
                             </div>
                           </div>
@@ -8266,13 +8266,13 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                             <div>
                               <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>T+1 MDR</span>
                               <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#059669' }}>
-                                {(parseFloat(merchantChannels.payswiff.rate_t1) || 1.65).toFixed(2)}%
+                                {(parseFloat(merchantChannels.payswiff.rate_t1) || 0).toFixed(2)}%
                               </span>
                             </div>
                             <div>
                               <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>Instant MDR</span>
                               <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#D97706' }}>
-                                {(parseFloat(merchantChannels.payswiff.rate_instant) || 1.83).toFixed(2)}%
+                                {(parseFloat(merchantChannels.payswiff.rate_instant || merchantChannels.payswiff.rate_t1) || 0).toFixed(2)}%
                               </span>
                             </div>
                           </div>
@@ -8304,7 +8304,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                             <div>
                               <span style={{ fontSize: '0.58rem', color: '#64748B', display: 'block' }}>Instant MDR Fee</span>
                               <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#7C3AED' }}>
-                                {(parseFloat(merchantChannels.qr.rate_instant) || 1.50).toFixed(2)}%
+                                {(parseFloat(merchantChannels.qr.rate_instant) || 0).toFixed(2)}%
                               </span>
                             </div>
                             <div>

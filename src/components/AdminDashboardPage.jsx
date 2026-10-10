@@ -2563,11 +2563,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 const ch = viewingUserDossier?.channels || (viewingUserDossier?.pos_raw ? parseMerchantChannels(viewingUserDossier.pos_raw) : null);
                 const tabs = [{ id: 'ALL', label: 'All Terminals', icon: '💳', sub: 'Combined Ledger' }];
                 if (ch) {
-                  if (ch.pine_labs?.enabled) tabs.push({ id: 'pine_labs', label: 'Pine Labs', tid: ch.pine_labs.terminal_id || 'PL-01', rate: `${ch.pine_labs.rate_t1 || 1.5}%`, icon: '🌲', color: '#0F52BA' });
-                  if (ch.payswiff?.enabled) tabs.push({ id: 'payswiff', label: 'Payswiff', tid: ch.payswiff.terminal_id || 'SWIFF-01', rate: `${ch.payswiff.rate_t1 || 2.1}%`, icon: '⚡', color: '#D97706' });
-                  if (ch.qr?.enabled) tabs.push({ id: 'qr', label: 'Company QR', tid: 'QR-UPI', rate: `${ch.qr.rate_instant || 1.8}%`, icon: '📱', color: '#7C3AED' });
+                  if (ch.pine_labs?.enabled) tabs.push({ id: 'pine_labs', label: 'Pine Labs', tid: ch.pine_labs.terminal_id || 'PL-01', rate: `${(parseFloat(ch.pine_labs.rate_t1) || 0).toFixed(2)}%`, icon: '🌲', color: '#0F52BA' });
+                  if (ch.payswiff?.enabled) tabs.push({ id: 'payswiff', label: 'Payswiff', tid: ch.payswiff.terminal_id || 'SWIFF-01', rate: `${(parseFloat(ch.payswiff.rate_t1) || 0).toFixed(2)}%`, icon: '⚡', color: '#D97706' });
+                  if (ch.qr?.enabled) tabs.push({ id: 'qr', label: 'Company QR', tid: 'QR-UPI', rate: `${(parseFloat(ch.qr.rate_instant) || 0).toFixed(2)}%`, icon: '📱', color: '#7C3AED' });
                 } else {
-                  tabs.push({ id: 'pine_labs', label: 'Pine Labs', tid: 'PL-01', rate: '1.5%', icon: '🌲', color: '#0F52BA' });
+                  tabs.push({ id: 'pine_labs', label: 'Pine Labs', tid: 'PL-01', rate: `${(parseFloat(viewingUserDossier?.commission_rate_t1) || 0).toFixed(2)}%`, icon: '🌲', color: '#0F52BA' });
                 }
 
                 return (
@@ -4892,7 +4892,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   <div className="admin-roster-grid">
                     {filteredMasters.map(m => {
                       const mVol = parseFloat(m.network_volume || m.total_sales || 0);
-                      const mCutRate = parseFloat(m.upline_override_rate || 0.20);
+                      const mCutRate = parseFloat(m.upline_override_rate || m.margin_rate || 0);
 
                       // Robust Downline Aggregation (SD -> DD -> Dist -> Shops)
                       const childSDs = m.super_distributors || superDistributorsList.filter(sd => sd.creator_id === m.id || sd.parent_id === m.id);
@@ -4945,9 +4945,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               </strong>
                             </div>
                             <div>
-                              <span style={{ fontSize: '0.55rem', color: '#7C3AED', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Master Cut ({parseFloat(m.margin_rate || 0.50)}%)</span>
+                              <span style={{ fontSize: '0.55rem', color: '#7C3AED', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Master Cut ({parseFloat(m.margin_rate || m.upline_override_rate || 0).toFixed(2)}%)</span>
                               <strong style={{ fontSize: '0.8125rem', color: '#7C3AED', fontWeight: 900 }}>
-                                +₹{(mVol * ((parseFloat(m.margin_rate || 0.50)) / 100)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                +₹{(mVol * ((parseFloat(m.margin_rate || m.upline_override_rate || 0)) / 100)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                               </strong>
                             </div>
                             <div>
@@ -5039,7 +5039,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   <div className="admin-roster-grid">
                     {filteredSDs.map(sd => {
                       const sdVol = parseFloat(sd.network_volume || sd.total_sales || 0);
-                      const sdCutRate = parseFloat(sd.upline_override_rate || (sd.channels?.pine_labs?.enabled ? 0.20 : (sd.margin_rate || 0.20)));
+                      const sdCutRate = parseFloat(sd.upline_override_rate || sd.margin_rate || 0);
                       const sdProfit = parseFloat(sd.admin_profit_earned || (sd.transactions ? sd.transactions.reduce((sum, t) => sum + parseFloat(t.admin_net_margin || 0), 0) : 0));
 
                       // Robust Downline Aggregation (District Dist -> Dist -> Shops)
@@ -5094,22 +5094,22 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
                             {sd.channels?.pine_labs?.enabled && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '2px 6px', borderRadius: '4px', border: '1px solid #BFDBFE' }}>
-                                🌲 Pine Labs: {sd.channels.pine_labs.terminal_id || 'PL-01'} (T+1: {sd.channels.pine_labs.rate_t1 || sd.commission_rate_t1 || 0.35}% • Instant: {sd.channels.pine_labs.rate_instant || sd.commission_rate_instant || 0.50}%)
+                                🌲 Pine Labs: {sd.channels.pine_labs.terminal_id || 'PL-01'} (T+1: {(parseFloat(sd.channels.pine_labs.rate_t1 || sd.commission_rate_t1) || 0).toFixed(2)}% • Instant: {(parseFloat(sd.channels.pine_labs.rate_instant || sd.commission_rate_instant || sd.channels.pine_labs.rate_t1 || sd.commission_rate_t1) || 0).toFixed(2)}%)
                               </span>
                             )}
                             {sd.channels?.payswiff?.enabled && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#FFFBEB', color: '#D97706', padding: '2px 6px', borderRadius: '4px', border: '1px solid #FDE68A' }}>
-                                ⚡ Payswiff: {sd.channels.payswiff.terminal_id || 'SWIFF-01'} (T+1: {sd.channels.payswiff.rate_t1 || sd.commission_rate_t1 || 0.35}% • Instant: {sd.channels.payswiff.rate_instant || sd.commission_rate_instant || 0.50}%)
+                                ⚡ Payswiff: {sd.channels.payswiff.terminal_id || 'SWIFF-01'} (T+1: {(parseFloat(sd.channels.payswiff.rate_t1 || sd.commission_rate_t1) || 0).toFixed(2)}% • Instant: {(parseFloat(sd.channels.payswiff.rate_instant || sd.commission_rate_instant || sd.channels.payswiff.rate_t1 || sd.commission_rate_t1) || 0).toFixed(2)}%)
                               </span>
                             )}
                             {sd.channels?.qr?.enabled && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F5F3FF', color: '#7C3AED', padding: '2px 6px', borderRadius: '4px', border: '1px solid #DDD6FE' }}>
-                                📱 QR Active: {sd.channels.qr.rate_instant || sd.commission_rate_instant || 0.35}% Instant
+                                📱 QR Active: {(parseFloat(sd.channels.qr.rate_instant || sd.commission_rate_instant || sd.commission_rate_t1) || 0).toFixed(2)}% Instant
                               </span>
                             )}
                             {(!sd.channels || (!sd.channels.pine_labs?.enabled && !sd.channels.payswiff?.enabled && !sd.channels.qr?.enabled)) && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#64748B', padding: '2px 6px', borderRadius: '4px' }}>
-                                ⚡ Buy Rate: T+1: {sd.commission_rate_t1 || 0.35}% • Instant: {sd.commission_rate_instant || 0.50}% {sd.upline_override_rate ? `• Cut: ${sd.upline_override_rate}%` : ''}
+                                ⚡ Buy Rate: T+1: {(parseFloat(sd.commission_rate_t1) || 0).toFixed(2)}% • Instant: {(parseFloat(sd.commission_rate_instant || sd.commission_rate_t1) || 0).toFixed(2)}% {sd.upline_override_rate ? `• Cut: ${parseFloat(sd.upline_override_rate).toFixed(2)}%` : ''}
                               </span>
                             )}
                             <button
@@ -5238,7 +5238,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   <div className="admin-roster-grid">
                     {filteredDDs.map(dd => {
                       const ddVol = parseFloat(dd.downline_volume || dd.total_sales || 0);
-                      const ddCutRate = parseFloat(dd.upline_override_rate || (dd.channels?.pine_labs?.enabled ? 0.10 : (dd.margin_rate || 0.10)));
+                      const ddCutRate = parseFloat(dd.upline_override_rate || dd.margin_rate || 0);
                       const ddProfit = parseFloat(dd.admin_profit_earned || (dd.transactions ? dd.transactions.reduce((sum, t) => sum + parseFloat(t.admin_net_margin || 0), 0) : 0));
 
                       return (
@@ -5277,22 +5277,22 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
                             {dd.channels?.pine_labs?.enabled && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '2px 6px', borderRadius: '4px', border: '1px solid #BFDBFE' }}>
-                                🌲 Pine Labs: {dd.channels.pine_labs.terminal_id || 'PL-01'} (T+1: {dd.channels.pine_labs.rate_t1 || dd.commission_rate_t1 || 0.35}% • Instant: {dd.channels.pine_labs.rate_instant || dd.commission_rate_instant || 0.50}%)
+                                🌲 Pine Labs: {dd.channels.pine_labs.terminal_id || 'PL-01'} (T+1: {(parseFloat(dd.channels.pine_labs.rate_t1 || dd.commission_rate_t1) || 0).toFixed(2)}% • Instant: {(parseFloat(dd.channels.pine_labs.rate_instant || dd.commission_rate_instant || dd.channels.pine_labs.rate_t1 || dd.commission_rate_t1) || 0).toFixed(2)}%)
                               </span>
                             )}
                             {dd.channels?.payswiff?.enabled && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#FFFBEB', color: '#D97706', padding: '2px 6px', borderRadius: '4px', border: '1px solid #FDE68A' }}>
-                                ⚡ Payswiff: {dd.channels.payswiff.terminal_id || 'SWIFF-01'} (T+1: {dd.channels.payswiff.rate_t1 || dd.commission_rate_t1 || 0.35}% • Instant: {dd.channels.payswiff.rate_instant || dd.commission_rate_instant || 0.50}%)
+                                ⚡ Payswiff: {dd.channels.payswiff.terminal_id || 'SWIFF-01'} (T+1: {(parseFloat(dd.channels.payswiff.rate_t1 || dd.commission_rate_t1) || 0).toFixed(2)}% • Instant: {(parseFloat(dd.channels.payswiff.rate_instant || dd.commission_rate_instant || dd.channels.payswiff.rate_t1 || dd.commission_rate_t1) || 0).toFixed(2)}%)
                               </span>
                             )}
                             {dd.channels?.qr?.enabled && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F5F3FF', color: '#7C3AED', padding: '2px 6px', borderRadius: '4px', border: '1px solid #DDD6FE' }}>
-                                📱 QR Active: {dd.channels.qr.rate_instant || dd.commission_rate_instant || 0.35}% Instant
+                                📱 QR Active: {(parseFloat(dd.channels.qr.rate_instant || dd.commission_rate_instant || dd.commission_rate_t1) || 0).toFixed(2)}% Instant
                               </span>
                             )}
                             {(!dd.channels || (!dd.channels.pine_labs?.enabled && !dd.channels.payswiff?.enabled && !dd.channels.qr?.enabled)) && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#64748B', padding: '2px 6px', borderRadius: '4px' }}>
-                                ⚡ Buy Rate: T+1: {dd.commission_rate_t1 || 0.35}% • Instant: {dd.commission_rate_instant || 0.50}% {dd.upline_override_rate ? `• Cut: ${dd.upline_override_rate}%` : ''}
+                                ⚡ Buy Rate: T+1: {(parseFloat(dd.commission_rate_t1) || 0).toFixed(2)}% • Instant: {(parseFloat(dd.commission_rate_instant || dd.commission_rate_t1) || 0).toFixed(2)}% {dd.upline_override_rate ? `• Cut: ${parseFloat(dd.upline_override_rate).toFixed(2)}%` : ''}
                               </span>
                             )}
                             <button
@@ -5417,7 +5417,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   <div className="admin-roster-grid">
                     {filteredDists.map(d => {
                       const distVol = parseFloat(d.downline_volume || d.total_sales || 0);
-                      const distCutRate = parseFloat(d.upline_override_rate || (d.channels?.pine_labs?.enabled ? 0.10 : (d.margin_rate || 0.10)));
+                      const distCutRate = parseFloat(d.upline_override_rate || d.margin_rate || 0);
                       const distProfit = parseFloat(d.admin_profit_earned || (d.transactions ? d.transactions.reduce((sum, t) => sum + parseFloat(t.admin_net_margin || 0), 0) : 0));
 
                       return (
@@ -5455,22 +5455,22 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
                             {d.channels?.pine_labs?.enabled && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '2px 6px', borderRadius: '4px', border: '1px solid #BFDBFE' }}>
-                                🌲 Pine Labs: {d.channels.pine_labs.terminal_id || 'PL-01'} (T+1: {d.channels.pine_labs.rate_t1 || d.commission_rate_t1 || 0.35}% • Instant: {d.channels.pine_labs.rate_instant || d.commission_rate_instant || 0.50}%)
+                                🌲 Pine Labs: {d.channels.pine_labs.terminal_id || 'PL-01'} (T+1: {(parseFloat(d.channels.pine_labs.rate_t1 || d.commission_rate_t1) || 0).toFixed(2)}% • Instant: {(parseFloat(d.channels.pine_labs.rate_instant || d.commission_rate_instant || d.channels.pine_labs.rate_t1 || d.commission_rate_t1) || 0).toFixed(2)}%)
                               </span>
                             )}
                             {d.channels?.payswiff?.enabled && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#FFFBEB', color: '#D97706', padding: '2px 6px', borderRadius: '4px', border: '1px solid #FDE68A' }}>
-                                ⚡ Payswiff: {d.channels.payswiff.terminal_id || 'SWIFF-01'} (T+1: {d.channels.payswiff.rate_t1 || d.commission_rate_t1 || 0.35}% • Instant: {d.channels.payswiff.rate_instant || d.commission_rate_instant || 0.50}%)
+                                ⚡ Payswiff: {d.channels.payswiff.terminal_id || 'SWIFF-01'} (T+1: {(parseFloat(d.channels.payswiff.rate_t1 || d.commission_rate_t1) || 0).toFixed(2)}% • Instant: {(parseFloat(d.channels.payswiff.rate_instant || d.commission_rate_instant || d.channels.payswiff.rate_t1 || d.commission_rate_t1) || 0).toFixed(2)}%)
                               </span>
                             )}
                             {d.channels?.qr?.enabled && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F5F3FF', color: '#7C3AED', padding: '2px 6px', borderRadius: '4px', border: '1px solid #DDD6FE' }}>
-                                📱 QR Active: {d.channels.qr.rate_instant || d.commission_rate_instant || 0.35}% Instant
+                                📱 QR Active: {(parseFloat(d.channels.qr.rate_instant || d.commission_rate_instant || d.commission_rate_t1) || 0).toFixed(2)}% Instant
                               </span>
                             )}
                             {(!d.channels || (!d.channels.pine_labs?.enabled && !d.channels.payswiff?.enabled && !d.channels.qr?.enabled)) && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#64748B', padding: '2px 6px', borderRadius: '4px' }}>
-                                ⚡ Buy Rate: T+1: {d.commission_rate_t1 || 0.35}% • Instant: {d.commission_rate_instant || 0.50}% {d.upline_override_rate ? `• Cut: ${d.upline_override_rate}%` : ''}
+                                ⚡ Buy Rate: T+1: {(parseFloat(d.commission_rate_t1) || 0).toFixed(2)}% • Instant: {(parseFloat(d.commission_rate_instant || d.commission_rate_t1) || 0).toFixed(2)}% {d.upline_override_rate ? `• Cut: ${parseFloat(d.upline_override_rate).toFixed(2)}%` : ''}
                               </span>
                             )}
                             <button
@@ -5653,22 +5653,22 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
                             {m.channels?.pine_labs?.enabled && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#EFF6FF', color: '#0F52BA', padding: '2px 6px', borderRadius: '4px', border: '1px solid #BFDBFE' }}>
-                                🌲 Pine Labs: {m.channels.pine_labs.terminal_id || 'PL-01'} (T+1: {m.channels.pine_labs.rate_t1 || 1.50}% • Instant: {m.channels.pine_labs.rate_instant || 1.80}%)
+                                🌲 Pine Labs: {m.channels.pine_labs.terminal_id || 'PL-01'} (T+1: {(parseFloat(m.channels.pine_labs.rate_t1 || m.commission_rate_t1) || 0).toFixed(2)}% • Instant: {(parseFloat(m.channels.pine_labs.rate_instant || m.commission_rate_instant || m.channels.pine_labs.rate_t1 || m.commission_rate_t1) || 0).toFixed(2)}%)
                               </span>
                             )}
                             {m.channels?.payswiff?.enabled && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#FFFBEB', color: '#D97706', padding: '2px 6px', borderRadius: '4px', border: '1px solid #FDE68A' }}>
-                                ⚡ Payswiff: {m.channels.payswiff.terminal_id || 'SWIFF-01'} (T+1: {m.channels.payswiff.rate_t1 || 1.50}% • Instant: {m.channels.payswiff.rate_instant || 1.80}%)
+                                ⚡ Payswiff: {m.channels.payswiff.terminal_id || 'SWIFF-01'} (T+1: {(parseFloat(m.channels.payswiff.rate_t1 || m.commission_rate_t1) || 0).toFixed(2)}% • Instant: {(parseFloat(m.channels.payswiff.rate_instant || m.commission_rate_instant || m.channels.payswiff.rate_t1 || m.commission_rate_t1) || 0).toFixed(2)}%)
                               </span>
                             )}
                             {m.channels?.qr?.enabled && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F5F3FF', color: '#7C3AED', padding: '2px 6px', borderRadius: '4px', border: '1px solid #DDD6FE' }}>
-                                📱 QR Active: {m.channels.qr.rate_instant || 1.50}% Instant
+                                📱 QR Active: {(parseFloat(m.channels.qr.rate_instant || m.commission_rate_instant || m.commission_rate_t1) || 0).toFixed(2)}% Instant
                               </span>
                             )}
                             {(!m.channels || (!m.channels.pine_labs?.enabled && !m.channels.payswiff?.enabled && !m.channels.qr?.enabled)) && (
                               <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#64748B', padding: '2px 6px', borderRadius: '4px' }}>
-                                📟 {m.pos_provider || 'Pine Labs'} (T+1: {m.commission_rate_t1 || 1.50}% • Instant: {m.commission_rate_instant || 1.80}%)
+                                📟 {m.pos_provider || 'Pine Labs'} (T+1: {(parseFloat(m.commission_rate_t1) || 0).toFixed(2)}% • Instant: {(parseFloat(m.commission_rate_instant || m.commission_rate_t1) || 0).toFixed(2)}%)
                               </span>
                             )}
                             <button
@@ -10342,9 +10342,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         terminal_id: prev.pine_labs?.terminal_id || '',
                         vendor: 'Rose Navaneetham Enterprises',
                         plan: prev.pine_labs?.plan || 'RENTAL',
-                        rent: prev.pine_labs?.rent || 499,
-                        rate_t1: prev.pine_labs?.rate_t1 || 1.50,
-                        rate_instant: prev.pine_labs?.rate_instant || 1.80
+                        rent: prev.pine_labs?.rent !== undefined ? prev.pine_labs.rent : 499,
+                        rate_t1: prev.pine_labs?.rate_t1 !== undefined ? prev.pine_labs.rate_t1 : '',
+                        rate_instant: prev.pine_labs?.rate_instant !== undefined ? prev.pine_labs.rate_instant : ''
                       }
                     }))}
                     style={{
@@ -10375,9 +10375,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         terminal_id: prev.payswiff?.terminal_id || '',
                         vendor: prev.payswiff?.vendor || 'RONAV Technologies',
                         plan: prev.payswiff?.plan || 'RENTAL',
-                        rent: prev.payswiff?.rent || 499,
-                        rate_t1: prev.payswiff?.rate_t1 || 1.50,
-                        rate_instant: prev.payswiff?.rate_instant || 1.80
+                        rent: prev.payswiff?.rent !== undefined ? prev.payswiff.rent : 499,
+                        rate_t1: prev.payswiff?.rate_t1 !== undefined ? prev.payswiff.rate_t1 : '',
+                        rate_instant: prev.payswiff?.rate_instant !== undefined ? prev.payswiff.rate_instant : ''
                       }
                     }))}
                     style={{
@@ -10406,7 +10406,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       qr: {
                         enabled: true,
                         vendor: 'RONAV Technologies',
-                        rate_instant: prev.qr?.rate_instant || 1.50
+                        rate_instant: prev.qr?.rate_instant !== undefined ? prev.qr.rate_instant : ''
                       }
                     }))}
                     style={{
@@ -10500,7 +10500,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       <input
                         type="text"
                         inputMode="decimal"
-                        value={managingChannelsData.pine_labs.rate_t1 || 1.50}
+                        placeholder="e.g. 1.20"
+                        value={managingChannelsData.pine_labs.rate_t1 !== undefined ? managingChannelsData.pine_labs.rate_t1 : ''}
                         onChange={(e) => {
                           const val = e.target.value;
                           setManagingChannelsData(prev => ({
@@ -10518,7 +10519,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       <input
                         type="text"
                         inputMode="decimal"
-                        value={managingChannelsData.pine_labs.rate_instant || 1.80}
+                        placeholder="e.g. 1.50"
+                        value={managingChannelsData.pine_labs.rate_instant !== undefined ? managingChannelsData.pine_labs.rate_instant : ''}
                         onChange={(e) => {
                           const val = e.target.value;
                           setManagingChannelsData(prev => ({
@@ -10632,7 +10634,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       <input
                         type="text"
                         inputMode="decimal"
-                        value={managingChannelsData.payswiff.rate_t1 || 1.50}
+                        placeholder="e.g. 1.20"
+                        value={managingChannelsData.payswiff.rate_t1 !== undefined ? managingChannelsData.payswiff.rate_t1 : ''}
                         onChange={(e) => {
                           const val = e.target.value;
                           setManagingChannelsData(prev => ({
@@ -10650,7 +10653,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       <input
                         type="text"
                         inputMode="decimal"
-                        value={managingChannelsData.payswiff.rate_instant || 1.80}
+                        placeholder="e.g. 1.50"
+                        value={managingChannelsData.payswiff.rate_instant !== undefined ? managingChannelsData.payswiff.rate_instant : ''}
                         onChange={(e) => {
                           const val = e.target.value;
                           setManagingChannelsData(prev => ({
@@ -10696,7 +10700,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     <input
                       type="text"
                       inputMode="decimal"
-                      value={managingChannelsData.qr.rate_instant || 1.50}
+                      value={managingChannelsData.qr.rate_instant !== undefined ? managingChannelsData.qr.rate_instant : ''}
                       onChange={(e) => {
                         const val = e.target.value;
                         setManagingChannelsData(prev => ({

@@ -607,8 +607,8 @@ export async function getHierarchyTree() {
       const parsedChannels = parseMerchantChannels(p || {
         provider: u.pos_provider || 'Pine Labs',
         terminal_id: u.pos_terminal || `PL-${u.id}`,
-        commission_rate_t1: u.commission_rate_t1 || 1.40,
-        commission_rate_instant: u.commission_rate_instant || 1.70
+        commission_rate_t1: u.commission_rate_t1 || 0,
+        commission_rate_instant: u.commission_rate_instant || u.commission_rate_t1 || 0
       });
 
       return {
@@ -618,15 +618,15 @@ export async function getHierarchyTree() {
         status: userStatus,
         pos_raw: p || null,
         channels: parsedChannels,
-        commission_rate_t1: u.commission_rate_t1 || p.commission_rate_t1 || (parsedChannels.pine_labs?.enabled ? parsedChannels.pine_labs.rate_t1 : (parsedChannels.payswiff?.enabled ? parsedChannels.payswiff.rate_t1 : 1.40)),
-        commission_rate_instant: u.commission_rate_instant || p.commission_rate_instant || (parsedChannels.pine_labs?.enabled ? parsedChannels.pine_labs.rate_instant : (parsedChannels.payswiff?.enabled ? parsedChannels.payswiff.rate_instant : 1.70)),
-        upline_override_rate: u.upline_override_rate || p.upline_override_rate || 0.20,
-        pos_provider: p.provider || (parsedChannels.pine_labs?.enabled ? 'Pine Labs' : (parsedChannels.payswiff?.enabled ? 'Payswiff' : 'Pine Labs')),
+        commission_rate_t1: u.commission_rate_t1 || p.commission_rate_t1 || (parsedChannels.pine_labs?.enabled ? parsedChannels.pine_labs.rate_t1 : (parsedChannels.payswiff?.enabled ? parsedChannels.payswiff.rate_t1 : (parsedChannels.qr?.enabled ? parsedChannels.qr.rate_instant : 0))),
+        commission_rate_instant: u.commission_rate_instant || p.commission_rate_instant || (parsedChannels.pine_labs?.enabled ? parsedChannels.pine_labs.rate_instant : (parsedChannels.payswiff?.enabled ? parsedChannels.payswiff.rate_instant : (parsedChannels.qr?.enabled ? parsedChannels.qr.rate_instant : 0))),
+        upline_override_rate: u.upline_override_rate || p.upline_override_rate || 0,
+        pos_provider: p.provider || (parsedChannels.pine_labs?.enabled ? 'Pine Labs' : (parsedChannels.payswiff?.enabled ? 'Payswiff' : (parsedChannels.qr?.enabled ? 'Company QR (UPI)' : 'Pine Labs'))),
         pos_terminal: p.terminal_id ? p.terminal_id.split('|')[0] : (parsedChannels.pine_labs?.terminal_id || `PL-${u.id}`),
-        pos_rate: p.commission_rate || u.commission_rate_t1 || 1.40,
+        pos_rate: p.commission_rate || u.commission_rate_t1 || 0,
         pos_vendor: p.vendor_entity || 'Rose Navaneetham Enterprises',
         pos_plan: p.device_plan || 'RENTAL',
-        pos_rent: p.monthly_rent || 499.0,
+        pos_rent: p.monthly_rent || 0.0,
         pos_settlement: p.settlement_type || 'T1',
         pos_instant_fee: p.instant_surcharge || 0.0,
         creator_name: meta.creator_name,
@@ -853,9 +853,9 @@ export async function createDownstreamUser(userData) {
         role: dbRole,
         creator_id: assignedCreatorId,
         password: initialPassword,
-        margin_rate: parseFloat(userData.margin_rate) || (dbRole === 'SUPER_DISTRIBUTOR' ? 0.40 : dbRole === 'DISTRIBUTOR' ? 0.25 : 0.0),
-        commission_rate_t1: parseFloat(userData.commission_rate_t1) || 1.50,
-        commission_rate_instant: parseFloat(userData.commission_rate_instant) || 1.80
+        margin_rate: parseFloat(userData.margin_rate) || 0.0,
+        commission_rate_t1: parseFloat(userData.commission_rate_t1) || 0.0,
+        commission_rate_instant: parseFloat(userData.commission_rate_instant || userData.commission_rate_t1) || 0.0
       })
       .select()
       .maybeSingle();
@@ -890,24 +890,24 @@ export async function createDownstreamUser(userData) {
 
       let primaryProvider = 'Pine Labs';
       let primaryVendor = 'Rose Navaneetham Enterprises';
-      let primaryRateT1 = 1.50;
-      let primaryRateInstant = 1.80;
+      let primaryRateT1 = parseFloat(userData.commission_rate_t1 || 0);
+      let primaryRateInstant = parseFloat(userData.commission_rate_instant || userData.commission_rate_t1 || 0);
 
       if (pine && pine.enabled) {
         primaryProvider = 'Pine Labs';
         primaryVendor = 'Rose Navaneetham Enterprises';
-        primaryRateT1 = parseFloat(pine.rate_t1) || 1.50;
-        primaryRateInstant = parseFloat(pine.rate_instant) || 1.80;
+        primaryRateT1 = parseFloat(pine.rate_t1 || userData.commission_rate_t1 || 0);
+        primaryRateInstant = parseFloat(pine.rate_instant || userData.commission_rate_instant || primaryRateT1);
       } else if (swiff && swiff.enabled) {
         primaryProvider = 'Payswiff';
         primaryVendor = swiff.vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
-        primaryRateT1 = parseFloat(swiff.rate_t1) || 1.50;
-        primaryRateInstant = parseFloat(swiff.rate_instant) || 1.80;
+        primaryRateT1 = parseFloat(swiff.rate_t1 || userData.commission_rate_t1 || 0);
+        primaryRateInstant = parseFloat(swiff.rate_instant || userData.commission_rate_instant || primaryRateT1);
       } else if (qr && qr.enabled) {
         primaryProvider = 'Company QR (UPI)';
         primaryVendor = 'RONAV Technologies';
-        primaryRateT1 = parseFloat(qr.rate_instant) || 1.50;
-        primaryRateInstant = parseFloat(qr.rate_instant) || 1.50;
+        primaryRateT1 = parseFloat(qr.rate_instant || userData.commission_rate_instant || userData.commission_rate_t1 || 0);
+        primaryRateInstant = primaryRateT1;
       }
 
       const isQrOnly = Boolean(qr?.enabled && !pine?.enabled && !swiff?.enabled);
@@ -928,8 +928,8 @@ export async function createDownstreamUser(userData) {
           settlement_type: isQrOnly ? 'INSTANT' : 'T1',
           commission_rate_t1: primaryRateT1,
           commission_rate_instant: primaryRateInstant,
-          admin_cut_rate: 1.20,
-          upline_override_rate: 0.20
+          admin_cut_rate: parseFloat(userData.admin_cut_rate || 0),
+          upline_override_rate: parseFloat(userData.upline_override_rate || 0)
         })
         .select()
         .maybeSingle();
@@ -1064,9 +1064,9 @@ export async function getWallet(userId) {
 // ----------------------------------------------------
 export function parseMerchantChannels(posRecord) {
   const defaultObj = {
-    pine_labs: { enabled: false, terminal_id: '', rate_t1: 1.50, rate_instant: 1.80, vendor: 'Rose Navaneetham Enterprises', plan: 'RENTAL', rent: 499 },
-    payswiff: { enabled: false, terminal_id: '', rate_t1: 1.50, rate_instant: 1.80, vendor: 'RONAV Technologies', plan: 'RENTAL', rent: 499 },
-    qr: { enabled: false, rate_instant: 1.50, vendor: 'RONAV Technologies' },
+    pine_labs: { enabled: false, terminal_id: '', rate_t1: 0, rate_instant: 0, vendor: 'Rose Navaneetham Enterprises', plan: 'RENTAL', rent: 0 },
+    payswiff: { enabled: false, terminal_id: '', rate_t1: 0, rate_instant: 0, vendor: 'RONAV Technologies', plan: 'RENTAL', rent: 0 },
+    qr: { enabled: false, rate_instant: 0, vendor: 'RONAV Technologies' },
     enabledList: []
   };
 
@@ -1091,7 +1091,7 @@ export function parseMerchantChannels(posRecord) {
   }
 
   // Legacy single machine parsing
-  const rates = parsePosTerminalRates(tid, posRecord.commission_rate || 1.50);
+  const rates = parsePosTerminalRates(tid, posRecord.commission_rate || 0);
   const prov = (posRecord.provider || '').toLowerCase();
   const isQR = prov.includes('qr') || prov.includes('upi');
   const isSwiff = prov.includes('swiff');
@@ -1106,24 +1106,24 @@ export function parseMerchantChannels(posRecord) {
     pine_labs: {
       enabled: isPine,
       terminal_id: isPine ? (rates.terminal_id || 'PL-01') : '',
-      rate_t1: posRecord.commission_rate_t1 || rates.rateT1 || 1.50,
-      rate_instant: posRecord.commission_rate_instant || rates.rateInstant || 1.80,
+      rate_t1: parseFloat(posRecord.commission_rate_t1 || rates.rateT1 || 0),
+      rate_instant: parseFloat(posRecord.commission_rate_instant || rates.rateInstant || 0),
       vendor: 'Rose Navaneetham Enterprises',
       plan: posRecord.device_plan || 'RENTAL',
-      rent: posRecord.monthly_rent || 499
+      rent: parseFloat(posRecord.monthly_rent || 0)
     },
     payswiff: {
       enabled: isSwiff,
       terminal_id: isSwiff ? (rates.terminal_id || 'SWIFF-01') : '',
-      rate_t1: posRecord.commission_rate_t1 || rates.rateT1 || 1.50,
-      rate_instant: posRecord.commission_rate_instant || rates.rateInstant || 1.80,
+      rate_t1: parseFloat(posRecord.commission_rate_t1 || rates.rateT1 || 0),
+      rate_instant: parseFloat(posRecord.commission_rate_instant || rates.rateInstant || 0),
       vendor: posRecord.vendor_entity || 'RONAV Technologies',
       plan: posRecord.device_plan || 'RENTAL',
-      rent: posRecord.monthly_rent || 499
+      rent: parseFloat(posRecord.monthly_rent || 0)
     },
     qr: {
       enabled: isQR,
-      rate_instant: posRecord.commission_rate_instant || rates.rateInstant || 1.50,
+      rate_instant: parseFloat(posRecord.commission_rate_instant || rates.rateInstant || 0),
       vendor: 'RONAV Technologies'
     },
     enabledList
@@ -1136,24 +1136,24 @@ export function serializeMerchantChannels(channels) {
       enabled: Boolean(channels.pine_labs.enabled),
       terminal_id: (channels.pine_labs.terminal_id || '').trim(),
       vendor: 'Rose Navaneetham Enterprises',
-      rate_t1: parseFloat(channels.pine_labs.rate_t1) || 1.50,
-      rate_instant: parseFloat(channels.pine_labs.rate_instant) || 1.80,
+      rate_t1: parseFloat(channels.pine_labs.rate_t1) || 0,
+      rate_instant: parseFloat(channels.pine_labs.rate_instant || channels.pine_labs.rate_t1) || 0,
       plan: channels.pine_labs.plan || 'RENTAL',
-      rent: parseFloat(channels.pine_labs.rent) || 499.0
+      rent: parseFloat(channels.pine_labs.rent) || 0.0
     } : { enabled: false },
     payswiff: channels?.payswiff ? {
       enabled: Boolean(channels.payswiff.enabled),
       terminal_id: (channels.payswiff.terminal_id || '').trim(),
       vendor: channels.payswiff.vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies',
-      rate_t1: parseFloat(channels.payswiff.rate_t1) || 1.50,
-      rate_instant: parseFloat(channels.payswiff.rate_instant) || 1.80,
+      rate_t1: parseFloat(channels.payswiff.rate_t1) || 0,
+      rate_instant: parseFloat(channels.payswiff.rate_instant || channels.payswiff.rate_t1) || 0,
       plan: channels.payswiff.plan || 'RENTAL',
-      rent: parseFloat(channels.payswiff.rent) || 499.0
+      rent: parseFloat(channels.payswiff.rent) || 0.0
     } : { enabled: false },
     qr: channels?.qr ? {
       enabled: Boolean(channels.qr.enabled),
       vendor: 'RONAV Technologies',
-      rate_instant: parseFloat(channels.qr.rate_instant) || 1.50
+      rate_instant: parseFloat(channels.qr.rate_instant) || 0
     } : { enabled: false }
   };
   return `[PORTFOLIO] ${JSON.stringify(payload)}`;
@@ -1168,24 +1168,24 @@ export async function updateMerchantChannels(merchantId, channels) {
 
     let primaryProvider = 'Pine Labs';
     let primaryVendor = 'Rose Navaneetham Enterprises';
-    let primaryRateT1 = 1.50;
-    let primaryRateInstant = 1.80;
+    let primaryRateT1 = 0;
+    let primaryRateInstant = 0;
 
     if (pine && pine.enabled) {
       primaryProvider = 'Pine Labs';
       primaryVendor = 'Rose Navaneetham Enterprises';
-      primaryRateT1 = parseFloat(pine.rate_t1) || 1.50;
-      primaryRateInstant = parseFloat(pine.rate_instant) || 1.80;
+      primaryRateT1 = parseFloat(pine.rate_t1) || 0;
+      primaryRateInstant = parseFloat(pine.rate_instant || primaryRateT1) || 0;
     } else if (swiff && swiff.enabled) {
       primaryProvider = 'Payswiff';
       primaryVendor = swiff.vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
-      primaryRateT1 = parseFloat(swiff.rate_t1) || 1.50;
-      primaryRateInstant = parseFloat(swiff.rate_instant) || 1.80;
+      primaryRateT1 = parseFloat(swiff.rate_t1) || 0;
+      primaryRateInstant = parseFloat(swiff.rate_instant || primaryRateT1) || 0;
     } else if (qr && qr.enabled) {
       primaryProvider = 'Company QR (UPI)';
       primaryVendor = 'RONAV Technologies';
-      primaryRateT1 = parseFloat(qr.rate_instant) || 1.50;
-      primaryRateInstant = parseFloat(qr.rate_instant) || 1.50;
+      primaryRateT1 = parseFloat(qr.rate_instant) || 0;
+      primaryRateInstant = parseFloat(qr.rate_instant) || 0;
     }
 
     const { data: existing } = await supabase.from('merchant_pos').select('*').eq('merchant_id', merchantId).maybeSingle();
@@ -1262,7 +1262,7 @@ export function parsePosTerminalRates(terminalStr, baseRate = 1.50) {
   const channels = {
     pinelabs: { enabled: false, terminal_id: '', rateT1, rateInstant },
     payswiff: { enabled: false, terminal_id: '', rateT1, rateInstant },
-    qr: { enabled: false, terminal_id: 'RONAV-UPI-HQ', rateInstant: 1.80 }
+    qr: { enabled: false, terminal_id: 'RONAV-UPI-HQ', rateInstant: 0 }
   };
 
   if (str.startsWith('[PORTFOLIO]')) {
@@ -1273,33 +1273,33 @@ export function parsePosTerminalRates(terminalStr, baseRate = 1.50) {
         channels.pinelabs = {
           enabled: true,
           terminal_id: p.pine_labs.terminal_id || 'PL-01',
-          rateT1: parseFloat(p.pine_labs.rate_t1) || 1.50,
-          rateInstant: parseFloat(p.pine_labs.rate_instant) || 1.80
+          rateT1: parseFloat(p.pine_labs.rate_t1) || 0,
+          rateInstant: parseFloat(p.pine_labs.rate_instant || p.pine_labs.rate_t1) || 0
         };
       }
       if (p.payswiff?.enabled) {
         channels.payswiff = {
           enabled: true,
           terminal_id: p.payswiff.terminal_id || 'SWIFF-01',
-          rateT1: parseFloat(p.payswiff.rate_t1) || 1.50,
-          rateInstant: parseFloat(p.payswiff.rate_instant) || 1.80
+          rateT1: parseFloat(p.payswiff.rate_t1) || 0,
+          rateInstant: parseFloat(p.payswiff.rate_instant || p.payswiff.rate_t1) || 0
         };
       }
       if (p.qr?.enabled) {
         channels.qr = {
           enabled: true,
           terminal_id: 'RONAV-UPI-HQ',
-          rateInstant: parseFloat(p.qr.rate_instant) || 1.80
+          rateInstant: parseFloat(p.qr.rate_instant) || 0
         };
       }
       const primary = channels.pinelabs.enabled ? channels.pinelabs : (channels.payswiff.enabled ? channels.payswiff : channels.qr);
       return {
         terminal_id: primary.terminal_id,
         raw_terminal: str,
-        rateT1: primary.rateT1 || 1.50,
-        rateInstant: primary.rateInstant || 1.80,
-        adminCut: 1.20,
-        uplineCut: 0.20,
+        rateT1: primary.rateT1 || 0,
+        rateInstant: primary.rateInstant || primary.rateT1 || 0,
+        adminCut: 0,
+        uplineCut: 0,
         channels
       };
     } catch (_) {}
@@ -2477,7 +2477,7 @@ export async function getAdminPending() {
           pos_provider: meta.pos_provider || t.provider || p.provider || 'Pine Labs',
           pos_vendor: meta.pos_vendor || p.vendor_entity || ((t.provider || p.provider) === 'Pine Labs' ? 'Rose Navaneetham Enterprises' : 'RONAV Technologies'),
           pos_terminal: meta.terminal_id || p.terminal_id || '',
-          pos_rate: p.commission_rate || 1.50
+          pos_rate: parseFloat(p.commission_rate_t1 || p.commission_rate || u.commission_rate_t1 || 0)
         };
       });
 
@@ -2549,7 +2549,7 @@ export async function getAdminPending() {
         pos_provider: providerResolved,
         pos_vendor: vendorResolved,
         pos_terminal: meta.terminal_id || p.terminal_id || '',
-        pos_rate: p.commission_rate || 1.50
+        pos_rate: parseFloat(p.commission_rate_t1 || p.commission_rate || u.commission_rate_t1 || 0)
       };
     });
 
@@ -2798,7 +2798,7 @@ export async function verifyTransaction(txnId, action, remark = '') {
           .eq('merchant_id', merchantId)
           .maybeSingle();
         const posRates = parsePosTerminalRates(posRec?.terminal_id, posRec?.commission_rate);
-        const rate = (txn.settlement_type === 'INSTANT' ? posRates.rateInstant : posRates.rateT1) || 1.70;
+        const rate = (txn.settlement_type === 'INSTANT' ? posRates.rateInstant : posRates.rateT1) || parseFloat(posRec?.commission_rate || 0);
         compFee = (amount * rate) / 100;
       }
 
@@ -2851,7 +2851,7 @@ export async function verifyTransaction(txnId, action, remark = '') {
             const uRate = isInstant ? u.commission_rate_instant : u.commission_rate_t1;
             if (uRate && !isNaN(parseFloat(uRate)) && parseFloat(uRate) > 0) return parseFloat(uRate);
           }
-          return isInstant ? 1.80 : 1.50;
+          return 0;
         };
 
         let currentLevelRate = getRateForUser(merchant, pos);
