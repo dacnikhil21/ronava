@@ -282,7 +282,7 @@ export async function handleApiRequest(req, res) {
 
     if (pathname === '/api/users/update-profile' && method === 'POST') {
       try {
-        const { userId, name, mobile, email, aadhaar, pan, address } = await parseJsonBody(req);
+        const { userId, name, mobile, email, aadhaar, pan, address, creator_id, commission_rate_t1, commission_rate_instant, margin_rate } = await parseJsonBody(req);
         if (!userId) {
           return sendJson(res, 400, { success: false, message: 'userId is required.' });
         }
@@ -295,8 +295,12 @@ export async function handleApiRequest(req, res) {
               aadhaar = COALESCE($4, aadhaar),
               pan = COALESCE($5, pan),
               address = COALESCE($6, address),
+              creator_id = COALESCE($7, creator_id),
+              commission_rate_t1 = COALESCE($8, commission_rate_t1),
+              commission_rate_instant = COALESCE($9, commission_rate_instant),
+              margin_rate = COALESCE($10, margin_rate),
               updated_at = CURRENT_TIMESTAMP
-          WHERE UPPER(id) = UPPER($7)
+          WHERE UPPER(id) = UPPER($11)
           RETURNING id, name, mobile, email, aadhaar, pan, address, role, creator_id, margin_rate, commission_rate_t1, commission_rate_instant, created_at, updated_at
         `, [
           name ? name.trim() : null,
@@ -305,6 +309,10 @@ export async function handleApiRequest(req, res) {
           aadhaar ? aadhaar.trim() : null,
           pan ? pan.trim() : null,
           address ? address.trim() : null,
+          creator_id ? creator_id.trim() : null,
+          commission_rate_t1 !== undefined && commission_rate_t1 !== null ? parseFloat(commission_rate_t1) : null,
+          commission_rate_instant !== undefined && commission_rate_instant !== null ? parseFloat(commission_rate_instant) : null,
+          margin_rate !== undefined && margin_rate !== null ? parseFloat(margin_rate) : null,
           userId.trim()
         ]);
 
