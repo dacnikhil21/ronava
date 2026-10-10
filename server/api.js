@@ -1363,8 +1363,8 @@ export async function handleApiRequest(req, res) {
         let mWallet = mWallets[0];
         if (!mWallet) {
           mWallet = (await client.query(`
-            INSERT INTO wallets (user_id, available_balance, total_sales, received_sales, pending_balance, withdrawn_amount, unrecovered_deficit)
-            VALUES ($1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0) RETURNING *
+            INSERT INTO wallets (user_id, available_balance, total_sales, received_sales, pending_balance, withdrawn_amount)
+            VALUES ($1, 0.0, 0.0, 0.0, 0.0, 0.0) RETURNING *
           `, [merchant.id])).rows[0];
         }
 
