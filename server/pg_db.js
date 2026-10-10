@@ -139,8 +139,9 @@ async function handleMockQuery(sql, params = []) {
   if (cleanSql === 'SELECT * FROM wallets') {
     return localMockDb.wallets.map(w => ({ ...w }));
   }
-  if (cleanSql.startsWith('SELECT * FROM wallets WHERE user_id = $1') || cleanSql.startsWith('SELECT * FROM wallets WHERE UPPER(user_id) = UPPER($1)')) {
-    const w = localMockDb.wallets.find(x => x.user_id.toUpperCase() === (params[0] || '').toString().toUpperCase());
+  if (cleanSql.includes('FROM wallets') && (cleanSql.includes('WHERE UPPER(user_id) = UPPER($1)') || cleanSql.includes('WHERE user_id = $1'))) {
+    const targetUserId = (params[0] || '').toString().toUpperCase();
+    const w = localMockDb.wallets.find(x => (x.user_id || '').toUpperCase() === targetUserId);
     return w ? [{ ...w }] : [];
   }
   if (cleanSql.startsWith('SELECT * FROM wallets WHERE user_id = \'ADM001\'')) {
