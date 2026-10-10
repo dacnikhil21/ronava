@@ -311,12 +311,16 @@ async function handleMockQuery(sql, params = []) {
   }
 
   // Withdrawals
-  if (cleanSql === 'SELECT * FROM withdrawals' || cleanSql.includes('FROM withdrawals w')) {
-    return localMockDb.withdrawals.map(w => ({ ...w }));
+  if (cleanSql.includes('FROM withdrawals') && (cleanSql.includes('WHERE UPPER(merchant_id) = UPPER($1)') || cleanSql.includes('WHERE merchant_id = $1'))) {
+    const targetMid = (params[0] || '').toString().toUpperCase();
+    return localMockDb.withdrawals.filter(w => (w.merchant_id || '').toUpperCase() === targetMid).map(w => ({ ...w }));
   }
   if (cleanSql.startsWith('SELECT * FROM withdrawals WHERE id = $1')) {
     const wth = localMockDb.withdrawals.find(x => x.id === params[0]);
     return wth ? [{ ...wth }] : [];
+  }
+  if (cleanSql === 'SELECT * FROM withdrawals' || cleanSql.includes('FROM withdrawals w') || cleanSql.includes('FROM withdrawals')) {
+    return localMockDb.withdrawals.map(w => ({ ...w }));
   }
   if (cleanSql.startsWith('INSERT INTO withdrawals')) {
     const match = cleanSql.match(/INSERT INTO withdrawals \((.*?)\) VALUES/i);
