@@ -610,8 +610,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     
     // If no channel is explicitly enabled, pre-fill with user's actual configured rates
     if (!ch || (!ch.pine_labs?.enabled && !ch.payswiff?.enabled && !ch.qr?.enabled)) {
-      const baseT1 = parseFloat(user.commission_rate_t1 || user.margin_rate || 1.40);
-      const baseInstant = parseFloat(user.commission_rate_instant || (baseT1 + 0.30));
+      const baseT1 = parseFloat(user.commission_rate_t1 || user.margin_rate || 0);
+      const baseInstant = parseFloat(user.commission_rate_instant || user.commission_rate_t1 || user.margin_rate || 0);
       const tid = user.pos_terminal || `PL-${user.id || '01'}`;
       
       ch = {
@@ -1174,7 +1174,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       if (totalVol === 0 && userTxns.length > 0) {
         totalVol = userTxns.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
       }
-      profitEarned = totalVol * 0.0015;
+      profitEarned = actualWalletEarned;
       downlineCount = 1;
     }
 
@@ -1300,19 +1300,16 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     const getTxnCompanyFee = (t) => {
       let compFee = parseFloat(t.company_fee);
       if (isNaN(compFee) || compFee <= 0) {
-        if (t.notes && typeof t.notes === 'string' && t.notes.includes('company_fee')) {
+        if (t.notes && typeof t.notes === 'string' && t.notes.includes('{')) {
           try {
             const jsonPart = t.notes.slice(t.notes.indexOf('{'));
             const parsed = JSON.parse(jsonPart);
             if (parsed.company_fee) compFee = parseFloat(parsed.company_fee);
+            else if (parsed.merchant_buy_rate) compFee = ((parseFloat(t.amount) || 0) * parseFloat(parsed.merchant_buy_rate)) / 100;
           } catch (_) {}
         }
       }
-      if (isNaN(compFee) || compFee <= 0) {
-        const amt = parseFloat(t.amount) || 0;
-        compFee = amt * 0.017;
-      }
-      return compFee;
+      return !isNaN(compFee) && compFee > 0 ? compFee : 0;
     };
 
     txns.forEach(t => {
@@ -1433,14 +1430,20 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       const merchant = userMap[t.merchant_id] || { id: t.merchant_id, name: t.merchant_name || t.merchant_id || 'Merchant' };
       const merchantDisplayName = merchant.business_name || merchant.name || t.merchant_name || 'Merchant Outlet';
       
-      let companyFee = parseFloat(t.company_fee);
-      let merchantComm = parseFloat(t.merchant_commission);
+      let companyFee = parseFloat(t.company_fee) || 0;
+      let merchantComm = parseFloat(t.merchant_commission) || 0;
+      let savedSplits = [];
+      let savedAdminMargin = 0;
 
-      if (isNaN(companyFee) || companyFee <= 0) {
-        companyFee = amt * 0.017;
-      }
-      if (isNaN(merchantComm)) {
-        merchantComm = Math.max(0, (amt * 0.02) - companyFee);
+      if (t.notes && typeof t.notes === 'string' && t.notes.includes('{')) {
+        try {
+          const jsonPart = t.notes.slice(t.notes.indexOf('{'));
+          const meta = JSON.parse(jsonPart);
+          if (meta.company_fee) companyFee = parseFloat(meta.company_fee);
+          if (meta.merchant_commission) merchantComm = parseFloat(meta.merchant_commission);
+          if (meta.admin_net_margin !== undefined) savedAdminMargin = parseFloat(meta.admin_net_margin);
+          if (Array.isArray(meta.commission_splits)) savedSplits = meta.commission_splits;
+        } catch (_) {}
       }
 
       totalSalesVolume += amt;
@@ -1464,7 +1467,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         amount: amt,
         provider: channelDisplayName,
         channel_key: channelKey,
-        commission_rate: amt > 0 ? `${((merchantComm / amt) * 100).toFixed(2)}%` : '0.30%',
+        commission_rate: amt > 0 && merchantComm > 0 ? `${((merchantComm / amt) * 100).toFixed(2)}%` : 'Direct',
         commission_amount: merchantComm,
         fee_deducted: companyFee,
         paid_uplines: 0,
@@ -1475,7 +1478,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         role: 'MERCHANT'
       });
 
-      // 2. Trace Uplines for this merchant
+      // 2. Trace Uplines for this merchant from exact saved receipt or tree
       let curr = merchant;
       const uplines = [];
       const visited = new Set();
@@ -1494,9 +1497,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
       let paidUplines = 0;
 
-      // Master Distributor Cut (0.05%)
+      // Master Distributor Cut from exact receipt
       if (masterUser) {
-        const cut = (amt * 0.05) / 100;
+        const split = savedSplits.find(s => s.user_id === masterUser.id);
+        const cut = split ? split.amount : 0;
         masterTotal += cut;
         paidUplines += cut;
         breakdowns.MASTER.push({
@@ -1508,7 +1512,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           amount: amt,
           provider: channelDisplayName,
           channel_key: channelKey,
-          commission_rate: '0.05% override',
+          commission_rate: split ? `${split.margin_diff}% margin` : '0%',
           commission_amount: cut,
           fee_deducted: companyFee,
           paid_uplines: cut,
@@ -1520,9 +1524,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         });
       }
 
-      // Super Distributor Cut (0.10%)
+      // Super Distributor Cut from exact receipt
       if (superUser) {
-        const cut = (amt * 0.10) / 100;
+        const split = savedSplits.find(s => s.user_id === superUser.id);
+        const cut = split ? split.amount : 0;
         superTotal += cut;
         paidUplines += cut;
         breakdowns.SUPER.push({
@@ -1534,7 +1539,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           amount: amt,
           provider: channelDisplayName,
           channel_key: channelKey,
-          commission_rate: '0.10% override',
+          commission_rate: split ? `${split.margin_diff}% margin` : '0%',
           commission_amount: cut,
           fee_deducted: companyFee,
           paid_uplines: cut,
@@ -1546,9 +1551,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         });
       }
 
-      // District Distributor Cut (0.10%)
+      // District Distributor Cut from exact receipt
       if (districtUser) {
-        const cut = (amt * 0.10) / 100;
+        const split = savedSplits.find(s => s.user_id === districtUser.id);
+        const cut = split ? split.amount : 0;
         districtTotal += cut;
         paidUplines += cut;
         breakdowns.DISTRICT.push({
@@ -1560,7 +1566,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           amount: amt,
           provider: channelDisplayName,
           channel_key: channelKey,
-          commission_rate: '0.10% override',
+          commission_rate: split ? `${split.margin_diff}% margin` : '0%',
           commission_amount: cut,
           fee_deducted: companyFee,
           paid_uplines: cut,
@@ -1572,9 +1578,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         });
       }
 
-      // Distributor Cut (0.10%)
+      // Distributor Cut from exact receipt
       if (distUser) {
-        const cut = (amt * 0.10) / 100;
+        const split = savedSplits.find(s => s.user_id === distUser.id);
+        const cut = split ? split.amount : 0;
         distributorTotal += cut;
         paidUplines += cut;
         breakdowns.DISTRIBUTOR.push({
@@ -1586,7 +1593,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           amount: amt,
           provider: channelDisplayName,
           channel_key: channelKey,
-          commission_rate: '0.10% override',
+          commission_rate: split ? `${split.margin_diff}% margin` : '0%',
           commission_amount: cut,
           fee_deducted: companyFee,
           paid_uplines: cut,
@@ -2639,7 +2646,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     } catch (_) {}
                   }
                   grossMdr += fee;
-                  netAdmin += (adminCut || (parseFloat(t.amount || 0) * 0.0015));
+                  netAdmin += (adminCut || parseFloat(t.admin_net_margin || 0));
                 });
 
                 return (
@@ -2774,11 +2781,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             }
 
                             const amt = parseFloat(t.amount || 0);
-                            const compFee = parseFloat(meta.company_fee || t.company_fee || (amt * 0.016)) || 0;
+                            const compFee = parseFloat(meta.company_fee || t.company_fee || 0);
                             const totalUplines = meta.commission_splits && Array.isArray(meta.commission_splits)
                               ? meta.commission_splits.reduce((s, x) => s + (parseFloat(x.amount) || 0), 0)
                               : 0;
-                            const adminNet = parseFloat((meta.admin_net_margin !== undefined ? meta.admin_net_margin : (totalUplines > 0 ? (compFee - totalUplines) : (amt * 0.0015))).toFixed(2));
+                            const adminNet = parseFloat((meta.admin_net_margin !== undefined ? meta.admin_net_margin : (totalUplines > 0 ? (compFee - totalUplines) : parseFloat(t.admin_net_margin || 0))).toFixed(2));
                             const uplinesCut = totalUplines > 0 ? totalUplines : Math.max(0, parseFloat((compFee - adminNet).toFixed(2)));
                             const providerName = meta.pos_provider || t.provider || 'POS';
                             const terminalId = meta.terminal_id || t.terminal_id || '';
@@ -3300,7 +3307,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             ₹{parseFloat(t.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                           </strong>
                           <span style={{ fontSize: '0.5625rem', color: '#0F52BA', fontWeight: 700 }}>
-                            Admin Cut: +₹{(parseFloat(t.admin_net_margin || t.admin_margin || (parseFloat(t.amount || 0) * 0.0015))).toFixed(2)}
+                            Admin Cut: +₹{(parseFloat(t.admin_net_margin || t.admin_margin || 0)).toFixed(2)}
                           </span>
                         </div>
                       </div>
@@ -3933,7 +3940,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               ₹{parseFloat(txn.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                             </strong>
                             <span style={{ display: 'block', fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>
-                              +₹{parseFloat(txn.admin_net_margin || txn.admin_margin || txn.admin_cut || (txn.amount * 0.0015)).toFixed(2)} Profit
+                              +₹{parseFloat(txn.admin_net_margin || txn.admin_margin || txn.admin_cut || 0).toFixed(2)} Profit
                             </span>
                           </div>
                         </div>
@@ -4886,7 +4893,6 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     {filteredMasters.map(m => {
                       const mVol = parseFloat(m.network_volume || m.total_sales || 0);
                       const mCutRate = parseFloat(m.upline_override_rate || 0.20);
-                      const mProfit = mVol * 0.0015;
 
                       // Robust Downline Aggregation (SD -> DD -> Dist -> Shops)
                       const childSDs = m.super_distributors || superDistributorsList.filter(sd => sd.creator_id === m.id || sd.parent_id === m.id);
@@ -4953,7 +4959,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             <div>
                               <span style={{ fontSize: '0.55rem', color: '#059669', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Admin Net</span>
                               <strong style={{ fontSize: '0.8125rem', color: '#059669', fontWeight: 900 }}>
-                                +₹{mProfit.toFixed(2)}
+                                +₹{parseFloat(m.admin_profit_earned || (m.transactions ? m.transactions.reduce((sum, t) => sum + parseFloat(t.admin_net_margin || 0), 0) : 0)).toFixed(2)}
                               </strong>
                             </div>
                           </div>
@@ -5034,7 +5040,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     {filteredSDs.map(sd => {
                       const sdVol = parseFloat(sd.network_volume || sd.total_sales || 0);
                       const sdCutRate = parseFloat(sd.upline_override_rate || (sd.channels?.pine_labs?.enabled ? 0.20 : (sd.margin_rate || 0.20)));
-                      const sdProfit = sdVol * 0.0015;
+                      const sdProfit = parseFloat(sd.admin_profit_earned || (sd.transactions ? sd.transactions.reduce((sum, t) => sum + parseFloat(t.admin_net_margin || 0), 0) : 0));
 
                       // Robust Downline Aggregation (District Dist -> Dist -> Shops)
                       const childDDs = sd.district_distributors || districtDistributorsList.filter(dd => dd.creator_id === sd.id || dd.parent_id === sd.id);
@@ -5233,7 +5239,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     {filteredDDs.map(dd => {
                       const ddVol = parseFloat(dd.downline_volume || dd.total_sales || 0);
                       const ddCutRate = parseFloat(dd.upline_override_rate || (dd.channels?.pine_labs?.enabled ? 0.10 : (dd.margin_rate || 0.10)));
-                      const ddProfit = ddVol * 0.0015;
+                      const ddProfit = parseFloat(dd.admin_profit_earned || (dd.transactions ? dd.transactions.reduce((sum, t) => sum + parseFloat(t.admin_net_margin || 0), 0) : 0));
 
                       return (
                         <div
@@ -5412,7 +5418,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     {filteredDists.map(d => {
                       const distVol = parseFloat(d.downline_volume || d.total_sales || 0);
                       const distCutRate = parseFloat(d.upline_override_rate || (d.channels?.pine_labs?.enabled ? 0.10 : (d.margin_rate || 0.10)));
-                      const distProfit = distVol * 0.0015;
+                      const distProfit = parseFloat(d.admin_profit_earned || (d.transactions ? d.transactions.reduce((sum, t) => sum + parseFloat(t.admin_net_margin || 0), 0) : 0));
 
                       return (
                         <div

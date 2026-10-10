@@ -961,10 +961,10 @@ export async function createDownstreamUser(userData) {
         }
 
         // Dynamic Commission Rates configured by Admin (No hardcoded values)
-        const rateT1 = parseFloat(userData.commission_rate_t1 || userData.commission_rate) || 1.50;
-        const rateInstant = parseFloat(userData.commission_rate_instant) || (rateT1 + 0.30);
-        const adminCut = parseFloat(userData.admin_cut_rate) || 1.20;
-        const uplineCut = parseFloat(userData.upline_override_rate) || 0.20;
+        const rateT1 = parseFloat(userData.commission_rate_t1 || userData.commission_rate) || 0;
+        const rateInstant = parseFloat(userData.commission_rate_instant || userData.commission_rate_t1 || userData.commission_rate) || 0;
+        const adminCut = parseFloat(userData.admin_cut_rate) || 0;
+        const uplineCut = parseFloat(userData.upline_override_rate) || 0;
 
         // Real Machine Serial Number entered by Admin / Distributor
         const terminalPrefix = provider === 'Payswiff' ? 'SWIFF' : 'PL';
@@ -1254,8 +1254,8 @@ export function formatTerminalDisplay(terminalStr, defaultProvider = 'Pine Labs'
 export function parsePosTerminalRates(terminalStr, baseRate = 1.50) {
   const str = terminalStr || '';
   let cleanId = str;
-  let rateT1 = typeof baseRate === 'number' ? baseRate : (parseFloat(baseRate) || 1.50);
-  let rateInstant = rateT1 + 0.30;
+  let rateT1 = typeof baseRate === 'number' ? baseRate : (parseFloat(baseRate) || 0);
+  let rateInstant = rateT1;
   let adminCut = 1.20;
   let uplineCut = 0.20;
 
@@ -2992,13 +2992,13 @@ export async function clawbackTransaction(txnId, adminReason = 'Payment Cancelle
     const merchantId = txn.merchant_id;
 
     // Parse swipe metadata to find exact net credited and saved commission splits
-    let netCredited = amount * 0.985;
-    let compFee = amount * 0.015;
-    let merchantBuyRate = 1.50;
+    let netCredited = amount;
+    let compFee = 0;
+    let merchantBuyRate = 0;
     let savedSplits = [];
     let savedAdminNet = null;
 
-    if (txn.notes && typeof txn.notes === 'string') {
+    if (txn.notes && typeof txn.notes === 'string' && txn.notes.includes('{')) {
       try {
         const jsonPart = txn.notes.slice(txn.notes.indexOf('{'));
         const meta = JSON.parse(jsonPart);
@@ -3008,6 +3008,11 @@ export async function clawbackTransaction(txnId, adminReason = 'Payment Cancelle
         if (Array.isArray(meta.commission_splits)) savedSplits = meta.commission_splits;
         if (meta.admin_net_margin !== undefined) savedAdminNet = parseFloat(meta.admin_net_margin);
       } catch (_) {}
+    }
+
+    if (netCredited === amount && compFee === 0 && merchantBuyRate > 0) {
+      compFee = parseFloat(((amount * merchantBuyRate) / 100).toFixed(2));
+      netCredited = parseFloat((amount - compFee).toFixed(2));
     }
 
     // 1. Mark transaction as REVERSED in database
