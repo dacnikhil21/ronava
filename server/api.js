@@ -2049,8 +2049,15 @@ export async function handleApiRequest(req, res) {
 
     if (pathname === '/api/admin/system/migrate' && (method === 'POST' || method === 'GET')) {
       try {
-        const ok = await initPostgresSchema();
-        return sendJson(res, 200, { success: true, message: 'Database schema migration executed successfully.', status: ok });
+        await pgQuery(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS unrecovered_deficit NUMERIC DEFAULT 0.0`);
+        await pgQuery(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawn_amount NUMERIC DEFAULT 0.0`);
+        await pgQuery(`ALTER TABLE users ADD COLUMN IF NOT EXISTS channels JSONB DEFAULT '{}'::jsonb`);
+        const cols = await pgQuery(`SELECT column_name FROM information_schema.columns WHERE table_name = 'wallets'`);
+        return sendJson(res, 200, { 
+          success: true, 
+          message: 'Database schema migration executed successfully.', 
+          wallet_columns: cols.map(c => c.column_name) 
+        });
       } catch (err) {
         return sendJson(res, 500, { success: false, message: err.message });
       }
