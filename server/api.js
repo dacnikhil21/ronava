@@ -1836,7 +1836,7 @@ export async function handleApiRequest(req, res) {
         const normalizedAction = (action || '').toUpperCase();
         if (normalizedAction === 'SUBMITTED_TO_BANK' || normalizedAction === 'SUBMIT_TO_BANK') {
           for (const wId of idList) {
-            const current = (await pgQuery(`SELECT * FROM withdrawals WHERE id = $1`, [wId]))[0];
+            const current = (await pgQuery(`SELECT * FROM withdrawals WHERE UPPER(id) = UPPER($1)`, [wId]))[0];
             if (current) {
               const existing = (current.admin_remark || '')
                 .replace(/\[SUBMITTED_TO_BANK\]\s*/g, '')
@@ -1849,14 +1849,14 @@ export async function handleApiRequest(req, res) {
               await pgQuery(`
                 UPDATE withdrawals 
                 SET admin_remark = $1, submitted_to_bank_at = $2, updated_at = CURRENT_TIMESTAMP
-                WHERE id = $3
+                WHERE UPPER(id) = UPPER($3)
               `, [newRemark, timestamp, wId]);
             }
           }
           return sendJson(res, 200, { success: true, message: `Successfully marked ${idList.length} payout(s) as Submitted to Bank!` });
         } else if (normalizedAction === 'REVERT_PENDING') {
           for (const wId of idList) {
-            const current = (await pgQuery(`SELECT * FROM withdrawals WHERE id = $1`, [wId]))[0];
+            const current = (await pgQuery(`SELECT * FROM withdrawals WHERE UPPER(id) = UPPER($1)`, [wId]))[0];
             if (current) {
               const cleanRemark = (current.admin_remark || '')
                 .replace(/\[SUBMITTED_TO_BANK\]\s*/g, '')
@@ -1866,7 +1866,7 @@ export async function handleApiRequest(req, res) {
               await pgQuery(`
                 UPDATE withdrawals 
                 SET status = 'PENDING', admin_remark = $1, submitted_to_bank_at = NULL, updated_at = CURRENT_TIMESTAMP
-                WHERE id = $2
+                WHERE UPPER(id) = UPPER($2)
               `, [cleanRemark || null, wId]);
             }
           }

@@ -12,6 +12,26 @@ async function runWithdrawalLifecycleAudit() {
     return res.wallet || {};
   };
 
+  // Ensure hierarchy exists
+  const existingUsers = (await fetch(`${baseUrl}/api/users`).then(r => r.json())).users || [];
+  if (!existingUsers.find(u => u.id === 'MID1001')) {
+    console.log('--- AUTO-SETUP: Initializing 5-Tier Test Hierarchy ---');
+    const usersToCreate = [
+      { creator_id: 'ADM001', name: 'Balingam Master Partner', mobile: '9876543201', role: 'MASTER', password: 'Ronav@123', margin_rate: '0.75', commission_rate_t1: '1.00', commission_rate_instant: '1.20', channels: { pine_labs: { enabled: true, terminal_id: 'PL-MST1001', vendor: 'Rose Navaneetham Enterprises', plan: 'RENTAL', rent: '499', rate_t1: '1.00', rate_instant: '1.20' } } },
+      { creator_id: 'MST1001', name: 'Ramana Super Dist', mobile: '6301646462', role: 'SUPER_DISTRIBUTOR', password: 'Ronav@123', margin_rate: '0.50', commission_rate_t1: '1.20', commission_rate_instant: '1.40', channels: { pine_labs: { enabled: true, terminal_id: 'PL-SD1001', vendor: 'Rose Navaneetham Enterprises', plan: 'RENTAL', rent: '499', rate_t1: '1.20', rate_instant: '1.40' } } },
+      { creator_id: 'SD1001', name: 'Bravo District Partner', mobile: '9876543203', role: 'DIST_FRANCHISE', password: 'Ronav@123', margin_rate: '0.35', commission_rate_t1: '1.40', commission_rate_instant: '1.60', channels: { pine_labs: { enabled: true, terminal_id: 'PL-DD1001', vendor: 'Rose Navaneetham Enterprises', plan: 'RENTAL', rent: '499', rate_t1: '1.40', rate_instant: '1.60' } } },
+      { creator_id: 'DD1001', name: 'Charlie Area Dist', mobile: '9876543204', role: 'DISTRIBUTOR', password: 'Ronav@123', margin_rate: '0.25', commission_rate_t1: '1.60', commission_rate_instant: '1.80', channels: { pine_labs: { enabled: true, terminal_id: 'PL-DIST1001', vendor: 'Rose Navaneetham Enterprises', plan: 'RENTAL', rent: '499', rate_t1: '1.60', rate_instant: '1.80' } } },
+      { creator_id: 'DIST1001', name: 'Retail Merchant Store', mobile: '9876543205', role: 'MERCHANT', password: 'Ronav@123', margin_rate: '0.00', commission_rate_t1: '1.80', commission_rate_instant: '2.00', channels: { pine_labs: { enabled: true, terminal_id: 'PL-MID1001', vendor: 'Rose Navaneetham Enterprises', plan: 'RENTAL', rent: '499', rate_t1: '1.80', rate_instant: '2.00' } } }
+    ];
+    for (const u of usersToCreate) {
+      await fetch(`${baseUrl}/api/users/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(u)
+      });
+    }
+  }
+
   // Helper to ensure merchant has funds
   console.log('--- SETUP: Funding Test Merchant (MID1001) with ₹20,000 Sale ---');
   const fundRef = `SLIP-FUND-${Date.now().toString().slice(-6)}`;
