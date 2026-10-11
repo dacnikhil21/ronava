@@ -881,6 +881,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     let directSwipeNet = 0;
     let directCommissions = 0;
 
+    const approvedTxns = (txns || []).filter(t => (t.status || '').toUpperCase() === 'APPROVED');
+
     approvedTxns.forEach(t => {
       const gross = parseFloat(t.amount) || 0;
       const isComm = t.is_commission === true || t.activityType === 'COMMISSION_EARNED' || t.type === 'COMMISSION_EARNED';
