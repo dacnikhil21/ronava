@@ -2207,6 +2207,35 @@ export async function handleApiRequest(req, res) {
     }
 
     // ----------------------------------------------------
+    // PUBLIC PLATFORM STATISTICS (LIVE DATABASE TELEMETRY)
+    // ----------------------------------------------------
+    if (pathname === '/api/public/stats' && method === 'GET') {
+      try {
+        const [merchantsCountRes, txnsVolumeRes, terminalsCountRes] = await Promise.all([
+          pgQuery(`SELECT COUNT(*)::int as count FROM users WHERE role = 'MERCHANT'`),
+          pgQuery(`SELECT COALESCE(SUM(amount), 0)::numeric as volume FROM transactions WHERE status = 'APPROVED'`),
+          pgQuery(`SELECT COUNT(*)::int as count FROM merchant_pos`)
+        ]);
+
+        const totalMerchants = parseInt(merchantsCountRes[0]?.count || 0, 10);
+        const totalVolume = parseFloat(txnsVolumeRes[0]?.volume || 0);
+        const activeTerminals = parseInt(terminalsCountRes[0]?.count || 0, 10);
+
+        return sendJson(res, 200, {
+          success: true,
+          stats: {
+            totalMerchants,
+            totalVolume,
+            activeTerminals,
+            disbursedAmount: 0.0
+          }
+        });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
+    // ----------------------------------------------------
     // ADMIN PURGE & DELETE (Pure PostgreSQL)
     // ----------------------------------------------------
     if (pathname === '/api/admin/users/purge-test-accounts') {

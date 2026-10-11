@@ -2189,7 +2189,7 @@ export async function getInquiries() {
 
     if (error) {
       console.warn('getInquiries notice:', error.message);
-      return { success: true, inquiries: [] };
+      return { success: false, message: error.message, inquiries: [] };
     }
 
     // Filter out internal system configuration rows
@@ -2200,7 +2200,7 @@ export async function getInquiries() {
     return { success: true, inquiries: realInquiries };
   } catch (err) {
     console.error('getInquiries error:', err);
-    return { success: true, inquiries: [] };
+    return { success: false, message: err.message, inquiries: [] };
   }
 }
 
@@ -2319,26 +2319,29 @@ export async function getPlatformPublicStats() {
     if (json.success && json.stats) {
       return {
         success: true,
-        merchants: json.stats.totalMerchants,
-        volume: parseFloat((json.stats.totalVolume / 100000).toFixed(2)),
-        disbursed: 15.8,
-        outlets: json.stats.activeTerminals
+        merchants: parseInt(json.stats.totalMerchants || 0, 10),
+        volume: parseFloat(((json.stats.totalVolume || 0) / 100000).toFixed(2)),
+        disbursed: parseFloat(((json.stats.disbursedAmount || 0) / 100000).toFixed(2)),
+        outlets: parseInt(json.stats.activeTerminals || 0, 10)
       };
     }
     return {
-      success: true,
-      merchants: 2538,
-      volume: 33.45,
-      disbursed: 15.8,
-      outlets: 184
+      success: false,
+      message: json.message || 'Failed to retrieve live statistics from server.',
+      merchants: 0,
+      volume: 0,
+      disbursed: 0,
+      outlets: 0
     };
   } catch (err) {
+    console.error('getPlatformPublicStats error:', err);
     return {
-      success: true,
-      merchants: 2538,
-      volume: 33.45,
-      disbursed: 15.8,
-      outlets: 184
+      success: false,
+      message: err.message || 'Network error retrieving live statistics.',
+      merchants: 0,
+      volume: 0,
+      disbursed: 0,
+      outlets: 0
     };
   }
 }

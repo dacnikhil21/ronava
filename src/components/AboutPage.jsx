@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getPlatformPublicStats } from '../services/api';
 import { 
   Users, 
   Network, 
@@ -47,9 +48,19 @@ function Counter({ end, duration = 1200, prefix = "", suffix = "", formatComma =
 
 export default function AboutPage({ onOpenLogin, onBack }) {
   const [animated, setAnimated] = useState(false);
+  const [liveStats, setLiveStats] = useState({ merchants: 0, volume: 0, outlets: 0 });
 
   useEffect(() => {
     setAnimated(true);
+    getPlatformPublicStats().then(res => {
+      if (res && res.success) {
+        setLiveStats({
+          merchants: res.merchants,
+          volume: res.volume,
+          outlets: res.outlets
+        });
+      }
+    }).catch(() => {});
   }, []);
 
   return (
@@ -131,7 +142,7 @@ export default function AboutPage({ onOpenLogin, onBack }) {
                 <Users style={{ width: '18px', height: '18px' }} />
               </div>
               <h3 style={{ fontSize: 'clamp(1rem, 2.8vw, 1.35rem)', fontWeight: 900, color: '#0F172A', margin: 0, lineHeight: 1.1 }}>
-                <Counter end={2538} suffix="+" formatComma={true} />
+                <Counter end={liveStats.merchants} suffix={liveStats.merchants > 0 ? "+" : ""} formatComma={true} />
               </h3>
               <p style={{ fontSize: '0.625rem', fontWeight: 700, color: '#64748B', margin: '0.25rem 0 0.5rem' }}>Active Merchants</p>
               <div style={{ width: '20px', height: '3px', background: '#0F52BA', borderRadius: '2px' }}></div>
@@ -143,7 +154,7 @@ export default function AboutPage({ onOpenLogin, onBack }) {
                 <TrendingUp style={{ width: '18px', height: '18px' }} />
               </div>
               <h3 style={{ fontSize: 'clamp(1rem, 2.8vw, 1.35rem)', fontWeight: 900, color: '#0F172A', margin: 0, lineHeight: 1.1 }}>
-                <Counter end={50} prefix="₹" suffix="Cr+" />
+                <Counter end={liveStats.volume} prefix="₹" suffix="L+" />
               </h3>
               <p style={{ fontSize: '0.625rem', fontWeight: 700, color: '#64748B', margin: '0.25rem 0 0.5rem' }}>Txn Volume</p>
               <div style={{ width: '20px', height: '3px', background: '#059669', borderRadius: '2px' }}></div>
@@ -155,7 +166,7 @@ export default function AboutPage({ onOpenLogin, onBack }) {
                 <Building2 style={{ width: '18px', height: '18px' }} />
               </div>
               <h3 style={{ fontSize: 'clamp(1rem, 2.8vw, 1.35rem)', fontWeight: 900, color: '#0F172A', margin: 0, lineHeight: 1.1 }}>
-                <Counter end={250} suffix="+" />
+                <Counter end={liveStats.outlets} suffix={liveStats.outlets > 0 ? "+" : ""} />
               </h3>
               <p style={{ fontSize: '0.625rem', fontWeight: 700, color: '#64748B', margin: '0.25rem 0 0.5rem' }}>ATM / CDM Network</p>
               <div style={{ width: '20px', height: '3px', background: '#7C3AED', borderRadius: '2px' }}></div>

@@ -351,11 +351,21 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       }).catch(() => {});
 
       const [pendingRes, usersRes, treeRes, inqRes] = await Promise.all([
-        getAdminPending().catch(() => ({ success: false })),
-        getAllUsers().catch(() => ({ success: false })),
-        getHierarchyTree().catch(() => ({ success: false })),
-        getInquiries().catch(() => ({ success: false, inquiries: [] }))
+        getAdminPending().catch(err => ({ success: false, message: err.message })),
+        getAllUsers().catch(err => ({ success: false, message: err.message })),
+        getHierarchyTree().catch(err => ({ success: false, message: err.message })),
+        getInquiries().catch(err => ({ success: false, message: err.message, inquiries: [] }))
       ]);
+
+      const failedModules = [];
+      if (pendingRes && !pendingRes.success) failedModules.push('Pending Payouts/Ledger');
+      if (usersRes && !usersRes.success) failedModules.push('Users Network');
+      if (treeRes && !treeRes.success) failedModules.push('Hierarchy Tree');
+      if (inqRes && !inqRes.success) failedModules.push('Inquiries');
+
+      if (failedModules.length > 0) {
+        triggerToast(`⚠️ Server Sync Warning: Failed to load ${failedModules.join(', ')} from database.`, 'error');
+      }
 
       if (inqRes && inqRes.inquiries) {
         setInquiriesList(inqRes.inquiries);
@@ -393,6 +403,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       fetchRentalReport(rentalMonth);
     } catch (err) {
       console.error('Error fetching admin data:', err);
+      triggerToast('Error connecting to backend: ' + err.message, 'error');
     }
   };
 

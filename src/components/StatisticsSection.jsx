@@ -4,7 +4,8 @@ import { getPlatformPublicStats } from '../services/api';
 
 export default function StatisticsSection() {
   const [counts, setCounts] = useState({ merchants: 0, volume: 0, disbursed: 0, outlets: 0 });
-  const [targets, setTargets] = useState({ merchants: 2538, volume: 33.45, disbursed: 15.8, outlets: 184 });
+  const [targets, setTargets] = useState({ merchants: 0, volume: 0, disbursed: 0, outlets: 0 });
+  const [fetchError, setFetchError] = useState(null);
   const [hasTriggered, setHasTriggered] = useState(false);
   const sectionRef = useRef(null);
 
@@ -17,8 +18,13 @@ export default function StatisticsSection() {
           disbursed: res.disbursed,
           outlets: res.outlets
         });
+        setFetchError(null);
+      } else {
+        setFetchError(res?.message || 'Failed to retrieve live statistics.');
       }
-    }).catch(() => {});
+    }).catch(err => {
+      setFetchError(err.message || 'Error connecting to live statistics.');
+    });
   }, []);
 
   // Scroll-reveal observer for card animations

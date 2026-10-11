@@ -1140,9 +1140,9 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     const chVol = networkData.channel_volumes || { pinelabs: 0, payswiff: 0, qr: 0, all: 0, today_pinelabs: 0, today_payswiff: 0, today_qr: 0, today_all: 0 };
     const chComm = networkData.channel_commissions || { pinelabs: 0, payswiff: 0, qr: 0, today_pinelabs: 0, today_payswiff: 0, today_qr: 0 };
     const firstPartner = networkData.partners && networkData.partners[0];
-    const marginPinelabs = firstPartner?.channel_margins?.pinelabs ?? 0.10;
-    const marginPayswiff = firstPartner?.channel_margins?.payswiff ?? 0.20;
-    const marginQr = firstPartner?.channel_margins?.qr ?? 0.25;
+    const marginPinelabs = firstPartner?.channel_margins?.pinelabs ?? 0.0;
+    const marginPayswiff = firstPartner?.channel_margins?.payswiff ?? 0.0;
+    const marginQr = firstPartner?.channel_margins?.qr ?? 0.0;
 
     if (networkChannelFilter === 'pinelabs') {
       return {
@@ -1331,8 +1331,14 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
   const fetchLiveData = async () => {
     try {
-      const walletRes = await getWallet(merchantId);
-      if (walletRes.success) {
+      const [walletRes, txnRes, wthRes, benRes] = await Promise.all([
+        getWallet(merchantId).catch(err => ({ success: false, message: err.message })),
+        getMerchantTransactions(merchantId).catch(err => ({ success: false, message: err.message })),
+        getMerchantWithdrawals(merchantId).catch(err => ({ success: false, message: err.message })),
+        getBeneficiaries(merchantId).catch(err => ({ success: false, message: err.message }))
+      ]);
+
+      if (walletRes && walletRes.success) {
         setWallet(walletRes.wallet);
         if (walletRes.pos) {
           setUserPos(walletRes.pos);
@@ -1342,22 +1348,21 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
             } catch (_) {}
           }
         }
+      } else if (walletRes && !walletRes.success) {
+        triggerToast('Failed to sync wallet balance from server: ' + (walletRes.message || 'Connection error'), 'error');
       }
 
-      const txnRes = await getMerchantTransactions(merchantId);
-      if (txnRes.success && Array.isArray(txnRes.transactions)) {
+      if (txnRes && txnRes.success && Array.isArray(txnRes.transactions)) {
         setTransactions(txnRes.transactions);
-      } else {
-        setTransactions([]);
+      } else if (txnRes && !txnRes.success) {
+        triggerToast('Failed to sync transaction history: ' + (txnRes.message || 'Connection error'), 'error');
       }
 
-      const wthRes = await getMerchantWithdrawals(merchantId);
-      if (wthRes.success && wthRes.withdrawals) {
+      if (wthRes && wthRes.success && wthRes.withdrawals) {
         setWithdrawals(wthRes.withdrawals);
       }
 
-      const benRes = await getBeneficiaries(merchantId);
-      if (benRes.success && benRes.beneficiaries) {
+      if (benRes && benRes.success && benRes.beneficiaries) {
         setBeneficiaries(benRes.beneficiaries);
         if (benRes.beneficiaries.length > 0) {
           const primary = benRes.beneficiaries.find(b => b.is_primary) || benRes.beneficiaries[0];
@@ -1365,7 +1370,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         }
       }
     } catch (err) {
-      console.error(err);
+      console.error('fetchLiveData error:', err);
+      triggerToast('Network error syncing merchant operational data.', 'error');
     } finally {
       setIsLoadingPos(false);
     }
@@ -7548,7 +7554,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
                           const activeMarginPct = activeChannel === 'ALL'
                             ? p.commission_rate_pct
-                            : (p.channel_margins?.[activeChannel] ?? p.commission_rate_pct ?? 0.1);
+                            : (p.channel_margins?.[activeChannel] ?? p.commission_rate_pct ?? 0.0);
 
                           return (
                             <div style={{ padding: '0.875rem 1rem', background: '#FFFFFF', borderTop: '1px solid #DBEAFE' }}>
@@ -7684,7 +7690,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                     const channel = classifyTransactionChannel(t);
                                     const isSwiff = channel === 'payswiff';
                                     const isQR = channel === 'qr';
-                                    const txnMargin = t.commission_rate_pct ?? p.channel_margins?.[channel] ?? p.commission_rate_pct ?? 0.1;
+                                    const txnMargin = t.commission_rate_pct ?? p.channel_margins?.[channel] ?? p.commission_rate_pct ?? 0.0;
                                     const txnProfit = t.commission_profit !== undefined 
                                       ? t.commission_profit 
                                       : ((parseFloat(t.amount || 0) * txnMargin) / 100);
