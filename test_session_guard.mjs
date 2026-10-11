@@ -1,4 +1,3 @@
-import fetch from 'node-fetch';
 
 async function testSessionGuard() {
   console.log('🧪 TESTING LIVE SESSION INACTIVATION & GUARD...');
