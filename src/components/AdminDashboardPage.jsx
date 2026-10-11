@@ -2650,7 +2650,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 const filteredTxns = allTxns.filter(t => {
                   if (dossierMachineFilter === 'ALL') return true;
                   const channel = classifyTransactionChannel(t);
-                  return channel === dossierMachineFilter;
+                  const normFilter = String(dossierMachineFilter).replace(/_/g, '').toLowerCase();
+                  const normCh = String(channel).replace(/_/g, '').toLowerCase();
+                  return normCh === normFilter;
                 });
 
                 const totalVol = filteredTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
@@ -2685,7 +2687,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 const channelWithdrawn = (dossierWithdrawals || []).filter(w => {
                   if (dossierMachineFilter === 'ALL') return (w.status || '').toUpperCase() === 'APPROVED';
                   const ch = classifyTransactionChannel(w);
-                  return ch === dossierMachineFilter && (w.status || '').toUpperCase() === 'APPROVED';
+                  const normFilter = String(dossierMachineFilter).replace(/_/g, '').toLowerCase();
+                  const normCh = String(ch).replace(/_/g, '').toLowerCase();
+                  return normCh === normFilter && (w.status || '').toUpperCase() === 'APPROVED';
                 }).reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
 
                 const totalUserBalance = parseFloat(viewingUserDossier.available_balance || 0);
@@ -2762,7 +2766,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               const filteredTxns = allTxns.filter(t => {
                 if (dossierMachineFilter === 'ALL') return true;
                 const channel = classifyTransactionChannel(t);
-                return channel === dossierMachineFilter;
+                const normFilter = String(dossierMachineFilter).replace(/_/g, '').toLowerCase();
+                const normCh = String(channel).replace(/_/g, '').toLowerCase();
+                return normCh === normFilter;
               });
 
               return (
