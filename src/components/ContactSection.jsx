@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Phone, MessageSquare, Mail, MapPin, Send, CheckCircle2 } from 'lucide-react';
+import { submitInquiry } from '../services/api';
 
 export default function ContactSection({ onOpenOfficeModal }) {
   const [formData, setFormData] = useState({
@@ -25,6 +26,15 @@ export default function ContactSection({ onOpenOfficeModal }) {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!formData.name || !formData.mobile) return;
+    submitInquiry({
+      type: 'CONTACT',
+      name: formData.name,
+      phone: formData.mobile,
+      category: formData.service || 'General Inquiry',
+      location: 'Hyderabad / AP & TS',
+      amount: formData.role || 'Merchant',
+      remarks: formData.message || 'Direct inquiry from homepage contact section'
+    }).catch(err => console.error('Contact inquiry error:', err));
     setSubmitted(true);
   };
 

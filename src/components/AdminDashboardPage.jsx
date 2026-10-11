@@ -18,7 +18,6 @@ import {
   getAllUsers, 
   createDownstreamUser, 
   verifyWithdrawal,
-  verifyWithdrawalsBatch,
   markWithdrawalsSubmittedToBank,
   revertWithdrawalsToPending,
   getInquiries,
@@ -783,27 +782,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   };
 
 
-  // Disburse an entire batch of T+1 withdrawals at once
-  const handleBatchPayoutDisbursal = async (items, batchUtr, remark) => {
-    if (!items || items.length === 0) return;
-    try {
-      setBatchDisbursalModal(prev => ({ ...prev, isSubmitting: true }));
-      const ids = items.map(item => item.id);
-      const res = await verifyWithdrawalsBatch(ids, 'APPROVE', remark || 'Disbursed via Bank CMS Batch', batchUtr);
-      if (res && res.success) {
-        triggerToast(`✓ Successfully settled batch of ${items.length} payouts! (Batch UTR: ${batchUtr})`, 'success');
-        setBatchDisbursalModal(null);
-        fetchAdminData();
-      } else {
-        triggerToast(res?.message || 'Failed to process batch', 'error');
-        setBatchDisbursalModal(prev => ({ ...prev, isSubmitting: false }));
-      }
-    } catch (err) {
-      console.error('handleBatchPayoutDisbursal error:', err);
-      triggerToast('Error settling batch', 'error');
-      setBatchDisbursalModal(prev => ({ ...prev, isSubmitting: false }));
-    }
-  };
+
 
   // Approve / Reject / Dispatch Payout Action
   const handlePayoutAction = async (id, action, merchantName, amount, utr = '', remark = '') => {
@@ -6253,23 +6232,6 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 }
               };
 
-              const handleCompleteEntireBatch = async (batch) => {
-                const confirmed = window.confirm(`Mark all ${batch.items.length} withdrawal(s) in "${batch.batchName}" as Completed & Disbursed?`);
-                if (!confirmed) return;
-                try {
-                  const ids = batch.items.map(item => item.id);
-                  const res = await verifyWithdrawalsBatch(ids, 'APPROVE', 'Bank Payout Disbursed', 'CMS-SETTLED');
-                  if (res && res.success) {
-                    triggerToast(`✓ Completed all ${batch.items.length} payouts in ${batch.batchName}! Moved to Completed tab.`, 'success');
-                    await fetchAdminData();
-                  } else {
-                    triggerToast(res?.message || 'Failed to complete batch', 'error');
-                  }
-                } catch (err) {
-                  console.error('handleCompleteEntireBatch error:', err);
-                  triggerToast('Error completing batch', 'error');
-                }
-              };
 
               const handleDownloadGstAudit = () => {
                 setIsExportMenuOpen(false);

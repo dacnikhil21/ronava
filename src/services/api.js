@@ -2006,19 +2006,6 @@ export async function verifyWithdrawal(withdrawalId, action, remark = '', utrNum
   }
 }
 
-export async function verifyWithdrawalsBatch(withdrawalIds, action, remark = '', utrNumber = '') {
-  try {
-    const results = [];
-    for (const id of withdrawalIds) {
-      const res = await verifyWithdrawal(id, action, remark, utrNumber);
-      results.push(res);
-    }
-    return { success: true, message: `Batch of ${withdrawalIds.length} payouts processed successfully.`, results };
-  } catch (err) {
-    console.error('verifyWithdrawalsBatch error:', err);
-    return { success: false, message: err.message };
-  }
-}
 
 // ----------------------------------------------------
 // 8.1 DIRECT DATABASE PERSISTENCE FOR BANK SUBMISSIONS (ZERO LOCALSTORAGE)

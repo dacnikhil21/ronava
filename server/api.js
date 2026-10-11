@@ -1979,7 +1979,7 @@ export async function handleApiRequest(req, res) {
               const newRemark = `[SUBMITTED_TO_BANK] ${tagStr} ${nameTagStr} ${existing}`.trim();
               await pgQuery(`
                 UPDATE withdrawals 
-                SET admin_remark = $1, submitted_to_bank_at = $2, updated_at = CURRENT_TIMESTAMP
+                SET admin_remark = $1, submitted_to_bank_at = $2
                 WHERE UPPER(id) = UPPER($3)
               `, [newRemark, timestamp, wId]);
             }
@@ -1996,7 +1996,7 @@ export async function handleApiRequest(req, res) {
                 .trim();
               await pgQuery(`
                 UPDATE withdrawals 
-                SET status = 'PENDING', admin_remark = $1, submitted_to_bank_at = NULL, updated_at = CURRENT_TIMESTAMP
+                SET status = 'PENDING', admin_remark = $1, submitted_to_bank_at = NULL
                 WHERE UPPER(id) = UPPER($2)
               `, [cleanRemark || null, wId]);
             }
