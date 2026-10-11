@@ -907,7 +907,7 @@ export async function handleApiRequest(req, res) {
           await client.query(`DELETE FROM users WHERE UPPER(id) = ANY($1)`, [testIds]);
           await client.query(`
             UPDATE wallets 
-            SET available_balance = 0.0, total_sales = 0.0, received_sales = 0.0, pending_balance = 0.0, withdrawn_amount = 0.0, unrecovered_deficit = 0.0, updated_at = CURRENT_TIMESTAMP
+            SET available_balance = 0.0, total_sales = 0.0, received_sales = 0.0, pending_balance = 0.0, withdrawn_amount = 0.0, updated_at = CURRENT_TIMESTAMP
             WHERE UPPER(user_id) = 'ADM001'
           `);
         });
