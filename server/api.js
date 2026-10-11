@@ -1954,7 +1954,7 @@ export async function handleApiRequest(req, res) {
     }
 
     if ((pathname === '/api/wallets' || pathname === '/api/admin/wallets') && method === 'GET') {
-      const wallets = await pgQuery(`SELECT * FROM wallets ORDER BY created_at DESC`);
+      const wallets = await pgQuery(`SELECT * FROM wallets ORDER BY updated_at DESC`);
       return sendJson(res, 200, { success: true, wallets });
     }
 
@@ -2066,25 +2066,12 @@ export async function handleApiRequest(req, res) {
     // ----------------------------------------------------
     // ADMIN PURGE & DELETE (Pure PostgreSQL)
     // ----------------------------------------------------
-    if (pathname === '/api/admin/users/purge-test-accounts' && method === 'POST') {
-      try {
-        await pgQuery(`
-          DELETE FROM transactions WHERE merchant_id != 'ADM001';
-          DELETE FROM withdrawals WHERE merchant_id != 'ADM001';
-          DELETE FROM beneficiaries WHERE merchant_id != 'ADM001';
-          DELETE FROM merchant_pos WHERE merchant_id != 'ADM001';
-          DELETE FROM wallets WHERE user_id != 'ADM001';
-          DELETE FROM users WHERE id != 'ADM001';
-          UPDATE wallets SET available_balance = 0.0, total_sales = 0.0, received_sales = 0.0, pending_balance = 0.0, withdrawn_amount = 0.0 WHERE user_id = 'ADM001';
-        `);
-
-        return sendJson(res, 200, {
-          success: true,
-          message: `Successfully purged all test accounts from PostgreSQL database!`
-        });
-      } catch (err) {
-        return sendJson(res, 500, { success: false, error: err.message });
-      }
+    if (pathname === '/api/admin/users/purge-test-accounts') {
+      return sendJson(res, 403, { 
+        success: false, 
+        error: 'ACCESS_DENIED',
+        message: 'Bulk database purge endpoints are permanently disabled for production data safety.' 
+      });
     }
 
     if (pathname === '/api/admin/users/delete' && method === 'POST') {

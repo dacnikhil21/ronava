@@ -446,20 +446,14 @@ export async function query(sql, params = []) {
   if (mockQueryHandler) {
     return await mockQueryHandler(sql, params);
   }
-  if (useMockFallback || !pool) {
-    return await handleMockQuery(sql, params);
-  }
-  try {
-    const res = await pool.query(sql, params);
-    return res.rows;
-  } catch (err) {
-    if (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' || err.message?.includes('does not exist') || err.message?.includes('password')) {
-      useMockFallback = true;
-      console.log('[PostgreSQL Sandbox] Activated local isolated in-memory test database.');
+  if (!pool) {
+    if (useMockFallback) {
       return await handleMockQuery(sql, params);
     }
-    throw err;
+    throw new Error('[PostgreSQL] Database connection pool not initialized.');
   }
+  const res = await pool.query(sql, params);
+  return res.rows;
 }
 
 export { query as pgQuery };
@@ -608,14 +602,26 @@ export async function getMediaFiles(merchant_id = null, entity_type = null) {
  * Execute operations within an atomic PostgreSQL transaction (ACID)
  */
 export async function withTransaction(callback) {
-  if (mockQueryHandler || useMockFallback || !pool) {
+  if (mockQueryHandler) {
     const client = {
       query: async (sql, params = []) => {
-        const rows = mockQueryHandler ? await mockQueryHandler(sql, params) : await handleMockQuery(sql, params);
+        const rows = await mockQueryHandler(sql, params);
         return { rows: Array.isArray(rows) ? rows : [rows] };
       }
     };
     return await callback(client);
+  }
+  if (!pool) {
+    if (useMockFallback) {
+      const client = {
+        query: async (sql, params = []) => {
+          const rows = await handleMockQuery(sql, params);
+          return { rows: Array.isArray(rows) ? rows : [rows] };
+        }
+      };
+      return await callback(client);
+    }
+    throw new Error('[PostgreSQL] Database pool not initialized for transaction.');
   }
   const client = await pool.connect();
   try {
@@ -655,8 +661,7 @@ export async function initPostgresSchema() {
     }
     return true;
   } catch (err) {
-    console.error('[PostgreSQL Sandbox] pool.connect error:', err.message);
-    useMockFallback = true;
-    return true;
+    console.error('[PostgreSQL] Database pool connection error during schema check:', err.message);
+    return false;
   }
 }
