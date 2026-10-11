@@ -157,6 +157,7 @@ async function handleMockQuery(sql, params = []) {
       localMockDb.wallets.push(row);
       return [{ ...row }];
     }
+  }
   if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('received_sales = GREATEST')) {
     const targetUserId = (params[2] || '').toString().toUpperCase();
     const w = localMockDb.wallets.find(x => (x.user_id || '').toUpperCase() === targetUserId);
@@ -643,6 +644,7 @@ export async function initPostgresSchema() {
       await client.query(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS unrecovered_deficit NUMERIC DEFAULT 0.0`).catch(e => console.error('[Migration Error wallets.unrecovered_deficit]:', e.message));
       await client.query(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawn_amount NUMERIC DEFAULT 0.0`).catch(e => console.error('[Migration Error wallets.withdrawn_amount]:', e.message));
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS channels JSONB DEFAULT '{}'::jsonb`).catch(e => console.error('[Migration Error users.channels]:', e.message));
+      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'ACTIVE'`).catch(e => console.error('[Migration Error users.status]:', e.message));
       await client.query(`
         CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_ref_number 
         ON transactions (ref_number) 

@@ -617,8 +617,25 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   useEffect(() => {
     if (!merchantId) return;
     fetch(`/api/users/${encodeURIComponent(merchantId)}`)
-      .then(res => res.json())
+      .then(res => {
+        if (res.status === 404 || res.status === 401) {
+          showToast('⚠️ Session expired or account no longer exists. Redirecting to login...');
+          setTimeout(() => {
+            if (typeof onLogout === 'function') onLogout();
+          }, 1500);
+          return null;
+        }
+        return res.json();
+      })
       .then(json => {
+        if (!json) return;
+        if (!json.success || (json.user && json.user.status === 'SUSPENDED')) {
+          showToast(json.message || '⚠️ Account suspended by Administrator. Logging out...');
+          setTimeout(() => {
+            if (typeof onLogout === 'function') onLogout();
+          }, 1500);
+          return;
+        }
         const freshUser = json.user;
         if (freshUser) {
           setUserProfile(freshUser);
@@ -1711,6 +1728,11 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         });
         fetchLiveData();
       } else {
+        if (res.code === 'USER_NOT_FOUND' || res.code === 'USER_SUSPENDED') {
+          showToast(res.message || '⚠️ Account inactive. Logging out...');
+          setTimeout(() => { if (typeof onLogout === 'function') onLogout(); }, 1500);
+          return;
+        }
         showToast(res.message || 'Error recording swipe transaction');
       }
     } catch (err) {
@@ -1859,6 +1881,11 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         }
         fetchLiveData();
       } else {
+        if (res.code === 'USER_NOT_FOUND' || res.code === 'USER_SUSPENDED') {
+          showToast(res.message || '⚠️ Account inactive. Logging out...');
+          setTimeout(() => { if (typeof onLogout === 'function') onLogout(); }, 1500);
+          return;
+        }
         showToast(res.message || 'Error processing payout request');
       }
     } catch (err) {

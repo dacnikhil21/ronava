@@ -120,6 +120,10 @@ export function clearAuthSession() {
   sessionStorage.removeItem('ronav_merchant_active_tab');
   sessionStorage.removeItem('ronav_user_pos');
   sessionStorage.removeItem('ronav_merchant_selected_machine');
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem('ronav_user');
+    localStorage.removeItem('ronav_user_details_overrides');
+  }
 }
 
 /**

@@ -562,11 +562,31 @@ export async function handleApiRequest(req, res) {
     // ----------------------------------------------------
     // 0.5 SINGLE USER PROFILE WITH POS & WALLET
     // ----------------------------------------------------
+    if (pathname === '/api/auth/verify' && method === 'GET') {
+      const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      const userId = (parsedUrl.searchParams.get('userId') || parsedUrl.searchParams.get('id') || '').trim();
+      if (!userId) {
+        return sendJson(res, 400, { success: false, message: 'userId is required.' });
+      }
+      try {
+        const users = await pgQuery(`SELECT id, name, role, COALESCE(status, 'ACTIVE') as status FROM users WHERE UPPER(id) = UPPER($1)`, [userId]);
+        if (!users || users.length === 0) {
+          return sendJson(res, 404, { success: false, code: 'USER_NOT_FOUND', message: 'User account not found.' });
+        }
+        if (users[0].status === 'SUSPENDED') {
+          return sendJson(res, 403, { success: false, code: 'USER_SUSPENDED', message: 'User account is suspended.' });
+        }
+        return sendJson(res, 200, { success: true, user: users[0] });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
     if (pathname.startsWith('/api/users/') && method === 'GET' && pathname !== '/api/users/create') {
       const userId = decodeURIComponent(pathname.replace('/api/users/', '')).trim();
       try {
         const users = await pgQuery(`
-          SELECT u.id, u.name, u.mobile, u.email, u.pan, u.aadhaar, u.address, u.role, u.creator_id, u.margin_rate, u.created_at,
+          SELECT u.id, u.name, u.mobile, u.email, u.pan, u.aadhaar, u.address, u.role, u.creator_id, u.margin_rate, COALESCE(u.status, 'ACTIVE') as status, u.created_at,
                  p.provider AS pos_provider, 
                  p.terminal_id AS pos_terminal, 
                  p.commission_rate AS pos_rate,
@@ -587,7 +607,11 @@ export async function handleApiRequest(req, res) {
         `, [userId]);
 
         if (!users || users.length === 0) {
-          return sendJson(res, 404, { success: false, message: `User ${userId} not found.` });
+          return sendJson(res, 404, { success: false, code: 'USER_NOT_FOUND', message: `User ${userId} not found.` });
+        }
+
+        if (users[0].status === 'SUSPENDED') {
+          return sendJson(res, 403, { success: false, code: 'USER_SUSPENDED', message: `User ${userId} is suspended.` });
         }
 
         const userProfile = { ...users[0] };
@@ -1265,9 +1289,12 @@ export async function handleApiRequest(req, res) {
 
       const merchants = await pgQuery(`SELECT * FROM users WHERE UPPER(id) = UPPER($1)`, [merchant_id.trim()]);
       if (!merchants || merchants.length === 0) {
-        return sendJson(res, 404, { success: false, message: 'Merchant not found.' });
+        return sendJson(res, 401, { success: false, code: 'USER_NOT_FOUND', message: 'Merchant account not found. Please log in again.' });
       }
       const merchant = merchants[0];
+      if (merchant.status === 'SUSPENDED') {
+        return sendJson(res, 403, { success: false, code: 'USER_SUSPENDED', message: 'Merchant account has been suspended by Administrator.' });
+      }
 
       // UTR / Reference Deduplication Check
       const cleanRef = (ref_number || '').trim().toUpperCase();
@@ -1640,6 +1667,14 @@ export async function handleApiRequest(req, res) {
       const numAmount = parseFloat(amount);
       if (!merchant_id || !numAmount || isNaN(numAmount) || numAmount <= 0 || !bank_name || !account_number) {
         return sendJson(res, 400, { success: false, message: 'Missing or invalid required withdrawal details.' });
+      }
+
+      const users = await pgQuery(`SELECT id, status FROM users WHERE UPPER(id) = UPPER($1)`, [merchant_id.trim()]);
+      if (!users || users.length === 0) {
+        return sendJson(res, 401, { success: false, code: 'USER_NOT_FOUND', message: 'User account not found. Please log in again.' });
+      }
+      if (users[0].status === 'SUSPENDED') {
+        return sendJson(res, 403, { success: false, code: 'USER_SUSPENDED', message: 'Account is suspended. Please contact Admin.' });
       }
 
       const isCommissionPayout = payout_purpose === 'COMMISSION';
