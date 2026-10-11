@@ -917,13 +917,20 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       }
     }
 
-    const totalCredited = receivedSales + earnedCommission;
-    // Database authoritative balance is the sole authority for total available balance
+    // Channel Net Credited = Net Sales Credited + Downline Commission Earned strictly for this active channel
+    const channelCredited = receivedSales + earnedCommission;
+    // Channel Net Debited = Approved Withdrawals + Pending Withdrawals from this active channel
+    const channelDebited = withdrawnAmount + pendingWithdrawn;
+    const rawChannelBalance = Math.max(0, parseFloat((channelCredited - channelDebited).toFixed(2)));
+    
+    // Database authoritative balance caps the available balance
     const dbAvailableBalance = parseFloat(wallet?.available_balance || 0);
+    const channelAvailableBalance = Math.min(rawChannelBalance, dbAvailableBalance);
+
     const isDistributor = ['SUPER_DISTRIBUTOR', 'DISTRICT_DISTRIBUTOR', 'DISTRIBUTOR', 'MASTER', 'Super Distributor', 'Distributor', 'District Distributor'].includes(userRole);
     const isCommissionPayout = isDistributor || payoutTargetType === 'MERCHANT';
-    const activeHold = isCommissionPayout ? 0.0 : 500.0;
-    const withdrawableBalance = Math.max(0, parseFloat((dbAvailableBalance - activeHold).toFixed(2)));
+    const activeHold = isCommissionPayout ? 0.0 : (channelAvailableBalance > 0 ? 500.0 : 0.0);
+    const channelWithdrawableBalance = Math.max(0, parseFloat((channelAvailableBalance - activeHold).toFixed(2)));
 
     // Channel-specific sales volume (for distributors/uplines without direct swipes, show downline sales for this machine)
     const effectiveTotalSales = (totalSales > 0 || userRole === 'MERCHANT' || userRole === 'Retailer')
@@ -935,8 +942,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         ) : 0);
 
     return {
-      available_balance: dbAvailableBalance,
-      withdrawable_balance: withdrawableBalance,
+      available_balance: channelAvailableBalance,
+      withdrawable_balance: channelWithdrawableBalance,
       active_hold: activeHold,
       total_sales: effectiveTotalSales,
       received_sales: receivedSales,
@@ -1489,17 +1496,10 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
   // Live relevant withdrawals for the active machine / channel
   const activeMachineHistoryWithdrawals = useMemo(() => {
+    const activeCh = (selectedMachineKey === 'pine_labs' || selectedMachineKey === 'pinelabs') ? 'pinelabs' : selectedMachineKey;
     return (withdrawals || []).filter(w => {
       const channel = classifyTransactionChannel(w);
-      const isComm = isCommissionWth(w);
-      if (selectedMachineKey === 'qr') {
-        return channel === 'qr' && !isComm;
-      } else if (selectedMachineKey === 'payswiff') {
-        return channel === 'payswiff' && !isComm;
-      } else {
-        // Pine Labs: include Pine Labs payouts + downline commission payouts
-        return channel === 'pinelabs' || isComm || (!channel && !isQrTxn(w));
-      }
+      return channel === activeCh;
     });
   }, [withdrawals, selectedMachineKey]);
 
@@ -1520,6 +1520,17 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           (txnCategoryFilter === 'SWIPES' && actType === 'SWIPE') || 
           (txnCategoryFilter === 'QR' && actType === 'QR')) {
         targetList.push(t);
+      }
+    });
+
+    (transactions || []).forEach(t => {
+      const isComm = t.is_commission === true || t.activityType === 'COMMISSION_EARNED' || t.type === 'COMMISSION_EARNED';
+      if (isComm) {
+        const ch = classifyTransactionChannel(t);
+        const activeCh = (selectedMachineKey === 'pine_labs' || selectedMachineKey === 'pinelabs') ? 'pinelabs' : selectedMachineKey;
+        if (ch === activeCh && (txnCategoryFilter === 'ALL' || txnCategoryFilter === 'COMMISSIONS')) {
+          targetList.push(t);
+        }
       }
     });
 
@@ -1568,12 +1579,11 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       if (!isComm) {
         if (!activeMachineTransactions.some(amt => amt.id === t.id)) return;
       } else {
-        // If it's a commission entry and the user is NOT a distributor role or channel is specified
-        if (selectedMachineKey !== 'all' && !isDistributor) {
+        // Commission entries must be strictly filtered by the active machine channel for ALL roles
+        if (selectedMachineKey !== 'all') {
           const ch = classifyTransactionChannel(t);
-          if (selectedMachineKey === 'qr' && ch !== 'qr') return;
-          if (selectedMachineKey === 'payswiff' && ch !== 'payswiff') return;
-          if (selectedMachineKey === 'pinelabs' && ch !== 'pinelabs') return;
+          const activeCh = (selectedMachineKey === 'pine_labs' || selectedMachineKey === 'pinelabs') ? 'pinelabs' : selectedMachineKey;
+          if (ch !== activeCh) return;
         }
       }
 
