@@ -2045,7 +2045,7 @@ export async function getMerchantWithdrawals(merchantId) {
     const enriched = (withdrawals || []).map(w => {
       let utrNumber = '';
       let isCustomerDisbursal = false;
-      let isCommission = (w.admin_remark || '').includes('[COMMISSION_PAYOUT]');
+      let isCommission = (w.admin_remark || '').includes('[COMMISSION_PAYOUT]') || (w.admin_remark || '').includes('"payout_purpose":"COMMISSION"');
       let customerName = '';
       let customerMobile = '';
       let settlementMode = 'INSTANT';

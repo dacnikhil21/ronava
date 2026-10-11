@@ -938,7 +938,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       total_sales: effectiveTotalSales,
       received_sales: receivedSales,
       commission_earned: earnedCommission,
-      pending_balance: pendingBalance,
+      pending_balance: (pendingWithdrawn + pendingBalance),
       withdrawn_amount: withdrawnAmount
     };
   }, [activeMachineTransactions, activeMachineWithdrawals, networkData, userRole, selectedMachineKey]);
@@ -1471,7 +1471,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
   const isCommissionWth = (w) => {
     if (!w) return false;
-    return Boolean(w.is_commission_payout || w.payout_purpose === 'COMMISSION' || (w.admin_remark && w.admin_remark.includes('[COMMISSION_PAYOUT]')));
+    return Boolean(w.is_commission_payout || w.payout_purpose === 'COMMISSION' || (w.admin_remark && (w.admin_remark.includes('[COMMISSION_PAYOUT]') || w.admin_remark.includes('"payout_purpose":"COMMISSION"'))));
   };
 
   // Live relevant withdrawals for the active machine / channel
@@ -5597,7 +5597,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                     const isApproved = st === 'APPROVED' || st === 'SUCCESS' || st === 'COMPLETED' || st === 'SETTLED';
                     const isPending = st === 'PENDING';
                     const isInvalid = st === 'REJECTED' || st === 'INVALID' || st === 'FAILED';
-                    const isWithdrawal = item.activityType === 'WITHDRAWAL';
+                    const isWithdrawal = item.activityType === 'WITHDRAWAL' || item.activityType === 'COMMISSION' || item.activityType === 'QR_PAYOUT' || Boolean(item.bank_name);
 
                     const handleCopy = (e, text, label) => {
                       e.stopPropagation();
