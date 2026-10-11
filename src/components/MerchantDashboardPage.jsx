@@ -918,9 +918,12 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     }
 
     const totalCredited = receivedSales + earnedCommission;
-    const availableBalance = Math.max(0, parseFloat((totalCredited - withdrawnAmount - pendingWithdrawn).toFixed(2)));
-    const activeHold = 500.0;
-    const withdrawableBalance = Math.max(0, parseFloat((availableBalance - activeHold).toFixed(2)));
+    // Database authoritative balance is the sole authority for total available balance
+    const dbAvailableBalance = parseFloat(wallet?.available_balance || 0);
+    const isDistributor = ['SUPER_DISTRIBUTOR', 'DISTRICT_DISTRIBUTOR', 'DISTRIBUTOR', 'MASTER', 'Super Distributor', 'Distributor', 'District Distributor'].includes(userRole);
+    const isCommissionPayout = isDistributor || payoutTargetType === 'MERCHANT';
+    const activeHold = isCommissionPayout ? 0.0 : 500.0;
+    const withdrawableBalance = Math.max(0, parseFloat((dbAvailableBalance - activeHold).toFixed(2)));
 
     // Channel-specific sales volume (for distributors/uplines without direct swipes, show downline sales for this machine)
     const effectiveTotalSales = (totalSales > 0 || userRole === 'MERCHANT' || userRole === 'Retailer')
@@ -932,7 +935,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         ) : 0);
 
     return {
-      available_balance: availableBalance,
+      available_balance: dbAvailableBalance,
       withdrawable_balance: withdrawableBalance,
       active_hold: activeHold,
       total_sales: effectiveTotalSales,
@@ -941,7 +944,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       pending_balance: (pendingWithdrawn + pendingBalance),
       withdrawn_amount: withdrawnAmount
     };
-  }, [activeMachineTransactions, activeMachineWithdrawals, networkData, userRole, selectedMachineKey]);
+  }, [activeMachineTransactions, activeMachineWithdrawals, networkData, userRole, selectedMachineKey, wallet, payoutTargetType]);
 
   // Dynamic Today's Stats filtered strictly for the active machine
   const todayStats = useMemo(() => {
@@ -1545,20 +1548,37 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   // Unified Filtered Transactions & Bank Withdrawals strictly for active machine workspace
   const filteredTransactions = useMemo(() => {
     const rawList = [];
+    const isDistributor = ['SUPER_DISTRIBUTOR', 'DISTRICT_DISTRIBUTOR', 'DISTRIBUTOR', 'MASTER', 'Super Distributor', 'Distributor', 'District Distributor'].includes(userRole);
 
-    // 1. Gather by Category strictly from activeMachineTransactions
-    (activeMachineTransactions || []).forEach(t => {
+    // 1. Gather by Category (card swipes, BBPS, and commission splits)
+    (transactions || []).forEach(t => {
+      const isComm = t.is_commission === true || t.activityType === 'COMMISSION_EARNED' || t.type === 'COMMISSION_EARNED';
+
+      // Channel filtering:
+      if (!isComm) {
+        if (!activeMachineTransactions.some(amt => amt.id === t.id)) return;
+      } else {
+        // If it's a commission entry and the user is NOT a distributor role or channel is specified
+        if (selectedMachineKey !== 'all' && !isDistributor) {
+          const ch = classifyTransactionChannel(t);
+          if (selectedMachineKey === 'qr' && ch !== 'qr') return;
+          if (selectedMachineKey === 'payswiff' && ch !== 'payswiff') return;
+          if (selectedMachineKey === 'pinelabs' && ch !== 'pinelabs') return;
+        }
+      }
+
       const isQr = isQrTxn(t);
       const isBbps = t.type === 'BBPS_BILL';
-      const actType = isQr ? 'QR' : (isBbps ? 'BBPS' : 'SWIPE');
+      const actType = isComm ? 'COMMISSION' : (isQr ? 'QR' : (isBbps ? 'BBPS' : 'SWIPE'));
 
       if (txnCategoryFilter === 'ALL' || 
           (txnCategoryFilter === 'SWIPES' && actType === 'SWIPE') || 
           (txnCategoryFilter === 'QR' && actType === 'QR') ||
-          (txnCategoryFilter === 'BBPS' && actType === 'BBPS')) {
+          (txnCategoryFilter === 'BBPS' && actType === 'BBPS') ||
+          (txnCategoryFilter === 'COMMISSIONS' && actType === 'COMMISSION')) {
         rawList.push({
           ...t,
-          activityType: actType,
+          activityType: isComm ? 'COMMISSION_EARNED' : actType,
           sortDate: new Date(t.created_at || Date.now()).getTime()
         });
       }
@@ -1620,7 +1640,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         if (customToDate && itemDateStr > customToDate) return false;
       }
 
-      // Search Query (ID, RRN, UTR, Customer Mobile, Customer Name, Bank Name, Account Number, Notes, Admin Remark)
+      // Search Query (ID, RRN, UTR, Customer Mobile, Customer Name, Bank Name, Account Number, Notes, Admin Remark, Originating Merchant)
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const idMatch = (item.id || '').toLowerCase().includes(q);
@@ -1633,29 +1653,33 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         const ifscMatch = (item.ifsc || '').toLowerCase().includes(q);
         const notesMatch = (item.notes || '').toLowerCase().includes(q);
         const remarkMatch = (item.admin_remark || '').toLowerCase().includes(q);
+        const origMerchantMatch = (item.originating_merchant_name || '').toLowerCase().includes(q) || (item.originating_merchant_id || '').toLowerCase().includes(q);
 
-        if (!idMatch && !rrnMatch && !utrMatch && !mobileMatch && !nameMatch && !bankMatch && !accMatch && !ifscMatch && !notesMatch && !remarkMatch) {
+        if (!idMatch && !rrnMatch && !utrMatch && !mobileMatch && !nameMatch && !bankMatch && !accMatch && !ifscMatch && !notesMatch && !remarkMatch && !origMerchantMatch) {
           return false;
         }
       }
 
       return true;
     });
-  }, [transactions, withdrawals, selectedMachineKey, activeMachineTransactions, activeMachineHistoryWithdrawals, txnCategoryFilter, txnStatusFilter, dateFilter, customFromDate, customToDate, searchQuery]);
+  }, [transactions, withdrawals, selectedMachineKey, activeMachineTransactions, activeMachineHistoryWithdrawals, txnCategoryFilter, txnStatusFilter, dateFilter, customFromDate, customToDate, searchQuery, userRole]);
 
-  // Dynamic turnover totals for filtered activity (Sales vs Withdrawals)
+  // Dynamic turnover totals for filtered activity (Sales vs Withdrawals vs Commissions)
   const activitySummary = useMemo(() => {
     let salesTotal = 0;
     let withdrawalTotal = 0;
+    let commissionTotal = 0;
     filteredTransactions.forEach(item => {
       const amt = parseFloat(item.amount) || 0;
-      if (item.activityType === 'WITHDRAWAL') {
+      if (item.is_commission || item.activityType === 'COMMISSION_EARNED') {
+        commissionTotal += parseFloat(item.commission_earned || item.amount || 0);
+      } else if (item.activityType === 'WITHDRAWAL' || item.activityType === 'COMMISSION' || Boolean(item.bank_name)) {
         withdrawalTotal += amt;
       } else {
         salesTotal += amt;
       }
     });
-    return { salesTotal, withdrawalTotal };
+    return { salesTotal, withdrawalTotal, commissionTotal };
   }, [filteredTransactions]);
 
   // Backward compatible total turnover
@@ -1753,10 +1777,13 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
     const maxWithdrawable = activeMachineWallet.withdrawable_balance !== undefined 
       ? activeMachineWallet.withdrawable_balance 
-      : Math.max(0, parseFloat((activeMachineWallet.available_balance - 500).toFixed(2)));
+      : activeMachineWallet.available_balance;
 
     if (amountNum > maxWithdrawable) {
-      showToast(`⚠️ Insufficient withdrawable balance. A minimum active account reserve of ₹500.00 must be retained in your wallet. Maximum withdrawable amount is ₹${maxWithdrawable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`);
+      const errMsg = (activeMachineWallet.active_hold > 0)
+        ? `⚠️ Insufficient withdrawable balance. A minimum active account reserve of ₹500.00 must be retained in your wallet. Maximum withdrawable amount is ₹${maxWithdrawable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`
+        : `⚠️ Insufficient balance! Maximum withdrawable amount is ₹${maxWithdrawable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`;
+      showToast(errMsg);
       return;
     }
 
@@ -3788,15 +3815,15 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                               <span style={{ fontSize: '0.625rem', fontWeight: 700, color: 'rgba(255,255,255,0.75)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                                 Available to Withdraw
                               </span>
-                              <span style={{ fontSize: '0.5625rem', background: 'rgba(255,255,255,0.15)', color: '#FEF08A', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>
-                                ₹500 Active Hold Applied
+                              <span style={{ fontSize: '0.5625rem', background: activeMachineWallet.active_hold > 0 ? 'rgba(255,255,255,0.15)' : 'rgba(16,185,129,0.25)', color: activeMachineWallet.active_hold > 0 ? '#FEF08A' : '#A7F3D0', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>
+                                {activeMachineWallet.active_hold > 0 ? '₹500 Active Hold Applied' : '₹0 Reserve (Commission Payout)'}
                               </span>
                             </div>
                             <span style={{ fontSize: '1.35rem', fontWeight: 900, letterSpacing: '-0.01em', color: '#FFFFFF', lineHeight: 1.1 }}>
-                              ₹{(activeMachineWallet.withdrawable_balance !== undefined ? activeMachineWallet.withdrawable_balance : Math.max(0, activeMachineWallet.available_balance - 500)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              ₹{activeMachineWallet.withdrawable_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                             </span>
                             <span style={{ fontSize: '0.625rem', color: 'rgba(255,255,255,0.75)', display: 'block', marginTop: '1px' }}>
-                              Total Balance: ₹{activeMachineWallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })} • Active Reserve Hold: ₹500.00
+                              Total Balance: ₹{activeMachineWallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })} • {activeMachineWallet.active_hold > 0 ? 'Active Reserve Hold: ₹500.00' : 'Reserve Hold: ₹0.00'}
                             </span>
                           </div>
                         </div>
@@ -3806,7 +3833,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                           </span>
                           <button
                             type="button"
-                            onClick={() => setWithdrawAmount((activeMachineWallet.withdrawable_balance !== undefined ? activeMachineWallet.withdrawable_balance : Math.max(0, activeMachineWallet.available_balance - 500)).toString())}
+                            onClick={() => setWithdrawAmount(activeMachineWallet.withdrawable_balance.toString())}
                             style={{
                               background: 'rgba(255,255,255,0.18)',
                               border: '1px solid rgba(255,255,255,0.3)',
@@ -3840,7 +3867,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
                           <div style={{
                             background: '#F8FAFC',
-                            border: parsedAmount > (activeMachineWallet.withdrawable_balance !== undefined ? activeMachineWallet.withdrawable_balance : Math.max(0, activeMachineWallet.available_balance - 500)) ? '1.5px solid #EF4444' : '1.5px solid #CBD5E1',
+                            border: parsedAmount > activeMachineWallet.withdrawable_balance ? '1.5px solid #EF4444' : '1.5px solid #CBD5E1',
                             borderRadius: '8px',
                             padding: '0.45rem 0.65rem',
                             display: 'flex',
@@ -3898,7 +3925,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                             ))}
                             <button
                               type="button"
-                              onClick={() => setWithdrawAmount((activeMachineWallet.withdrawable_balance !== undefined ? activeMachineWallet.withdrawable_balance : Math.max(0, activeMachineWallet.available_balance - 500)).toString())}
+                              onClick={() => setWithdrawAmount(activeMachineWallet.withdrawable_balance.toString())}
                               style={{
                                 background: '#ECFDF5',
                                 border: '1px solid #A7F3D0',
@@ -5554,13 +5581,18 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                   Showing <strong>{filteredTransactions.length}</strong> {txnCategoryFilter === 'WITHDRAWALS' ? 'withdrawals' : (txnCategoryFilter === 'SWIPES' ? 'card swipes' : 'activities')}
                 </span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  {txnCategoryFilter !== 'WITHDRAWALS' && (
+                  {activitySummary.commissionTotal > 0 && (
                     <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#059669' }}>
+                      Commissions: ₹{activitySummary.commissionTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  )}
+                  {txnCategoryFilter !== 'WITHDRAWALS' && activitySummary.salesTotal > 0 && (
+                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F52BA' }}>
                       Sales: ₹{activitySummary.salesTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                     </span>
                   )}
-                  {txnCategoryFilter !== 'SWIPES' && (
-                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F52BA' }}>
+                  {txnCategoryFilter !== 'SWIPES' && activitySummary.withdrawalTotal > 0 && (
+                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#64748B' }}>
                       Payouts: ₹{activitySummary.withdrawalTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                     </span>
                   )}
@@ -5597,7 +5629,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                     const isApproved = st === 'APPROVED' || st === 'SUCCESS' || st === 'COMPLETED' || st === 'SETTLED';
                     const isPending = st === 'PENDING';
                     const isInvalid = st === 'REJECTED' || st === 'INVALID' || st === 'FAILED';
-                    const isWithdrawal = item.activityType === 'WITHDRAWAL' || item.activityType === 'COMMISSION' || item.activityType === 'QR_PAYOUT' || Boolean(item.bank_name);
+                    const isCommissionEarning = item.is_commission === true || item.activityType === 'COMMISSION_EARNED' || item.type === 'COMMISSION_EARNED';
+                    const isWithdrawal = (item.activityType === 'WITHDRAWAL' || item.activityType === 'COMMISSION' || item.activityType === 'QR_PAYOUT' || Boolean(item.bank_name)) && !isCommissionEarning;
 
                     const handleCopy = (e, text, label) => {
                       e.stopPropagation();
@@ -5607,6 +5640,158 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                         setTimeout(() => setToastMessage(''), 2500);
                       }
                     };
+
+                    // ==========================================
+                    // 0. Distributor Commission History Card
+                    // (Strictly: Merchant Name, MID, Sale Amount, Date/Time, Commission %, Commission Earned)
+                    // ==========================================
+                    if (isCommissionEarning) {
+                      const commEarned = parseFloat(item.commission_earned || item.amount || 0);
+                      const saleAmt = parseFloat(item.sale_amount || 0);
+                      const merchantName = item.originating_merchant_name || 'Retail Merchant Store';
+                      const merchantMid = item.originating_merchant_id || item.merchant_id || 'MID1001';
+                      const commPct = item.commission_percentage !== undefined ? item.commission_percentage : 0;
+                      const displayDate = item.created_at ? new Date(item.created_at).toLocaleString('en-IN', {
+                        day: '2-digit',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                      }) : 'Recent';
+
+                      return (
+                        <div 
+                          key={`comm-${item.id}`} 
+                          onClick={() => { setSelectedTxnForDetails(item); setTxnDetailType('COMMISSION'); }}
+                          style={{ 
+                            padding: '0.875rem 1rem', 
+                            borderRadius: '12px', 
+                            background: '#FFFFFF', 
+                            border: '1px solid #E2E8F0', 
+                            display: 'flex', 
+                            flexDirection: 'column', 
+                            gap: '0.45rem',
+                            boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#86EFAC'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(5,150,105,0.08)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#E2E8F0'; e.currentTarget.style.boxShadow = '0 1px 3px rgba(15,23,42,0.04)'; }}
+                        >
+                          {/* ROW 1: Merchant Name & ID (Left) | Visually Prominent Commission Earned (Right) */}
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'baseline',
+                            justifyContent: 'space-between',
+                            gap: '0.75rem'
+                          }}>
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              minWidth: 0,
+                              flex: 1,
+                              flexWrap: 'wrap'
+                            }}>
+                              <span style={{
+                                fontSize: '0.9375rem',
+                                fontWeight: 700,
+                                color: '#0F172A',
+                                letterSpacing: '-0.01em',
+                                lineHeight: 1.3,
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
+                              }}>
+                                {merchantName}
+                              </span>
+                              {merchantMid && (
+                                <span style={{
+                                  fontSize: '0.72rem',
+                                  fontWeight: 600,
+                                  color: '#475569',
+                                  background: '#F1F5F9',
+                                  padding: '1px 6px',
+                                  borderRadius: '4px',
+                                  letterSpacing: '0.01em',
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  {merchantMid}
+                                </span>
+                              )}
+                            </div>
+
+                            <div style={{
+                              fontSize: '1.125rem',
+                              fontWeight: 800,
+                              color: '#059669',
+                              fontVariantNumeric: 'tabular-nums',
+                              letterSpacing: '-0.02em',
+                              whiteSpace: 'nowrap',
+                              lineHeight: 1.2
+                            }}>
+                              +₹{commEarned.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </div>
+                          </div>
+
+                          {/* ROW 2: Sale Amount (Left) | Commission Percentage (Right) */}
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '0.5rem'
+                          }}>
+                            <div style={{
+                              fontSize: '0.8125rem',
+                              color: '#334155',
+                              fontWeight: 600
+                            }}>
+                              Sale Amount: ₹{saleAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </div>
+
+                            <div style={{
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              color: '#0F52BA',
+                              background: '#EFF6FF',
+                              padding: '2px 8px',
+                              borderRadius: '5px',
+                              border: '1px solid #DBEAFE',
+                              whiteSpace: 'nowrap'
+                            }}>
+                              Commission: {typeof commPct === 'number' ? `${commPct.toFixed(2)}%` : commPct}
+                            </div>
+                          </div>
+
+                          {/* ROW 3: Date and Time */}
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '0.5rem',
+                            marginTop: '0.1rem',
+                            borderTop: '1px dashed #F1F5F9',
+                            paddingTop: '0.35rem'
+                          }}>
+                            <span style={{
+                              fontSize: '0.75rem',
+                              color: '#64748B',
+                              fontWeight: 500
+                            }}>
+                              {displayDate}
+                            </span>
+                            <span style={{
+                              fontSize: '0.7rem',
+                              fontWeight: 700,
+                              color: '#059669'
+                            }}>
+                              Credited
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    }
 
                     if (isWithdrawal) {
                       const amountNum = parseFloat(item.amount || 0);
@@ -9037,7 +9222,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       {/* ========================================================= */}
       {selectedTxnForDetails && (() => {
         const item = selectedTxnForDetails;
-        const isWithdrawal = txnDetailType === 'WITHDRAWAL' || item.payout_type || item.bank_name;
+        const isCommission = txnDetailType === 'COMMISSION' || item.is_commission === true || item.activityType === 'COMMISSION_EARNED' || item.type === 'COMMISSION_EARNED';
+        const isWithdrawal = (txnDetailType === 'WITHDRAWAL' || item.payout_type || item.bank_name) && !isCommission;
         const st = (item.status || '').toUpperCase();
         const isApproved = st === 'APPROVED' || st === 'SUCCESS' || st === 'COMPLETED' || st === 'SETTLED';
         const isPending = st === 'PENDING';
@@ -9083,13 +9269,13 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                 borderBottom: '1px solid #F1F5F9'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span style={{ fontSize: '1rem' }}>{isWithdrawal ? '🏦' : (isQRTxn(item) ? '📱' : '💳')}</span>
+                  <span style={{ fontSize: '1rem' }}>{isCommission ? '💎' : (isWithdrawal ? '🏦' : (isQRTxn(item) ? '📱' : '💳'))}</span>
                   <div>
                     <strong style={{ fontSize: '0.875rem', color: '#0F172A', display: 'block', lineHeight: 1.2 }}>
-                      {isWithdrawal ? 'Bank Disbursal Receipt' : (isQRTxn(item) ? 'UPI QR Payment Receipt' : 'POS Charge Slip & Sale Receipt')}
+                      {isCommission ? 'Commission Distribution Receipt' : (isWithdrawal ? 'Bank Disbursal Receipt' : (isQRTxn(item) ? 'UPI QR Payment Receipt' : 'POS Charge Slip & Sale Receipt'))}
                     </strong>
                     <span style={{ fontSize: '0.625rem', color: '#64748B' }}>
-                      {isWithdrawal ? 'Payout to Verified Bank Account' : (isQRTxn(item) ? 'Customer UPI Payment via Company QR' : `${parsed.posProvider || 'Pine Labs'} Verified Swipe`)}
+                      {isCommission ? 'Downline Merchant Card Swipe Commission' : (isWithdrawal ? 'Payout to Verified Bank Account' : (isQRTxn(item) ? 'Customer UPI Payment via Company QR' : `${parsed.posProvider || 'Pine Labs'} Verified Swipe`))}
                     </span>
                   </div>
                 </div>
@@ -9136,7 +9322,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                 </div>
 
                 <div style={{ fontSize: '1.65rem', fontWeight: 900, color: '#0F172A', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
-                  {isWithdrawal ? `-₹${amountNum.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : `+₹${amountNum.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
+                  {isCommission ? `+₹${parseFloat(item.commission_earned || item.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : (isWithdrawal ? `-₹${amountNum.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : `+₹${amountNum.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`)}
                 </div>
 
                 <div style={{
@@ -9145,7 +9331,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                   marginTop: '0.35rem',
                   color: isApproved ? '#15803D' : isPending ? '#B45309' : '#B91C1C'
                 }}>
-                  {isApproved ? (isWithdrawal ? '✓ Settled & Transferred to Bank' : '✓ Cleared & Credited to Wallet') : isPending ? '⏳ In Verification / Pending Clearance' : '✕ Transaction Rejected'}
+                  {isCommission ? '✓ Cleared & Credited to Wallet' : (isApproved ? (isWithdrawal ? '✓ Settled & Transferred to Bank' : '✓ Cleared & Credited to Wallet') : isPending ? '⏳ In Verification / Pending Clearance' : '✕ Transaction Rejected')}
                 </div>
 
                 <div style={{ fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
@@ -9155,8 +9341,35 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
               {/* Receipt Details Breakdown Grid */}
               <div style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.625rem', maxHeight: '340px', overflowY: 'auto' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid #F1F5F9', fontSize: '0.75rem' }}>
-                  <span style={{ color: '#64748B', fontWeight: 600 }}>{isWithdrawal ? 'Bank Reference (UTR)' : 'Slip UTR Number'}</span>
+                {isCommission ? (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid #F1F5F9', fontSize: '0.75rem' }}>
+                      <span style={{ color: '#64748B', fontWeight: 600 }}>Merchant Name</span>
+                      <span style={{ fontWeight: 800, color: '#0F172A' }}>{item.originating_merchant_name || 'Retail Merchant Store'}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid #F1F5F9', fontSize: '0.75rem' }}>
+                      <span style={{ color: '#64748B', fontWeight: 600 }}>Merchant ID</span>
+                      <span style={{ fontWeight: 800, color: '#0F172A', background: '#F1F5F9', padding: '1px 6px', borderRadius: '4px' }}>{item.originating_merchant_id || item.merchant_id || 'MID1001'}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid #F1F5F9', fontSize: '0.75rem' }}>
+                      <span style={{ color: '#64748B', fontWeight: 600 }}>Sale Amount</span>
+                      <span style={{ fontWeight: 800, color: '#0F172A' }}>₹{parseFloat(item.sale_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid #F1F5F9', fontSize: '0.75rem' }}>
+                      <span style={{ color: '#64748B', fontWeight: 600 }}>Commission Rate</span>
+                      <span style={{ fontWeight: 800, color: '#0F52BA', background: '#EFF6FF', padding: '2px 8px', borderRadius: '4px', border: '1px solid #DBEAFE' }}>
+                        {typeof item.commission_percentage === 'number' ? `${item.commission_percentage.toFixed(2)}%` : item.commission_percentage}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid #F1F5F9', fontSize: '0.75rem' }}>
+                      <span style={{ color: '#64748B', fontWeight: 600 }}>Commission Earned</span>
+                      <span style={{ fontWeight: 900, color: '#059669', fontSize: '0.9375rem' }}>+₹{parseFloat(item.commission_earned || item.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid #F1F5F9', fontSize: '0.75rem' }}>
+                      <span style={{ color: '#64748B', fontWeight: 600 }}>{isWithdrawal ? 'Bank Reference (UTR)' : 'Slip UTR Number'}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#0F172A' }}>{utr}</span>
                     <button
@@ -9282,6 +9495,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                     </div>
                   </>
                 )}
+                </>
+              )}
 
                 {/* Sanitized Admin remark if present */}
                 {item.admin_remark && (

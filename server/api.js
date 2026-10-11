@@ -1502,14 +1502,74 @@ export async function handleApiRequest(req, res) {
     }
 
     if (pathname.startsWith('/api/transactions/merchant/') && method === 'GET') {
-      const merchantId = pathname.replace('/api/transactions/merchant/', '');
-      const transactions = await pgQuery(`
-        SELECT * FROM transactions 
-        WHERE merchant_id = $1 
-        ORDER BY created_at DESC
+      const merchantId = pathname.replace('/api/transactions/merchant/', '').trim();
+
+      // 1. Direct transactions for this merchant ID
+      const directTxns = await pgQuery(`
+        SELECT t.*, u.name as originating_merchant_name, u.id as originating_merchant_id
+        FROM transactions t
+        LEFT JOIN users u ON UPPER(u.id) = UPPER(t.merchant_id)
+        WHERE UPPER(t.merchant_id) = UPPER($1)
+        ORDER BY t.created_at DESC
       `, [merchantId]);
 
-      return sendJson(res, 200, { success: true, transactions });
+      // 2. Card swipe transactions with commission splits for this distributor / upline
+      const uplineRows = await pgQuery(`
+        SELECT t.*, u.name as originating_merchant_name, u.id as originating_merchant_id
+        FROM transactions t
+        LEFT JOIN users u ON UPPER(u.id) = UPPER(t.merchant_id)
+        WHERE t.notes ILIKE '%commission_splits%' 
+          AND t.notes ILIKE '%' || $1 || '%'
+          AND UPPER(t.merchant_id) != UPPER($1)
+        ORDER BY t.created_at DESC
+      `, [merchantId]);
+
+      const commissionEntries = [];
+      for (const row of uplineRows) {
+        try {
+          const notesStr = row.notes || '';
+          const metaJsonStr = notesStr.replace(/^\[CARD_SWIPE_ENTRY\]\s*/, '');
+          const meta = JSON.parse(metaJsonStr);
+          if (Array.isArray(meta.commission_splits)) {
+            const split = meta.commission_splits.find(s => (s.user_id || '').toUpperCase() === merchantId.toUpperCase());
+            if (split) {
+              const commEarned = parseFloat(split.amount || 0);
+              const saleAmt = parseFloat(row.amount || 0);
+              let commPct = 0;
+              if (split.margin_diff !== undefined && split.margin_diff !== null) {
+                commPct = parseFloat(split.margin_diff);
+              } else if (split.rate !== undefined && split.rate !== null) {
+                commPct = parseFloat(split.rate);
+              } else if (saleAmt > 0 && commEarned > 0) {
+                commPct = parseFloat(((commEarned / saleAmt) * 100).toFixed(2));
+              }
+
+              commissionEntries.push({
+                id: `COMM-${row.id}-${merchantId}`,
+                original_txn_id: row.id,
+                activityType: 'COMMISSION_EARNED',
+                is_commission: true,
+                type: 'COMMISSION_EARNED',
+                originating_merchant_name: row.originating_merchant_name || 'Retail Merchant Store',
+                originating_merchant_id: row.originating_merchant_id || row.merchant_id || 'MID1001',
+                sale_amount: saleAmt,
+                amount: commEarned,
+                commission_earned: commEarned,
+                commission_percentage: commPct,
+                created_at: row.created_at,
+                status: 'APPROVED',
+                notes: row.notes
+              });
+            }
+          }
+        } catch (_) {}
+      }
+
+      const allTxns = [...directTxns, ...commissionEntries].sort((a, b) => {
+        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+      });
+
+      return sendJson(res, 200, { success: true, transactions: allTxns });
     }
 
     // ----------------------------------------------------
@@ -1677,7 +1737,9 @@ export async function handleApiRequest(req, res) {
         return sendJson(res, 403, { success: false, code: 'USER_SUSPENDED', message: 'Account is suspended. Please contact Admin.' });
       }
 
-      const isCommissionPayout = payout_purpose === 'COMMISSION';
+      const user = users[0];
+      const isDistributor = user && ['SUPER_DISTRIBUTOR', 'DISTRICT_DISTRIBUTOR', 'DISTRIBUTOR', 'MASTER'].includes((user.role || '').toUpperCase());
+      const isCommissionPayout = payout_purpose === 'COMMISSION' || isDistributor;
 
       // Check Admin Master Toggle for Commission Payouts
       if (isCommissionPayout) {
@@ -1983,7 +2045,14 @@ export async function handleApiRequest(req, res) {
         const { key, value, status, enabled } = await parseJsonBody(req);
         if (!key) return sendJson(res, 400, { success: false, message: 'key is required.' });
         const cleanKey = key.trim().toUpperCase();
-        const finalStatus = (status || (enabled !== undefined ? (enabled ? 'ACTIVE' : 'INACTIVE') : 'ACTIVE')).toUpperCase();
+        let finalStatus = 'ACTIVE';
+        if (status) {
+          finalStatus = String(status).toUpperCase();
+        } else if (enabled !== undefined) {
+          finalStatus = enabled ? 'ACTIVE' : 'INACTIVE';
+        } else if (value !== undefined) {
+          finalStatus = (value === true || value === 'true' || value === 'ACTIVE') ? 'ACTIVE' : 'INACTIVE';
+        }
         const valStr = typeof value === 'object' ? JSON.stringify(value) : (value !== undefined ? String(value) : finalStatus);
         
         await pgQuery(`

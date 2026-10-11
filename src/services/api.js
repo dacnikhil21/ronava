@@ -470,11 +470,7 @@ export async function getHierarchyTree() {
       let userStatus = cloudStatusMap[u.id] || u.status || 'ACTIVE';
       let userName = u.name;
       let userMobile = u.mobile;
-      try {
-        const dMap = JSON.parse(localStorage.getItem('ronav_user_details_overrides') || '{}');
-        if (dMap[u.id]?.name) userName = dMap[u.id].name;
-        if (dMap[u.id]?.mobile) userMobile = dMap[u.id].mobile;
-      } catch (e) {}
+
 
       const parsedChannels = parseMerchantChannels(p || {
         provider: u.pos_provider || 'Pine Labs',
@@ -2228,15 +2224,18 @@ export async function savePlatformQrConfig({ image, name }) {
       })
     });
     const data = await res.json();
+    if (!data.success) {
+      return { success: false, message: data.message || 'Failed to save QR configuration on server.' };
+    }
     if (typeof localStorage !== 'undefined') {
       if (image) localStorage.setItem('ronav_company_qr_image', image);
       else localStorage.removeItem('ronav_company_qr_image');
       localStorage.setItem('ronav_company_qr_name', payeeName);
     }
-    return { success: true, image, name: payeeName, syncedToSupabase: data.success };
+    return { success: true, image, name: payeeName };
   } catch (err) {
-    console.warn('savePlatformQrConfig server error:', err);
-    return { success: true, image, name: payeeName, syncedToSupabase: false };
+    console.error('savePlatformQrConfig server error:', err);
+    return { success: false, message: err.message || 'Network error updating QR configuration.' };
   }
 }
 
@@ -2244,8 +2243,8 @@ export async function getCommissionPayoutConfig() {
   try {
     const res = await fetchWithTimeout(getApiUrl('/api/settings/config/SYS-COMMISSION-PAYOUTS'));
     const data = await res.json();
-    if (data.success && data.value !== null && data.value !== undefined) {
-      const isEnabled = data.value === true || data.value === 'true' || data.value === 'ACTIVE';
+    if (data.success) {
+      const isEnabled = data.enabled !== undefined ? Boolean(data.enabled) : (data.status === 'ACTIVE' || data.value === true || data.value === 'true' || data.value === 'ACTIVE');
       return { success: true, enabled: isEnabled };
     }
   } catch (err) {
@@ -2272,18 +2271,23 @@ export async function saveCommissionPayoutConfig(enabled) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         key: 'SYS-COMMISSION-PAYOUTS',
+        enabled: isEnabled,
+        status: isEnabled ? 'ACTIVE' : 'INACTIVE',
         value: isEnabled
       })
     });
     const data = await res.json();
+    if (!data.success) {
+      return { success: false, message: data.message || 'Failed to update commission payout lock on server.' };
+    }
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('ronav_commission_payout_active', isEnabled ? 'true' : 'false');
       if (typeof window !== 'undefined') window.dispatchEvent(new Event('storage'));
     }
-    return { success: true, enabled: isEnabled, syncedToSupabase: data.success };
+    return { success: true, enabled: isEnabled };
   } catch (err) {
-    console.warn('saveCommissionPayoutConfig error:', err);
-    return { success: true, enabled: isEnabled, syncedToSupabase: false };
+    console.error('saveCommissionPayoutConfig error:', err);
+    return { success: false, message: err.message || 'Network error updating commission payout lock.' };
   }
 }
 
