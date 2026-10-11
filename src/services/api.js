@@ -1527,7 +1527,7 @@ export async function getDownstreamNetwork(creatorId) {
       success: true,
       creator,
       creator_pos: creatorPos,
-      commission_rate_pct: parseFloat((creator?.margin_rate || creator?.upline_override_rate || Math.max(0, (creator?.commission_rate_instant || creator?.commission_rate_t1 || 0) - creatorBuyRate) || 0).toFixed(2)),
+      commission_rate_pct: parseFloat(Number(creator?.margin_rate || creator?.upline_override_rate || Math.max(0, (parseFloat(creator?.commission_rate_instant || creator?.commission_rate_t1 || 0) - creatorBuyRate)) || 0).toFixed(2)),
       partners: enrichedPartners,
       total_partners: enrichedPartners.length,
       total_commission_earned: parseFloat(totalCommissionAll.toFixed(2)),

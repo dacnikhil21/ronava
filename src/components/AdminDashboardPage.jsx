@@ -2658,6 +2658,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 
                 let grossMdr = 0;
                 let netAdmin = 0;
+                let channelNetCredited = 0;
+
                 approvedTxns.forEach(t => {
                   let fee = parseFloat(t.company_fee) || 0;
                   let adminCut = 0;
@@ -2670,7 +2672,26 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   }
                   grossMdr += fee;
                   netAdmin += (adminCut || parseFloat(t.admin_net_margin || 0));
+
+                  const gross = parseFloat(t.amount) || 0;
+                  const isComm = t.is_commission === true || t.activityType === 'COMMISSION_EARNED' || t.type === 'COMMISSION_EARNED';
+                  if (isComm) {
+                    channelNetCredited += gross;
+                  } else {
+                    channelNetCredited += Math.max(0, gross - fee);
+                  }
                 });
+
+                const channelWithdrawn = (dossierWithdrawals || []).filter(w => {
+                  if (dossierMachineFilter === 'ALL') return (w.status || '').toUpperCase() === 'APPROVED';
+                  const ch = classifyTransactionChannel(w);
+                  return ch === dossierMachineFilter && (w.status || '').toUpperCase() === 'APPROVED';
+                }).reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
+
+                const totalUserBalance = parseFloat(viewingUserDossier.available_balance || 0);
+                const activeDossierBalance = dossierMachineFilter === 'ALL'
+                  ? totalUserBalance
+                  : Math.min(Math.max(0, parseFloat((channelNetCredited - channelWithdrawn).toFixed(2))), totalUserBalance);
 
                 return (
                   <div style={{
@@ -2684,10 +2705,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #DBEAFE', paddingBottom: '0.625rem', marginBottom: '0.625rem' }}>
                       <div>
                         <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-                          Available Wallet
+                          Available Wallet {dossierMachineFilter !== 'ALL' ? `(${dossierMachineFilter.toUpperCase()})` : ''}
                         </span>
                         <strong style={{ display: 'block', fontSize: '1.25rem', fontWeight: 900, color: '#0F52BA', marginTop: '2px' }}>
-                          ₹{parseFloat(viewingUserDossier.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          ₹{activeDossierBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                         </strong>
                       </div>
                       <div style={{ textAlign: 'right' }}>
@@ -2723,7 +2744,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       <div style={{ background: '#FFFFFF', padding: '0.5rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
                         <span style={{ fontSize: '0.5625rem', color: '#16A34A', fontWeight: 800, display: 'block' }}>WITHDRAWN</span>
                         <strong style={{ fontSize: '0.8125rem', color: '#16A34A', fontWeight: 800 }}>
-                          ₹{parseFloat(viewingUserDossier.withdrawn_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          ₹{channelWithdrawn.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                         </strong>
                         <span style={{ fontSize: '0.5rem', color: '#64748B', display: 'block' }}>
                           To Bank
