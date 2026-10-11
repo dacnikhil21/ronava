@@ -869,6 +869,59 @@ export async function handleApiRequest(req, res) {
     }
 
     // ----------------------------------------------------
+    // 0.61 DELETE SPECIFIC USER (EXCLUDING ADM001)
+    // ----------------------------------------------------
+    if (pathname === '/api/admin/users/delete' && method === 'POST') {
+      try {
+        const { userId } = await parseJsonBody(req);
+        if (!userId || userId.trim().toUpperCase() === 'ADM001') {
+          return sendJson(res, 400, { success: false, message: 'Cannot delete Super Admin (ADM001).' });
+        }
+        const cleanId = userId.trim().toUpperCase();
+        await withTransaction(async (client) => {
+          await client.query(`DELETE FROM transactions WHERE UPPER(merchant_id) = $1`, [cleanId]);
+          await client.query(`DELETE FROM withdrawals WHERE UPPER(merchant_id) = $1`, [cleanId]);
+          await client.query(`DELETE FROM beneficiaries WHERE UPPER(merchant_id) = $1`, [cleanId]);
+          await client.query(`DELETE FROM merchant_pos WHERE UPPER(merchant_id) = $1`, [cleanId]);
+          await client.query(`DELETE FROM wallets WHERE UPPER(user_id) = $1`, [cleanId]);
+          await client.query(`DELETE FROM users WHERE UPPER(id) = $1`, [cleanId]);
+        });
+        return sendJson(res, 200, { success: true, message: `Account ${cleanId} and associated records deleted successfully.` });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
+    // ----------------------------------------------------
+    // 0.62 CLEANUP VERIFIED ANTIGRAVITY TEST ACCOUNTS ONLY
+    // ----------------------------------------------------
+    if (pathname === '/api/admin/cleanup-test-accounts' && method === 'POST') {
+      try {
+        const testIds = ['MST1277', 'MST6764', 'MST4799', 'MST8344', 'MST1001', 'SD1001', 'DD1001', 'DIST1001', 'MID1001', 'MID1002', 'MID1003'];
+        await withTransaction(async (client) => {
+          await client.query(`DELETE FROM transactions WHERE UPPER(merchant_id) = ANY($1) OR ref_number LIKE 'SLIP%' OR ref_number LIKE 'REF%'`, [testIds]);
+          await client.query(`DELETE FROM withdrawals WHERE UPPER(merchant_id) = ANY($1) OR id LIKE 'WTH-%'`, [testIds]);
+          await client.query(`DELETE FROM beneficiaries WHERE UPPER(merchant_id) = ANY($1)`, [testIds]);
+          await client.query(`DELETE FROM merchant_pos WHERE UPPER(merchant_id) = ANY($1)`, [testIds]);
+          await client.query(`DELETE FROM wallets WHERE UPPER(user_id) = ANY($1)`, [testIds]);
+          await client.query(`DELETE FROM users WHERE UPPER(id) = ANY($1)`, [testIds]);
+          await client.query(`
+            UPDATE wallets 
+            SET available_balance = 0.0, total_sales = 0.0, received_sales = 0.0, pending_balance = 0.0, withdrawn_amount = 0.0, unrecovered_deficit = 0.0, updated_at = CURRENT_TIMESTAMP
+            WHERE UPPER(user_id) = 'ADM001'
+          `);
+        });
+        return sendJson(res, 200, { 
+          success: true, 
+          message: `Successfully cleaned up ${testIds.length} test accounts and test transactions. Root ADM001 preserved and zeroed.`,
+          cleanedIds: testIds
+        });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
+    // ----------------------------------------------------
     // 0.7 BENEFICIARY CREATION & MANAGEMENT
     // ----------------------------------------------------
     if (pathname === '/api/beneficiaries/create' && method === 'POST') {
