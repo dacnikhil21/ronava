@@ -978,6 +978,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
   // Process Master Distributors List (Tier 0 / Apex Command Tier)
   const masterDistributorsList = useMemo(() => {
+    if (hierarchyData?.tree?.masterDistributors) {
+      return hierarchyData.tree.masterDistributors;
+    }
     return networkUsers.filter(u => 
       u.role === 'MASTER' || 
       u.role === 'MASTER_DISTRIBUTOR' || 
@@ -989,7 +992,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       network_volume: u.total_sales || 0,
       super_distributors: networkUsers.filter(s => (s.creator_id === u.id || s.parent_id === u.id) && (s.role === 'SUPER_DISTRIBUTOR' || (s.id && s.id.startsWith('SD'))))
     }));
-  }, [networkUsers]);
+  }, [hierarchyData, networkUsers]);
 
   // Process Super Distributors List
   const superDistributorsList = useMemo(() => {

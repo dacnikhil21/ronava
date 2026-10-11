@@ -379,6 +379,14 @@ export async function getAllUsers() {
 
 export async function getHierarchyTree() {
   try {
+    try {
+      const liveRes = await fetchWithTimeout(getApiUrl('/api/hierarchy/tree'));
+      const liveJson = await liveRes.json();
+      if (liveJson && liveJson.success && liveJson.tree) {
+        return liveJson;
+      }
+    } catch (_) {}
+
     const [usersRes, walletsRes, posRes, txnsRes, statusRes] = await Promise.all([
       supabase.from('users').select('*').order('created_at', { ascending: true }),
       supabase.from('wallets').select('*'),
@@ -515,7 +523,8 @@ export async function getHierarchyTree() {
       };
     });
 
-    const superDistributors = enriched.filter(u => u.role === 'SUPER_DISTRIBUTOR');
+    const masterDistributors = enriched.filter(u => u.role === 'MASTER' || u.role === 'MASTER_DISTRIBUTOR' || (u.id && u.id.startsWith('MST')));
+    const superDistributors = enriched.filter(u => (u.role === 'SUPER_DISTRIBUTOR') && !(u.id && u.id.startsWith('MST')) && u.role !== 'MASTER');
     const districtDistributors = enriched.filter(u => 
       u.role === 'DISTRICT_DISTRIBUTOR' || 
       u.role === 'DIST_FRANCHISE' || 
@@ -606,6 +615,26 @@ export async function getHierarchyTree() {
       };
     });
 
+    const enrichedMasters = masterDistributors.map(m => {
+      const childSDs = enrichedSDs.filter(sd => sd.creator_id === m.id || sd.parent_id === m.id);
+      const childDDs = childSDs.flatMap(sd => sd.district_distributors || enrichedDistrictDistributors.filter(dd => dd.creator_id === sd.id || dd.parent_id === sd.id));
+      const childDists = childDDs.flatMap(dd => dd.distributors || enrichedDistributors.filter(d => d.creator_id === dd.id || d.parent_id === dd.id));
+      const allMerchants = childDists.flatMap(d => d.merchants || merchants.filter(mer => mer.creator_id === d.id || mer.parent_id === d.id));
+      
+      const totalMerchantsInMaster = allMerchants.length;
+      const totalVolumeInMaster = allMerchants.reduce((sum, mer) => sum + (parseFloat(mer.total_sales) || 0), 0);
+      const commissionEarned = parseFloat(((parseFloat(m.available_balance || 0)) + (parseFloat(m.withdrawn_amount || 0))).toFixed(2));
+
+      return {
+        ...m,
+        super_distributors: childSDs,
+        super_distributor_count: childSDs.length,
+        total_merchant_count: totalMerchantsInMaster,
+        network_volume: totalVolumeInMaster,
+        commission_earned: commissionEarned
+      };
+    });
+
     const totalNetworkTurnover = merchants.reduce((sum, m) => sum + (parseFloat(m.total_sales) || 0), 0);
     const pineTerminals = merchants.filter(m => (m.pos_provider || '').toLowerCase().includes('pine')).length;
     const payswiffTerminals = merchants.filter(m => (m.pos_provider || '').toLowerCase().includes('payswiff')).length;
@@ -613,6 +642,7 @@ export async function getHierarchyTree() {
     return {
       success: true,
       tree: {
+        masterDistributors: enrichedMasters,
         superDistributors: enrichedSDs,
         districtDistributors: enrichedDistrictDistributors,
         distributors: enrichedDistributors,
@@ -620,6 +650,7 @@ export async function getHierarchyTree() {
       },
       flatUsers: enriched,
       summary: {
+        totalMasterDistributors: masterDistributors.length,
         totalSuperDistributors: superDistributors.length,
         totalDistrictDistributors: districtDistributors.length,
         totalDistributors: distributors.length,

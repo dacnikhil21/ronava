@@ -1146,9 +1146,10 @@ export async function handleApiRequest(req, res) {
         total_txn_volume: txMap[u.id]?.total_txn_volume || 0
       }));
 
-      const superDistributors = enriched.filter(u => u.role === 'SUPER_DISTRIBUTOR');
-      const districtDistributors = enriched.filter(u => u.role === 'DISTRICT_DISTRIBUTOR' || u.role === 'DIST_FRANCHISE');
-      const distributors = enriched.filter(u => u.role === 'DISTRIBUTOR');
+      const masterDistributors = enriched.filter(u => u.role === 'MASTER' || u.role === 'MASTER_DISTRIBUTOR' || (u.id && u.id.startsWith('MST')));
+      const superDistributors = enriched.filter(u => (u.role === 'SUPER_DISTRIBUTOR') && !(u.id && u.id.startsWith('MST')) && u.role !== 'MASTER');
+      const districtDistributors = enriched.filter(u => u.role === 'DISTRICT_DISTRIBUTOR' || u.role === 'DIST_FRANCHISE' || (u.id && (u.id.startsWith('DD') || u.id.startsWith('DF'))));
+      const distributors = enriched.filter(u => u.role === 'DISTRIBUTOR' && !(u.id && (u.id.startsWith('DD') || u.id.startsWith('DF'))));
       const merchants = enriched.filter(u => u.role === 'MERCHANT');
 
       const merchantsByParent = {};
@@ -1220,6 +1221,24 @@ export async function handleApiRequest(req, res) {
         };
       });
 
+      const enrichedMasters = masterDistributors.map(m => {
+        const childSDs = enrichedSDs.filter(sd => sd.creator_id === m.id || sd.parent_id === m.id);
+        const childDDs = childSDs.flatMap(sd => sd.district_distributors || enrichedDistrictDistributors.filter(dd => dd.creator_id === sd.id || dd.parent_id === sd.id));
+        const childDists = childDDs.flatMap(dd => dd.distributors || enrichedDistributors.filter(d => d.creator_id === dd.id || d.parent_id === dd.id));
+        const allMerchants = childDists.flatMap(d => d.merchants || merchants.filter(mer => mer.creator_id === d.id || mer.parent_id === d.id));
+        
+        const totalMerchantsInMaster = allMerchants.length;
+        const totalVolumeInMaster = allMerchants.reduce((sum, mer) => sum + (parseFloat(mer.total_sales) || 0), 0);
+
+        return {
+          ...m,
+          super_distributors: childSDs,
+          super_distributor_count: childSDs.length,
+          total_merchant_count: totalMerchantsInMaster,
+          network_volume: totalVolumeInMaster
+        };
+      });
+
       const totalNetworkTurnover = merchants.reduce((sum, m) => sum + (parseFloat(m.total_sales) || 0), 0);
       const pineTerminals = merchants.filter(m => (m.pos_provider || '').toLowerCase().includes('pine')).length;
       const payswiffTerminals = merchants.filter(m => (m.pos_provider || '').toLowerCase().includes('payswiff')).length;
@@ -1227,6 +1246,7 @@ export async function handleApiRequest(req, res) {
       return sendJson(res, 200, {
         success: true,
         tree: {
+          masterDistributors: enrichedMasters,
           superDistributors: enrichedSDs,
           districtDistributors: enrichedDistrictDistributors,
           distributors: enrichedDistributors,
@@ -1234,6 +1254,7 @@ export async function handleApiRequest(req, res) {
         },
         flatUsers: enriched,
         summary: {
+          totalMasterDistributors: masterDistributors.length,
           totalSuperDistributors: superDistributors.length,
           totalDistrictDistributors: districtDistributors.length,
           totalDistributors: distributors.length,
