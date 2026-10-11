@@ -1744,8 +1744,8 @@ export async function handleApiRequest(req, res) {
       // Check Admin Master Toggle for Commission Payouts
       if (isCommissionPayout) {
         const toggleRows = await pgQuery(`SELECT * FROM inquiries WHERE UPPER(id) = 'SYS-COMMISSION-PAYOUTS'`);
-        const isToggleActive = toggleRows.length > 0 && toggleRows[0].status === 'ACTIVE';
-        if (!isToggleActive) {
+        const isToggleLocked = toggleRows.length > 0 && toggleRows[0].status === 'INACTIVE';
+        if (isToggleLocked) {
           return sendJson(res, 403, { 
             success: false, 
             message: 'Commission & Profit Withdrawals are currently locked by Admin. Please check back when enabled.' 
@@ -2058,7 +2058,7 @@ export async function handleApiRequest(req, res) {
         await pgQuery(`
           INSERT INTO inquiries (id, type, name, phone, status, remarks)
           VALUES ($1, 'SYS_CONFIG', $1, '9966203053', $2, $3)
-          ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, remarks = EXCLUDED.remarks, updated_at = CURRENT_TIMESTAMP
+          ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, remarks = EXCLUDED.remarks
         `, [cleanKey, finalStatus, valStr]);
 
         return sendJson(res, 200, { 
