@@ -34,6 +34,8 @@ export default function ServiceLoansPage({ onOpenLogin, onBack, onShowToast }) {
     message: ''
   });
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
   const [createdCredentials, setCreatedCredentials] = useState(null);
 
   // EMI Calculation formula
@@ -48,10 +50,11 @@ export default function ServiceLoansPage({ onOpenLogin, onBack, onShowToast }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name || !formData.mobile) return;
+    setIsSubmitting(true);
+    setSubmitError(null);
 
-    // Save lead to SQLite backend database
     try {
-      await submitInquiry({
+      const res = await submitInquiry({
         type: 'LOAN',
         name: formData.name,
         phone: formData.mobile,
@@ -60,12 +63,22 @@ export default function ServiceLoansPage({ onOpenLogin, onBack, onShowToast }) {
         location: 'Telangana',
         remarks: `${formData.partnerCategory} • ${formData.incomeType} • ${formData.message || 'Dedicated Loans Page'}`
       });
-    } catch (err) {
-      console.error('Failed to submit loan to SQLite backend:', err);
-    }
 
-    setSubmitted(true);
-    if (onShowToast) onShowToast('✓ Loan inquiry submitted to Admin for credential review!');
+      if (res && res.success) {
+        setSubmitted(true);
+        if (onShowToast) onShowToast('✓ Loan inquiry submitted to Admin for credential review!');
+      } else {
+        const msg = res?.message || 'Failed to submit loan inquiry on server.';
+        setSubmitError(msg);
+        if (onShowToast) onShowToast('⚠️ ' + msg);
+      }
+    } catch (err) {
+      const msg = err.message || 'Network error submitting loan inquiry.';
+      setSubmitError(msg);
+      if (onShowToast) onShowToast('⚠️ ' + msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -372,12 +385,19 @@ export default function ServiceLoansPage({ onOpenLogin, onBack, onShowToast }) {
                   ></textarea>
                 </div>
 
+                {submitError && (
+                  <div style={{ padding: '0.75rem', borderRadius: '10px', background: '#FEF2F2', border: '1px solid #FCA5A5', color: '#DC2626', fontSize: '0.8125rem', fontWeight: 600 }}>
+                    ⚠️ {submitError}
+                  </div>
+                )}
+
                 <button 
                   type="submit" 
+                  disabled={isSubmitting}
                   className="btn btn-primary"
-                  style={{ backgroundColor: '#059669', borderColor: '#047857', width: '100%', justifyContent: 'center', height: '50px', fontSize: '1rem', fontWeight: 800, boxShadow: '0 8px 24px rgba(5,150,105,0.35)' }}
+                  style={{ backgroundColor: '#059669', borderColor: '#047857', width: '100%', justifyContent: 'center', height: '50px', fontSize: '1rem', fontWeight: 800, boxShadow: '0 8px 24px rgba(5,150,105,0.35)', opacity: isSubmitting ? 0.7 : 1 }}
                 >
-                  <span>Submit</span>
+                  <span>{isSubmitting ? 'Submitting to Server...' : 'Submit'}</span>
                   <Send style={{ width: '16px', height: '16px' }} />
                 </button>
 

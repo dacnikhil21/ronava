@@ -272,6 +272,10 @@ export async function getAllUsers() {
       supabase.from('inquiries').select('*').eq('id', 'SYS-USER-STATUSES').maybeSingle()
     ]);
 
+    if (usersRes.error) {
+      return { success: false, message: usersRes.error.message || 'Failed to load users from database.', users: [] };
+    }
+
     const users = usersRes.data || [];
     const wallets = walletsRes.data || [];
     const posList = posRes.data || [];
@@ -1684,6 +1688,11 @@ export async function getAdminPending() {
       supabase.from('wallets').select('*')
     ]);
 
+    if (txnsRes.error || wthsRes.error || usersRes.error) {
+      const errMsg = txnsRes.error?.message || wthsRes.error?.message || usersRes.error?.message || 'Database error loading pending operations.';
+      return { success: false, message: errMsg, pendingTransactions: [], pendingWithdrawals: [], allWithdrawals: [], allTransactions: [] };
+    }
+
     const allTxns = txnsRes.data || [];
     const allWths = wthsRes.data || [];
     const allUsers = usersRes.data || [];
@@ -2054,6 +2063,9 @@ export async function getMerchantWithdrawals(merchantId) {
   try {
     const res = await fetchWithTimeout(getApiUrl(`/api/withdrawals/merchant/${encodeURIComponent(merchantId)}`));
     const data = await res.json();
+    if (!data.success) {
+      return { success: false, message: data.message || 'Failed to fetch withdrawals from server.', withdrawals: [] };
+    }
     const withdrawals = data.withdrawals || [];
     
     const enriched = (withdrawals || []).map(w => {
@@ -2215,19 +2227,11 @@ export async function getPlatformQrConfig() {
       const cfg = typeof data.value === 'object' ? data.value : { image: data.value, name: 'RONAV TECHNOLOGIES' };
       return { success: true, image: cfg.image || null, name: cfg.name || 'RONAV TECHNOLOGIES' };
     }
+    return { success: false, message: data.message || 'Failed to load QR configuration from server.', image: null, name: 'RONAV TECHNOLOGIES' };
   } catch (e) {
     console.warn('Could not fetch QR config from server:', e);
+    return { success: false, message: e.message || 'Network error fetching QR configuration.', image: null, name: 'RONAV TECHNOLOGIES' };
   }
-
-  // Fallback to local storage
-  try {
-    if (typeof localStorage !== 'undefined') {
-      const localImg = localStorage.getItem('ronav_company_qr_image') || null;
-      const localName = localStorage.getItem('ronav_company_qr_name') || 'RONAV TECHNOLOGIES';
-      return { success: true, image: localImg, name: localName };
-    }
-  } catch (e) {}
-  return { success: true, image: null, name: 'RONAV TECHNOLOGIES' };
 }
 
 export async function savePlatformQrConfig({ image, name }) {
@@ -2265,20 +2269,11 @@ export async function getCommissionPayoutConfig() {
       const isEnabled = data.enabled !== undefined ? Boolean(data.enabled) : (data.status === 'ACTIVE' || data.value === true || data.value === 'true' || data.value === 'ACTIVE');
       return { success: true, enabled: isEnabled };
     }
+    return { success: false, message: data.message || 'Failed to fetch commission payout setting from server.', enabled: false };
   } catch (err) {
     console.warn('getCommissionPayoutConfig error:', err);
+    return { success: false, message: err.message || 'Network error fetching commission payout setting.', enabled: false };
   }
-
-  try {
-    if (typeof localStorage !== 'undefined') {
-      const localVal = localStorage.getItem('ronav_commission_payout_active');
-      if (localVal !== null) {
-        return { success: true, enabled: localVal === 'true' };
-      }
-    }
-  } catch (e) {}
-
-  return { success: true, enabled: true };
 }
 
 export async function saveCommissionPayoutConfig(enabled) {
@@ -2320,18 +2315,22 @@ export async function getPlatformPublicStats() {
       return {
         success: true,
         merchants: parseInt(json.stats.totalMerchants || 0, 10),
+        partners: parseInt(json.stats.totalPartners || 0, 10),
         volume: parseFloat(((json.stats.totalVolume || 0) / 100000).toFixed(2)),
         disbursed: parseFloat(((json.stats.disbursedAmount || 0) / 100000).toFixed(2)),
-        outlets: parseInt(json.stats.activeTerminals || 0, 10)
+        outlets: parseInt(json.stats.activeTerminals || 0, 10),
+        transactions: parseInt(json.stats.totalTransactions || 0, 10)
       };
     }
     return {
       success: false,
       message: json.message || 'Failed to retrieve live statistics from server.',
       merchants: 0,
+      partners: 0,
       volume: 0,
       disbursed: 0,
-      outlets: 0
+      outlets: 0,
+      transactions: 0
     };
   } catch (err) {
     console.error('getPlatformPublicStats error:', err);
@@ -2339,9 +2338,11 @@ export async function getPlatformPublicStats() {
       success: false,
       message: err.message || 'Network error retrieving live statistics.',
       merchants: 0,
+      partners: 0,
       volume: 0,
       disbursed: 0,
-      outlets: 0
+      outlets: 0,
+      transactions: 0
     };
   }
 }

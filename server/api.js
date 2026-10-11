@@ -105,26 +105,31 @@ export async function handleApiRequest(req, res) {
     // ----------------------------------------------------
     if (pathname === '/api/public/stats' && method === 'GET') {
       try {
-        const mRes = await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role = 'MERCHANT'`);
-        const sdRes = await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role = 'SUPER_DISTRIBUTOR'`);
-        const dRes = await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role IN ('DISTRIBUTOR', 'DISTRICT_DISTRIBUTOR', 'DIST_FRANCHISE')`);
-        const volRes = await pgQuery(`SELECT COALESCE(SUM(amount), 0) as s FROM transactions WHERE status = 'APPROVED'`);
-        const posRes = await pgQuery(`SELECT COUNT(*) as c FROM merchant_pos`);
+        const [mRes, pRes, volRes, posRes, txRes, disRes] = await Promise.all([
+          pgQuery(`SELECT COUNT(*)::int as c FROM users WHERE role = 'MERCHANT'`),
+          pgQuery(`SELECT COUNT(*)::int as c FROM users WHERE role IN ('MASTER', 'SUPER_DISTRIBUTOR', 'DISTRICT_DISTRIBUTOR', 'DISTRIBUTOR', 'DIST_FRANCHISE')`),
+          pgQuery(`SELECT COALESCE(SUM(amount), 0)::numeric as s FROM transactions WHERE status = 'APPROVED'`),
+          pgQuery(`SELECT COUNT(*)::int as c FROM merchant_pos`),
+          pgQuery(`SELECT COUNT(*)::int as c FROM transactions`),
+          pgQuery(`SELECT COALESCE(SUM(amount), 0)::numeric as s FROM withdrawals WHERE status = 'APPROVED'`)
+        ]);
 
         const totalMerchants = parseInt(mRes[0]?.c || 0, 10);
-        const totalSuperDistributors = parseInt(sdRes[0]?.c || 0, 10);
-        const totalDistributors = parseInt(dRes[0]?.c || 0, 10);
+        const totalPartners = parseInt(pRes[0]?.c || 0, 10);
         const totalVolume = parseFloat(volRes[0]?.s || 0);
         const activeTerminals = parseInt(posRes[0]?.c || 0, 10);
+        const totalTransactions = parseInt(txRes[0]?.c || 0, 10);
+        const disbursedAmount = parseFloat(disRes[0]?.s || 0);
 
         return sendJson(res, 200, {
           success: true,
           stats: {
             totalMerchants,
-            totalPartners: totalSuperDistributors + totalDistributors,
+            totalPartners,
             totalVolume,
             activeTerminals,
-            totalTransactions: totalMerchants * 15 + activeTerminals * 8
+            totalTransactions,
+            disbursedAmount
           }
         });
       } catch (err) {
@@ -2206,34 +2211,7 @@ export async function handleApiRequest(req, res) {
       }
     }
 
-    // ----------------------------------------------------
-    // PUBLIC PLATFORM STATISTICS (LIVE DATABASE TELEMETRY)
-    // ----------------------------------------------------
-    if (pathname === '/api/public/stats' && method === 'GET') {
-      try {
-        const [merchantsCountRes, txnsVolumeRes, terminalsCountRes] = await Promise.all([
-          pgQuery(`SELECT COUNT(*)::int as count FROM users WHERE role = 'MERCHANT'`),
-          pgQuery(`SELECT COALESCE(SUM(amount), 0)::numeric as volume FROM transactions WHERE status = 'APPROVED'`),
-          pgQuery(`SELECT COUNT(*)::int as count FROM merchant_pos`)
-        ]);
 
-        const totalMerchants = parseInt(merchantsCountRes[0]?.count || 0, 10);
-        const totalVolume = parseFloat(txnsVolumeRes[0]?.volume || 0);
-        const activeTerminals = parseInt(terminalsCountRes[0]?.count || 0, 10);
-
-        return sendJson(res, 200, {
-          success: true,
-          stats: {
-            totalMerchants,
-            totalVolume,
-            activeTerminals,
-            disbursedAmount: 0.0
-          }
-        });
-      } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
-      }
-    }
 
     // ----------------------------------------------------
     // ADMIN PURGE & DELETE (Pure PostgreSQL)

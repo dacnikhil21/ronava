@@ -31,24 +31,42 @@ export default function ContactPage({ onBack, onShowToast }) {
     message: ''
   });
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name || !formData.mobile) return;
+    setIsSubmitting(true);
+    setSubmitError(null);
 
-    submitInquiry({
-      type: 'CONTACT',
-      name: formData.name,
-      phone: formData.mobile,
-      category: formData.service || 'General Inquiry',
-      location: 'Hyderabad / AP & TS',
-      amount: formData.role || 'Merchant',
-      remarks: formData.message || 'Direct inquiry from dedicated contact page'
-    }).catch(err => console.error(err));
+    try {
+      const res = await submitInquiry({
+        type: 'CONTACT',
+        name: formData.name,
+        phone: formData.mobile,
+        category: formData.service || 'General Inquiry',
+        location: 'Hyderabad / AP & TS',
+        amount: formData.role || 'Merchant',
+        remarks: formData.message || 'Direct inquiry from dedicated contact page'
+      });
 
-    setSubmitted(true);
-    if (onShowToast) {
-      onShowToast('✓ Inquiry submitted! Our enterprise team will call you within 2 hours.');
+      if (res && res.success) {
+        setSubmitted(true);
+        if (onShowToast) {
+          onShowToast('✓ Inquiry submitted! Our enterprise team will call you within 2 hours.');
+        }
+      } else {
+        const msg = res?.message || 'Failed to submit inquiry to server.';
+        setSubmitError(msg);
+        if (onShowToast) onShowToast('⚠️ ' + msg);
+      }
+    } catch (err) {
+      const msg = err.message || 'Network error submitting inquiry.';
+      setSubmitError(msg);
+      if (onShowToast) onShowToast('⚠️ ' + msg);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -332,9 +350,16 @@ export default function ContactPage({ onBack, onShowToast }) {
                   ></textarea>
                 </div>
 
+                {submitError && (
+                  <div style={{ padding: '0.75rem', borderRadius: '10px', background: '#FEF2F2', border: '1px solid #FCA5A5', color: '#DC2626', fontSize: '0.8125rem', fontWeight: 600 }}>
+                    ⚠️ {submitError}
+                  </div>
+                )}
+
                 {/* Submit CTA */}
                 <button 
                   type="submit" 
+                  disabled={isSubmitting}
                   className="btn btn-primary"
                   style={{ 
                     width: '100%', 
@@ -344,10 +369,11 @@ export default function ContactPage({ onBack, onShowToast }) {
                     fontSize: '1rem', 
                     backgroundColor: '#0F52BA', 
                     boxShadow: '0 8px 24px rgba(15, 82, 186, 0.35)',
-                    marginTop: '0.25rem' 
+                    marginTop: '0.25rem',
+                    opacity: isSubmitting ? 0.7 : 1
                   }}
                 >
-                  <span>Submit</span>
+                  <span>{isSubmitting ? 'Submitting to Server...' : 'Submit Inquiry'}</span>
                   <Send style={{ width: '16px', height: '16px' }} />
                 </button>
 

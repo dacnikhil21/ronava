@@ -30,6 +30,8 @@ export default function ServicePosPage({ onOpenLogin, onBack, onShowToast }) {
     message: ''
   });
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
 
   const deviceTypes = [
     { 
@@ -54,22 +56,38 @@ export default function ServicePosPage({ onOpenLogin, onBack, onShowToast }) {
     }
   ];
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name || !formData.mobile) return;
+    setIsSubmitting(true);
+    setSubmitError(null);
 
-    submitInquiry({
-      type: 'POS',
-      name: formData.name,
-      phone: formData.mobile,
-      category: formData.deviceType || 'Smart POS',
-      location: formData.city || 'Hyderabad / AP & TS',
-      amount: formData.monthlyVolume || 'N/A',
-      remarks: `${formData.businessName ? formData.businessName + ' • ' : ''}${formData.message || 'POS Terminal & Gateway request'}`
-    }).catch(err => console.error(err));
+    try {
+      const res = await submitInquiry({
+        type: 'POS',
+        name: formData.name,
+        phone: formData.mobile,
+        category: formData.deviceType || 'Smart POS',
+        location: formData.city || 'Hyderabad / AP & TS',
+        amount: formData.monthlyVolume || 'N/A',
+        remarks: `${formData.businessName ? formData.businessName + ' • ' : ''}${formData.message || 'POS Terminal & Gateway request'}`
+      });
 
-    setSubmitted(true);
-    if (onShowToast) onShowToast('✓ POS inquiry submitted to Admin for credential dispatch!');
+      if (res && res.success) {
+        setSubmitted(true);
+        if (onShowToast) onShowToast('✓ POS inquiry submitted to Admin for credential dispatch!');
+      } else {
+        const msg = res?.message || 'Failed to submit POS inquiry on server.';
+        setSubmitError(msg);
+        if (onShowToast) onShowToast('⚠️ ' + msg);
+      }
+    } catch (err) {
+      const msg = err.message || 'Network error submitting POS inquiry.';
+      setSubmitError(msg);
+      if (onShowToast) onShowToast('⚠️ ' + msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -283,12 +301,19 @@ export default function ServicePosPage({ onOpenLogin, onBack, onShowToast }) {
                   ></textarea>
                 </div>
 
+                {submitError && (
+                  <div style={{ padding: '0.75rem', borderRadius: '10px', background: '#FEF2F2', border: '1px solid #FCA5A5', color: '#DC2626', fontSize: '0.8125rem', fontWeight: 600 }}>
+                    ⚠️ {submitError}
+                  </div>
+                )}
+
                 <button 
                   type="submit" 
+                  disabled={isSubmitting}
                   className="btn btn-primary"
-                  style={{ backgroundColor: '#7C3AED', borderColor: '#6D28D9', width: '100%', justifyContent: 'center', height: '50px', fontSize: '1rem', fontWeight: 800, boxShadow: '0 8px 24px rgba(124,58,237,0.35)' }}
+                  style={{ backgroundColor: '#7C3AED', borderColor: '#6D28D9', width: '100%', justifyContent: 'center', height: '50px', fontSize: '1rem', fontWeight: 800, boxShadow: '0 8px 24px rgba(124,58,237,0.35)', opacity: isSubmitting ? 0.7 : 1 }}
                 >
-                  <span>Submit</span>
+                  <span>{isSubmitting ? 'Submitting to Server...' : 'Submit'}</span>
                   <Send style={{ width: '16px', height: '16px' }} />
                 </button>
 

@@ -32,6 +32,8 @@ export default function ServiceAtmPage({ onOpenLogin, onBack, onShowToast }) {
     electricityBackup: 'Yes, Generator / Inverter Available'
   });
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
 
   // Earnings estimation formula
   const monthlyTransactions = dailyTxns * 30;
@@ -44,24 +46,35 @@ export default function ServiceAtmPage({ onOpenLogin, onBack, onShowToast }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name || !formData.mobile) return;
+    setIsSubmitting(true);
+    setSubmitError(null);
 
-    // Save lead to SQLite backend database
     try {
-      await submitInquiry({
+      const res = await submitInquiry({
         type: 'FRANCHISE',
         name: formData.name,
         phone: formData.mobile,
         amount: formData.investmentBudget,
         category: 'ATM & CDM Franchise',
         location: formData.location || 'Hyderabad / Telangana',
-        remarks: `Space: ${formData.spaceArea} • Backup: ${formData.electricityBackup}`
+        remarks: `Space: ${formData.spaceArea} • Backup: ${formData.electricityBackup} • ${formData.message || ''}`
       });
-    } catch (err) {
-      console.error('Failed to submit franchise inquiry to backend:', err);
-    }
 
-    setSubmitted(true);
-    if (onShowToast) onShowToast('✓ Franchise inquiry submitted to Admin for site assessment!');
+      if (res && res.success) {
+        setSubmitted(true);
+        if (onShowToast) onShowToast('✓ Franchise inquiry submitted to Admin for site assessment!');
+      } else {
+        const msg = res?.message || 'Failed to submit franchise inquiry on server.';
+        setSubmitError(msg);
+        if (onShowToast) onShowToast('⚠️ ' + msg);
+      }
+    } catch (err) {
+      const msg = err.message || 'Network error submitting franchise inquiry.';
+      setSubmitError(msg);
+      if (onShowToast) onShowToast('⚠️ ' + msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -334,12 +347,19 @@ export default function ServiceAtmPage({ onOpenLogin, onBack, onShowToast }) {
                   ></textarea>
                 </div>
 
+                {submitError && (
+                  <div style={{ padding: '0.75rem', borderRadius: '10px', background: '#FEF2F2', border: '1px solid #FCA5A5', color: '#DC2626', fontSize: '0.8125rem', fontWeight: 600 }}>
+                    ⚠️ {submitError}
+                  </div>
+                )}
+
                 <button 
                   type="submit" 
+                  disabled={isSubmitting}
                   className="btn btn-primary"
-                  style={{ backgroundColor: '#0F52BA', width: '100%', justifyContent: 'center', height: '50px', fontSize: '1rem', fontWeight: 800, boxShadow: '0 8px 24px rgba(15,82,186,0.35)' }}
+                  style={{ backgroundColor: '#0F52BA', width: '100%', justifyContent: 'center', height: '50px', fontSize: '1rem', fontWeight: 800, boxShadow: '0 8px 24px rgba(15,82,186,0.35)', opacity: isSubmitting ? 0.7 : 1 }}
                 >
-                  <span>Submit</span>
+                  <span>{isSubmitting ? 'Submitting to Server...' : 'Submit'}</span>
                   <Send style={{ width: '16px', height: '16px' }} />
                 </button>
 

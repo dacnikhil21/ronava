@@ -1360,6 +1360,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
       if (wthRes && wthRes.success && wthRes.withdrawals) {
         setWithdrawals(wthRes.withdrawals);
+      } else if (wthRes && !wthRes.success) {
+        triggerToast('Failed to sync payout history: ' + (wthRes.message || 'Connection error'), 'error');
       }
 
       if (benRes && benRes.success && benRes.beneficiaries) {
@@ -1368,6 +1370,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           const primary = benRes.beneficiaries.find(b => b.is_primary) || benRes.beneficiaries[0];
           setSelectedBankId(primary.id);
         }
+      } else if (benRes && !benRes.success) {
+        triggerToast('Failed to sync bank accounts: ' + (benRes.message || 'Connection error'), 'error');
       }
     } catch (err) {
       console.error('fetchLiveData error:', err);

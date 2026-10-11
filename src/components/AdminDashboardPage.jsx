@@ -161,18 +161,20 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   const handleToggleCommissionPayout = async () => {
     const nextVal = !commissionPayoutActive;
     setIsUpdatingCommissionToggle(true);
-    setCommissionPayoutActive(nextVal);
     try {
       const res = await saveCommissionPayoutConfig(nextVal);
       if (res && res.success) {
+        setCommissionPayoutActive(nextVal);
         triggerToast(nextVal 
           ? '🟢 Commission Withdrawals UNLOCKED across all partner & merchant tiers!' 
           : '🔴 Commission Withdrawals LOCKED across the platform.',
           nextVal ? 'success' : 'info'
         );
+      } else {
+        triggerToast(res?.message || 'Failed to update commission setting on server.', 'error');
       }
     } catch (err) {
-      triggerToast('Error updating commission setting', 'error');
+      triggerToast(err.message || 'Error updating commission setting', 'error');
     } finally {
       setIsUpdatingCommissionToggle(false);
     }
@@ -446,12 +448,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     const reader = new FileReader();
     reader.onload = async () => {
       const base64 = reader.result;
-      setCompanyQrImage(base64);
       const res = await savePlatformQrConfig({ image: base64, name: companyQrPayeeName });
-      if (res.syncedToSupabase) {
-        triggerToast('✓ Company Official QR saved and synced to Supabase (visible on all devices)!', 'success');
+      if (res && res.success) {
+        setCompanyQrImage(base64);
+        triggerToast('✓ Company Official QR saved and synced to database!', 'success');
       } else {
-        triggerToast('✓ Company Official QR updated!', 'success');
+        triggerToast(res?.message || 'Failed to save company QR on server.', 'error');
       }
     };
     reader.readAsDataURL(file);
@@ -459,9 +461,13 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
   const handleResetAdminQr = async () => {
     if (window.confirm('Reset company QR code to standard default?')) {
-      setCompanyQrImage(null);
-      await savePlatformQrConfig({ image: null, name: companyQrPayeeName });
-      triggerToast('✓ Company QR reset to default across all devices', 'info');
+      const res = await savePlatformQrConfig({ image: null, name: companyQrPayeeName });
+      if (res && res.success) {
+        setCompanyQrImage(null);
+        triggerToast('✓ Company QR reset to default across all devices', 'info');
+      } else {
+        triggerToast(res?.message || 'Failed to reset company QR on server.', 'error');
+      }
     }
   };
 
@@ -755,7 +761,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         pan: cleanPan,
         address: cleanAddress,
         role: onboardForm.role,
-        margin_rate: onboardForm.margin_rate || (onboardForm.role === 'MASTER' ? '0.50' : onboardForm.role === 'SUPER_DISTRIBUTOR' ? '0.40' : onboardForm.role === 'DISTRICT_DISTRIBUTOR' ? '0.30' : '0.25'),
+        margin_rate: onboardForm.margin_rate || '0.00',
         channels: onboardChannels,
         pos_provider: primaryProvider,
         pos_vendor: primaryVendor,

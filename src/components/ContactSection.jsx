@@ -11,6 +11,8 @@ export default function ContactSection({ onOpenOfficeModal }) {
     message: ''
   });
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
   const sectionRef = useRef(null);
 
   useEffect(() => {
@@ -23,19 +25,31 @@ export default function ContactSection({ onOpenOfficeModal }) {
     return () => observer.disconnect();
   }, []);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name || !formData.mobile) return;
-    submitInquiry({
-      type: 'CONTACT',
-      name: formData.name,
-      phone: formData.mobile,
-      category: formData.service || 'General Inquiry',
-      location: 'Hyderabad / AP & TS',
-      amount: formData.role || 'Merchant',
-      remarks: formData.message || 'Direct inquiry from homepage contact section'
-    }).catch(err => console.error('Contact inquiry error:', err));
-    setSubmitted(true);
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      const res = await submitInquiry({
+        type: 'CONTACT',
+        name: formData.name,
+        phone: formData.mobile,
+        category: formData.service || 'General Inquiry',
+        location: 'Hyderabad / AP & TS',
+        amount: formData.role || 'Merchant',
+        remarks: formData.message || 'Direct inquiry from homepage contact section'
+      });
+      if (res && res.success) {
+        setSubmitted(true);
+      } else {
+        setSubmitError(res?.message || 'Failed to submit inquiry to server.');
+      }
+    } catch (err) {
+      setSubmitError(err.message || 'Network error submitting inquiry.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -197,8 +211,14 @@ export default function ContactSection({ onOpenOfficeModal }) {
                     ></textarea>
                   </div>
 
-                  <button type="submit" className="btn btn-primary btn-slide-arrow" style={{ width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span>Submit Partner Inquiry</span>
+                  {submitError && (
+                    <div style={{ padding: '0.625rem', borderRadius: '8px', background: '#FEF2F2', border: '1px solid #FCA5A5', color: '#DC2626', fontSize: '0.75rem', fontWeight: 600 }}>
+                      ⚠️ {submitError}
+                    </div>
+                  )}
+
+                  <button type="submit" disabled={isSubmitting} className="btn btn-primary btn-slide-arrow" style={{ width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: '0.5rem', opacity: isSubmitting ? 0.7 : 1 }}>
+                    <span>{isSubmitting ? 'Submitting...' : 'Submit Partner Inquiry'}</span>
                     <span className="btn-arrow-icon" style={{ display: 'inline-block' }}><Send style={{ width: '14px', height: '14px' }} /></span>
                   </button>
 

@@ -31,6 +31,8 @@ export default function ServiceBbpsPage({ onOpenLogin, onBack, onShowToast }) {
     message: ''
   });
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
 
   const categories = [
     { icon: <Zap style={{ width: '20px', height: '20px' }} />, title: 'Electricity Bills', desc: 'All state electricity distribution boards across India' },
@@ -41,22 +43,38 @@ export default function ServiceBbpsPage({ onOpenLogin, onBack, onShowToast }) {
     { icon: <Wifi style={{ width: '20px', height: '20px' }} />, title: 'Broadband & Landline', desc: 'ACT, JioFiber, Airtel Xstream, BSNL Fiber' }
   ];
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.name || !formData.mobile) return;
+    setIsSubmitting(true);
+    setSubmitError(null);
 
-    submitInquiry({
-      type: 'BBPS',
-      name: formData.name,
-      phone: formData.mobile,
-      category: formData.category || 'Retail Outlet',
-      location: formData.city || 'Hyderabad / AP & TS',
-      amount: formData.expectedTxns || '100 - 300 bills / month',
-      remarks: `${formData.outletName ? formData.outletName + ' • ' : ''}${formData.message || 'BBPS Terminal activation request'}`
-    }).catch(err => console.error(err));
+    try {
+      const res = await submitInquiry({
+        type: 'BBPS',
+        name: formData.name,
+        phone: formData.mobile,
+        category: formData.category || 'Retail Outlet',
+        location: formData.city || 'Hyderabad / AP & TS',
+        amount: formData.expectedTxns || '100 - 300 bills / month',
+        remarks: `${formData.outletName ? formData.outletName + ' • ' : ''}${formData.message || 'BBPS Terminal activation request'}`
+      });
 
-    setSubmitted(true);
-    if (onShowToast) onShowToast('✓ BBPS activation inquiry submitted to Admin for onboarding!');
+      if (res && res.success) {
+        setSubmitted(true);
+        if (onShowToast) onShowToast('✓ BBPS activation inquiry submitted to Admin for onboarding!');
+      } else {
+        const msg = res?.message || 'Failed to submit BBPS inquiry on server.';
+        setSubmitError(msg);
+        if (onShowToast) onShowToast('⚠️ ' + msg);
+      }
+    } catch (err) {
+      const msg = err.message || 'Network error submitting BBPS inquiry.';
+      setSubmitError(msg);
+      if (onShowToast) onShowToast('⚠️ ' + msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -272,12 +290,19 @@ export default function ServiceBbpsPage({ onOpenLogin, onBack, onShowToast }) {
                   ></textarea>
                 </div>
 
+                {submitError && (
+                  <div style={{ padding: '0.75rem', borderRadius: '10px', background: '#FEF2F2', border: '1px solid #FCA5A5', color: '#DC2626', fontSize: '0.8125rem', fontWeight: 600 }}>
+                    ⚠️ {submitError}
+                  </div>
+                )}
+
                 <button 
                   type="submit" 
+                  disabled={isSubmitting}
                   className="btn btn-primary"
-                  style={{ backgroundColor: '#D97706', borderColor: '#B45309', width: '100%', justifyContent: 'center', height: '50px', fontSize: '1rem', fontWeight: 800, boxShadow: '0 8px 24px rgba(217,119,6,0.35)' }}
+                  style={{ backgroundColor: '#D97706', borderColor: '#B45309', width: '100%', justifyContent: 'center', height: '50px', fontSize: '1rem', fontWeight: 800, boxShadow: '0 8px 24px rgba(217,119,6,0.35)', opacity: isSubmitting ? 0.7 : 1 }}
                 >
-                  <span>Submit</span>
+                  <span>{isSubmitting ? 'Submitting to Server...' : 'Submit'}</span>
                   <Send style={{ width: '16px', height: '16px' }} />
                 </button>
 
