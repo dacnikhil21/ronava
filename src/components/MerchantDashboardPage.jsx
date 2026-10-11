@@ -877,22 +877,30 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     const txns = activeMachineTransactions;
     const withs = activeMachineWithdrawals;
 
-    const totalSales = txns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-    const approvedTxns = txns.filter(t => (t.status || '').toUpperCase() === 'APPROVED');
-    
-    // Accurate net settlement amount credited (gross minus company fee)
-    const receivedSales = approvedTxns.reduce((sum, t) => {
+    // Separate direct card swipes from downline commission entries
+    let directSwipeNet = 0;
+    let directCommissions = 0;
+
+    approvedTxns.forEach(t => {
       const gross = parseFloat(t.amount) || 0;
-      let fee = 0;
-      if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
-        try {
-          const jsonPart = t.notes.slice(t.notes.indexOf('{'));
-          const meta = JSON.parse(jsonPart);
-          fee = parseFloat(meta.company_fee) || 0;
-        } catch (_) {}
+      const isComm = t.is_commission === true || t.activityType === 'COMMISSION_EARNED' || t.type === 'COMMISSION_EARNED';
+      if (isComm) {
+        // Commission earned from downline is 100% net profit. No card swipe fees can be deducted!
+        directCommissions += gross;
+      } else {
+        let fee = 0;
+        if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
+          try {
+            const jsonPart = t.notes.slice(t.notes.indexOf('{'));
+            const meta = JSON.parse(jsonPart);
+            fee = parseFloat(meta.company_fee) || 0;
+          } catch (_) {}
+        }
+        directSwipeNet += Math.max(0, gross - fee);
       }
-      return sum + Math.max(0, gross - fee);
-    }, 0);
+    });
+
+    const receivedSales = directSwipeNet;
 
     const pendingTxns = txns.filter(t => (t.status || '').toUpperCase() === 'PENDING');
     const pendingBalance = pendingTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
@@ -906,15 +914,17 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     let earnedCommission = 0;
     if (userRole !== 'MERCHANT' && userRole !== 'Retailer') {
       const chComms = networkData?.channel_commissions;
+      let networkComm = 0;
       if (chComms) {
         if (selectedMachineKey === 'qr') {
-          earnedCommission = chComms.qr || 0;
+          networkComm = chComms.qr || 0;
         } else if (selectedMachineKey === 'payswiff') {
-          earnedCommission = chComms.payswiff || 0;
+          networkComm = chComms.payswiff || 0;
         } else {
-          earnedCommission = chComms.pinelabs || 0;
+          networkComm = chComms.pinelabs || 0;
         }
       }
+      earnedCommission = Math.max(directCommissions, networkComm);
     }
 
     // Channel Net Credited = Net Sales Credited + Downline Commission Earned strictly for this active channel
@@ -933,13 +943,16 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     const channelWithdrawableBalance = Math.max(0, parseFloat((channelAvailableBalance - activeHold).toFixed(2)));
 
     // Channel-specific sales volume (for distributors/uplines without direct swipes, show downline sales for this machine)
-    const effectiveTotalSales = (totalSales > 0 || userRole === 'MERCHANT' || userRole === 'Retailer')
-      ? totalSales
-      : (networkData?.channel_volumes ? (
-          selectedMachineKey === 'qr' ? (networkData.channel_volumes.qr || 0) : (
-            selectedMachineKey === 'payswiff' ? (networkData.channel_volumes.payswiff || 0) : (networkData.channel_volumes.pinelabs || 0)
-          )
-        ) : 0);
+    const isRetail = userRole === 'MERCHANT' || userRole === 'Retailer';
+    const directSalesVolume = txns.filter(t => !t.is_commission && t.activityType !== 'COMMISSION_EARNED').reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+    const activeChVol = networkData?.channel_volumes ? (
+      selectedMachineKey === 'qr' ? (networkData.channel_volumes.qr || 0) : (
+        selectedMachineKey === 'payswiff' ? (networkData.channel_volumes.payswiff || 0) : (networkData.channel_volumes.pinelabs || 0)
+      )
+    ) : 0;
+    const effectiveTotalSales = isRetail 
+      ? directSalesVolume 
+      : (activeChVol > 0 ? activeChVol : (directSalesVolume > 0 ? directSalesVolume : (selectedMachineKey === 'pine_labs' || selectedMachineKey === 'pinelabs' ? parseFloat(wallet?.total_sales || 0) : 0)));
 
     return {
       available_balance: channelAvailableBalance,
@@ -961,17 +974,30 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       return d === todayStr;
     });
 
-    const sales = todayTxns.reduce((acc, t) => acc + (parseFloat(t.amount) || 0), 0);
-    const collected = todayTxns.filter(t => (t.status || '').toUpperCase() === 'APPROVED').reduce((acc, t) => acc + (parseFloat(t.amount) || 0), 0);
-    const pending = todayTxns.filter(t => (t.status || '').toUpperCase() === 'PENDING').reduce((acc, t) => acc + (parseFloat(t.amount) || 0), 0);
+    const isRetail = userRole === 'MERCHANT' || userRole === 'Retailer';
+    const directTodayTxns = todayTxns.filter(t => !t.is_commission && t.activityType !== 'COMMISSION_EARNED');
+    const commTodayTxns = todayTxns.filter(t => t.is_commission === true || t.activityType === 'COMMISSION_EARNED');
+
+    const sales = isRetail
+      ? directTodayTxns.reduce((acc, t) => acc + (parseFloat(t.amount) || 0), 0)
+      : (directTodayTxns.length > 0
+          ? directTodayTxns.reduce((acc, t) => acc + (parseFloat(t.amount) || 0), 0)
+          : (networkData?.channel_volumes ? (
+              selectedMachineKey === 'qr' ? (networkData.channel_volumes.today_qr || 0) : (
+                selectedMachineKey === 'payswiff' ? (networkData.channel_volumes.today_payswiff || 0) : (networkData.channel_volumes.today_pinelabs || 0)
+              )
+            ) : 0));
+
+    const collected = directTodayTxns.filter(t => (t.status || '').toUpperCase() === 'APPROVED').reduce((acc, t) => acc + (parseFloat(t.amount) || 0), 0);
+    const pending = directTodayTxns.filter(t => (t.status || '').toUpperCase() === 'PENDING').reduce((acc, t) => acc + (parseFloat(t.amount) || 0), 0);
 
     return {
       sales,
       collected,
       pending,
-      count: todayTxns.length
+      count: isRetail ? directTodayTxns.length : (directTodayTxns.length || commTodayTxns.length)
     };
-  }, [activeMachineTransactions]);
+  }, [activeMachineTransactions, userRole, networkData, selectedMachineKey]);
 
   // Handle POS Provider Change in Onboarding Drawer
   const handleOnboardProviderChange = (provider) => {

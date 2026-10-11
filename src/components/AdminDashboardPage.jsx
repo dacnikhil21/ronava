@@ -1046,6 +1046,30 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     return networkUsers.filter(u => u.role === 'MERCHANT');
   }, [networkUsers]);
 
+  // Dynamic Real-Time Commission Audit Resolver per User from verified transactions
+  const getUserTotalCommissionEarned = (userId) => {
+    if (!userId) return 0;
+    const uid = String(userId).toUpperCase();
+    let total = 0;
+    (transactionsLedger || []).forEach(t => {
+      if ((t.status || '').toUpperCase() === 'APPROVED' && t.notes && typeof t.notes === 'string') {
+        try {
+          if (t.notes.includes('commission_splits')) {
+            const jsonPart = t.notes.slice(t.notes.indexOf('{'));
+            const meta = JSON.parse(jsonPart);
+            if (Array.isArray(meta.commission_splits)) {
+              const split = meta.commission_splits.find(s => (s.user_id || '').toUpperCase() === uid);
+              if (split) {
+                total += parseFloat(split.amount) || 0;
+              }
+            }
+          }
+        } catch (_) {}
+      }
+    });
+    return total;
+  };
+
   // Open Dossier for Any Member (Full Dedicated Page)
   const handleOpenDossier = (user, type = 'MERCHANT', isDrilldown = false) => {
     if (viewingUserDossier && isDrilldown) {
@@ -4943,12 +4967,20 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 ₹{mVol.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                               </strong>
                             </div>
-                            <div>
-                              <span style={{ fontSize: '0.55rem', color: '#7C3AED', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Master Cut ({parseFloat(m.margin_rate || m.upline_override_rate || 0).toFixed(2)}%)</span>
-                              <strong style={{ fontSize: '0.8125rem', color: '#7C3AED', fontWeight: 900 }}>
-                                +₹{(mVol * ((parseFloat(m.margin_rate || m.upline_override_rate || 0)) / 100)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                              </strong>
-                            </div>
+                            {(() => {
+                              const mCommEarned = getUserTotalCommissionEarned(m.id) || parseFloat(m.available_balance || 0);
+                              const mEffRate = (mVol > 0 && mCommEarned > 0) ? ((mCommEarned / mVol) * 100) : 0;
+                              return (
+                                <div>
+                                  <span style={{ fontSize: '0.55rem', color: '#7C3AED', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>
+                                    Master Cut {mEffRate > 0 ? `(${mEffRate.toFixed(2)}%)` : ''}
+                                  </span>
+                                  <strong style={{ fontSize: '0.8125rem', color: '#7C3AED', fontWeight: 900 }}>
+                                    +₹{mCommEarned.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                  </strong>
+                                </div>
+                              );
+                            })()}
                             <div>
                               <span style={{ fontSize: '0.55rem', color: '#0F52BA', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Master Wallet</span>
                               <strong style={{ fontSize: '0.8125rem', color: '#0F52BA', fontWeight: 900 }}>
@@ -5144,12 +5176,20 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 ₹{sdVol.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                               </strong>
                             </div>
-                            <div>
-                              <span style={{ fontSize: '0.55rem', color: '#7C3AED', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>SD Cut ({sdCutRate.toFixed(2)}%)</span>
-                              <strong style={{ fontSize: '0.8125rem', color: '#7C3AED', fontWeight: 900 }}>
-                                +₹{(sdVol * (sdCutRate / 100)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                              </strong>
-                            </div>
+                            {(() => {
+                              const sdCommEarned = getUserTotalCommissionEarned(sd.id);
+                              const sdEffRate = (sdVol > 0 && sdCommEarned > 0) ? ((sdCommEarned / sdVol) * 100) : 0;
+                              return (
+                                <div>
+                                  <span style={{ fontSize: '0.55rem', color: '#7C3AED', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>
+                                    SD Cut {sdEffRate > 0 ? `(${sdEffRate.toFixed(2)}%)` : ''}
+                                  </span>
+                                  <strong style={{ fontSize: '0.8125rem', color: '#7C3AED', fontWeight: 900 }}>
+                                    +₹{sdCommEarned.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                  </strong>
+                                </div>
+                              );
+                            })()}
                             <div>
                               <span style={{ fontSize: '0.55rem', color: '#0F52BA', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>SD Wallet</span>
                               <strong style={{ fontSize: '0.8125rem', color: '#0F52BA', fontWeight: 900 }}>
@@ -5327,12 +5367,20 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 ₹{ddVol.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                               </strong>
                             </div>
-                            <div>
-                              <span style={{ fontSize: '0.55rem', color: '#D97706', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>DD Cut ({ddCutRate.toFixed(2)}%)</span>
-                              <strong style={{ fontSize: '0.8125rem', color: '#D97706', fontWeight: 900 }}>
-                                +₹{(ddVol * (ddCutRate / 100)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                              </strong>
-                            </div>
+                            {(() => {
+                              const ddCommEarned = getUserTotalCommissionEarned(dd.id);
+                              const ddEffRate = (ddVol > 0 && ddCommEarned > 0) ? ((ddCommEarned / ddVol) * 100) : 0;
+                              return (
+                                <div>
+                                   <span style={{ fontSize: '0.55rem', color: '#D97706', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>
+                                     DD Cut {ddEffRate > 0 ? `(${ddEffRate.toFixed(2)}%)` : ''}
+                                   </span>
+                                   <strong style={{ fontSize: '0.8125rem', color: '#D97706', fontWeight: 900 }}>
+                                     +₹{ddCommEarned.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                   </strong>
+                                </div>
+                              );
+                            })()}
                             <div>
                               <span style={{ fontSize: '0.55rem', color: '#0F52BA', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>DD Wallet</span>
                               <strong style={{ fontSize: '0.8125rem', color: '#0F52BA', fontWeight: 900 }}>
@@ -5505,12 +5553,20 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 ₹{distVol.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                               </strong>
                             </div>
-                            <div>
-                              <span style={{ fontSize: '0.55rem', color: '#0F52BA', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Dist Cut ({distCutRate.toFixed(2)}%)</span>
-                              <strong style={{ fontSize: '0.8125rem', color: '#0F52BA', fontWeight: 900 }}>
-                                +₹{(distVol * (distCutRate / 100)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                              </strong>
-                            </div>
+                            {(() => {
+                              const distCommEarned = getUserTotalCommissionEarned(d.id);
+                              const distEffRate = (distVol > 0 && distCommEarned > 0) ? ((distCommEarned / distVol) * 100) : 0;
+                              return (
+                                <div>
+                                  <span style={{ fontSize: '0.55rem', color: '#0F52BA', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>
+                                    Dist Cut {distEffRate > 0 ? `(${distEffRate.toFixed(2)}%)` : ''}
+                                  </span>
+                                  <strong style={{ fontSize: '0.8125rem', color: '#0F52BA', fontWeight: 900 }}>
+                                    +₹{distCommEarned.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                  </strong>
+                                </div>
+                              );
+                            })()}
                             <div>
                               <span style={{ fontSize: '0.55rem', color: '#10B981', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Dist Wallet</span>
                               <strong style={{ fontSize: '0.8125rem', color: '#059669', fontWeight: 900 }}>
