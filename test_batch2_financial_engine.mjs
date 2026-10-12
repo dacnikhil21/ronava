@@ -87,48 +87,44 @@ setMockQueryHandler(async (sql, params = []) => {
     }
     return [];
   }
-  if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('unrecovered_deficit = $2') && cleanSql.includes('received_sales = GREATEST')) {
+  if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('received_sales = GREATEST(0.0, received_sales - $2)')) {
     // Merchant Reversal
-    const w = mockDb.wallets.find(x => x.user_id === params[3]);
+    const w = mockDb.wallets.find(x => x.user_id === params[2]);
     if (w) {
-      w.available_balance = parseFloat(params[0]);
-      w.unrecovered_deficit = parseFloat(params[1]);
-      w.received_sales = Math.max(0.0, parseFloat(w.received_sales || 0) - parseFloat(params[2]));
-      w.total_sales = Math.max(0.0, parseFloat(w.total_sales || 0) - parseFloat(params[2]));
+      w.available_balance = Math.max(0.0, parseFloat(w.available_balance || 0) - parseFloat(params[0]));
+      w.received_sales = Math.max(0.0, parseFloat(w.received_sales || 0) - parseFloat(params[1]));
+      w.total_sales = Math.max(0.0, parseFloat(w.total_sales || 0) - parseFloat(params[1]));
       return [{ ...w }];
     }
     return [];
   }
-  if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('unrecovered_deficit = $2') && cleanSql.includes('total_sales = GREATEST')) {
+  if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('total_sales = GREATEST(0.0, total_sales - $2)')) {
     // Upline Reversal
-    const w = mockDb.wallets.find(x => x.user_id === params[3]);
+    const w = mockDb.wallets.find(x => x.user_id === params[2]);
     if (w) {
-      w.available_balance = parseFloat(params[0]);
-      w.unrecovered_deficit = parseFloat(params[1]);
-      w.total_sales = Math.max(0.0, parseFloat(w.total_sales || 0) - parseFloat(params[2]));
+      w.available_balance = Math.max(0.0, parseFloat(w.available_balance || 0) - parseFloat(params[0]));
+      w.total_sales = Math.max(0.0, parseFloat(w.total_sales || 0) - parseFloat(params[1]));
       return [{ ...w }];
     }
     return [];
   }
-  if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('unrecovered_deficit = $2') && cleanSql.includes('received_sales = received_sales + $3')) {
+  if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('received_sales = received_sales + $2')) {
     // Merchant Sale credit
-    const w = mockDb.wallets.find(x => x.user_id === params[3]);
+    const w = mockDb.wallets.find(x => x.user_id === params[2]);
     if (w) {
-      w.available_balance = parseFloat(params[0]);
-      w.unrecovered_deficit = parseFloat(params[1]);
-      w.received_sales = parseFloat((parseFloat(w.received_sales || 0) + parseFloat(params[2])).toFixed(2));
-      w.total_sales = parseFloat((parseFloat(w.total_sales || 0) + parseFloat(params[2])).toFixed(2));
+      w.available_balance = parseFloat((parseFloat(w.available_balance || 0) + parseFloat(params[0])).toFixed(2));
+      w.received_sales = parseFloat((parseFloat(w.received_sales || 0) + parseFloat(params[1])).toFixed(2));
+      w.total_sales = parseFloat((parseFloat(w.total_sales || 0) + parseFloat(params[1])).toFixed(2));
       return [{ ...w }];
     }
     return [];
   }
-  if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('unrecovered_deficit = $2') && cleanSql.includes('total_sales = total_sales + $3')) {
+  if (cleanSql.includes('UPDATE wallets') && cleanSql.includes('total_sales = total_sales + $2') && cleanSql.includes('available_balance = available_balance + $1')) {
     // Upline Commission credit
-    const w = mockDb.wallets.find(x => x.user_id === params[3]);
+    const w = mockDb.wallets.find(x => x.user_id === params[2]);
     if (w) {
-      w.available_balance = parseFloat(params[0]);
-      w.unrecovered_deficit = parseFloat(params[1]);
-      w.total_sales = parseFloat((parseFloat(w.total_sales || 0) + parseFloat(params[2])).toFixed(2));
+      w.available_balance = parseFloat((parseFloat(w.available_balance || 0) + parseFloat(params[0])).toFixed(2));
+      w.total_sales = parseFloat((parseFloat(w.total_sales || 0) + parseFloat(params[1])).toFixed(2));
       return [{ ...w }];
     }
     return [];
@@ -641,8 +637,6 @@ async function runTests() {
     assert(rejectSaleRes.status === 200, `Transaction reversal executed (Status: ${rejectSaleRes.status})`);
     const mWalletAfterReject = mockDb.wallets.find(w => w.user_id === 'MID101');
     assert(parseFloat(mWalletAfterReject.available_balance) === 0.00, `Available balance capped at 0.00: ₹${mWalletAfterReject.available_balance}`);
-    assert(parseFloat(mWalletAfterReject.unrecovered_deficit) === 9100.00, `Exact Deficit tracked: ₹${mWalletAfterReject.unrecovered_deficit} (Expected: 9100.00)`);
-
     // Upline and Admin reversals check
     const distWalletAfterReject = mockDb.wallets.find(w => w.user_id === 'DIST101');
     const adminWalletAfterReject = mockDb.wallets.find(w => w.user_id === 'ADM001');
@@ -659,25 +653,11 @@ async function runTests() {
     });
     assert(doubleRejectRes.status === 400, `Double rejection prevented with HTTP 400 (Status: ${doubleRejectRes.status})`);
 
-    // Withdrawals must be blocked while deficit exists
-    const blockedWithdrawRes = await apiRequest('/api/withdrawals/request', {
-      method: 'POST',
-      body: {
-        merchant_id: 'MID101',
-        amount: 100.00,
-        bank_name: 'State Bank of India',
-        account_number: '123456789012',
-        ifsc: 'SBIN0001234'
-      }
-    });
-    assert(blockedWithdrawRes.status === 400, `Withdrawal blocked due to outstanding deficit (Status: ${blockedWithdrawRes.status})`);
-
     // -------------------------------------------------------------
-    // TEST 8: Automatic Deficit Clearance on Subsequent Sales
+    // TEST 8: Wallet Credit on Subsequent Sales
     // Merchant records a new sale of ₹10,000 (Net Credit = ₹9,820.00).
-    // It should clear the ₹9,100.00 deficit, leaving ₹720.00 available balance and ₹0.00 deficit!
     // -------------------------------------------------------------
-    console.log('\n--- TEST 8: Automatic Deficit Clearance on Future Sales ---');
+    console.log('\n--- TEST 8: Wallet Credit on Future Sales ---');
     const recoverySaleRes = await apiRequest('/api/transactions/record', {
       method: 'POST',
       body: {
@@ -688,10 +668,9 @@ async function runTests() {
       }
     });
 
-    assert(recoverySaleRes.status === 201, `Recovery sale recorded (Status: ${recoverySaleRes.status})`);
+    assert(recoverySaleRes.status === 201, `Future sale recorded (Status: ${recoverySaleRes.status})`);
     const mWalletRecovered = mockDb.wallets.find(w => w.user_id === 'MID101');
-    assert(parseFloat(mWalletRecovered.unrecovered_deficit) === 0.00, `Deficit fully cleared: ₹${mWalletRecovered.unrecovered_deficit} (Expected: 0.00)`);
-    assert(parseFloat(mWalletRecovered.available_balance) === 720.00, `Available balance credited with remainder: ₹${mWalletRecovered.available_balance} (Expected: 720.00)`);
+    assert(parseFloat(mWalletRecovered.available_balance) === 9820.00, `Available balance credited: ₹${mWalletRecovered.available_balance} (Expected: 9820.00)`);
 
     // -------------------------------------------------------------
     // TEST 9: Commission Withdrawal Reserve (₹0) & Admin Master Toggle

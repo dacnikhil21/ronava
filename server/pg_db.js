@@ -220,7 +220,7 @@ export async function initPostgresSchema() {
   try {
     const client = await pool.connect();
     try {
-      await client.query(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS unrecovered_deficit NUMERIC DEFAULT 0.0`).catch(e => console.error('[Migration Error wallets.unrecovered_deficit]:', e.message));
+
       await client.query(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawn_amount NUMERIC DEFAULT 0.0`).catch(e => console.error('[Migration Error wallets.withdrawn_amount]:', e.message));
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS channels JSONB DEFAULT '{}'::jsonb`).catch(e => console.error('[Migration Error users.channels]:', e.message));
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'ACTIVE'`).catch(e => console.error('[Migration Error users.status]:', e.message));

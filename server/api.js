@@ -450,6 +450,9 @@ export async function handleApiRequest(req, res) {
           wallet: updatedWallet
         });
       } else if (action === 'REJECT') {
+        if (txn.status === 'REJECTED') {
+          return sendJson(res, 400, { success: false, message: `Transaction ${targetTxnId} is already REJECTED.` });
+        }
         const finalRemark = remark ? `[REVERSED_BY_ADMIN] ${remark}` : '[REVERSED_BY_ADMIN] Transaction rejected by Admin';
 
         // Atomic reversal with row-locked deficit tracking
@@ -480,49 +483,28 @@ export async function handleApiRequest(req, res) {
           const uplineSplits = Array.isArray(meta.commission_splits) ? meta.commission_splits : [];
           const adminMargin = meta.admin_net_margin ? parseFloat(meta.admin_net_margin) : 0.0;
 
-          // Lock merchant wallet
-          const mWallets = (await client.query(`SELECT * FROM wallets WHERE UPPER(user_id) = UPPER($1) FOR UPDATE`, [liveTxn.merchant_id])).rows;
-          const mWallet = mWallets[0] || { available_balance: 0, unrecovered_deficit: 0, received_sales: 0, total_sales: 0 };
-
-          const currAvail = parseFloat(mWallet.available_balance || 0);
-          const currDeficit = parseFloat(mWallet.unrecovered_deficit || 0);
-          const availDeducted = Math.min(currAvail, netCredited);
-          const deficitAdded = parseFloat((netCredited - availDeducted).toFixed(2));
-          const newAvail = parseFloat((currAvail - availDeducted).toFixed(2));
-          const newDeficit = parseFloat((currDeficit + deficitAdded).toFixed(2));
-
+          // Reversal for merchant wallet
           await client.query(`
             UPDATE wallets 
-            SET available_balance = $1,
-                unrecovered_deficit = $2,
-                received_sales = GREATEST(0.0, received_sales - $3),
-                total_sales = GREATEST(0.0, total_sales - $3),
+            SET available_balance = GREATEST(0.0, available_balance - $1),
+                received_sales = GREATEST(0.0, received_sales - $2),
+                total_sales = GREATEST(0.0, total_sales - $2),
                 updated_at = CURRENT_TIMESTAMP
-            WHERE UPPER(user_id) = UPPER($4)
-          `, [newAvail, newDeficit, parseFloat(liveTxn.amount), liveTxn.merchant_id]);
+            WHERE UPPER(user_id) = UPPER($3)
+          `, [netCredited, parseFloat(liveTxn.amount), liveTxn.merchant_id]);
 
-          // Reversal for each upline with deficit tracking
+          // Reversal for each upline
           for (const split of uplineSplits) {
             const uId = split.user_id;
             const commAmt = parseFloat(split.amount) || 0;
             if (commAmt > 0 && uId) {
-              const uWallets = (await client.query(`SELECT * FROM wallets WHERE UPPER(user_id) = UPPER($1) FOR UPDATE`, [uId])).rows;
-              const uWallet = uWallets[0] || { available_balance: 0, unrecovered_deficit: 0, total_sales: 0 };
-              const uCurrAvail = parseFloat(uWallet.available_balance || 0);
-              const uCurrDeficit = parseFloat(uWallet.unrecovered_deficit || 0);
-              const uAvailDed = Math.min(uCurrAvail, commAmt);
-              const uDeficitAdded = parseFloat((commAmt - uAvailDed).toFixed(2));
-              const uNewAvail = parseFloat((uCurrAvail - uAvailDed).toFixed(2));
-              const uNewDeficit = parseFloat((uCurrDeficit + uDeficitAdded).toFixed(2));
-
               await client.query(`
                 UPDATE wallets 
-                SET available_balance = $1,
-                    unrecovered_deficit = $2,
-                    total_sales = GREATEST(0.0, total_sales - $3),
+                SET available_balance = GREATEST(0.0, available_balance - $1),
+                    total_sales = GREATEST(0.0, total_sales - $2),
                     updated_at = CURRENT_TIMESTAMP
-                WHERE UPPER(user_id) = UPPER($4)
-              `, [uNewAvail, uNewDeficit, parseFloat(liveTxn.amount), uId]);
+                WHERE UPPER(user_id) = UPPER($3)
+              `, [commAmt, parseFloat(liveTxn.amount), uId]);
             }
           }
 
@@ -559,7 +541,7 @@ export async function handleApiRequest(req, res) {
             netCredited,
             liveTxn.provider || 'Pine Labs',
             liveTxn.ref_number || `REF-${revId}`,
-            `[REVERSAL_CLAWBACK] ${JSON.stringify({ original_txn_id: targetTxnId, deficit_recorded: deficitAdded })}`,
+            `[REVERSAL_CLAWBACK] ${JSON.stringify({ original_txn_id: targetTxnId, amount_reversed: netCredited })}`,
             finalRemark
           ]);
         });
@@ -1522,23 +1504,15 @@ export async function handleApiRequest(req, res) {
           `, [merchant.id])).rows[0];
         }
 
-        const mAvail = parseFloat(mWallet.available_balance || 0);
-        const mDeficit = parseFloat(mWallet.unrecovered_deficit || 0);
-        const deficitCleared = Math.min(mDeficit, netCreditAmount);
-        const actualCredit = parseFloat((netCreditAmount - deficitCleared).toFixed(2));
-        const newAvail = parseFloat((mAvail + actualCredit).toFixed(2));
-        const newDeficit = parseFloat((mDeficit - deficitCleared).toFixed(2));
-
         const updMWalletRes = await client.query(`
           UPDATE wallets 
-          SET available_balance = $1,
-              unrecovered_deficit = $2,
-              received_sales = received_sales + $3,
-              total_sales = total_sales + $3,
+          SET available_balance = available_balance + $1,
+              received_sales = received_sales + $2,
+              total_sales = total_sales + $2,
               updated_at = CURRENT_TIMESTAMP
-          WHERE UPPER(user_id) = UPPER($4)
+          WHERE UPPER(user_id) = UPPER($3)
           RETURNING *
-        `, [newAvail, newDeficit, numAmount, merchant.id]);
+        `, [netCreditAmount, numAmount, merchant.id]);
         updatedMerchantWallet = updMWalletRes.rows[0];
 
         // Credit Uplines
@@ -1558,21 +1532,13 @@ export async function handleApiRequest(req, res) {
               uWallet = insU.rows[0];
             }
 
-            const uAvail = parseFloat(uWallet.available_balance || 0);
-            const uDeficit = parseFloat(uWallet.unrecovered_deficit || 0);
-            const uDeficitCleared = Math.min(uDeficit, commAmt);
-            const uActualCredit = parseFloat((commAmt - uDeficitCleared).toFixed(2));
-            const uNewAvail = parseFloat((uAvail + uActualCredit).toFixed(2));
-            const uNewDeficit = parseFloat((uDeficit - uDeficitCleared).toFixed(2));
-
             await client.query(`
               UPDATE wallets 
-              SET available_balance = $1,
-                  unrecovered_deficit = $2,
-                  total_sales = total_sales + $3,
+              SET available_balance = available_balance + $1,
+                  total_sales = total_sales + $2,
                   updated_at = CURRENT_TIMESTAMP
-              WHERE UPPER(user_id) = UPPER($4)
-            `, [uNewAvail, uNewDeficit, numAmount, uId]);
+              WHERE UPPER(user_id) = UPPER($3)
+            `, [commAmt, numAmount, uId]);
           }
         }
 
@@ -1896,11 +1862,6 @@ export async function handleApiRequest(req, res) {
           }
 
           const currAvail = parseFloat(wallet.available_balance || 0);
-          const currDeficit = parseFloat(wallet.unrecovered_deficit || 0);
-
-          if (currDeficit > 0) {
-            throw new Error(`Withdrawal blocked: Outstanding unrecovered deficit of ₹${currDeficit.toFixed(2)} must be cleared first.`);
-          }
 
           const maxWithdrawable = Math.max(0.0, parseFloat((currAvail - reserveHold).toFixed(2)));
           if (numAmount > maxWithdrawable) {
@@ -2293,9 +2254,8 @@ export async function handleApiRequest(req, res) {
 
     if (pathname === '/api/admin/system/migrate' && (method === 'POST' || method === 'GET')) {
       try {
-        await pgQuery(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS unrecovered_deficit NUMERIC DEFAULT 0.0`);
-        await pgQuery(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawn_amount NUMERIC DEFAULT 0.0`);
-        await pgQuery(`ALTER TABLE users ADD COLUMN IF NOT EXISTS channels JSONB DEFAULT '{}'::jsonb`);
+        await pgQuery(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawn_amount NUMERIC DEFAULT 0.0`).catch(() => {});
+        await pgQuery(`ALTER TABLE users ADD COLUMN IF NOT EXISTS channels JSONB DEFAULT '{}'::jsonb`).catch(() => {});
         const cols = await pgQuery(`SELECT column_name FROM information_schema.columns WHERE table_name = 'wallets'`);
         return sendJson(res, 200, { 
           success: true, 
