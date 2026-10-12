@@ -4424,14 +4424,14 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase' }}>
-                          👥 Distributor Payouts
+                          👥 Partner Commissions
                         </span>
-                        <div style={{ width: '24px', height: '24px', borderRadius: '6px', background: '#FEF2F2', color: '#DC2626', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <div style={{ width: '24px', height: '24px', borderRadius: '6px', background: '#EEF2FF', color: '#4F46E5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           <GitFork style={{ width: '13px', height: '13px' }} />
                         </div>
                       </div>
-                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#DC2626', margin: '6px 0 2px' }}>
-                        -₹{profitDistributionData.totalUplinesDistributed.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#4F46E5', margin: '6px 0 2px' }}>
+                        ₹{profitDistributionData.totalUplinesDistributed.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h3>
                       <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 600 }}>
                         Distributed to upline partners
@@ -4737,8 +4737,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                     ₹{(item.fee_deducted || 0).toFixed(2)}
                                   </td>
 
-                                  <td style={{ padding: '0.625rem 0.75rem', textAlign: 'right', color: '#DC2626', fontWeight: 600 }}>
-                                    {item.paid_uplines > 0 ? `-₹${item.paid_uplines.toFixed(2)}` : '₹0.00'}
+                                  <td style={{ padding: '0.625rem 0.75rem', textAlign: 'right', color: '#4F46E5', fontWeight: 600 }}>
+                                    {item.paid_uplines > 0 ? `₹${item.paid_uplines.toFixed(2)}` : '₹0.00'}
                                   </td>
 
                                   <td style={{ padding: '0.625rem 0.75rem', textAlign: 'right' }}>
@@ -4858,8 +4858,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                     </div>
                                     {item.paid_uplines > 0 && (
                                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                        <span style={{ color: '#64748B' }}>Uplines Cut:</span>
-                                        <span style={{ color: '#DC2626', fontWeight: 700 }}>-₹{item.paid_uplines.toFixed(2)}</span>
+                                        <span style={{ color: '#64748B' }}>Partner Commissions:</span>
+                                        <span style={{ color: '#4F46E5', fontWeight: 700 }}>₹{item.paid_uplines.toFixed(2)}</span>
                                       </div>
                                     )}
                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', paddingTop: '4px', borderTop: '1px solid #F1F5F9' }}>
