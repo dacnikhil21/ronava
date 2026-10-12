@@ -450,29 +450,38 @@ export async function handleApiRequest(req, res) {
           wallet: updatedWallet
         });
       } else if (action === 'REJECT') {
-        if (txn.status === 'REJECTED') {
-          return sendJson(res, 400, { success: false, message: `Transaction ${targetTxnId} is already REJECTED.` });
-        }
-
         const finalRemark = remark ? `[REVERSED_BY_ADMIN] ${remark}` : '[REVERSED_BY_ADMIN] Transaction rejected by Admin';
 
-        // Parse commission metadata snapshot
-        let meta = {};
-        if (txn.notes && typeof txn.notes === 'string' && txn.notes.includes('[CARD_SWIPE_ENTRY]')) {
-          try {
-            const jsonPart = txn.notes.slice(txn.notes.indexOf('{'));
-            meta = JSON.parse(jsonPart);
-          } catch (_) {}
-        }
-
-        const netCredited = meta.net_credited !== undefined ? parseFloat(meta.net_credited) : parseFloat(txn.amount);
-        const uplineSplits = Array.isArray(meta.commission_splits) ? meta.commission_splits : [];
-        const adminMargin = meta.admin_net_margin ? parseFloat(meta.admin_net_margin) : 0.0;
-
-        // Atomic reversal with deficit tracking
+        // Atomic reversal with row-locked deficit tracking
         await withTransaction(async (client) => {
+          // 1. Lock transaction row to prevent concurrent double-reversal
+          const lockTxnRows = (await client.query(
+            `SELECT * FROM transactions WHERE id = $1 FOR UPDATE`, 
+            [targetTxnId]
+          )).rows;
+          const liveTxn = lockTxnRows[0];
+          if (!liveTxn) {
+            throw new Error(`Transaction ${targetTxnId} not found.`);
+          }
+          if (liveTxn.status === 'REJECTED') {
+            throw new Error(`Transaction ${targetTxnId} is already REJECTED.`);
+          }
+
+          // Parse commission metadata snapshot
+          let meta = {};
+          if (liveTxn.notes && typeof liveTxn.notes === 'string' && liveTxn.notes.includes('[CARD_SWIPE_ENTRY]')) {
+            try {
+              const jsonPart = liveTxn.notes.slice(liveTxn.notes.indexOf('{'));
+              meta = JSON.parse(jsonPart);
+            } catch (_) {}
+          }
+
+          const netCredited = meta.net_credited !== undefined ? parseFloat(meta.net_credited) : parseFloat(liveTxn.amount);
+          const uplineSplits = Array.isArray(meta.commission_splits) ? meta.commission_splits : [];
+          const adminMargin = meta.admin_net_margin ? parseFloat(meta.admin_net_margin) : 0.0;
+
           // Lock merchant wallet
-          const mWallets = (await client.query(`SELECT * FROM wallets WHERE UPPER(user_id) = UPPER($1) FOR UPDATE`, [txn.merchant_id])).rows;
+          const mWallets = (await client.query(`SELECT * FROM wallets WHERE UPPER(user_id) = UPPER($1) FOR UPDATE`, [liveTxn.merchant_id])).rows;
           const mWallet = mWallets[0] || { available_balance: 0, unrecovered_deficit: 0, received_sales: 0, total_sales: 0 };
 
           const currAvail = parseFloat(mWallet.available_balance || 0);
@@ -485,30 +494,35 @@ export async function handleApiRequest(req, res) {
           await client.query(`
             UPDATE wallets 
             SET available_balance = $1,
-                received_sales = GREATEST(0.0, received_sales - $2),
-                total_sales = GREATEST(0.0, total_sales - $2),
+                unrecovered_deficit = $2,
+                received_sales = GREATEST(0.0, received_sales - $3),
+                total_sales = GREATEST(0.0, total_sales - $3),
                 updated_at = CURRENT_TIMESTAMP
-            WHERE UPPER(user_id) = UPPER($3)
-          `, [newAvail, parseFloat(txn.amount), txn.merchant_id]);
+            WHERE UPPER(user_id) = UPPER($4)
+          `, [newAvail, newDeficit, parseFloat(liveTxn.amount), liveTxn.merchant_id]);
 
-          // Reversal for each upline
+          // Reversal for each upline with deficit tracking
           for (const split of uplineSplits) {
             const uId = split.user_id;
             const commAmt = parseFloat(split.amount) || 0;
             if (commAmt > 0 && uId) {
               const uWallets = (await client.query(`SELECT * FROM wallets WHERE UPPER(user_id) = UPPER($1) FOR UPDATE`, [uId])).rows;
-              const uWallet = uWallets[0] || { available_balance: 0, total_sales: 0 };
+              const uWallet = uWallets[0] || { available_balance: 0, unrecovered_deficit: 0, total_sales: 0 };
               const uCurrAvail = parseFloat(uWallet.available_balance || 0);
+              const uCurrDeficit = parseFloat(uWallet.unrecovered_deficit || 0);
               const uAvailDed = Math.min(uCurrAvail, commAmt);
+              const uDeficitAdded = parseFloat((commAmt - uAvailDed).toFixed(2));
               const uNewAvail = parseFloat((uCurrAvail - uAvailDed).toFixed(2));
+              const uNewDeficit = parseFloat((uCurrDeficit + uDeficitAdded).toFixed(2));
 
               await client.query(`
                 UPDATE wallets 
                 SET available_balance = $1,
-                    total_sales = GREATEST(0.0, total_sales - $2),
+                    unrecovered_deficit = $2,
+                    total_sales = GREATEST(0.0, total_sales - $3),
                     updated_at = CURRENT_TIMESTAMP
-                WHERE UPPER(user_id) = UPPER($3)
-              `, [uNewAvail, parseFloat(txn.amount), uId]);
+                WHERE UPPER(user_id) = UPPER($4)
+              `, [uNewAvail, uNewDeficit, parseFloat(liveTxn.amount), uId]);
             }
           }
 
@@ -522,7 +536,7 @@ export async function handleApiRequest(req, res) {
                     total_sales = GREATEST(0.0, total_sales - $2),
                     updated_at = CURRENT_TIMESTAMP
                 WHERE UPPER(user_id) = 'ADM001'
-              `, [adminMargin, parseFloat(txn.amount)]);
+              `, [adminMargin, parseFloat(liveTxn.amount)]);
             }
           }
 
@@ -540,11 +554,11 @@ export async function handleApiRequest(req, res) {
             VALUES ($1, $2, $3, $4, 'POS_SWIPE', $5, $6, $7, 'REJECTED', $8, CURRENT_TIMESTAMP)
           `, [
             revId,
-            txn.merchant_id,
-            txn.customer_mobile || null,
+            liveTxn.merchant_id,
+            liveTxn.customer_mobile || null,
             netCredited,
-            txn.provider || 'Pine Labs',
-            txn.ref_number || `REF-${revId}`,
+            liveTxn.provider || 'Pine Labs',
+            liveTxn.ref_number || `REF-${revId}`,
             `[REVERSAL_CLAWBACK] ${JSON.stringify({ original_txn_id: targetTxnId, deficit_recorded: deficitAdded })}`,
             finalRemark
           ]);
@@ -1375,9 +1389,9 @@ export async function handleApiRequest(req, res) {
         return sendJson(res, 403, { success: false, code: 'USER_SUSPENDED', message: 'Merchant account has been suspended by Administrator.' });
       }
 
-      // UTR / Reference Deduplication Check
+      // Transaction Reference / RRN / UTR Deduplication Check
       const cleanRef = (ref_number || '').trim().toUpperCase();
-      if (cleanRef && !cleanRef.startsWith('RRN') && cleanRef.length >= 5) {
+      if (cleanRef) {
         const existingTxn = await pgQuery(`
           SELECT id, amount, status FROM transactions 
           WHERE UPPER(ref_number) = UPPER($1) AND status != 'REJECTED'
@@ -1385,7 +1399,7 @@ export async function handleApiRequest(req, res) {
         if (existingTxn.length > 0) {
           return sendJson(res, 409, {
             success: false,
-            message: `Duplicate Reference: Slip UTR "${cleanRef}" has already been recorded under transaction ${existingTxn[0].id}.`
+            message: `Duplicate Reference: Reference/RRN "${cleanRef}" has already been recorded under transaction ${existingTxn[0].id}.`
           });
         }
       }
@@ -1481,8 +1495,24 @@ export async function handleApiRequest(req, res) {
       let createdTxn = null;
       let updatedMerchantWallet = null;
 
-      await withTransaction(async (client) => {
-        // Lock merchant wallet
+      try {
+        await withTransaction(async (client) => {
+          // Atomic in-transaction duplicate check to protect against race conditions & concurrent requests
+          if (cleanRef) {
+            const dupInTxn = (await client.query(`
+              SELECT id FROM transactions 
+              WHERE UPPER(ref_number) = UPPER($1) AND status != 'REJECTED'
+              LIMIT 1
+            `, [cleanRef])).rows;
+            if (dupInTxn.length > 0) {
+              const err = new Error(`Duplicate Reference: Reference/RRN "${cleanRef}" has already been recorded under transaction ${dupInTxn[0].id}.`);
+              err.statusCode = 409;
+              err.code = '23505';
+              throw err;
+            }
+          }
+
+          // Lock merchant wallet
         const mWallets = (await client.query(`SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`, [merchant.id])).rows;
         let mWallet = mWallets[0];
         if (!mWallet) {
@@ -1496,17 +1526,19 @@ export async function handleApiRequest(req, res) {
         const mDeficit = parseFloat(mWallet.unrecovered_deficit || 0);
         const deficitCleared = Math.min(mDeficit, netCreditAmount);
         const actualCredit = parseFloat((netCreditAmount - deficitCleared).toFixed(2));
-        const newAvail = parseFloat((mAvail + netCreditAmount).toFixed(2));
+        const newAvail = parseFloat((mAvail + actualCredit).toFixed(2));
+        const newDeficit = parseFloat((mDeficit - deficitCleared).toFixed(2));
 
         const updMWalletRes = await client.query(`
           UPDATE wallets 
           SET available_balance = $1,
-              received_sales = received_sales + $2,
-              total_sales = total_sales + $2,
+              unrecovered_deficit = $2,
+              received_sales = received_sales + $3,
+              total_sales = total_sales + $3,
               updated_at = CURRENT_TIMESTAMP
-          WHERE UPPER(user_id) = UPPER($3)
+          WHERE UPPER(user_id) = UPPER($4)
           RETURNING *
-        `, [newAvail, numAmount, merchant.id]);
+        `, [newAvail, newDeficit, numAmount, merchant.id]);
         updatedMerchantWallet = updMWalletRes.rows[0];
 
         // Credit Uplines
@@ -1527,15 +1559,20 @@ export async function handleApiRequest(req, res) {
             }
 
             const uAvail = parseFloat(uWallet.available_balance || 0);
-            const uNewAvail = parseFloat((uAvail + commAmt).toFixed(2));
+            const uDeficit = parseFloat(uWallet.unrecovered_deficit || 0);
+            const uDeficitCleared = Math.min(uDeficit, commAmt);
+            const uActualCredit = parseFloat((commAmt - uDeficitCleared).toFixed(2));
+            const uNewAvail = parseFloat((uAvail + uActualCredit).toFixed(2));
+            const uNewDeficit = parseFloat((uDeficit - uDeficitCleared).toFixed(2));
 
             await client.query(`
               UPDATE wallets 
               SET available_balance = $1,
-                  total_sales = total_sales + $2,
+                  unrecovered_deficit = $2,
+                  total_sales = total_sales + $3,
                   updated_at = CURRENT_TIMESTAMP
-              WHERE UPPER(user_id) = UPPER($3)
-            `, [uNewAvail, numAmount, uId]);
+              WHERE UPPER(user_id) = UPPER($4)
+            `, [uNewAvail, uNewDeficit, numAmount, uId]);
           }
         }
 
@@ -1571,6 +1608,15 @@ export async function handleApiRequest(req, res) {
         ]);
         createdTxn = tRes.rows[0];
       });
+    } catch (err) {
+      if (err.statusCode === 409 || err.code === '23505' || err.message?.includes('Duplicate Reference') || err.message?.includes('uq_transactions_ref_number')) {
+        return sendJson(res, 409, {
+          success: false,
+          message: err.message || `Duplicate Reference: Reference "${cleanRef}" has already been recorded.`
+        });
+      }
+      return sendJson(res, 500, { success: false, message: err.message });
+    }
 
       return sendJson(res, 201, {
         success: true,

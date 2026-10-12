@@ -18,10 +18,19 @@ try {
   console.error('[PostgreSQL] Database pool initialization error:', err.message);
 }
 
+let mockQueryHandler = null;
+
+export function setMockQueryHandler(handler) {
+  mockQueryHandler = handler;
+}
+
 /**
  * Execute raw SQL parameterized query strictly against live PostgreSQL
  */
 export async function query(sql, params = []) {
+  if (mockQueryHandler) {
+    return await mockQueryHandler(sql, params);
+  }
   if (!pool) {
     throw new Error('[PostgreSQL] Database connection pool not initialized.');
   }
@@ -175,6 +184,15 @@ export async function getMediaFiles(merchant_id = null, entity_type = null) {
  * Execute operations within an atomic PostgreSQL transaction (ACID)
  */
 export async function withTransaction(callback) {
+  if (mockQueryHandler) {
+    const mockClient = {
+      query: async (sql, params = []) => {
+        const rows = await mockQueryHandler(sql, params);
+        return { rows: Array.isArray(rows) ? rows : [rows] };
+      }
+    };
+    return await callback(mockClient);
+  }
   if (!pool) {
     throw new Error('[PostgreSQL] Database pool not initialized for transaction.');
   }
@@ -208,8 +226,8 @@ export async function initPostgresSchema() {
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'ACTIVE'`).catch(e => console.error('[Migration Error users.status]:', e.message));
       await client.query(`
         CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_ref_number 
-        ON transactions (ref_number) 
-        WHERE ref_number IS NOT NULL AND ref_number != '' AND ref_number NOT LIKE 'RRN%';
+        ON transactions (UPPER(ref_number)) 
+        WHERE ref_number IS NOT NULL AND ref_number != '' AND status != 'REJECTED';
       `).catch(e => console.error('[Migration Error uq_transactions_ref_number]:', e.message));
     } finally {
       client.release();
