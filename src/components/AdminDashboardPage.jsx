@@ -4602,7 +4602,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           <Search style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', width: '13px', height: '13px', color: '#94A3B8' }} />
                           <input
                             type="text"
-                            placeholder="Search merchant, MID, RRN..."
+                            placeholder="Search merchant, MID, UTR..."
                             value={profitSearchQuery}
                             onChange={(e) => setProfitSearchQuery(e.target.value)}
                             style={{
@@ -4671,7 +4671,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             <thead>
                               <tr style={{ background: '#F8FAFC', borderBottom: '2px solid #E2E8F0', color: '#475569', fontWeight: 800, fontSize: '0.6875rem' }}>
                                 <th style={{ padding: '0.625rem 0.75rem' }}>Date & Time</th>
-                                <th style={{ padding: '0.625rem 0.75rem' }}>TXN ID / RRN</th>
+                                <th style={{ padding: '0.625rem 0.75rem' }}>UTR Number</th>
                                 <th style={{ padding: '0.625rem 0.75rem' }}>Merchant Outlet</th>
                                 <th style={{ padding: '0.625rem 0.75rem' }}>Channel</th>
                                 <th style={{ padding: '0.625rem 0.75rem', textAlign: 'right' }}>Swiped Amount</th>
@@ -4698,13 +4698,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                     </span>
                                   </td>
                                   
-                                  <td style={{ padding: '0.625rem 0.75rem', fontFamily: 'monospace', fontWeight: 700, color: '#0A192F' }}>
-                                    {item.txn_id || `TXN-${idx + 1}`}
-                                    {item.ref_number && (
-                                      <span style={{ display: 'block', fontSize: '0.625rem', color: '#64748B', fontFamily: 'sans-serif' }}>
-                                        RRN: {item.ref_number}
-                                      </span>
-                                    )}
+                                  <td style={{ padding: '0.625rem 0.75rem', fontFamily: 'monospace', fontWeight: 800, color: '#0F52BA', fontSize: '0.8125rem' }}>
+                                    {item.ref_number || item.txn_id || '—'}
                                   </td>
 
                                   <td style={{ padding: '0.625rem 0.75rem' }}>
@@ -4867,7 +4862,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                       <strong style={{ color: '#059669', fontWeight: 900 }}>+₹{(item.commission_amount || 0).toFixed(2)} ({item.commission_rate})</strong>
                                     </div>
                                     <div style={{ fontSize: '0.58rem', color: '#94A3B8', marginTop: '6px' }}>
-                                      Ref: {item.ref_number || item.txn_id} • MID: {item.merchant_id}
+                                      UTR: {item.ref_number || item.txn_id} • MID: {item.merchant_id}
                                     </div>
                                   </div>
                                 )}
