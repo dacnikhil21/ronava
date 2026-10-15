@@ -76,6 +76,7 @@ async function runMasterSuite() {
         commission: 0,      // FAKE: Server must ignore
         net_amount: 10000,  // FAKE: Server must ignore
         channel: 'pinelabs',
+        settlement_type: 'T1',
         ref_number: 'REF-MASTER-10001',
         slip_number: 'SLIP-MASTER-1'
       })
@@ -124,6 +125,8 @@ async function runMasterSuite() {
       body: JSON.stringify({
         merchant_id: 'MID4001',
         amount: 10000,
+        channel: 'pinelabs',
+        settlement_type: 'T1',
         ref_number: 'REF-MASTER-10001'
       })
     });
@@ -172,7 +175,9 @@ async function runMasterSuite() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         merchant_id: 'NON_EXISTENT_MERCHANT',
-        amount: 1000
+        amount: 1000,
+        channel: 'pinelabs',
+        settlement_type: 'T1'
       })
     });
     assert.equal(failRes.status, 404);
@@ -257,7 +262,11 @@ async function runMasterSuite() {
   }
 }
 
-runMasterSuite().catch(err => {
-  console.error('❌ MASTER SUITE FAILED:', err);
-  process.exit(1);
-});
+runMasterSuite()
+  .then(() => {
+    process.exit(0);
+  })
+  .catch(err => {
+    console.error('❌ MASTER SUITE FAILED:', err);
+    process.exit(1);
+  });

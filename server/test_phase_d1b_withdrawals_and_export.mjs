@@ -246,14 +246,17 @@ async function testWithdrawalsAndExport() {
     assert.equal(rejectCompRes.status, 400, 'Rejecting a completed payout must be rejected');
 
     console.log('✅ ALL WITHDRAWAL LIFECYCLE, EXPORT & UTR TESTS PASSED!');
-    process.exit(0);
   } finally {
-    server.close();
+    await new Promise(r => server.close(r));
     await pool.end();
   }
 }
 
-testWithdrawalsAndExport().catch(err => {
-  console.error('❌ Test failed:', err);
-  process.exit(1);
-});
+testWithdrawalsAndExport()
+  .then(() => {
+    process.exit(0);
+  })
+  .catch(err => {
+    console.error('❌ Test failed:', err);
+    process.exit(1);
+  });
