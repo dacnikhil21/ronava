@@ -44,6 +44,19 @@ import {
 import { subscribeToAdminFeed } from '../services/supabase';
 import RonavLogo from './RonavLogo';
 
+// Universal Deduplication Helper ensuring zero doubled records across all scopes
+const dedupeById = (items) => {
+  if (!Array.isArray(items)) return [];
+  const seen = new Set();
+  return items.filter(item => {
+    if (!item) return false;
+    const key = item.id || `${item.created_at || ''}_${item.amount || ''}_${item.merchant_id || ''}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
 export default function AdminDashboardPage({ onLogout, onNavigate }) {
   // Navigation View: 'overview' | 'master_distributors' | 'super_distributors' | 'district_distributors' | 'distributors' | 'merchants' | 'payouts' | 'loans' | 'franchises'
   const [activeTab, setActiveTab] = useState('overview');
