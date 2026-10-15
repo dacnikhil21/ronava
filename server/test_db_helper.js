@@ -86,7 +86,11 @@ export async function resetTestDatabase() {
         ('bank_cost_bps', 0, '0', 'Bank processing cost in basis points'),
         ('default_admin_cut_bps', 60, '60', 'Default base admin cut in basis points (0.60%)'),
         ('default_pinelabs_rate_bps', 150, '150', 'Default Pine Labs merchant rate in basis points (1.50%)'),
+        ('default_pinelabs_t1_rate_bps', 150, '150', 'Default Pine Labs T+1 rate in basis points (1.50%)'),
+        ('default_pinelabs_instant_rate_bps', 180, '180', 'Default Pine Labs Instant rate in basis points (1.80%)'),
         ('default_payswiff_rate_bps', 180, '180', 'Default Payswiff merchant rate in basis points (1.80%)'),
+        ('default_payswiff_t1_rate_bps', 180, '180', 'Default Payswiff T+1 rate in basis points (1.80%)'),
+        ('default_payswiff_instant_rate_bps', 200, '200', 'Default Payswiff Instant rate in basis points (2.00%)'),
         ('default_qr_rate_bps', 0, '0', 'Default QR merchant rate in basis points (0.00%)');
     `);
 
@@ -96,12 +100,14 @@ export async function resetTestDatabase() {
         id BIGSERIAL PRIMARY KEY,
         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         channel VARCHAR(50) NOT NULL,
+        settlement_mode VARCHAR(20) NOT NULL DEFAULT 'T1' CHECK (settlement_mode IN ('T1', 'INSTANT', 'NONE')),
         rate_bps INTEGER NOT NULL CHECK (rate_bps >= 0 AND rate_bps <= 10000),
+        needs_review BOOLEAN NOT NULL DEFAULT FALSE,
         effective_from TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         effective_to TIMESTAMPTZ,
         created_at TIMESTAMPTZ DEFAULT NOW()
       );
-      CREATE INDEX idx_user_channel_rates_lookup ON user_channel_rates (user_id, channel, effective_from DESC);
+      CREATE INDEX idx_user_channel_rates_lookup ON user_channel_rates (user_id, channel, settlement_mode, effective_from DESC);
     `);
 
     // 5. Beneficiaries
