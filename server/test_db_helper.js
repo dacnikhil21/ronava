@@ -33,8 +33,16 @@ export async function resetTestDatabase() {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         mobile TEXT NOT NULL UNIQUE,
+        email TEXT,
+        aadhaar TEXT,
+        pan TEXT,
+        address TEXT,
         role TEXT NOT NULL CHECK (role IN ('ADMIN', 'MASTER', 'MASTER_DISTRIBUTOR', 'SUPER_DISTRIBUTOR', 'DISTRICT_DISTRIBUTOR', 'DIST_FRANCHISE', 'DISTRIBUTOR', 'MERCHANT', 'RETAILER')),
         creator_id TEXT REFERENCES users(id),
+        password TEXT,
+        margin_rate NUMERIC DEFAULT 0,
+        commission_rate_t1 NUMERIC DEFAULT 0,
+        commission_rate_instant NUMERIC DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'ACTIVE',
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -44,9 +52,20 @@ export async function resetTestDatabase() {
         id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
         merchant_id TEXT REFERENCES users(id) ON DELETE CASCADE,
         provider VARCHAR(50),
-        terminal_id VARCHAR(50),
+        terminal_id TEXT,
         commission_rate NUMERIC DEFAULT 1.5,
-        created_at TIMESTAMPTZ DEFAULT NOW()
+        assigned_by TEXT,
+        vendor_entity TEXT,
+        device_plan TEXT DEFAULT 'RENTAL',
+        monthly_rent NUMERIC DEFAULT 0,
+        settlement_type VARCHAR(50) DEFAULT 'T1',
+        instant_surcharge NUMERIC DEFAULT 0,
+        commission_rate_t1 NUMERIC DEFAULT 0,
+        commission_rate_instant NUMERIC DEFAULT 0,
+        admin_cut_rate NUMERIC DEFAULT 0,
+        upline_override_rate NUMERIC DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
 

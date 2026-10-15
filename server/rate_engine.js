@@ -29,6 +29,41 @@ export function validateHierarchyRates(childRateBps, parentRateBps = 0) {
 }
 
 /**
+ * Validate that a parent possesses the channel/mode and child rate >= parent rate
+ */
+export async function validateChildParentRates(client, { parentId, channel, settlementMode, childRateBps }) {
+  if (!parentId) return true;
+
+  const parentRes = await client.query(`SELECT id, role FROM users WHERE UPPER(id) = UPPER($1)`, [parentId]);
+  if (parentRes.rows.length === 0) {
+    throw new Error(`USER_NOT_FOUND: Parent user "${parentId}" not found.`);
+  }
+  const parent = parentRes.rows[0];
+
+  const ch = channel.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const mode = (settlementMode || (ch === 'qr' || ch === 'companyqr' ? 'NONE' : 'T1')).toUpperCase();
+
+  const parentRate = await getActiveRate(client, { userId: parent.id, channel: ch, settlementMode: mode });
+
+  if (parent.role !== 'ADMIN') {
+    if (parentRate.is_default) {
+      throw new Error(`PARENT_CHANNEL_MISSING: Parent "${parentId}" does not have channel "${channel}" and mode "${mode}" configured.`);
+    }
+  }
+
+  const childBps = Number(childRateBps);
+  if (isNaN(childBps) || childBps < 0 || childBps > 10000) {
+    throw new Error(`INVALID_RATE_VALUE: Child rate must be a valid number between 0 and 10000 bps.`);
+  }
+
+  if (childBps < parentRate.rate_bps) {
+    throw new Error(`INVALID_RATE_HIERARCHY: Child rate (${childBps} bps) cannot be lower than parent rate (${parentRate.rate_bps} bps) for channel "${channel}" and mode "${mode}".`);
+  }
+
+  return true;
+}
+
+/**
  * Set a user's rate for a specific channel and settlement mode with versioning.
  * Closes existing active version with effective_to = effectiveFrom, and opens a new version.
  */

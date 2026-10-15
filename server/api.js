@@ -15,6 +15,7 @@ import { postLedgerEntry, getWalletBalances, verifyWalletReconciliation } from '
 import { processSwipeTransaction } from './transaction_engine.js';
 import { quoteWithdrawal, processWithdrawalRequest } from './withdrawal_engine.js';
 import { reverseTransaction } from './reversal_engine.js';
+import { validateChildParentRates, setUserRate, getActiveRate } from './rate_engine.js';
 
 export { getCaller };
 
@@ -717,6 +718,26 @@ export async function handleApiRequest(req, res) {
         let createdPOS = null;
 
         await withTransaction(async (client) => {
+          // 0. Validate Channels & Rates against Parent Hierarchy
+          if (channels) {
+            if (channels.pine_labs?.enabled) {
+              const t1Bps = Math.round(parseFloat(channels.pine_labs.rate_t1 || userData.commission_rate_t1 || 0) * 100);
+              const instBps = Math.round(parseFloat(channels.pine_labs.rate_instant || channels.pine_labs.rate_t1 || userData.commission_rate_instant || 0) * 100);
+              await validateChildParentRates(client, { parentId: assignedCreatorId, channel: 'pinelabs', settlementMode: 'T1', childRateBps: t1Bps });
+              await validateChildParentRates(client, { parentId: assignedCreatorId, channel: 'pinelabs', settlementMode: 'INSTANT', childRateBps: instBps });
+            }
+            if (channels.payswiff?.enabled) {
+              const t1Bps = Math.round(parseFloat(channels.payswiff.rate_t1 || userData.commission_rate_t1 || 0) * 100);
+              const instBps = Math.round(parseFloat(channels.payswiff.rate_instant || channels.payswiff.rate_t1 || userData.commission_rate_instant || 0) * 100);
+              await validateChildParentRates(client, { parentId: assignedCreatorId, channel: 'payswiff', settlementMode: 'T1', childRateBps: t1Bps });
+              await validateChildParentRates(client, { parentId: assignedCreatorId, channel: 'payswiff', settlementMode: 'INSTANT', childRateBps: instBps });
+            }
+            if (channels.qr?.enabled) {
+              const qrBps = Math.round(parseFloat(channels.qr.rate || channels.qr.rate_instant || channels.qr.rate_t1 || userData.commission_rate_instant || 0) * 100);
+              await validateChildParentRates(client, { parentId: assignedCreatorId, channel: 'qr', settlementMode: 'NONE', childRateBps: qrBps });
+            }
+          }
+
           // 1. Insert User
           const userInsertRes = await client.query(`
             INSERT INTO users (
@@ -744,12 +765,12 @@ export async function handleApiRequest(req, res) {
 
           // 2. Initialize Wallet
           await client.query(`
-            INSERT INTO wallets (user_id, available_balance, total_sales, received_sales, pending_balance, withdrawn_amount)
-            VALUES ($1, 0.0, 0.0, 0.0, 0.0, 0.0)
+            INSERT INTO wallets (user_id, balance_paise, held_paise, total_sales_paise, withdrawn_paise)
+            VALUES ($1, 0, 0, 0, 0)
             ON CONFLICT (user_id) DO NOTHING
           `, [newUserId]);
 
-          // 3. Configure Multi-Channel Portfolio or POS Terminal
+          // 3. Configure Multi-Channel Portfolio and populate user_channel_rates
           const hasChannels = channels && (channels.pine_labs?.enabled || channels.payswiff?.enabled || channels.qr?.enabled);
 
           if (hasChannels) {
@@ -768,16 +789,33 @@ export async function handleApiRequest(req, res) {
               primaryVendor = 'Rose Navaneetham Enterprises';
               primaryRateT1 = parseFloat(pine.rate_t1 || userData.commission_rate_t1 || 0);
               primaryRateInstant = parseFloat(pine.rate_instant || userData.commission_rate_instant || primaryRateT1);
-            } else if (swiff && swiff.enabled) {
-              primaryProvider = 'Payswiff';
-              primaryVendor = swiff.vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
-              primaryRateT1 = parseFloat(swiff.rate_t1 || userData.commission_rate_t1 || 0);
-              primaryRateInstant = parseFloat(swiff.rate_instant || userData.commission_rate_instant || primaryRateT1);
-            } else if (qr && qr.enabled) {
-              primaryProvider = 'Company QR (UPI)';
-              primaryVendor = 'RONAV Technologies';
-              primaryRateT1 = parseFloat(qr.rate_instant || userData.commission_rate_instant || userData.commission_rate_t1 || 0);
-              primaryRateInstant = primaryRateT1;
+
+              const t1Bps = Math.round(primaryRateT1 * 100);
+              const instBps = Math.round(primaryRateInstant * 100);
+              await setUserRate(client, { userId: newUserId, channel: 'pinelabs', settlementMode: 'T1', rateBps: t1Bps });
+              await setUserRate(client, { userId: newUserId, channel: 'pinelabs', settlementMode: 'INSTANT', rateBps: instBps });
+            }
+            if (swiff && swiff.enabled) {
+              if (!pine?.enabled) {
+                primaryProvider = 'Payswiff';
+                primaryVendor = swiff.vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
+                primaryRateT1 = parseFloat(swiff.rate_t1 || userData.commission_rate_t1 || 0);
+                primaryRateInstant = parseFloat(swiff.rate_instant || userData.commission_rate_instant || primaryRateT1);
+              }
+              const t1Bps = Math.round(parseFloat(swiff.rate_t1 || userData.commission_rate_t1 || 0) * 100);
+              const instBps = Math.round(parseFloat(swiff.rate_instant || swiff.rate_t1 || userData.commission_rate_instant || 0) * 100);
+              await setUserRate(client, { userId: newUserId, channel: 'payswiff', settlementMode: 'T1', rateBps: t1Bps });
+              await setUserRate(client, { userId: newUserId, channel: 'payswiff', settlementMode: 'INSTANT', rateBps: instBps });
+            }
+            if (qr && qr.enabled) {
+              if (!pine?.enabled && !swiff?.enabled) {
+                primaryProvider = 'Company QR (UPI)';
+                primaryVendor = 'RONAV Technologies';
+                primaryRateT1 = parseFloat(qr.rate_instant || userData.commission_rate_instant || userData.commission_rate_t1 || 0);
+                primaryRateInstant = primaryRateT1;
+              }
+              const qrBps = Math.round(parseFloat(qr.rate || qr.rate_instant || qr.rate_t1 || userData.commission_rate_instant || 0) * 100);
+              await setUserRate(client, { userId: newUserId, channel: 'qr', settlementMode: 'NONE', rateBps: qrBps });
             }
 
             const isQrOnly = Boolean(qr?.enabled && !pine?.enabled && !swiff?.enabled);
@@ -822,6 +860,20 @@ export async function handleApiRequest(req, res) {
               const adminCut = parseFloat(userData.admin_cut_rate) || 0;
               const uplineCut = parseFloat(userData.upline_override_rate) || 0;
 
+              const cleanChannel = provider.toLowerCase().includes('swiff') ? 'payswiff' : (provider.toLowerCase().includes('qr') ? 'qr' : 'pinelabs');
+              if (cleanChannel === 'qr') {
+                const qrBps = Math.round(rateInstant * 100);
+                await validateChildParentRates(client, { parentId: assignedCreatorId, channel: 'qr', settlementMode: 'NONE', childRateBps: qrBps });
+                await setUserRate(client, { userId: newUserId, channel: 'qr', settlementMode: 'NONE', rateBps: qrBps });
+              } else {
+                const t1Bps = Math.round(rateT1 * 100);
+                const instBps = Math.round(rateInstant * 100);
+                await validateChildParentRates(client, { parentId: assignedCreatorId, channel: cleanChannel, settlementMode: 'T1', childRateBps: t1Bps });
+                await validateChildParentRates(client, { parentId: assignedCreatorId, channel: cleanChannel, settlementMode: 'INSTANT', childRateBps: instBps });
+                await setUserRate(client, { userId: newUserId, channel: cleanChannel, settlementMode: 'T1', rateBps: t1Bps });
+                await setUserRate(client, { userId: newUserId, channel: cleanChannel, settlementMode: 'INSTANT', rateBps: instBps });
+              }
+
               const terminalPrefix = provider === 'Payswiff' ? 'SWIFF' : 'PL';
               const cleanTerminalId = (userData.pos_terminal_id && userData.pos_terminal_id.trim())
                 ? userData.pos_terminal_id.trim()
@@ -863,9 +915,17 @@ export async function handleApiRequest(req, res) {
           }
         });
       } catch (err) {
-        console.error('API /api/users/create error:', err);
-        if (err.message && (err.message.includes('unique') || err.message.includes('duplicate'))) {
-          return sendJson(res, 400, { success: false, message: 'A user with this mobile number or ID already exists.' });
+        if (
+          err.message && (
+            err.message.includes('INVALID_RATE_HIERARCHY') ||
+            err.message.includes('PARENT_CHANNEL_MISSING') ||
+            err.message.includes('PARENT_MODE_MISSING') ||
+            err.message.includes('INVALID_RATE_VALUE') ||
+            err.message.includes('unique') ||
+            err.message.includes('duplicate')
+          )
+        ) {
+          return sendJson(res, 400, { success: false, message: err.message });
         }
         return sendJson(res, 500, { success: false, message: err.message || 'Failed to create user on server.' });
       }
@@ -1006,61 +1066,102 @@ export async function handleApiRequest(req, res) {
           return sendJson(res, 400, { success: false, message: 'merchantId and channels are required.' });
         }
 
-        const fullTerminalStr = `[PORTFOLIO]${JSON.stringify(channels)}`;
-        const pine = channels.pine_labs;
-        const swiff = channels.payswiff;
-        const qr = channels.qr;
+        await withTransaction(async (client) => {
+          const userRes = await client.query(`SELECT id, creator_id FROM users WHERE UPPER(id) = UPPER($1)`, [merchantId.trim()]);
+          if (userRes.rows.length === 0) {
+            throw new Error(`Merchant not found.`);
+          }
+          const user = userRes.rows[0];
+          const parentId = user.creator_id;
 
-        let primaryProvider = 'Pine Labs';
-        let primaryVendor = 'Rose Navaneetham Enterprises';
-        let primaryRateT1 = 0;
-        let primaryRateInstant = 0;
+          const pine = channels.pine_labs;
+          const swiff = channels.payswiff;
+          const qr = channels.qr;
 
-        if (pine && pine.enabled) {
-          primaryProvider = 'Pine Labs';
-          primaryVendor = 'Rose Navaneetham Enterprises';
-          primaryRateT1 = parseFloat(pine.rate_t1 || 0);
-          primaryRateInstant = parseFloat(pine.rate_instant || primaryRateT1);
-        } else if (swiff && swiff.enabled) {
-          primaryProvider = 'Payswiff';
-          primaryVendor = swiff.vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
-          primaryRateT1 = parseFloat(swiff.rate_t1 || 0);
-          primaryRateInstant = parseFloat(swiff.rate_instant || primaryRateT1);
-        } else if (qr && qr.enabled) {
-          primaryProvider = 'Company QR (UPI)';
-          primaryVendor = 'RONAV Technologies';
-          primaryRateT1 = parseFloat(qr.rate_instant || 0);
-          primaryRateInstant = primaryRateT1;
-        }
+          if (pine && pine.enabled) {
+            const t1Bps = Math.round(parseFloat(pine.rate_t1 || 0) * 100);
+            const instBps = Math.round(parseFloat(pine.rate_instant || pine.rate_t1 || 0) * 100);
+            await validateChildParentRates(client, { parentId, channel: 'pinelabs', settlementMode: 'T1', childRateBps: t1Bps });
+            await validateChildParentRates(client, { parentId, channel: 'pinelabs', settlementMode: 'INSTANT', childRateBps: instBps });
+            await setUserRate(client, { userId: user.id, channel: 'pinelabs', settlementMode: 'T1', rateBps: t1Bps });
+            await setUserRate(client, { userId: user.id, channel: 'pinelabs', settlementMode: 'INSTANT', rateBps: instBps });
+          }
+          if (swiff && swiff.enabled) {
+            const t1Bps = Math.round(parseFloat(swiff.rate_t1 || 0) * 100);
+            const instBps = Math.round(parseFloat(swiff.rate_instant || swiff.rate_t1 || 0) * 100);
+            await validateChildParentRates(client, { parentId, channel: 'payswiff', settlementMode: 'T1', childRateBps: t1Bps });
+            await validateChildParentRates(client, { parentId, channel: 'payswiff', settlementMode: 'INSTANT', childRateBps: instBps });
+            await setUserRate(client, { userId: user.id, channel: 'payswiff', settlementMode: 'T1', rateBps: t1Bps });
+            await setUserRate(client, { userId: user.id, channel: 'payswiff', settlementMode: 'INSTANT', rateBps: instBps });
+          }
+          if (qr && qr.enabled) {
+            const qrBps = Math.round(parseFloat(qr.rate || qr.rate_instant || qr.rate_t1 || 0) * 100);
+            await validateChildParentRates(client, { parentId, channel: 'qr', settlementMode: 'NONE', childRateBps: qrBps });
+            await setUserRate(client, { userId: user.id, channel: 'qr', settlementMode: 'NONE', rateBps: qrBps });
+          }
 
-        await pgQuery(`
-          INSERT INTO merchant_pos (
-            merchant_id, provider, terminal_id, commission_rate, assigned_by,
-            vendor_entity, commission_rate_t1, commission_rate_instant
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-          ON CONFLICT (merchant_id) DO UPDATE SET
-            provider = EXCLUDED.provider,
-            terminal_id = EXCLUDED.terminal_id,
-            commission_rate = EXCLUDED.commission_rate,
-            vendor_entity = EXCLUDED.vendor_entity,
-            commission_rate_t1 = EXCLUDED.commission_rate_t1,
-            commission_rate_instant = EXCLUDED.commission_rate_instant,
-            updated_at = CURRENT_TIMESTAMP
-        `, [
-          merchantId.trim(), primaryProvider, fullTerminalStr, primaryRateT1, adminId || 'ADM001',
-          primaryVendor, primaryRateT1, primaryRateInstant
-        ]);
+          const fullTerminalStr = `[PORTFOLIO]${JSON.stringify(channels)}`;
+          let primaryProvider = 'Pine Labs';
+          let primaryVendor = 'Rose Navaneetham Enterprises';
+          let primaryRateT1 = 0;
+          let primaryRateInstant = 0;
 
-        await pgQuery(`
-          UPDATE users SET
-            commission_rate_t1 = $1,
-            commission_rate_instant = $2,
-            updated_at = CURRENT_TIMESTAMP
-          WHERE UPPER(id) = UPPER($3)
-        `, [primaryRateT1, primaryRateInstant, merchantId.trim()]);
+          if (pine && pine.enabled) {
+            primaryProvider = 'Pine Labs';
+            primaryVendor = 'Rose Navaneetham Enterprises';
+            primaryRateT1 = parseFloat(pine.rate_t1 || 0);
+            primaryRateInstant = parseFloat(pine.rate_instant || primaryRateT1);
+          } else if (swiff && swiff.enabled) {
+            primaryProvider = 'Payswiff';
+            primaryVendor = swiff.vendor === 'R.P. Technologies' ? 'R.P. Technologies' : 'RONAV Technologies';
+            primaryRateT1 = parseFloat(swiff.rate_t1 || 0);
+            primaryRateInstant = parseFloat(swiff.rate_instant || primaryRateT1);
+          } else if (qr && qr.enabled) {
+            primaryProvider = 'Company QR (UPI)';
+            primaryVendor = 'RONAV Technologies';
+            primaryRateT1 = parseFloat(qr.rate_instant || 0);
+            primaryRateInstant = primaryRateT1;
+          }
+
+          await client.query(`
+            INSERT INTO merchant_pos (
+              merchant_id, provider, terminal_id, commission_rate, assigned_by,
+              vendor_entity, commission_rate_t1, commission_rate_instant
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (merchant_id) DO UPDATE SET
+              provider = EXCLUDED.provider,
+              terminal_id = EXCLUDED.terminal_id,
+              commission_rate = EXCLUDED.commission_rate,
+              vendor_entity = EXCLUDED.vendor_entity,
+              commission_rate_t1 = EXCLUDED.commission_rate_t1,
+              commission_rate_instant = EXCLUDED.commission_rate_instant,
+              updated_at = CURRENT_TIMESTAMP
+          `, [
+            user.id, primaryProvider, fullTerminalStr, primaryRateT1, adminId || 'ADM001',
+            primaryVendor, primaryRateT1, primaryRateInstant
+          ]);
+
+          await client.query(`
+            UPDATE users SET
+              commission_rate_t1 = $1,
+              commission_rate_instant = $2,
+              updated_at = CURRENT_TIMESTAMP
+            WHERE UPPER(id) = UPPER($3)
+          `, [primaryRateT1, primaryRateInstant, user.id]);
+        });
 
         return sendJson(res, 200, { success: true, message: 'Channels updated successfully!' });
       } catch (err) {
+        if (
+          err.message && (
+            err.message.includes('INVALID_RATE_HIERARCHY') ||
+            err.message.includes('PARENT_CHANNEL_MISSING') ||
+            err.message.includes('PARENT_MODE_MISSING') ||
+            err.message.includes('INVALID_RATE_VALUE')
+          )
+        ) {
+          return sendJson(res, 400, { success: false, message: err.message });
+        }
         return sendJson(res, 500, { success: false, message: err.message });
       }
     }
