@@ -5056,7 +5056,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             <div>
                               <span style={{ fontSize: '0.55rem', color: '#059669', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Admin Net</span>
                               <strong style={{ fontSize: '0.8125rem', color: '#059669', fontWeight: 900 }}>
-                                +₹{parseFloat(m.admin_profit_earned || (m.transactions ? m.transactions.reduce((sum, t) => sum + parseFloat(t.admin_net_margin || 0), 0) : 0)).toFixed(2)}
+                                +₹{parseFloat(m.admin_profit_earned || m.commission_earned || 0).toFixed(2)}
                               </strong>
                             </div>
                           </div>
@@ -5137,7 +5137,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     {filteredSDs.map(sd => {
                       const sdVol = parseFloat(sd.network_volume || sd.total_sales || 0);
                       const sdCutRate = parseFloat(sd.upline_override_rate || sd.margin_rate || 0);
-                      const sdProfit = parseFloat(sd.admin_profit_earned || (sd.transactions ? sd.transactions.reduce((sum, t) => sum + parseFloat(t.admin_net_margin || 0), 0) : 0));
+                      const sdProfit = parseFloat(sd.admin_profit_earned || sd.commission_earned || 0);
 
                       // Robust Downline Aggregation (District Dist -> Dist -> Shops)
                       const childDDs = sd.district_distributors || districtDistributorsList.filter(dd => dd.creator_id === sd.id || dd.parent_id === sd.id);
@@ -5344,7 +5344,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     {filteredDDs.map(dd => {
                       const ddVol = parseFloat(dd.downline_volume || dd.total_sales || 0);
                       const ddCutRate = parseFloat(dd.upline_override_rate || dd.margin_rate || 0);
-                      const ddProfit = parseFloat(dd.admin_profit_earned || (dd.transactions ? dd.transactions.reduce((sum, t) => sum + parseFloat(t.admin_net_margin || 0), 0) : 0));
+                      const ddProfit = parseFloat(dd.admin_profit_earned || dd.commission_earned || 0);
 
                       return (
                         <div
@@ -5531,7 +5531,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     {filteredDists.map(d => {
                       const distVol = parseFloat(d.downline_volume || d.total_sales || 0);
                       const distCutRate = parseFloat(d.upline_override_rate || d.margin_rate || 0);
-                      const distProfit = parseFloat(d.admin_profit_earned || (d.transactions ? d.transactions.reduce((sum, t) => sum + parseFloat(t.admin_net_margin || 0), 0) : 0));
+                      const distProfit = parseFloat(d.admin_profit_earned || d.commission_earned || 0);
 
                       return (
                         <div
