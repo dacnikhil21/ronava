@@ -163,15 +163,17 @@ export async function processWithdrawalRequest(client, {
   });
 
   // 7. Insert withdrawal record
+  const amountRupees = (Number(reqPaise) / 100).toFixed(2);
   await client.query(`
     INSERT INTO withdrawals (
-      id, merchant_id, amount_paise, fee_paise, net_payout_paise,
+      id, merchant_id, amount_paise, amount, fee_paise, net_payout_paise,
       beneficiary_id, channel, settlement_type, status, created_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING', NOW())
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PENDING', NOW())
   `, [
     withdrawalId,
     merchantId,
     reqPaise.toString(),
+    amountRupees,
     quote.fee_paise.toString(),
     quote.net_payout_paise.toString(),
     beneficiary.id,
@@ -183,11 +185,13 @@ export async function processWithdrawalRequest(client, {
     id: withdrawalId,
     merchant_id: merchantId,
     amount_paise: reqPaise.toString(),
+    amount: amountRupees,
     fee_paise: quote.fee_paise.toString(),
     net_payout_paise: quote.net_payout_paise.toString(),
     beneficiary_id: beneficiary.id,
     channel,
     settlement_type: quote.settlement_type,
+    withdrawal_mode: quote.settlement_type,
     status: 'PENDING'
   };
 

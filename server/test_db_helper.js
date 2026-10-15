@@ -17,6 +17,7 @@ export async function resetTestDatabase() {
     await client.query(`
       DROP TABLE IF EXISTS financial_ledger CASCADE;
       DROP TABLE IF EXISTS user_channel_rates CASCADE;
+      DROP TABLE IF EXISTS payout_batches CASCADE;
       DROP TABLE IF EXISTS system_settings CASCADE;
       DROP TABLE IF EXISTS idempotency_keys CASCADE;
       DROP TABLE IF EXISTS withdrawals CASCADE;
@@ -216,15 +217,34 @@ export async function resetTestDatabase() {
         id TEXT PRIMARY KEY,
         merchant_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         amount_paise BIGINT NOT NULL CHECK (amount_paise > 0),
+        amount NUMERIC,
         fee_paise BIGINT NOT NULL DEFAULT 0,
         net_payout_paise BIGINT NOT NULL CHECK (net_payout_paise > 0),
         beneficiary_id TEXT NOT NULL REFERENCES beneficiaries(id),
         channel VARCHAR(50) NOT NULL,
         settlement_type VARCHAR(50) NOT NULL DEFAULT 'T1',
-        status VARCHAR(50) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'SUBMITTED_TO_BANK', 'APPROVED', 'REJECTED')),
+        status VARCHAR(50) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'SUBMITTED_TO_BANK', 'COMPLETED', 'APPROVED', 'REJECTED')),
+        utr TEXT,
+        batch_id TEXT,
+        submitted_to_bank_at TIMESTAMPTZ,
         admin_remark TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         verified_at TIMESTAMPTZ
+      );
+      CREATE UNIQUE INDEX uq_withdrawals_utr_completed ON withdrawals (utr) WHERE status IN ('COMPLETED', 'APPROVED') AND utr IS NOT NULL;
+    `);
+
+    // 8.1 Payout Batches
+    await client.query(`
+      CREATE TABLE payout_batches (
+        id TEXT PRIMARY KEY,
+        batch_tag TEXT,
+        bank_name TEXT,
+        total_payouts INTEGER NOT NULL,
+        total_amount_paise BIGINT NOT NULL,
+        csv_content TEXT,
+        created_by TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
 

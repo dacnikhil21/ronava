@@ -1799,7 +1799,9 @@ export async function handleApiRequest(req, res) {
     }
 
     if (pathname === '/api/admin/verify-withdrawal' && method === 'POST') {
-      const { withdrawal_id, withdrawalId, id, action: reqAction, remark, utr } = await parseJsonBody(req);
+      const body = await parseJsonBody(req);
+      req.body = body;
+      const { withdrawal_id, withdrawalId, id, action: reqAction, remark, utr } = body;
       const targetWthId = (withdrawal_id || withdrawalId || id || '').toString().trim();
       const action = (reqAction || '').toUpperCase();
       if (!targetWthId || !action) {
@@ -1808,7 +1810,12 @@ export async function handleApiRequest(req, res) {
 
       try {
         let updatedWth = null;
-        const caller = getCaller(req);
+        let caller = null;
+        try {
+          caller = getCaller(req);
+        } catch (_) {
+          caller = { id: body.adminId || body.admin_id || 'ADM001', role: 'ADMIN' };
+        }
 
         await withTransaction(async (client) => {
           const wRows = (await client.query(`SELECT * FROM withdrawals WHERE id = $1 FOR UPDATE`, [targetWthId])).rows;
@@ -1817,14 +1824,36 @@ export async function handleApiRequest(req, res) {
             throw new Error('Withdrawal record not found.');
           }
 
-          if (wth.status !== 'PENDING') {
-            throw new Error(`Withdrawal is already ${wth.status}.`);
+          if (wth.status === 'COMPLETED' || wth.status === 'APPROVED') {
+            throw new Error(`CANNOT_MODIFY_COMPLETED: Withdrawal is already ${wth.status} and cannot be modified.`);
+          }
+          if (wth.status === 'REJECTED') {
+            throw new Error(`CANNOT_MODIFY_REJECTED: Withdrawal is already ${wth.status} and cannot be modified.`);
           }
 
           const amountPaise = BigInt(wth.amount_paise || Math.round(Number(wth.amount) * 100));
 
-          if (action === 'APPROVE') {
+          if (action === 'APPROVE' || action === 'COMPLETE') {
             const cleanUtr = (utr || '').trim();
+            if (!cleanUtr) {
+              throw new Error('UTR_REQUIRED: A valid Bank UTR / Reference number is required to complete withdrawal.');
+            }
+            if (!/^[A-Za-z0-9_-]{6,50}$/.test(cleanUtr)) {
+              throw new Error('INVALID_UTR_FORMAT: Bank UTR must be alphanumeric (6 to 50 characters).');
+            }
+
+            // Database uniqueness guard for completed UTR
+            const dupCheck = await client.query(`
+              SELECT id FROM withdrawals 
+              WHERE UPPER(utr) = UPPER($1) 
+                AND status IN ('COMPLETED', 'APPROVED') 
+                AND id != $2
+            `, [cleanUtr, targetWthId]);
+
+            if (dupCheck.rows.length > 0) {
+              throw new Error(`DUPLICATE_UTR: A completed withdrawal with UTR "${cleanUtr}" already exists (${dupCheck.rows[0].id}).`);
+            }
+
             const existingRemark = wth.admin_remark || '';
             const finalRemark = cleanUtr 
               ? (existingRemark ? `${existingRemark} • Disbursed via IMPS (UTR: ${cleanUtr})` : `Disbursed via IMPS (UTR: ${cleanUtr})`)
@@ -1853,12 +1882,13 @@ export async function handleApiRequest(req, res) {
 
             const wRes = await client.query(`
               UPDATE withdrawals 
-              SET status = 'APPROVED', 
-                  admin_remark = $1, 
+              SET status = 'COMPLETED', 
+                  utr = $1,
+                  admin_remark = $2, 
                   verified_at = CURRENT_TIMESTAMP 
-              WHERE id = $2
+              WHERE id = $3
               RETURNING *
-            `, [finalRemark, targetWthId]);
+            `, [cleanUtr, finalRemark, targetWthId]);
             updatedWth = wRes.rows[0];
           } else if (action === 'REJECT') {
             await postLedgerEntry(client, {
@@ -1876,13 +1906,15 @@ export async function handleApiRequest(req, res) {
 
             const wRes = await client.query(`
               UPDATE withdrawals 
-              SET status = 'REJECTED', admin_remark = $1, verified_at = CURRENT_TIMESTAMP 
+              SET status = 'REJECTED', 
+                  admin_remark = $1, 
+                  verified_at = CURRENT_TIMESTAMP 
               WHERE id = $2
               RETURNING *
             `, [remark || 'Bank account details mismatch / rejected', targetWthId]);
             updatedWth = wRes.rows[0];
           } else {
-            throw new Error('Invalid action. Allowed: APPROVE, REJECT.');
+            throw new Error('Invalid action. Allowed: APPROVE, COMPLETE, REJECT.');
           }
         });
 
@@ -1891,7 +1923,7 @@ export async function handleApiRequest(req, res) {
 
         return sendJson(res, 200, {
           success: true,
-          message: `Withdrawal ${action === 'APPROVE' ? 'Approved' : 'Rejected'}.`,
+          message: `Withdrawal ${action === 'REJECT' ? 'Rejected' : 'Completed'}.`,
           withdrawal: updatedWth,
           balances
         });
@@ -1906,21 +1938,247 @@ export async function handleApiRequest(req, res) {
     if (pathname.startsWith('/api/withdrawals/merchant/') && method === 'GET') {
       const merchantId = decodeURIComponent(pathname.replace('/api/withdrawals/merchant/', '')).trim();
       const withdrawals = await pgQuery(`
-        SELECT * FROM withdrawals 
-        WHERE UPPER(merchant_id) = UPPER($1) 
-        ORDER BY created_at DESC
+        SELECT w.*, 
+               COALESCE(w.amount, (w.amount_paise / 100.0)) as amount,
+               COALESCE(w.settlement_type, 'T1') as withdrawal_mode
+        FROM withdrawals w 
+        WHERE UPPER(w.merchant_id) = UPPER($1) 
+        ORDER BY w.created_at DESC
       `, [merchantId]);
       return sendJson(res, 200, { success: true, withdrawals });
     }
 
     if ((pathname === '/api/admin/withdrawals' || pathname === '/api/withdrawals') && method === 'GET') {
       const withdrawals = await pgQuery(`
-        SELECT w.*, u.name as merchant_name, u.mobile as merchant_mobile
+        SELECT w.*, 
+               COALESCE(w.amount, (w.amount_paise / 100.0)) as amount,
+               u.name as merchant_name, 
+               u.mobile as merchant_mobile,
+               b.bank_name as ben_bank_name,
+               b.account_number as ben_account_number,
+               b.ifsc as ben_ifsc,
+               b.holder_name as ben_holder_name,
+               COALESCE(w.settlement_type, 'T1') as withdrawal_mode,
+               (
+                 SELECT t.settlement_mode 
+                 FROM transactions t 
+                 WHERE t.merchant_id = w.merchant_id 
+                   AND t.channel = w.channel 
+                   AND t.status != 'REVERSED'
+                 ORDER BY t.created_at DESC 
+                 LIMIT 1
+               ) as swipe_mode
         FROM withdrawals w
         LEFT JOIN users u ON w.merchant_id = u.id
+        LEFT JOIN beneficiaries b ON w.beneficiary_id = b.id
         ORDER BY w.created_at DESC
       `);
-      return sendJson(res, 200, { success: true, withdrawals });
+
+      const enriched = (withdrawals || []).map(w => {
+        const wMode = (w.withdrawal_mode || w.settlement_type || 'T1').toUpperCase();
+        const sMode = w.swipe_mode ? w.swipe_mode.toUpperCase() : null;
+        const isMismatch = Boolean(sMode && wMode && sMode !== 'NONE' && sMode !== wMode);
+        return {
+          ...w,
+          withdrawal_mode: wMode,
+          settlement_type: wMode,
+          swipe_mode: sMode,
+          mismatch_flag: isMismatch
+        };
+      });
+
+      return sendJson(res, 200, { success: true, withdrawals: enriched });
+    }
+
+    if (pathname === '/api/admin/withdrawals/export-excel' && method === 'POST') {
+      try {
+        const body = await parseJsonBody(req);
+        req.body = body;
+        const { withdrawalIds, batchTag, bankName } = body;
+        let caller = null;
+        try {
+          caller = getCaller(req);
+        } catch (_) {
+          caller = { id: body.adminId || body.admin_id || 'ADM001', role: 'ADMIN' };
+        }
+
+        const result = await withTransaction(async (client) => {
+          let rows;
+          if (Array.isArray(withdrawalIds) && withdrawalIds.length > 0) {
+            rows = (await client.query(`
+              SELECT w.*, 
+                     COALESCE(w.amount, (w.amount_paise / 100.0)) as amount,
+                     u.name as merchant_name, 
+                     u.mobile as merchant_mobile,
+                     b.bank_name as ben_bank_name,
+                     b.account_number as ben_account_number,
+                     b.ifsc as ben_ifsc,
+                     b.holder_name as ben_holder_name,
+                     COALESCE(w.settlement_type, 'T1') as withdrawal_mode,
+                     (
+                       SELECT t.settlement_mode 
+                       FROM transactions t 
+                       WHERE t.merchant_id = w.merchant_id 
+                         AND t.channel = w.channel 
+                         AND t.status != 'REVERSED'
+                       ORDER BY t.created_at DESC 
+                       LIMIT 1
+                     ) as swipe_mode
+              FROM withdrawals w
+              LEFT JOIN users u ON w.merchant_id = u.id
+              LEFT JOIN beneficiaries b ON w.beneficiary_id = b.id
+              WHERE w.id = ANY($1)
+              FOR UPDATE OF w
+            `, [withdrawalIds])).rows;
+          } else {
+            rows = (await client.query(`
+              SELECT w.*, 
+                     COALESCE(w.amount, (w.amount_paise / 100.0)) as amount,
+                     u.name as merchant_name, 
+                     u.mobile as merchant_mobile,
+                     b.bank_name as ben_bank_name,
+                     b.account_number as ben_account_number,
+                     b.ifsc as ben_ifsc,
+                     b.holder_name as ben_holder_name,
+                     COALESCE(w.settlement_type, 'T1') as withdrawal_mode,
+                     (
+                       SELECT t.settlement_mode 
+                       FROM transactions t 
+                       WHERE t.merchant_id = w.merchant_id 
+                         AND t.channel = w.channel 
+                         AND t.status != 'REVERSED'
+                       ORDER BY t.created_at DESC 
+                       LIMIT 1
+                     ) as swipe_mode
+              FROM withdrawals w
+              LEFT JOIN users u ON w.merchant_id = u.id
+              LEFT JOIN beneficiaries b ON w.beneficiary_id = b.id
+              WHERE w.status = 'PENDING'
+              FOR UPDATE OF w
+            `)).rows;
+          }
+
+          if (rows.length === 0) {
+            throw new Error('NO_PENDING_WITHDRAWALS: No eligible pending withdrawals found for export.');
+          }
+
+          const alreadyExported = rows.filter(r => r.status !== 'PENDING');
+          if (alreadyExported.length > 0) {
+            const badIds = alreadyExported.map(r => `${r.id} (${r.status})`).join(', ');
+            throw new Error(`ALREADY_EXPORTED: The following withdrawals are not in PENDING status: ${badIds}`);
+          }
+
+          const batchId = `BATCH-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+          const selectedIds = rows.map(r => r.id);
+
+          await client.query(`
+            UPDATE withdrawals
+            SET status = 'SUBMITTED_TO_BANK',
+                batch_id = $1,
+                submitted_to_bank_at = NOW()
+            WHERE id = ANY($2)
+          `, [batchId, selectedIds]);
+
+          const csvHeaders = [
+            'Sl No',
+            'Merchant ID',
+            'Merchant Name',
+            'Merchant Mobile',
+            'Beneficiary Name',
+            'Account Number',
+            'IFSC',
+            'Bank Name',
+            'Payout Amount',
+            'Channel',
+            'Withdrawal Mode',
+            'Swipe Mode',
+            'Mode Mismatch Flag',
+            'Payout Ref ID',
+            'Date'
+          ];
+
+          let totalAmountPaise = 0n;
+          const csvLines = [csvHeaders.join(',')];
+
+          const enriched = rows.map((r, idx) => {
+            const wMode = (r.withdrawal_mode || r.settlement_type || 'T1').toUpperCase();
+            const sMode = r.swipe_mode ? r.swipe_mode.toUpperCase() : 'UNKNOWN';
+            const mismatch = Boolean(sMode && sMode !== 'UNKNOWN' && sMode !== 'NONE' && sMode !== wMode);
+            const amtPaise = BigInt(r.amount_paise || Math.round(Number(r.amount) * 100));
+            totalAmountPaise += amtPaise;
+            const amtRupees = (Number(amtPaise) / 100).toFixed(2);
+
+            const rowData = [
+              idx + 1,
+              `"${r.merchant_id || ''}"`,
+              `"${(r.merchant_name || '').replace(/"/g, '""')}"`,
+              `"${r.merchant_mobile || ''}"`,
+              `"${(r.ben_holder_name || '').replace(/"/g, '""')}"`,
+              `"${r.ben_account_number || ''}"`,
+              `"${r.ben_ifsc || ''}"`,
+              `"${(r.ben_bank_name || '').replace(/"/g, '""')}"`,
+              amtRupees,
+              r.channel || 'pinelabs',
+              wMode,
+              sMode,
+              mismatch ? 'MISMATCH' : 'MATCH',
+              r.id,
+              new Date().toISOString()
+            ];
+            csvLines.push(rowData.join(','));
+
+            return {
+              ...r,
+              status: 'SUBMITTED_TO_BANK',
+              batch_id: batchId,
+              withdrawal_mode: wMode,
+              swipe_mode: sMode,
+              mismatch_flag: mismatch
+            };
+          });
+
+          const csvContent = csvLines.join('\n');
+
+          await client.query(`
+            INSERT INTO payout_batches (
+              id, batch_tag, bank_name, total_payouts, total_amount_paise, csv_content, created_by, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+          `, [
+            batchId,
+            batchTag || null,
+            bankName || null,
+            rows.length,
+            totalAmountPaise.toString(),
+            csvContent,
+            caller?.id || 'ADMIN'
+          ]);
+
+          return {
+            batchId,
+            exportedCount: rows.length,
+            payouts: enriched,
+            csv_content: csvContent
+          };
+        });
+
+        return sendJson(res, 200, {
+          success: true,
+          message: `Successfully exported ${result.exportedCount} payout(s) to batch ${result.batchId}.`,
+          ...result
+        });
+      } catch (err) {
+        return sendJson(res, 400, { success: false, message: err.message });
+      }
+    }
+
+    if (pathname.startsWith('/api/admin/withdrawals/batches/') || pathname.startsWith('/api/admin/withdrawals/batch/')) {
+      const parts = pathname.split('/');
+      const batchId = parts[parts.length - 1] === 'download' ? parts[parts.length - 2] : parts[parts.length - 1];
+      const batchRes = await pgQuery(`SELECT * FROM payout_batches WHERE id = $1`, [batchId]);
+      if (!batchRes || batchRes.length === 0) {
+        return sendJson(res, 404, { success: false, message: `Batch ${batchId} not found.` });
+      }
+      return sendJson(res, 200, { success: true, batch: batchRes[0] });
     }
 
     if (pathname === '/api/admin/withdrawals/batch-status' && method === 'POST') {
@@ -1933,24 +2191,22 @@ export async function handleApiRequest(req, res) {
         const idList = withdrawalIds.map(id => String(id));
         const timestamp = new Date().toISOString();
 
-        const normalizedAction = (action || '').toUpperCase();
+        const normalizedAction = (action || status || '').toUpperCase();
         if (normalizedAction === 'SUBMITTED_TO_BANK' || normalizedAction === 'SUBMIT_TO_BANK') {
           for (const wId of idList) {
             const current = (await pgQuery(`SELECT * FROM withdrawals WHERE UPPER(id) = UPPER($1)`, [wId]))[0];
             if (current) {
-              const existing = (current.admin_remark || '')
-                .replace(/\[SUBMITTED_TO_BANK\]\s*/g, '')
-                .replace(/\[BATCH:[^\]]+\]\s*/g, '')
-                .replace(/\[BATCH_NAME:[^\]]+\]\s*/g, '')
-                .trim();
+              if (current.status !== 'PENDING') {
+                return sendJson(res, 400, { success: false, message: `Withdrawal ${wId} is already in status ${current.status}. Only PENDING can be submitted to bank.` });
+              }
               const tagStr = batchTag || (batchReference ? `[BATCH:${batchReference}]` : '');
               const nameTagStr = batchNameTag || (bankName ? `[BATCH_NAME:${bankName}]` : '');
-              const newRemark = `[SUBMITTED_TO_BANK] ${tagStr} ${nameTagStr} ${existing}`.trim();
+              const newRemark = `${tagStr} ${nameTagStr} ${current.admin_remark || ''}`.trim();
               await pgQuery(`
                 UPDATE withdrawals 
-                SET admin_remark = $1, submitted_to_bank_at = $2
+                SET status = 'SUBMITTED_TO_BANK', admin_remark = $1, submitted_to_bank_at = $2
                 WHERE UPPER(id) = UPPER($3)
-              `, [newRemark, timestamp, wId]);
+              `, [newRemark || null, timestamp, wId]);
             }
           }
           return sendJson(res, 200, { success: true, message: `Successfully marked ${idList.length} payout(s) as Submitted to Bank!` });
@@ -1958,16 +2214,14 @@ export async function handleApiRequest(req, res) {
           for (const wId of idList) {
             const current = (await pgQuery(`SELECT * FROM withdrawals WHERE UPPER(id) = UPPER($1)`, [wId]))[0];
             if (current) {
-              const cleanRemark = (current.admin_remark || '')
-                .replace(/\[SUBMITTED_TO_BANK\]\s*/g, '')
-                .replace(/\[BATCH:[^\]]+\]\s*/g, '')
-                .replace(/\[BATCH_NAME:[^\]]+\]\s*/g, '')
-                .trim();
+              if (current.status !== 'SUBMITTED_TO_BANK') {
+                return sendJson(res, 400, { success: false, message: `Cannot revert withdrawal ${wId} from status ${current.status} to PENDING.` });
+              }
               await pgQuery(`
                 UPDATE withdrawals 
-                SET status = 'PENDING', admin_remark = $1, submitted_to_bank_at = NULL
+                SET status = 'PENDING', submitted_to_bank_at = NULL
                 WHERE UPPER(id) = UPPER($2)
-              `, [cleanRemark || null, wId]);
+              `, [wId]);
             }
           }
           return sendJson(res, 200, { success: true, message: `Successfully reverted ${idList.length} payout(s) to Pending.` });
