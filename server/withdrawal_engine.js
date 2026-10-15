@@ -1,0 +1,204 @@
+import { getWalletBalances, postLedgerEntry } from './ledger_engine.js';
+import { getSetting } from './settings.js';
+
+/**
+ * Server-authoritative quote for withdrawal
+ * Determines exact fee, net payout, remaining balance, and reserve compliance.
+ */
+export async function quoteWithdrawal(clientOrPool, {
+  userId,
+  amountPaise,
+  settlementType = 'T1',
+  channel = 'pinelabs'
+}) {
+  if (!clientOrPool || typeof clientOrPool.query !== 'function') {
+    throw new Error('DATABASE_CLIENT_REQUIRED: quoteWithdrawal requires a query client.');
+  }
+
+  const reqPaise = BigInt(amountPaise);
+  if (reqPaise <= 0n) {
+    throw new Error('INVALID_WITHDRAWAL_AMOUNT: Amount must be greater than 0 paise.');
+  }
+
+  // 1. Fetch live balance and reserve requirement
+  const balances = await getWalletBalances(clientOrPool, userId);
+
+  // 2. Resolve fee basis points from settings table
+  const isInstant = settlementType.toUpperCase() === 'INSTANT';
+  const settingKey = isInstant ? 'instant_settlement_fee_bps' : 't1_settlement_fee_bps';
+  const feeSetting = await getSetting(settingKey, clientOrPool);
+  const feeBps = Number(feeSetting.value_numeric || (isInstant ? 150 : 0));
+
+  // 3. Compute fee and net payout
+  const feePaise = BigInt(Math.floor((Number(reqPaise) * feeBps) / 10000));
+  const netPayoutPaise = reqPaise - feePaise;
+
+  // 4. Reserve compliance check
+  const availableAfterWithdrawal = balances.available_balance_paise - reqPaise;
+  const reserveCompliant = availableAfterWithdrawal >= balances.reserve_required_paise;
+  const shortfallPaise = reserveCompliant 
+    ? 0n 
+    : (balances.reserve_required_paise - availableAfterWithdrawal);
+
+  return {
+    user_id: userId,
+    requested_amount_paise: reqPaise,
+    settlement_type: isInstant ? 'INSTANT' : 'T1',
+    channel,
+    fee_bps: feeBps,
+    fee_paise: feePaise,
+    net_payout_paise: netPayoutPaise,
+    remaining_balance_paise: availableAfterWithdrawal,
+    reserve_required_paise: balances.reserve_required_paise,
+    reserve_compliant: reserveCompliant,
+    shortfall_paise: shortfallPaise
+  };
+}
+
+/**
+ * Process atomic withdrawal request with row-level locking (SELECT ... FOR UPDATE),
+ * verified beneficiary check, and idempotency protection.
+ */
+export async function processWithdrawalRequest(client, {
+  merchantId,
+  amountPaise,
+  beneficiaryId,
+  channel = 'pinelabs',
+  settlementType = 'T1',
+  idempotencyKey = null,
+  createdBy = 'MERCHANT'
+}) {
+  if (!client || typeof client.query !== 'function') {
+    throw new Error('DATABASE_CLIENT_REQUIRED: processWithdrawalRequest requires a transaction client.');
+  }
+
+  const reqPaise = BigInt(amountPaise);
+  if (reqPaise <= 0n) {
+    throw new Error('INVALID_WITHDRAWAL_AMOUNT: Withdrawal amount must be greater than 0 paise.');
+  }
+
+  // 1. Idempotency Check
+  if (idempotencyKey) {
+    const idempRes = await client.query(
+      `SELECT response_body FROM idempotency_keys WHERE key = $1`,
+      [idempotencyKey]
+    );
+    if (idempRes.rows.length > 0) {
+      return idempRes.rows[0].response_body;
+    }
+  }
+
+  // 2. Beneficiary Verification (MUST be an approved, existing beneficiary belonging to merchant)
+  if (!beneficiaryId) {
+    throw new Error('BENEFICIARY_REQUIRED: An approved beneficiary ID must be selected.');
+  }
+  const benRes = await client.query(`
+    SELECT id, merchant_id, bank_name, account_number, ifsc, holder_name, is_verified 
+    FROM beneficiaries 
+    WHERE id = $1 AND UPPER(merchant_id) = UPPER($2)
+  `, [beneficiaryId, merchantId]);
+
+  if (benRes.rows.length === 0) {
+    throw new Error('INVALID_BENEFICIARY: Selected beneficiary is not registered or does not belong to this merchant.');
+  }
+  const beneficiary = benRes.rows[0];
+  if (!beneficiary.is_verified) {
+    throw new Error('UNVERIFIED_BENEFICIARY: Beneficiary bank account is not verified for payouts.');
+  }
+
+  // 3. Row-Level Locking on Wallet (SELECT ... FOR UPDATE prevents race conditions / double-spend)
+  const walletLockRes = await client.query(`
+    SELECT user_id, balance_paise, held_paise 
+    FROM wallets 
+    WHERE UPPER(user_id) = UPPER($1) 
+    FOR UPDATE
+  `, [merchantId]);
+
+  if (walletLockRes.rows.length === 0) {
+    throw new Error('WALLET_NOT_FOUND: Merchant wallet not found.');
+  }
+
+  const currentBalancePaise = BigInt(walletLockRes.rows[0].balance_paise || 0);
+  const currentHeldPaise = BigInt(walletLockRes.rows[0].held_paise || 0);
+  const currentAvailablePaise = currentBalancePaise > currentHeldPaise ? currentBalancePaise - currentHeldPaise : 0n;
+
+  // 4. Reserve Check
+  const reserveSetting = await getSetting('reserve_amount_paise', client);
+  const reserveRequiredPaise = BigInt(reserveSetting.value_numeric || 50000);
+
+  if (currentAvailablePaise - reqPaise < reserveRequiredPaise) {
+    throw new Error(
+      `RESERVE_VIOLATION: Withdrawal would breach mandatory security reserve of ${reserveRequiredPaise} paise (Rs 500). Available: ${currentAvailablePaise} paise, Requested: ${reqPaise} paise.`
+    );
+  }
+
+  // 5. Quote fee and net payout
+  const quote = await quoteWithdrawal(client, {
+    userId: merchantId,
+    amountPaise: reqPaise,
+    settlementType,
+    channel
+  });
+
+  const withdrawalId = `WTH-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+  // 6. Post withdrawal hold in financial ledger & update wallet
+  await postLedgerEntry(client, {
+    userId: merchantId,
+    type: 'withdrawal_hold',
+    amountPaise: -reqPaise, // Signed negative debit
+    referenceId: withdrawalId,
+    referenceType: 'WITHDRAWAL',
+    channel,
+    metadata: {
+      beneficiary_id: beneficiary.id,
+      bank_name: beneficiary.bank_name,
+      account_number_masked: beneficiary.account_number.slice(-4),
+      ifsc: beneficiary.ifsc,
+      fee_paise: quote.fee_paise.toString(),
+      net_payout_paise: quote.net_payout_paise.toString(),
+      settlement_type: quote.settlement_type
+    },
+    createdBy
+  });
+
+  // 7. Insert withdrawal record
+  await client.query(`
+    INSERT INTO withdrawals (
+      id, merchant_id, amount_paise, fee_paise, net_payout_paise,
+      beneficiary_id, channel, settlement_type, status, created_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING', NOW())
+  `, [
+    withdrawalId,
+    merchantId,
+    reqPaise.toString(),
+    quote.fee_paise.toString(),
+    quote.net_payout_paise.toString(),
+    beneficiary.id,
+    channel,
+    quote.settlement_type
+  ]);
+
+  const result = {
+    id: withdrawalId,
+    merchant_id: merchantId,
+    amount_paise: reqPaise.toString(),
+    fee_paise: quote.fee_paise.toString(),
+    net_payout_paise: quote.net_payout_paise.toString(),
+    beneficiary_id: beneficiary.id,
+    channel,
+    settlement_type: quote.settlement_type,
+    status: 'PENDING'
+  };
+
+  // 8. Store Idempotency Key
+  if (idempotencyKey) {
+    await client.query(`
+      INSERT INTO idempotency_keys (key, endpoint, response_code, response_body, created_at)
+      VALUES ($1, $2, 200, $3, NOW())
+      ON CONFLICT (key) DO NOTHING
+    `, [idempotencyKey, '/api/withdrawals/request', JSON.stringify(result)]);
+  }
+
+  return result;
+}
