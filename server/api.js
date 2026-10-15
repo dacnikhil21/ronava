@@ -72,6 +72,78 @@ export function resolveUserBuyRate(user, pos, isInstant = false, targetChannel =
   return 0.0;
 }
 
+/**
+ * Authoritative Server-Side Channel Balance Calculator (100% Single Source of Truth)
+ * Evaluates real-time swipes and withdrawals strictly in PostgreSQL.
+ */
+export async function calculateUserChannelBalances(userId, wallet) {
+  try {
+    const txns = await pgQuery(
+      `SELECT id, amount, provider, status, notes, type FROM transactions WHERE UPPER(merchant_id) = UPPER($1) AND status = 'APPROVED'`, 
+      [userId]
+    );
+    const withs = await pgQuery(
+      `SELECT id, amount, channel, status FROM withdrawals WHERE UPPER(merchant_id) = UPPER($1) AND status != 'REJECTED'`, 
+      [userId]
+    );
+
+    const channels = {
+      pinelabs: { volume: 0, credited: 0, debited: 0, pending: 0, available_balance: 0, withdrawable_balance: 0 },
+      payswiff: { volume: 0, credited: 0, debited: 0, pending: 0, available_balance: 0, withdrawable_balance: 0 },
+      qr:       { volume: 0, credited: 0, debited: 0, pending: 0, available_balance: 0, withdrawable_balance: 0 },
+    };
+
+    (txns || []).forEach(t => {
+      const p = (t.provider || '').toLowerCase();
+      const ch = p.includes('swiff') ? 'payswiff' : (p.includes('qr') ? 'qr' : 'pinelabs');
+      const gross = parseFloat(t.amount) || 0;
+      let net = gross;
+      if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
+        try {
+          const jsonPart = t.notes.slice(t.notes.indexOf('{'));
+          const meta = JSON.parse(jsonPart);
+          if (meta.net_credited !== undefined) {
+            net = parseFloat(meta.net_credited) || 0;
+          } else if (meta.company_fee !== undefined) {
+            net = Math.max(0, gross - (parseFloat(meta.company_fee) || 0));
+          }
+        } catch (_) {}
+      }
+      channels[ch].volume += gross;
+      channels[ch].credited += net;
+    });
+
+    (withs || []).forEach(w => {
+      const c = (w.channel || '').toLowerCase();
+      const ch = c.includes('swiff') ? 'payswiff' : (c.includes('qr') ? 'qr' : 'pinelabs');
+      const amt = parseFloat(w.amount) || 0;
+      if (w.status === 'APPROVED') {
+        channels[ch].debited += amt;
+      } else if (w.status === 'PENDING') {
+        channels[ch].pending += amt;
+        channels[ch].debited += amt;
+      }
+    });
+
+    const dbAvail = Math.max(0, parseFloat(wallet?.available_balance || 0));
+
+    for (const ch of Object.keys(channels)) {
+      const raw = Math.max(0, parseFloat((channels[ch].credited - channels[ch].debited).toFixed(2)));
+      channels[ch].available_balance = dbAvail > 0 ? (raw > 0 ? Math.min(raw, dbAvail) : dbAvail) : 0.0;
+      channels[ch].withdrawable_balance = Math.max(0, parseFloat((channels[ch].available_balance - (channels[ch].available_balance > 0 ? 500 : 0)).toFixed(2)));
+    }
+
+    return channels;
+  } catch (err) {
+    console.error('[calculateUserChannelBalances] Error:', err);
+    return {
+      pinelabs: { volume: 0, credited: 0, debited: 0, pending: 0, available_balance: 0, withdrawable_balance: 0 },
+      payswiff: { volume: 0, credited: 0, debited: 0, pending: 0, available_balance: 0, withdrawable_balance: 0 },
+      qr:       { volume: 0, credited: 0, debited: 0, pending: 0, available_balance: 0, withdrawable_balance: 0 },
+    };
+  }
+}
+
 // Master API Handler (100% Pure PostgreSQL)
 export async function handleApiRequest(req, res) {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -630,13 +702,17 @@ export async function handleApiRequest(req, res) {
         const wallets = await pgQuery(`SELECT * FROM wallets WHERE UPPER(user_id) = UPPER($1)`, [userId]);
         const pos = (await pgQuery(`SELECT * FROM merchant_pos WHERE UPPER(merchant_id) = UPPER($1)`, [userId]))[0] || null;
         if (!wallets || wallets.length === 0) {
+          const emptyWallet = { user_id: userId, available_balance: 0, total_sales: 0, received_sales: 0, pending_balance: 0, withdrawn_amount: 0 };
+          emptyWallet.channel_balances = await calculateUserChannelBalances(userId, emptyWallet);
           return sendJson(res, 200, {
             success: true,
-            wallet: { user_id: userId, available_balance: 0, total_sales: 0, received_sales: 0, pending_balance: 0, withdrawn_amount: 0 },
+            wallet: emptyWallet,
             pos
           });
         }
-        return sendJson(res, 200, { success: true, wallet: wallets[0], pos });
+        const activeWallet = { ...wallets[0] };
+        activeWallet.channel_balances = await calculateUserChannelBalances(userId, activeWallet);
+        return sendJson(res, 200, { success: true, wallet: activeWallet, pos });
       } catch (err) {
         return sendJson(res, 500, { success: false, message: err.message });
       }
@@ -1104,11 +1180,13 @@ export async function handleApiRequest(req, res) {
 
       const wallets = await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [user.id]);
       const posList = await pgQuery(`SELECT * FROM merchant_pos WHERE merchant_id = $1`, [user.id]);
+      const activeWallet = wallets[0] ? { ...wallets[0] } : { user_id: user.id, available_balance: 0, total_sales: 0, received_sales: 0, pending_balance: 0, withdrawn_amount: 0 };
+      activeWallet.channel_balances = await calculateUserChannelBalances(user.id, activeWallet);
 
       return sendJson(res, 200, {
         success: true,
         user,
-        wallet: wallets[0] || { available_balance: 0, total_sales: 0, received_sales: 0, pending_balance: 0, withdrawn_amount: 0 },
+        wallet: activeWallet,
         pos: posList[0] || null
       });
     }
@@ -1307,15 +1385,19 @@ export async function handleApiRequest(req, res) {
     // 2. LIVE WALLET & METRICS
     // ----------------------------------------------------
     if (pathname.startsWith('/api/wallet/') && method === 'GET') {
-      const userId = pathname.replace('/api/wallet/', '');
-      const wallets = await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [userId]);
-      const posList = await pgQuery(`SELECT * FROM merchant_pos WHERE merchant_id = $1`, [userId]);
+      const userId = decodeURIComponent(pathname.replace('/api/wallet/', '')).trim();
+      const wallets = await pgQuery(`SELECT * FROM wallets WHERE UPPER(user_id) = UPPER($1)`, [userId]);
+      const posList = await pgQuery(`SELECT * FROM merchant_pos WHERE UPPER(merchant_id) = UPPER($1)`, [userId]);
       
       if (!wallets || wallets.length === 0) {
-        return sendJson(res, 404, { success: false, message: 'Wallet not found.' });
+        const emptyWallet = { user_id: userId, available_balance: 0, total_sales: 0, received_sales: 0, pending_balance: 0, withdrawn_amount: 0 };
+        emptyWallet.channel_balances = await calculateUserChannelBalances(userId, emptyWallet);
+        return sendJson(res, 200, { success: true, wallet: emptyWallet, pos: posList[0] || null });
       }
 
-      return sendJson(res, 200, { success: true, wallet: wallets[0], pos: posList[0] || null });
+      const activeWallet = { ...wallets[0] };
+      activeWallet.channel_balances = await calculateUserChannelBalances(userId, activeWallet);
+      return sendJson(res, 200, { success: true, wallet: activeWallet, pos: posList[0] || null });
     }
 
     // ----------------------------------------------------

@@ -872,102 +872,50 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     return { all: list.length, t1: t1Count, instant: instantCount };
   }, [activeMachineWithdrawals]);
 
-  // Reactive machine-specific Wallet Computation (Segregated Pine Labs vs Payswiff vs QR + Downline Commission)
+  // Authoritative machine-specific Wallet (100% Pure Single Source of Truth from Backend PostgreSQL)
+  // Zero client-side subtraction or arithmetic. All channel balances and holds are calculated on the server.
   const activeMachineWallet = useMemo(() => {
-    const txns = activeMachineTransactions;
-    const withs = activeMachineWithdrawals;
+    const chKey = (selectedMachineKey === 'qr' ? 'qr' : (selectedMachineKey === 'payswiff' ? 'payswiff' : 'pinelabs')).toLowerCase();
+    const backendCh = wallet?.channel_balances?.[chKey];
+    const dbAvailableBalance = Math.max(0, parseFloat(wallet?.available_balance || 0));
 
-    // Separate direct card swipes from downline commission entries
-    let directSwipeNet = 0;
-    let directCommissions = 0;
-
-    const approvedTxns = (txns || []).filter(t => (t.status || '').toUpperCase() === 'APPROVED');
-
-    approvedTxns.forEach(t => {
-      const gross = parseFloat(t.amount) || 0;
-      const isComm = t.is_commission === true || t.activityType === 'COMMISSION_EARNED' || t.type === 'COMMISSION_EARNED';
-      if (isComm) {
-        // Commission earned from downline is 100% net profit. No card swipe fees can be deducted!
-        directCommissions += gross;
-      } else {
-        let fee = 0;
-        if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
-          try {
-            const jsonPart = t.notes.slice(t.notes.indexOf('{'));
-            const meta = JSON.parse(jsonPart);
-            fee = parseFloat(meta.company_fee) || 0;
-          } catch (_) {}
-        }
-        directSwipeNet += Math.max(0, gross - fee);
-      }
-    });
-
-    const receivedSales = directSwipeNet;
-
-    const pendingTxns = txns.filter(t => (t.status || '').toUpperCase() === 'PENDING');
-    const pendingBalance = pendingTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-
-    const approvedWiths = withs.filter(w => (w.status || '').toUpperCase() === 'APPROVED');
-    const withdrawnAmount = approvedWiths.reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
-    const pendingWiths = withs.filter(w => (w.status || '').toUpperCase() === 'PENDING');
-    const pendingWithdrawn = pendingWiths.reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
-
-    // Downline commission earnings strictly segregated by the active machine channel (Pine Labs in Pine Labs ONLY, Payswiff in Payswiff ONLY, QR in QR ONLY)
+    // Downline commission earnings strictly segregated by the active machine channel (for distributors/uplines)
     let earnedCommission = 0;
     if (userRole !== 'MERCHANT' && userRole !== 'Retailer') {
       const chComms = networkData?.channel_commissions;
-      let networkComm = 0;
       if (chComms) {
-        if (selectedMachineKey === 'qr') {
-          networkComm = chComms.qr || 0;
-        } else if (selectedMachineKey === 'payswiff') {
-          networkComm = chComms.payswiff || 0;
-        } else {
-          networkComm = chComms.pinelabs || 0;
-        }
+        if (chKey === 'qr') earnedCommission = chComms.qr || 0;
+        else if (chKey === 'payswiff') earnedCommission = chComms.payswiff || 0;
+        else earnedCommission = chComms.pinelabs || 0;
       }
-      earnedCommission = Math.max(directCommissions, networkComm);
     }
 
-    // Channel Net Credited = Net Sales Credited + Downline Commission Earned strictly for this active channel
-    const channelCredited = receivedSales + earnedCommission;
-    // Channel Net Debited = Approved Withdrawals + Pending Withdrawals from this active channel
-    const channelDebited = withdrawnAmount + pendingWithdrawn;
-    const rawChannelBalance = Math.max(0, parseFloat((channelCredited - channelDebited).toFixed(2)));
-    
-    // Database authoritative balance is the master source of truth
-    const dbAvailableBalance = Math.max(0, parseFloat(wallet?.available_balance || 0));
-    const channelAvailableBalance = dbAvailableBalance > 0
-      ? (rawChannelBalance > 0 ? Math.min(rawChannelBalance, dbAvailableBalance) : dbAvailableBalance)
-      : 0.0;
+    if (backendCh) {
+      return {
+        available_balance: backendCh.available_balance,
+        withdrawable_balance: backendCh.withdrawable_balance,
+        active_hold: backendCh.available_balance > 0 ? 500.0 : 0.0,
+        total_sales: backendCh.volume,
+        received_sales: backendCh.credited,
+        commission_earned: earnedCommission,
+        pending_balance: backendCh.pending,
+        withdrawn_amount: backendCh.debited
+      };
+    }
 
-    // Universal ₹500.00 Active Reserve Hold strictly applied across all accounts & payout purposes
-    const activeHold = channelAvailableBalance > 0 ? 500.0 : 0.0;
-    const channelWithdrawableBalance = Math.max(0, parseFloat((channelAvailableBalance - activeHold).toFixed(2)));
-
-    // Channel-specific sales volume (for distributors/uplines without direct swipes, show downline sales for this machine)
-    const isRetail = userRole === 'MERCHANT' || userRole === 'Retailer';
-    const directSalesVolume = txns.filter(t => !t.is_commission && t.activityType !== 'COMMISSION_EARNED').reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-    const activeChVol = networkData?.channel_volumes ? (
-      selectedMachineKey === 'qr' ? (networkData.channel_volumes.qr || 0) : (
-        selectedMachineKey === 'payswiff' ? (networkData.channel_volumes.payswiff || 0) : (networkData.channel_volumes.pinelabs || 0)
-      )
-    ) : 0;
-    const effectiveTotalSales = isRetail 
-      ? directSalesVolume 
-      : (activeChVol > 0 ? activeChVol : (directSalesVolume > 0 ? directSalesVolume : (selectedMachineKey === 'pine_labs' || selectedMachineKey === 'pinelabs' ? parseFloat(wallet?.total_sales || 0) : 0)));
-
+    // Direct database fallback with zero client math
+    const activeHold = dbAvailableBalance > 0 ? 500.0 : 0.0;
     return {
-      available_balance: channelAvailableBalance,
-      withdrawable_balance: channelWithdrawableBalance,
+      available_balance: dbAvailableBalance,
+      withdrawable_balance: Math.max(0, parseFloat((dbAvailableBalance - activeHold).toFixed(2))),
       active_hold: activeHold,
-      total_sales: effectiveTotalSales,
-      received_sales: receivedSales,
+      total_sales: parseFloat(wallet?.total_sales || 0),
+      received_sales: parseFloat(wallet?.received_sales || 0),
       commission_earned: earnedCommission,
-      pending_balance: (pendingWithdrawn + pendingBalance),
-      withdrawn_amount: withdrawnAmount
+      pending_balance: parseFloat(wallet?.pending_balance || 0),
+      withdrawn_amount: parseFloat(wallet?.withdrawn_amount || 0)
     };
-  }, [activeMachineTransactions, activeMachineWithdrawals, networkData, userRole, selectedMachineKey, wallet, payoutTargetType]);
+  }, [selectedMachineKey, wallet, userRole, networkData]);
 
   // Dynamic Today's Stats filtered strictly for the active machine
   const todayStats = useMemo(() => {
