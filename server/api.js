@@ -11,7 +11,7 @@ import {
 
 import { getCaller } from './caller.js';
 import { getSetting, getAllSettings, updateSetting } from './settings.js';
-import { getWalletBalances, verifyWalletReconciliation } from './ledger_engine.js';
+import { postLedgerEntry, getWalletBalances, verifyWalletReconciliation } from './ledger_engine.js';
 import { processSwipeTransaction } from './transaction_engine.js';
 import { quoteWithdrawal, processWithdrawalRequest } from './withdrawal_engine.js';
 import { reverseTransaction } from './reversal_engine.js';
@@ -479,8 +479,12 @@ export async function handleApiRequest(req, res) {
     // 0.4 ADMIN TRANSACTION VERIFICATION & APPROVAL / REVERSAL
     // ----------------------------------------------------
     if (pathname === '/api/admin/verify-transaction' && method === 'POST') {
-      const { adminId, txnId, txn_id, action, remark, utr } = await parseJsonBody(req);
-      const targetTxnId = (txnId || txn_id || '').toString().trim();
+      const body = await parseJsonBody(req);
+      const targetTxnId = (body.transaction_id || body.txnId || body.txn_id || body.id || '').toString().trim();
+      const action = (body.action || '').toUpperCase();
+      const remark = body.remark || '';
+      const utr = body.utr || '';
+
       if (!targetTxnId || !action) {
         return sendJson(res, 400, { success: false, message: 'txnId and action are required.' });
       }
@@ -492,8 +496,8 @@ export async function handleApiRequest(req, res) {
       }
 
       if (action === 'APPROVE') {
-        if (txn.status === 'REJECTED') {
-          return sendJson(res, 400, { success: false, message: 'Cannot approve a rejected transaction.' });
+        if (txn.status === 'REVERSED' || txn.status === 'REJECTED') {
+          return sendJson(res, 400, { success: false, message: 'Cannot approve a reversed or rejected transaction.' });
         }
 
         const finalRemark = utr ? `[VERIFIED_BY_ADMIN] UTR: ${utr}` : (remark ? `[VERIFIED_BY_ADMIN] ${remark}` : '[VERIFIED_BY_ADMIN] Audited & verified against POS settlement report');
@@ -505,119 +509,37 @@ export async function handleApiRequest(req, res) {
         `, [finalRemark, targetTxnId]);
 
         const updatedTxn = (await pgQuery(`SELECT * FROM transactions WHERE id = $1`, [targetTxnId]))[0];
-        const updatedWallet = (await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [txn.merchant_id]))[0];
+        const balances = await getWalletBalances(getDbPool(), txn.merchant_id);
 
         return sendJson(res, 200, {
           success: true,
           message: `Transaction ${targetTxnId} verified successfully!`,
           transaction: updatedTxn,
-          wallet: updatedWallet
+          balances
         });
       } else if (action === 'REJECT') {
-        if (txn.status === 'REJECTED') {
-          return sendJson(res, 400, { success: false, message: `Transaction ${targetTxnId} is already REJECTED.` });
+        if (txn.status === 'REVERSED' || txn.status === 'REJECTED') {
+          return sendJson(res, 400, { success: false, message: `Transaction ${targetTxnId} is already reversed or rejected.` });
         }
-        const finalRemark = remark ? `[REVERSED_BY_ADMIN] ${remark}` : '[REVERSED_BY_ADMIN] Transaction rejected by Admin';
 
-        // Atomic reversal with row-locked deficit tracking
-        await withTransaction(async (client) => {
-          // 1. Lock transaction row to prevent concurrent double-reversal
-          const lockTxnRows = (await client.query(
-            `SELECT * FROM transactions WHERE id = $1 FOR UPDATE`, 
-            [targetTxnId]
-          )).rows;
-          const liveTxn = lockTxnRows[0];
-          if (!liveTxn) {
-            throw new Error(`Transaction ${targetTxnId} not found.`);
-          }
-          if (liveTxn.status === 'REJECTED') {
-            throw new Error(`Transaction ${targetTxnId} is already REJECTED.`);
-          }
-
-          // Parse commission metadata snapshot
-          let meta = {};
-          if (liveTxn.notes && typeof liveTxn.notes === 'string' && liveTxn.notes.includes('[CARD_SWIPE_ENTRY]')) {
-            try {
-              const jsonPart = liveTxn.notes.slice(liveTxn.notes.indexOf('{'));
-              meta = JSON.parse(jsonPart);
-            } catch (_) {}
-          }
-
-          const netCredited = meta.net_credited !== undefined ? parseFloat(meta.net_credited) : parseFloat(liveTxn.amount);
-          const uplineSplits = Array.isArray(meta.commission_splits) ? meta.commission_splits : [];
-          const adminMargin = meta.admin_net_margin ? parseFloat(meta.admin_net_margin) : 0.0;
-
-          // Reversal for merchant wallet
-          await client.query(`
-            UPDATE wallets 
-            SET available_balance = GREATEST(0.0, available_balance - $1),
-                received_sales = GREATEST(0.0, received_sales - $2),
-                total_sales = GREATEST(0.0, total_sales - $2),
-                updated_at = CURRENT_TIMESTAMP
-            WHERE UPPER(user_id) = UPPER($3)
-          `, [netCredited, parseFloat(liveTxn.amount), liveTxn.merchant_id]);
-
-          // Reversal for each upline
-          for (const split of uplineSplits) {
-            const uId = split.user_id;
-            const commAmt = parseFloat(split.amount) || 0;
-            if (commAmt > 0 && uId) {
-              await client.query(`
-                UPDATE wallets 
-                SET available_balance = GREATEST(0.0, available_balance - $1),
-                    total_sales = GREATEST(0.0, total_sales - $2),
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE UPPER(user_id) = UPPER($3)
-              `, [commAmt, parseFloat(liveTxn.amount), uId]);
-            }
-          }
-
-          // Admin reversal
-          if (adminMargin > 0) {
-            const aWallets = (await client.query(`SELECT * FROM wallets WHERE UPPER(user_id) = 'ADM001' FOR UPDATE`)).rows;
-            if (aWallets.length > 0) {
-              await client.query(`
-                UPDATE wallets 
-                SET available_balance = GREATEST(0.0, available_balance - $1),
-                    total_sales = GREATEST(0.0, total_sales - $2),
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE UPPER(user_id) = 'ADM001'
-              `, [adminMargin, parseFloat(liveTxn.amount)]);
-            }
-          }
-
-          // Update transaction status
-          await client.query(`
-            UPDATE transactions 
-            SET status = 'REJECTED', admin_remark = $1, verified_at = CURRENT_TIMESTAMP 
-            WHERE id = $2
-          `, [finalRemark, targetTxnId]);
-
-          // Record reversal clawback audit entry
-          const revId = `REV-${Date.now().toString().slice(-6)}`;
-          await client.query(`
-            INSERT INTO transactions (id, merchant_id, customer_mobile, amount, type, provider, ref_number, notes, status, admin_remark, verified_at)
-            VALUES ($1, $2, $3, $4, 'POS_SWIPE', $5, $6, $7, 'REJECTED', $8, CURRENT_TIMESTAMP)
-          `, [
-            revId,
-            liveTxn.merchant_id,
-            liveTxn.customer_mobile || null,
-            netCredited,
-            liveTxn.provider || 'Pine Labs',
-            liveTxn.ref_number || `REF-${revId}`,
-            `[REVERSAL_CLAWBACK] ${JSON.stringify({ original_txn_id: targetTxnId, amount_reversed: netCredited })}`,
-            finalRemark
-          ]);
+        const caller = getCaller(req);
+        const result = await withTransaction(async (client) => {
+          return await reverseTransaction(client, {
+            txnId: targetTxnId,
+            reason: remark || 'Transaction rejected by Admin',
+            callerId: caller.id
+          });
         });
 
         const updatedTxn = (await pgQuery(`SELECT * FROM transactions WHERE id = $1`, [targetTxnId]))[0];
-        const updatedWallet = (await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [txn.merchant_id]))[0];
+        const balances = await getWalletBalances(getDbPool(), txn.merchant_id);
 
         return sendJson(res, 200, {
           success: true,
-          message: `Transaction ${targetTxnId} reversed successfully. Auditable clawback applied.`,
+          message: `Transaction ${targetTxnId} reversed successfully. Signed reversing entries posted to financial ledger.`,
           transaction: updatedTxn,
-          wallet: updatedWallet
+          balances,
+          reversal: result
         });
       } else {
         return sendJson(res, 400, { success: false, message: 'Invalid action. Allowed: APPROVE, REJECT.' });
@@ -1752,15 +1674,16 @@ export async function handleApiRequest(req, res) {
     }
 
     if (pathname === '/api/admin/verify-withdrawal' && method === 'POST') {
-      const { withdrawal_id, withdrawalId, action, remark, utr } = await parseJsonBody(req);
-      const targetWthId = (withdrawal_id || withdrawalId || '').toString().trim();
+      const { withdrawal_id, withdrawalId, id, action: reqAction, remark, utr } = await parseJsonBody(req);
+      const targetWthId = (withdrawal_id || withdrawalId || id || '').toString().trim();
+      const action = (reqAction || '').toUpperCase();
       if (!targetWthId || !action) {
         return sendJson(res, 400, { success: false, message: 'withdrawal_id and action are required.' });
       }
 
       try {
         let updatedWth = null;
-        let updatedWallet = null;
+        const caller = getCaller(req);
 
         await withTransaction(async (client) => {
           const wRows = (await client.query(`SELECT * FROM withdrawals WHERE id = $1 FOR UPDATE`, [targetWthId])).rows;
@@ -1773,7 +1696,7 @@ export async function handleApiRequest(req, res) {
             throw new Error(`Withdrawal is already ${wth.status}.`);
           }
 
-          const amount = parseFloat(wth.amount);
+          const amountPaise = BigInt(wth.amount_paise || Math.round(Number(wth.amount) * 100));
 
           if (action === 'APPROVE') {
             const cleanUtr = (utr || '').trim();
@@ -1781,28 +1704,51 @@ export async function handleApiRequest(req, res) {
             const finalRemark = cleanUtr 
               ? (existingRemark ? `${existingRemark} • Disbursed via IMPS (UTR: ${cleanUtr})` : `Disbursed via IMPS (UTR: ${cleanUtr})`)
               : (remark || existingRemark || 'Bank payout cleared via IMPS/NEFT');
+
+            await postLedgerEntry(client, {
+              userId: wth.merchant_id,
+              type: 'withdrawal_paid',
+              amountPaise: 0n,
+              referenceId: targetWthId,
+              referenceType: 'WITHDRAWAL',
+              channel: wth.channel || 'pinelabs',
+              metadata: {
+                utr: cleanUtr,
+                disbursed_paise: amountPaise.toString()
+              },
+              createdBy: caller.id
+            });
+
+            await client.query(`
+              UPDATE wallets 
+              SET withdrawn_paise = withdrawn_paise + $1,
+                  updated_at = NOW()
+              WHERE UPPER(user_id) = UPPER($2)
+            `, [amountPaise.toString(), wth.merchant_id]);
+
             const wRes = await client.query(`
               UPDATE withdrawals 
               SET status = 'APPROVED', 
                   admin_remark = $1, 
-                  utr_number = COALESCE(NULLIF($2, ''), utr_number),
-                  rrn_number = COALESCE(NULLIF($2, ''), rrn_number),
                   verified_at = CURRENT_TIMESTAMP 
-              WHERE id = $3
+              WHERE id = $2
               RETURNING *
-            `, [finalRemark, cleanUtr, targetWthId]);
+            `, [finalRemark, targetWthId]);
             updatedWth = wRes.rows[0];
-
-            const walRes = await client.query(`
-              UPDATE wallets 
-              SET pending_balance = GREATEST(0.0, pending_balance - $1),
-                  withdrawn_amount = withdrawn_amount + $1,
-                  updated_at = CURRENT_TIMESTAMP
-              WHERE user_id = $2
-              RETURNING *
-            `, [amount, wth.merchant_id]);
-            updatedWallet = walRes.rows[0];
           } else if (action === 'REJECT') {
+            await postLedgerEntry(client, {
+              userId: wth.merchant_id,
+              type: 'withdrawal_reversal',
+              amountPaise: amountPaise,
+              referenceId: targetWthId,
+              referenceType: 'WITHDRAWAL',
+              channel: wth.channel || 'pinelabs',
+              metadata: {
+                reason: remark || 'Bank account details mismatch / rejected'
+              },
+              createdBy: caller.id
+            });
+
             const wRes = await client.query(`
               UPDATE withdrawals 
               SET status = 'REJECTED', admin_remark = $1, verified_at = CURRENT_TIMESTAMP 
@@ -1810,26 +1756,19 @@ export async function handleApiRequest(req, res) {
               RETURNING *
             `, [remark || 'Bank account details mismatch / rejected', targetWthId]);
             updatedWth = wRes.rows[0];
-
-            const walRes = await client.query(`
-              UPDATE wallets 
-              SET pending_balance = GREATEST(0.0, pending_balance - $1),
-                  available_balance = available_balance + $1,
-                  updated_at = CURRENT_TIMESTAMP
-              WHERE user_id = $2
-              RETURNING *
-            `, [amount, wth.merchant_id]);
-            updatedWallet = walRes.rows[0];
           } else {
             throw new Error('Invalid action. Allowed: APPROVE, REJECT.');
           }
         });
 
+        const pool = getDbPool();
+        const balances = await getWalletBalances(pool, updatedWth.merchant_id);
+
         return sendJson(res, 200, {
           success: true,
           message: `Withdrawal ${action === 'APPROVE' ? 'Approved' : 'Rejected'}.`,
           withdrawal: updatedWth,
-          wallet: updatedWallet
+          balances
         });
       } catch (err) {
         return sendJson(res, 400, { success: false, message: err.message });

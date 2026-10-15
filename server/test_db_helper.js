@@ -196,6 +196,7 @@ export async function resetTestDatabase() {
         channel VARCHAR(50) NOT NULL,
         settlement_type VARCHAR(50) NOT NULL DEFAULT 'T1',
         status VARCHAR(50) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'SUBMITTED_TO_BANK', 'APPROVED', 'REJECTED')),
+        admin_remark TEXT,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         verified_at TIMESTAMPTZ
       );
