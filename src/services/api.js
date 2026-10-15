@@ -687,39 +687,42 @@ export async function createDownstreamUser(userData) {
 }
 
 // ----------------------------------------------------
+// ----------------------------------------------------
 // 3. LIVE WALLET & METRICS
 // ----------------------------------------------------
 export async function getWallet(userId) {
   try {
-    const { data: wallet, error: wErr } = await supabase
-      .from('wallets')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle();
+    const cleanId = String(userId || '').trim();
+    if (!cleanId) {
+      return { success: false, message: 'User ID is required to fetch wallet.', wallet: null };
+    }
 
-    const { data: pos } = await supabase
-      .from('merchant_pos')
-      .select('*')
-      .eq('merchant_id', userId)
-      .maybeSingle();
-
-    const enrichedPos = pos ? {
-      ...pos,
-      channels: parseMerchantChannels(pos)
-    } : null;
-
-    if (wErr || !wallet) {
+    const res = await fetchWithTimeout(getApiUrl(`/api/wallet/${encodeURIComponent(cleanId)}`));
+    const data = await res.json();
+    if (!data.success || !data.wallet) {
       return { 
-        success: true, 
-        wallet: { available_balance: 0, total_sales: 0, received_sales: 0, pending_balance: 0, withdrawn_amount: 0 }, 
-        pos: enrichedPos 
+        success: false, 
+        message: data.message || 'Wallet not found or error loading balance.', 
+        wallet: null, 
+        balances: null,
+        pos: data.pos ? { ...data.pos, channels: parseMerchantChannels(data.pos) } : null
       };
     }
 
-    return { success: true, wallet, pos: enrichedPos };
+    const enrichedPos = data.pos ? {
+      ...data.pos,
+      channels: parseMerchantChannels(data.pos)
+    } : null;
+
+    return { 
+      success: true, 
+      wallet: data.wallet, 
+      balances: data.balances, 
+      pos: enrichedPos 
+    };
   } catch (err) {
     console.error('getWallet error:', err);
-    return { success: false, message: err.message };
+    return { success: false, message: err.message || 'Network error fetching wallet balance.', wallet: null };
   }
 }
 
@@ -1204,16 +1207,32 @@ export async function recordMerchantSale(saleData) {
       customer_mobile, 
       type, 
       provider, 
+      channel,
       ref_number, 
       rrn_number,
       settlement_type,
       terminal_id,
-      notes 
+      notes,
+      idempotency_key
     } = saleData;
 
     if (!merchant_id || !amount) {
       return { success: false, message: 'Merchant ID and Amount are required.' };
     }
+
+    const cleanChannel = (channel || provider || 'pinelabs').toLowerCase().includes('swiff') 
+      ? 'payswiff' 
+      : ((channel || provider || '').toLowerCase().includes('qr') ? 'qr' : 'pinelabs');
+
+    // Rule: Pine Labs & Payswiff require T1 or INSTANT; QR must be NONE
+    let mode = (settlement_type || 'T1').toUpperCase();
+    if (cleanChannel === 'qr') {
+      mode = 'NONE';
+    } else if (mode !== 'T1' && mode !== 'INSTANT') {
+      mode = 'T1';
+    }
+
+    const idempKey = idempotency_key || `IDEMP-SWIPE-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
     const payload = {
       merchant_id,
@@ -1221,16 +1240,20 @@ export async function recordMerchantSale(saleData) {
       customer_name: customer_name || 'Counter Customer',
       customer_mobile: customer_mobile || '',
       type: type || 'POS_SWIPE',
-      provider: provider || 'Pine Labs',
+      channel: cleanChannel,
+      provider: cleanChannel === 'payswiff' ? 'Payswiff' : (cleanChannel === 'qr' ? 'RONAV QR' : 'Pine Labs'),
       ref_number: rrn_number || ref_number || '',
-      settlement_type: settlement_type || 'T1',
+      settlement_type: mode,
       terminal_id: terminal_id || '',
       notes: notes || ''
     };
 
     const res = await fetchWithTimeout(getApiUrl('/api/transactions/record'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'idempotency-key': idempKey
+      },
       body: JSON.stringify(payload)
     });
 
@@ -1263,299 +1286,35 @@ export async function getMerchantTransactions(merchantId) {
 // ----------------------------------------------------
 export async function getDownstreamNetwork(creatorId) {
   try {
-    const [allUsersRes, txnsRes, walletsRes, posRes] = await Promise.all([
-      supabase.from('users').select('*'),
-      supabase.from('transactions').select('*').order('created_at', { ascending: false }),
-      supabase.from('wallets').select('*'),
-      supabase.from('merchant_pos').select('*')
-    ]);
-
-    const allUsers = allUsersRes.data || [];
-    const allTxns = txnsRes.data || [];
-    const wallets = walletsRes.data || [];
-    const posList = posRes.data || [];
-
-    const creator = allUsers.find(u => u.id === creatorId) || null;
-    const walletMap = {};
-    wallets.forEach(w => { walletMap[w.user_id] = w; });
-
-    const posMap = {};
-    posList.forEach(p => { posMap[p.merchant_id] = p; });
-
-    const userMap = {};
-    allUsers.forEach(u => { userMap[u.id] = u; });
-
-    // Dynamic Viewer Buy Rate (Zero hardcoded percentages)
-    const creatorPos = posMap[creatorId] || null;
-    const creatorBuyRate = getUserBuyRate(creator, creatorPos, false);
-
-    // Recursively gather all downstream users under creatorId
-    const downstreamIds = new Set();
-    const queue = [creatorId];
-    while (queue.length > 0) {
-      const parentId = queue.shift();
-      const children = allUsers.filter(u => u.creator_id === parentId);
-      children.forEach(c => {
-        if (!downstreamIds.has(c.id)) {
-          downstreamIds.add(c.id);
-          queue.push(c.id);
-        }
-      });
+    const cleanId = String(creatorId || '').trim();
+    if (!cleanId) {
+      return { success: false, message: 'Creator ID is required.', partners: [] };
     }
 
-    const downstreamUsers = allUsers.filter(u => downstreamIds.has(u.id));
-    const todayStr = new Date().toISOString().slice(0, 10);
-
-    // Helper to find all transacting user IDs under any given user (including themselves and all their downlines)
-    const getTransactingAccountsUnderUser = (rootId) => {
-      const transactingIds = new Set([rootId]);
-      const q = [rootId];
-      while (q.length > 0) {
-        const pId = q.shift();
-        const ch = allUsers.filter(u => u.creator_id === pId);
-        ch.forEach(c => {
-          if (!transactingIds.has(c.id)) {
-            transactingIds.add(c.id);
-            q.push(c.id);
-          }
-        });
-      }
-      return Array.from(transactingIds);
-    };
-
-    // Helper to find direct branch child of creator that leads to any downline user
-    const getDirectBranchChild = (targetUser) => {
-      if (!targetUser) return null;
-      if (targetUser.creator_id === creatorId) return targetUser;
-      let cur = targetUser;
-      let safety = 0;
-      while (cur && cur.creator_id && cur.creator_id !== creatorId && safety < 10) {
-        safety++;
-        cur = userMap[cur.creator_id];
-      }
-      return (cur && cur.creator_id === creatorId) ? cur : targetUser;
-    };
-
-    const enrichedPartners = downstreamUsers.map(p => {
-      const w = walletMap[p.id] || {};
-      const pos = posMap[p.id] || {};
-      const isDirect = p.creator_id === creatorId;
-      const directParent = userMap[p.creator_id];
-
-      // Find all transacting accounts contributing volume to this partner card (themselves + all downlines)
-      const transactingIds = getTransactingAccountsUnderUser(p.id);
-      const partnerTxns = allTxns.filter(t => transactingIds.includes(t.merchant_id));
-
-      const totalVolume = partnerTxns
-        .filter(t => t.status === 'APPROVED')
-        .reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-
-      // Dynamic margin difference calculation per channel:
-      const directBranch = getDirectBranchChild(p);
-      const branchRate = getUserBuyRate(directBranch, posMap[directBranch?.id], false);
-      const partnerRate = getUserBuyRate(p, pos, false);
-      const partnerCommRatePct = parseFloat(Math.max(0, isDirect ? (partnerRate - creatorBuyRate) : (branchRate - creatorBuyRate)).toFixed(2));
-
-      // Channel-specific buy rates and exact margin cuts
-      const branchPinelabs = getUserBuyRate(directBranch, posMap[directBranch?.id], false, 'pinelabs');
-      const creatorPinelabs = getUserBuyRate(creator, creatorPos, false, 'pinelabs');
-      const marginPinelabs = parseFloat(Math.max(0, branchPinelabs - creatorPinelabs).toFixed(2));
-
-      const branchPayswiff = getUserBuyRate(directBranch, posMap[directBranch?.id], false, 'payswiff');
-      const creatorPayswiff = getUserBuyRate(creator, creatorPos, false, 'payswiff');
-      const marginPayswiff = parseFloat(Math.max(0, branchPayswiff - creatorPayswiff).toFixed(2));
-
-      const branchQr = getUserBuyRate(directBranch, posMap[directBranch?.id], false, 'qr');
-      const creatorQr = getUserBuyRate(creator, creatorPos, false, 'qr');
-      const marginQr = parseFloat(Math.max(0, branchQr - creatorQr).toFixed(2));
-
-      // Per-channel breakdown for this partner
-      let pVolPinelabs = 0, pVolPayswiff = 0, pVolQr = 0;
-      let pCommPinelabs = 0, pCommPayswiff = 0, pCommQr = 0;
-      let pTxnCountPinelabs = 0, pTxnCountPayswiff = 0, pTxnCountQr = 0;
-
-      partnerTxns.forEach(t => {
-        const amt = parseFloat(t.amount) || 0;
-        const ch = classifyTransactionChannel(t);
-        const isAppr = t.status === 'APPROVED';
-        if (ch === 'pinelabs') {
-          pTxnCountPinelabs++;
-          if (isAppr) {
-            pVolPinelabs += amt;
-            pCommPinelabs += (amt * marginPinelabs) / 100;
-          }
-        } else if (ch === 'payswiff') {
-          pTxnCountPayswiff++;
-          if (isAppr) {
-            pVolPayswiff += amt;
-            pCommPayswiff += (amt * marginPayswiff) / 100;
-          }
-        } else if (ch === 'qr') {
-          pTxnCountQr++;
-          if (isAppr) {
-            pVolQr += amt;
-            pCommQr += (amt * marginQr) / 100;
-          }
-        }
-      });
-
-      const commissionEarned = parseFloat((pCommPinelabs + pCommPayswiff + pCommQr).toFixed(2));
-
-      const todayTxns = partnerTxns.filter(t => (t.created_at || '').slice(0, 10) === todayStr && t.status === 'APPROVED');
-      const todayVol = todayTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-      let partnerTodayProfit = 0;
-      todayTxns.forEach(t => {
-        const amt = parseFloat(t.amount) || 0;
-        const ch = classifyTransactionChannel(t);
-        const mPct = ch === 'payswiff' ? marginPayswiff : (ch === 'qr' ? marginQr : marginPinelabs);
-        partnerTodayProfit += (amt * mPct) / 100;
-      });
-      partnerTodayProfit = parseFloat(partnerTodayProfit.toFixed(2));
-
-      return {
-        ...p,
-        is_direct: isDirect,
-        creator_name: directParent ? directParent.name : 'You (Direct)',
-        creator_id: p.creator_id,
-        available_balance: w.available_balance || 0,
-        total_sales: totalVolume || w.total_sales || 0,
-        received_sales: w.received_sales || 0,
-        pos_raw: pos || null,
-        channels: parseMerchantChannels(pos),
-        pos_provider: pos.provider || null,
-        pos_terminal: pos.terminal_id ? pos.terminal_id.split('|')[0] : null,
-        pos_plan: pos.device_plan || 'RENTAL',
-        monthly_rent: pos.monthly_rent || 499,
-        settlement_type: pos.settlement_type || 'T1',
-        txn_count: partnerTxns.length,
-        total_volume: totalVolume,
-        commission_earned: commissionEarned,
-        commission_rate_pct: partnerCommRatePct,
-        channel_margins: {
-          pinelabs: marginPinelabs,
-          payswiff: marginPayswiff,
-          qr: marginQr
-        },
-        today_volume: todayVol,
-        today_profit: partnerTodayProfit,
-        channel_volumes: {
-          pinelabs: parseFloat(pVolPinelabs.toFixed(2)),
-          payswiff: parseFloat(pVolPayswiff.toFixed(2)),
-          qr: parseFloat(pVolQr.toFixed(2))
-        },
-        channel_commissions: {
-          pinelabs: parseFloat(pCommPinelabs.toFixed(2)),
-          payswiff: parseFloat(pCommPayswiff.toFixed(2)),
-          qr: parseFloat(pCommQr.toFixed(2))
-        },
-        channel_txn_counts: {
-          pinelabs: pTxnCountPinelabs,
-          payswiff: pTxnCountPayswiff,
-          qr: pTxnCountQr
-        }
-      };
-    });
-
-    // Calculate total unique downline merchant volume and exact commission segregated by channel
-    let totalCommissionAll = 0;
-    let todayProfitAll = 0;
-    let totalDownlineVolume = 0;
-    let todayDownlineVol = 0;
-
-    let totalVolumePinelabs = 0;
-    let totalVolumePayswiff = 0;
-    let totalVolumeQr = 0;
-    let todayVolumePinelabs = 0;
-    let todayVolumePayswiff = 0;
-    let todayVolumeQr = 0;
-
-    let totalCommissionPinelabs = 0;
-    let totalCommissionPayswiff = 0;
-    let totalCommissionQr = 0;
-    let todayProfitPinelabs = 0;
-    let todayProfitPayswiff = 0;
-    let todayProfitQr = 0;
-
-    const allUniqueDownlineUserIds = Array.from(new Set(
-      downstreamUsers.map(u => u.id)
-    ));
-    
-    allUniqueDownlineUserIds.forEach(mId => {
-      const mObj = userMap[mId];
-      const directBranch = getDirectBranchChild(mObj);
-
-      const mTxns = allTxns.filter(t => t.merchant_id === mId && t.status === 'APPROVED');
-      mTxns.forEach(t => {
-        const amt = parseFloat(t.amount) || 0;
-        const ch = classifyTransactionChannel(t);
-        const branchRate = getUserBuyRate(directBranch, posMap[directBranch?.id], false, ch);
-        const creatorChannelBuyRate = getUserBuyRate(creator, creatorPos, false, ch);
-        const marginPct = Math.max(0, branchRate - creatorChannelBuyRate);
-        const comm = (amt * marginPct) / 100;
-        totalDownlineVolume += amt;
-        totalCommissionAll += comm;
-
-        if (ch === 'pinelabs') {
-          totalVolumePinelabs += amt;
-          totalCommissionPinelabs += comm;
-        } else if (ch === 'payswiff') {
-          totalVolumePayswiff += amt;
-          totalCommissionPayswiff += comm;
-        } else if (ch === 'qr') {
-          totalVolumeQr += amt;
-          totalCommissionQr += comm;
-        }
-
-        if ((t.created_at || '').slice(0, 10) === todayStr) {
-          todayDownlineVol += amt;
-          todayProfitAll += comm;
-          if (ch === 'pinelabs') {
-            todayVolumePinelabs += amt;
-            todayProfitPinelabs += comm;
-          } else if (ch === 'payswiff') {
-            todayVolumePayswiff += amt;
-            todayProfitPayswiff += comm;
-          } else if (ch === 'qr') {
-            todayVolumeQr += amt;
-            todayProfitQr += comm;
-          }
-        }
-      });
-    });
+    const res = await fetchWithTimeout(getApiUrl(`/api/network/downstream?creatorId=${encodeURIComponent(cleanId)}`));
+    const data = await res.json();
+    if (!data.success) {
+      return { success: false, message: data.message || 'Failed to fetch downstream network.', partners: [] };
+    }
 
     return {
       success: true,
-      creator,
-      creator_pos: creatorPos,
-      commission_rate_pct: parseFloat(Number(creator?.margin_rate || creator?.upline_override_rate || Math.max(0, (parseFloat(creator?.commission_rate_instant || creator?.commission_rate_t1 || 0) - creatorBuyRate)) || 0).toFixed(2)),
-      partners: enrichedPartners,
-      total_partners: enrichedPartners.length,
-      total_commission_earned: parseFloat(totalCommissionAll.toFixed(2)),
-      today_network_profit: parseFloat(todayProfitAll.toFixed(2)),
-      total_downline_volume: parseFloat(totalDownlineVolume.toFixed(2)),
-      today_downline_volume: parseFloat(todayDownlineVol.toFixed(2)),
+      creator_id: data.creator_id,
+      partners: data.partners || [],
+      partner_count: data.partner_count || 0,
+      total_commission_earned: parseFloat(data.network_commission_rupees || 0),
+      total_downline_volume: parseFloat(data.network_sales_rupees || 0),
+      network_sales_paise: data.network_sales_paise,
+      network_commission_paise: data.network_commission_paise,
       channel_commissions: {
-        pinelabs: parseFloat(totalCommissionPinelabs.toFixed(2)),
-        payswiff: parseFloat(totalCommissionPayswiff.toFixed(2)),
-        qr: parseFloat(totalCommissionQr.toFixed(2)),
-        today_pinelabs: parseFloat(todayProfitPinelabs.toFixed(2)),
-        today_payswiff: parseFloat(todayProfitPayswiff.toFixed(2)),
-        today_qr: parseFloat(todayProfitQr.toFixed(2))
-      },
-      channel_volumes: {
-        pinelabs: parseFloat(totalVolumePinelabs.toFixed(2)),
-        payswiff: parseFloat(totalVolumePayswiff.toFixed(2)),
-        qr: parseFloat(totalVolumeQr.toFixed(2)),
-        all: parseFloat(totalDownlineVolume.toFixed(2)),
-        today_pinelabs: parseFloat(todayVolumePinelabs.toFixed(2)),
-        today_payswiff: parseFloat(todayVolumePayswiff.toFixed(2)),
-        today_qr: parseFloat(todayVolumeQr.toFixed(2)),
-        today_all: parseFloat(todayDownlineVol.toFixed(2))
+        pinelabs: 0,
+        payswiff: 0,
+        qr: 0
       }
     };
   } catch (err) {
     console.error('getDownstreamNetwork error:', err);
-    return { success: false, message: err.message, partners: [] };
+    return { success: false, message: err.message || 'Network error fetching downstream network.', partners: [] };
   }
 }
 
@@ -2661,3 +2420,79 @@ function cleanSingleUserFromLocalStorage(userId) {
 
 
 
+
+
+// ----------------------------------------------------
+// 12. PHASE D2 AUTHORITATIVE SUPPORTING CLIENT HELPERS
+// ----------------------------------------------------
+
+export async function fetchWithdrawalQuote({ userId, amount, channel = 'pinelabs', settlement_type = 'T1' }) {
+  try {
+    const res = await fetchWithTimeout(getApiUrl('/api/withdrawals/quote'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, amount, channel, settlement_type })
+    });
+    return await res.json();
+  } catch (err) {
+    console.error('fetchWithdrawalQuote error:', err);
+    return { success: false, message: err.message || 'Failed to fetch withdrawal quote.' };
+  }
+}
+
+export async function getRatesConfig(userId, creatorId) {
+  try {
+    const params = new URLSearchParams();
+    if (userId) params.append('userId', userId);
+    if (creatorId) params.append('creatorId', creatorId);
+    const res = await fetchWithTimeout(getApiUrl('/api/rates/config?' + params.toString()));
+    return await res.json();
+  } catch (err) {
+    console.error('getRatesConfig error:', err);
+    return { success: false, message: err.message || 'Failed to fetch rate configuration.' };
+  }
+}
+
+export async function getSystemSettings() {
+  try {
+    const res = await fetchWithTimeout(getApiUrl('/api/settings'));
+    return await res.json();
+  } catch (err) {
+    console.error('getSystemSettings error:', err);
+    return { success: false, message: err.message || 'Failed to fetch system settings.' };
+  }
+}
+
+export async function getUserFinancialSummary(userId) {
+  try {
+    const res = await fetchWithTimeout(getApiUrl('/api/users/' + encodeURIComponent(userId) + '/financial-summary'));
+    return await res.json();
+  } catch (err) {
+    console.error('getUserFinancialSummary error:', err);
+    return { success: false, message: err.message || 'Failed to fetch financial summary.' };
+  }
+}
+
+export async function exportWithdrawalsExcel(withdrawalIds, batchTag = '', bankName = '') {
+  try {
+    const res = await fetchWithTimeout(getApiUrl('/api/admin/withdrawals/export-excel'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ withdrawalIds, batchTag, bankName })
+    });
+    return await res.json();
+  } catch (err) {
+    console.error('exportWithdrawalsExcel error:', err);
+    return { success: false, message: err.message || 'Failed to export withdrawals.' };
+  }
+}
+
+export async function getBatchDownload(batchId) {
+  try {
+    const res = await fetchWithTimeout(getApiUrl('/api/admin/withdrawals/batches/' + encodeURIComponent(batchId) + '/download'));
+    return await res.json();
+  } catch (err) {
+    console.error('getBatchDownload error:', err);
+    return { success: false, message: err.message || 'Failed to download batch.' };
+  }
+}
