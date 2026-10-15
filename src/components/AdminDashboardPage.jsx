@@ -937,7 +937,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       return true;
     });
 
-    const pendingSwipesList = (allSwipes || []).filter(s => {
+    const pendingSwipesList = (pendingTxns || []).filter(s => {
       if (s.status !== 'PENDING') return false;
       if (payoutDateFilter === 'TODAY') {
         const itemDateStr = toLocalDateStr(s.created_at || s.verified_at);
@@ -981,7 +981,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       qr,
       total: pine + swiffRonav + swiffRp + qr
     };
-  }, [allPayouts, allSwipes, networkUsers, payoutDateFilter]);
+  }, [allPayouts, pendingTxns, networkUsers, payoutDateFilter]);
 
   // Process Master Distributors List (Tier 0 / Apex Command Tier)
   const masterDistributorsList = useMemo(() => {
