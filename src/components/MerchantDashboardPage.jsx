@@ -935,9 +935,11 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     const channelDebited = withdrawnAmount + pendingWithdrawn;
     const rawChannelBalance = Math.max(0, parseFloat((channelCredited - channelDebited).toFixed(2)));
     
-    // Database authoritative balance caps the available balance
-    const dbAvailableBalance = parseFloat(wallet?.available_balance || 0);
-    const channelAvailableBalance = Math.min(rawChannelBalance, dbAvailableBalance);
+    // Database authoritative balance is the master source of truth
+    const dbAvailableBalance = Math.max(0, parseFloat(wallet?.available_balance || 0));
+    const channelAvailableBalance = dbAvailableBalance > 0
+      ? (rawChannelBalance > 0 ? Math.min(rawChannelBalance, dbAvailableBalance) : dbAvailableBalance)
+      : 0.0;
 
     // Universal ₹500.00 Active Reserve Hold strictly applied across all accounts & payout purposes
     const activeHold = channelAvailableBalance > 0 ? 500.0 : 0.0;
@@ -3681,7 +3683,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                       </button>
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '360px', overflowY: 'auto', paddingRight: '4px' }}>
                       {activeMachineTransactions.length === 0 ? (
                         <div style={{ padding: '1.5rem', textAlign: 'center', color: '#94A3B8', fontSize: '0.75rem' }}>
                           No card swipes recorded for {activeMachine.title} yet.
