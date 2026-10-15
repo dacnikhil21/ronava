@@ -791,6 +791,46 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       primaryRateInstant = onboardChannels.qr.rate_instant || '1.50';
     }
 
+    // Requirement 4: Onboarder's rate is the strict minimum for each channel and mode
+    const creatorRates = adminRatesConfig?.creator_rates || adminRatesConfig?.user_rates;
+    if (creatorRates) {
+      if (onboardChannels.pine_labs) {
+        const pl = onboardChannels.pine_labs;
+        const minT1 = parseFloat(creatorRates?.pinelabs?.t1?.rate_percent || creatorRates?.pinelabs?.T1?.rate_percent || 0);
+        const minInst = parseFloat(creatorRates?.pinelabs?.instant?.rate_percent || creatorRates?.pinelabs?.INSTANT?.rate_percent || 0);
+        if (pl.rate_t1 && parseFloat(pl.rate_t1) < minT1) {
+          triggerToast(`⚠️ Pine Labs T+1 rate (${pl.rate_t1}%) cannot be below your own rate (${minT1}%).`, 'error');
+          return;
+        }
+        if (pl.rate_instant && parseFloat(pl.rate_instant) < minInst) {
+          triggerToast(`⚠️ Pine Labs Instant rate (${pl.rate_instant}%) cannot be below your own rate (${minInst}%).`, 'error');
+          return;
+        }
+      }
+      if (onboardChannels.payswiff) {
+        const ps = onboardChannels.payswiff;
+        const minT1 = parseFloat(creatorRates?.payswiff?.t1?.rate_percent || creatorRates?.payswiff?.T1?.rate_percent || 0);
+        const minInst = parseFloat(creatorRates?.payswiff?.instant?.rate_percent || creatorRates?.payswiff?.INSTANT?.rate_percent || 0);
+        if (ps.rate_t1 && parseFloat(ps.rate_t1) < minT1) {
+          triggerToast(`⚠️ Payswiff T+1 rate (${ps.rate_t1}%) cannot be below your own rate (${minT1}%).`, 'error');
+          return;
+        }
+        if (ps.rate_instant && parseFloat(ps.rate_instant) < minInst) {
+          triggerToast(`⚠️ Payswiff Instant rate (${ps.rate_instant}%) cannot be below your own rate (${minInst}%).`, 'error');
+          return;
+        }
+      }
+      if (onboardChannels.qr) {
+        const qr = onboardChannels.qr;
+        const minQr = parseFloat(creatorRates?.qr?.rate_percent || creatorRates?.qr?.NONE?.rate_percent || 0);
+        const rateVal = parseFloat(qr.rate_instant || qr.rate || 0);
+        if (rateVal < minQr) {
+          triggerToast(`⚠️ Company QR rate (${rateVal}%) cannot be below your own rate (${minQr}%).`, 'error');
+          return;
+        }
+      }
+    }
+
     setIsSubmitting(true);
     try {
       const payload = {
