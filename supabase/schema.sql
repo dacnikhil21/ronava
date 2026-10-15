@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS public.users (
   mobile TEXT NOT NULL UNIQUE,
   role TEXT NOT NULL CHECK (role IN ('ADMIN', 'MASTER', 'MASTER_DISTRIBUTOR', 'SUPER_DISTRIBUTOR', 'DISTRICT_DISTRIBUTOR', 'DIST_FRANCHISE', 'DISTRIBUTOR', 'MERCHANT', 'RETAILER')),
   creator_id TEXT,
-  created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW())
+  created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()),
+  updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW())
 );
 
 -- 3. MERCHANT POS MACHINES TABLE (Supports Merchants, Retailers & All Distributor Tiers)
@@ -73,6 +74,13 @@ CREATE TABLE IF NOT EXISTS public.withdrawals (
   status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'SUBMITTED_TO_BANK', 'APPROVED', 'REJECTED')),
   admin_remark TEXT,
   submitted_to_bank_at TIMESTAMPTZ,
+  channel VARCHAR(50) DEFAULT 'pinelabs',
+  utr_number VARCHAR(100),
+  rrn_number VARCHAR(100),
+  customer_name VARCHAR(100),
+  customer_mobile VARCHAR(50),
+  settlement_mode VARCHAR(50),
+  payout_type VARCHAR(50),
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()),
   verified_at TIMESTAMPTZ
 );

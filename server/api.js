@@ -1794,7 +1794,10 @@ export async function handleApiRequest(req, res) {
         customer_mobile, 
         settlement_mode, 
         payout_type, 
-        payout_purpose 
+        payout_purpose,
+        utr_number,
+        ref_number,
+        utr
       } = await parseJsonBody(req);
 
       const numAmount = parseFloat(amount);
@@ -1869,22 +1872,46 @@ export async function handleApiRequest(req, res) {
           }
           updatedWallet = updRes.rows[0];
 
+          const cleanChannel = (channel || (provider?.toLowerCase().includes('swiff') ? 'payswiff' : (provider?.toLowerCase().includes('qr') ? 'qr' : 'pinelabs'))).toLowerCase();
+          const cleanUtr = (utr_number || ref_number || utr || '').trim().toUpperCase();
+
           const metaPayload = {
-            channel: channel || (provider?.includes('swiff') ? 'payswiff' : (provider?.includes('qr') ? 'qr' : 'pinelabs')),
+            channel: cleanChannel,
             provider: provider || 'Pine Labs',
             payout_type: payout_type || 'CUSTOMER_DISBURSAL',
             payout_purpose: payout_purpose || 'REGULAR',
             customer_name: customer_name || '',
             customer_mobile: customer_mobile || '',
-            settlement_mode: settlement_mode || 'INSTANT'
+            settlement_mode: settlement_mode || 'INSTANT',
+            utr_number: cleanUtr
           };
           const finalRemark = admin_remark || remarks || `[PAYOUT_META]${JSON.stringify(metaPayload)}`;
 
           const insRes = await client.query(`
-            INSERT INTO withdrawals (id, merchant_id, amount, bank_name, account_number, ifsc, admin_remark, status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            INSERT INTO withdrawals (
+              id, merchant_id, amount, bank_name, account_number, ifsc, 
+              admin_remark, status, channel, utr_number, rrn_number, 
+              customer_name, customer_mobile, settlement_mode, payout_type
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             RETURNING *
-          `, [wId, merchant_id.trim(), numAmount, bank_name, account_number, ifsc || 'SBIN0001234', finalRemark, 'PENDING']);
+          `, [
+            wId, 
+            merchant_id.trim(), 
+            numAmount, 
+            bank_name, 
+            account_number, 
+            ifsc || 'SBIN0001234', 
+            finalRemark, 
+            'PENDING',
+            cleanChannel,
+            cleanUtr,
+            cleanUtr,
+            customer_name || '',
+            customer_mobile || '',
+            settlement_mode || 'INSTANT',
+            payout_type || 'CUSTOMER_DISBURSAL'
+          ]);
           createdWth = insRes.rows[0];
         });
 
@@ -1926,13 +1953,20 @@ export async function handleApiRequest(req, res) {
 
           if (action === 'APPROVE') {
             const cleanUtr = (utr || '').trim();
-            const finalRemark = cleanUtr ? `Disbursed via IMPS (UTR: ${cleanUtr})` : (remark || 'Bank payout cleared via IMPS/NEFT');
+            const existingRemark = wth.admin_remark || '';
+            const finalRemark = cleanUtr 
+              ? (existingRemark ? `${existingRemark} • Disbursed via IMPS (UTR: ${cleanUtr})` : `Disbursed via IMPS (UTR: ${cleanUtr})`)
+              : (remark || existingRemark || 'Bank payout cleared via IMPS/NEFT');
             const wRes = await client.query(`
               UPDATE withdrawals 
-              SET status = 'APPROVED', admin_remark = $1, verified_at = CURRENT_TIMESTAMP 
-              WHERE id = $2
+              SET status = 'APPROVED', 
+                  admin_remark = $1, 
+                  utr_number = COALESCE(NULLIF($2, ''), utr_number),
+                  rrn_number = COALESCE(NULLIF($2, ''), rrn_number),
+                  verified_at = CURRENT_TIMESTAMP 
+              WHERE id = $3
               RETURNING *
-            `, [finalRemark, targetWthId]);
+            `, [finalRemark, cleanUtr, targetWthId]);
             updatedWth = wRes.rows[0];
 
             const walRes = await client.query(`

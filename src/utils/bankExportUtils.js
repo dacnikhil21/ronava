@@ -72,12 +72,12 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
     const amt = parseFloat(item.amount || 0).toFixed(2);
 
     // 10. Slip UTR / Bank Reference Number
-    let utrVal = item.utr_number || item.utr || item.ref_number || item.rrn || '';
-    if (!utrVal && item.admin_remark) {
+    let utrVal = item.utr_number || item.rrn_number || item.utr || item.ref_number || item.rrn || '';
+    if (!utrVal && typeof item.admin_remark === 'string') {
       const utrMatch = item.admin_remark.match(/UTR:?\s*([A-Za-z0-9_-]+)/i);
       if (utrMatch) utrVal = utrMatch[1].trim();
     }
-    if (!utrVal && item.notes) {
+    if (!utrVal && typeof item.notes === 'string') {
       const notesMatch = item.notes.match(/UTR:?\s*([A-Za-z0-9_-]+)/i);
       if (notesMatch) utrVal = notesMatch[1].trim();
     }
@@ -139,6 +139,52 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
   return { success: true, csvContent, count: payoutsList.length };
 }
 
+/**
+ * Universal browser-safe file download trigger
+ */
+export function triggerBrowserDownload(csvContent, fileName) {
+  try {
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = (window.URL || window.webkitURL).createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', fileName);
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => {
+      try {
+        if (document.body.contains(link)) {
+          document.body.removeChild(link);
+        }
+        (window.URL || window.webkitURL).revokeObjectURL(url);
+      } catch (_) {}
+    }, 2000);
+    return true;
+  } catch (err) {
+    try {
+      const encodedUri = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', fileName);
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        try {
+          if (document.body.contains(link)) {
+            document.body.removeChild(link);
+          }
+        } catch (_) {}
+      }, 2000);
+      return true;
+    } catch (fallbackErr) {
+      console.error('Download failed:', fallbackErr);
+      return false;
+    }
+  }
+}
+
 export function downloadBankBatchFile(payoutsList, options = {}) {
   if (!payoutsList || payoutsList.length === 0) {
     return { success: false, count: 0, error: 'No payout records to export' };
@@ -148,62 +194,11 @@ export function downloadBankBatchFile(payoutsList, options = {}) {
   const today = new Date().toISOString().slice(0, 10);
   const fileName = options.fileName || `RONAV_Bank_Payout_${today}.csv`;
 
-  try {
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = (window.URL || window.webkitURL).createObjectURL(blob);
-    
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = fileName;
-    link.setAttribute('download', fileName);
-    link.style.position = 'fixed';
-    link.style.top = '-9999px';
-    link.style.left = '-9999px';
-    link.style.opacity = '0';
-    document.body.appendChild(link);
-    
-    link.click();
-    
-    try {
-      const clickEvent = new MouseEvent('click', {
-        view: window,
-        bubbles: true,
-        cancelable: true
-      });
-      link.dispatchEvent(clickEvent);
-    } catch (_) {}
-
-    setTimeout(() => {
-      try {
-        if (document.body.contains(link)) {
-          document.body.removeChild(link);
-        }
-        (window.URL || window.webkitURL).revokeObjectURL(url);
-      } catch (_) {}
-    }, 10000);
-
+  const ok = triggerBrowserDownload(csvContent, fileName);
+  if (ok) {
     return { success: true, count, fileName };
-  } catch (blobErr) {
-    try {
-      const encodedUri = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent);
-      const link = document.createElement('a');
-      link.setAttribute('href', encodedUri);
-      link.setAttribute('download', fileName);
-      document.body.appendChild(link);
-      link.click();
-      setTimeout(() => {
-        try {
-          if (document.body.contains(link)) {
-            document.body.removeChild(link);
-          }
-        } catch (_) {}
-      }, 5000);
-      return { success: true, count, fileName };
-    } catch (dataErr) {
-      console.error('Download error:', dataErr);
-      return { success: false, count: 0, error: dataErr.message };
-    }
   }
+  return { success: false, count: 0, error: 'Browser blocked file download.' };
 }
 
 /**
@@ -305,62 +300,11 @@ export function downloadCommissionBatchFile(commissionPayoutsList, options = {})
   const today = new Date().toISOString().slice(0, 10);
   const fileName = options.fileName || `RONAV_Commission_Payouts_${today}.csv`;
 
-  try {
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = (window.URL || window.webkitURL).createObjectURL(blob);
-    
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = fileName;
-    link.setAttribute('download', fileName);
-    link.style.position = 'fixed';
-    link.style.top = '-9999px';
-    link.style.left = '-9999px';
-    link.style.opacity = '0';
-    document.body.appendChild(link);
-    
-    link.click();
-    
-    try {
-      const clickEvent = new MouseEvent('click', {
-        view: window,
-        bubbles: true,
-        cancelable: true
-      });
-      link.dispatchEvent(clickEvent);
-    } catch (_) {}
-
-    setTimeout(() => {
-      try {
-        if (document.body.contains(link)) {
-          document.body.removeChild(link);
-        }
-        (window.URL || window.webkitURL).revokeObjectURL(url);
-      } catch (_) {}
-    }, 10000);
-
+  const ok = triggerBrowserDownload(csvContent, fileName);
+  if (ok) {
     return { success: true, count, fileName };
-  } catch (blobErr) {
-    try {
-      const encodedUri = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent);
-      const link = document.createElement('a');
-      link.setAttribute('href', encodedUri);
-      link.setAttribute('download', fileName);
-      document.body.appendChild(link);
-      link.click();
-      setTimeout(() => {
-        try {
-          if (document.body.contains(link)) {
-            document.body.removeChild(link);
-          }
-        } catch (_) {}
-      }, 5000);
-      return { success: true, count, fileName };
-    } catch (dataErr) {
-      console.error('Download error:', dataErr);
-      return { success: false, count: 0, error: dataErr.message };
-    }
   }
+  return { success: false, count: 0, error: 'Browser blocked file download.' };
 }
 
 /**
