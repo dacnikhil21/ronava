@@ -1,6 +1,7 @@
 import { getActiveRate } from './rate_engine.js';
 import { postLedgerEntry } from './ledger_engine.js';
 import { getSetting } from './settings.js';
+import { reverseTransaction } from './reversal_engine.js';
 
 /**
  * Process a Swipe / QR payment transaction with atomic ledger posting,
@@ -269,4 +270,59 @@ export async function processSwipeTransaction(client, {
     await client.query('ROLLBACK');
     throw err;
   }
+}
+
+/**
+ * Edit a swipe transaction after commission credit:
+ * Posts signed reversing entries for merchant and every upline, then posts corrected transaction.
+ * Never silently modifies or deletes historical records.
+ */
+export async function editSwipeTransaction(client, {
+  oldTxnId,
+  correctedAmountPaise,
+  channel = null,
+  refNumber = null,
+  slipNumber = null,
+  notes = null,
+  reason = 'Transaction edited',
+  callerId = 'ADMIN'
+}) {
+  if (!client || typeof client.query !== 'function') {
+    throw new Error('DATABASE_CLIENT_REQUIRED: editSwipeTransaction requires an active client.');
+  }
+
+  // 1. Fetch old transaction
+  const oldRes = await client.query(`
+    SELECT * FROM transactions WHERE id = $1
+  `, [oldTxnId]);
+
+  if (oldRes.rows.length === 0) {
+    throw new Error(`TRANSACTION_NOT_FOUND: Transaction "${oldTxnId}" not found.`);
+  }
+  const oldTxn = oldRes.rows[0];
+
+  // 2. Reverse old transaction (reverses merchant + all upline commissions)
+  const rev = await reverseTransaction(client, {
+    txnId: oldTxnId,
+    reason: `EDITED: ${reason}`,
+    callerId
+  });
+
+  // 3. Post corrected transaction
+  const newTxn = await processSwipeTransaction(client, {
+    merchantId: oldTxn.merchant_id,
+    amountPaise: BigInt(correctedAmountPaise),
+    channel: channel || oldTxn.channel,
+    refNumber: refNumber || (oldTxn.ref_number ? `${oldTxn.ref_number}-REV1` : null),
+    slipNumber: slipNumber || oldTxn.slip_number,
+    notes: notes || `Correction of ${oldTxnId}: ${reason}`,
+    createdBy: callerId
+  });
+
+  return {
+    old_transaction_id: oldTxnId,
+    old_status: 'REVERSED',
+    new_transaction: newTxn,
+    reversal_details: rev
+  };
 }
