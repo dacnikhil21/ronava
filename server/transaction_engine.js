@@ -40,20 +40,25 @@ export async function processSwipeTransaction(client, {
     }
   }
 
-  // 2. Uniqueness Rule for Manually Entered Swipes
-  if (refNumber && refNumber.trim()) {
+  // 2. Uniqueness Rule for Manually Entered Swipes (Merchant + Slip/UTR + Amount + Date)
+  const identifier = (refNumber || slipNumber || '').trim();
+  if (identifier) {
     const dupRes = await client.query(`
-      SELECT id FROM transactions 
+      SELECT id, ref_number, slip_number FROM transactions 
       WHERE UPPER(merchant_id) = UPPER($1) 
-        AND UPPER(ref_number) = UPPER($2) 
+        AND (
+          (ref_number IS NOT NULL AND UPPER(ref_number) = UPPER($2))
+          OR
+          (slip_number IS NOT NULL AND UPPER(slip_number) = UPPER($2))
+        )
         AND amount_paise = $3 
         AND transaction_date = CURRENT_DATE 
         AND status != 'REVERSED'
       LIMIT 1
-    `, [merchantId, refNumber.trim(), grossPaise.toString()]);
+    `, [merchantId, identifier, grossPaise.toString()]);
 
     if (dupRes.rows.length > 0) {
-      throw new Error(`DUPLICATE_SWIPE: Transaction with reference "${refNumber}" and amount already recorded today.`);
+      throw new Error(`DUPLICATE_SWIPE: Transaction with reference/slip "${identifier}" and amount already recorded today.`);
     }
   }
 
