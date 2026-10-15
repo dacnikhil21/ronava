@@ -5,7 +5,8 @@ import {
   initPostgresSchema, 
   getMediaFiles, 
   query as pgQuery,
-  withTransaction
+  withTransaction,
+  getDbPool
 } from './pg_db.js';
 
 import { getCaller } from './caller.js';
@@ -1413,256 +1414,83 @@ export async function handleApiRequest(req, res) {
     // 3. TRANSACTIONS & AUTHORITATIVE COMMISSION RECORDING
     // ----------------------------------------------------
     if (pathname === '/api/transactions/record' && method === 'POST') {
-      const { 
-        merchant_id, 
-        amount, 
-        customer_name, 
-        customer_mobile, 
-        type, 
-        provider: bodyProvider, 
-        ref_number, 
-        notes, 
-        settlement_type, 
-        terminal_id: bodyTerminalId 
-      } = await parseJsonBody(req);
+      const body = await parseJsonBody(req);
+      req.body = body;
+      const idempotencyKey = req.headers['idempotency-key'] || body.idempotency_key || null;
 
-      if (!merchant_id || !amount) {
+      const merchantId = body.merchant_id || body.merchantId;
+      const rawAmount = body.amount_paise !== undefined ? body.amount_paise : body.amount;
+
+      if (!merchantId || rawAmount === undefined || rawAmount === null) {
         return sendJson(res, 400, { success: false, message: 'Merchant ID and Amount are required.' });
       }
 
-      const numAmount = parseFloat(amount);
-      if (isNaN(numAmount) || numAmount <= 0) {
+      let amountPaise;
+      try {
+        if (body.amount_paise !== undefined) {
+          amountPaise = BigInt(body.amount_paise);
+        } else {
+          const num = Number(body.amount);
+          if (isNaN(num) || num <= 0) {
+            return sendJson(res, 400, { success: false, message: 'Amount must be a positive number.' });
+          }
+          amountPaise = BigInt(Math.round(num * 100));
+        }
+      } catch (e) {
+        return sendJson(res, 400, { success: false, message: 'Invalid amount.' });
+      }
+
+      if (amountPaise <= 0n) {
         return sendJson(res, 400, { success: false, message: 'Amount must be a positive number.' });
       }
 
-      const merchants = await pgQuery(`SELECT * FROM users WHERE UPPER(id) = UPPER($1)`, [merchant_id.trim()]);
-      if (!merchants || merchants.length === 0) {
-        return sendJson(res, 401, { success: false, code: 'USER_NOT_FOUND', message: 'Merchant account not found. Please log in again.' });
-      }
-      const merchant = merchants[0];
-      if (merchant.status === 'SUSPENDED') {
-        return sendJson(res, 403, { success: false, code: 'USER_SUSPENDED', message: 'Merchant account has been suspended by Administrator.' });
-      }
+      const caller = getCaller(req);
+      const createdBy = caller?.id || merchantId;
 
-      // Transaction Reference / RRN / UTR Deduplication Check
-      const cleanRef = (ref_number || '').trim().toUpperCase();
-      if (cleanRef) {
-        const existingTxn = await pgQuery(`
-          SELECT id, amount, status FROM transactions 
-          WHERE UPPER(ref_number) = UPPER($1) AND status != 'REJECTED'
-        `, [cleanRef]);
-        if (existingTxn.length > 0) {
-          return sendJson(res, 409, {
-            success: false,
-            message: `Duplicate Reference: Reference/RRN "${cleanRef}" has already been recorded under transaction ${existingTxn[0].id}.`
-          });
-        }
-      }
-
-      const posList = await pgQuery(`SELECT * FROM merchant_pos WHERE UPPER(merchant_id) = UPPER($1)`, [merchant_id.trim()]);
-      const pos = posList[0] || null;
-      const isQRPayment = type === 'QR_SCAN' || (bodyProvider && bodyProvider.toLowerCase().includes('qr'));
-      const provider = isQRPayment ? 'Company QR (UPI)' : (bodyProvider || (pos ? pos.provider : (type === 'BBPS_BILL' ? 'BBPS' : 'Pine Labs')));
-      const activeChannelKey = isQRPayment ? 'qr' : ((provider || '').toLowerCase().includes('swiff') ? 'payswiff' : 'pinelabs');
-      const isInstant = (activeChannelKey === 'qr') ? true : ((settlement_type || '').toUpperCase() === 'INSTANT');
-
-      // Resolve Merchant Buy Rate (Zero Silent Fallbacks)
-      const merchantBuyRate = resolveUserBuyRate(merchant, pos, isInstant, activeChannelKey);
-      if (merchantBuyRate <= 0) {
-        return sendJson(res, 400, { 
-          success: false, 
-          message: `POS commission rate not configured for merchant (${merchant_id}).` 
-        });
-      }
-
-      const compFee = parseFloat(((numAmount * merchantBuyRate) / 100).toFixed(2));
-      const netCreditAmount = parseFloat(Math.max(0, numAmount - compFee).toFixed(2));
-
-      // Resolve Hierarchy & Upline Margin Distribution
-      const allUsers = await pgQuery(`SELECT * FROM users`);
-      const allPos = await pgQuery(`SELECT * FROM merchant_pos`);
-      const posMap = {};
-      allPos.forEach(p => { posMap[p.merchant_id.toUpperCase()] = p; });
-      const userMap = {};
-      allUsers.forEach(u => { userMap[u.id.toUpperCase()] = u; });
-
-      let currentLevelRate = merchantBuyRate;
-      const uplineChain = [];
-      let cur = merchant;
-      let safety = 0;
-      while (cur && cur.creator_id && cur.creator_id.toUpperCase() !== 'ADM001' && safety < 10) {
-        safety++;
-        const parentUser = userMap[(cur.creator_id || '').toUpperCase()];
-        if (!parentUser) break;
-        uplineChain.push(parentUser);
-        cur = parentUser;
-      }
-
-      let distributedUplineTotal = 0;
-      const commissionSplits = [];
-
-      for (const uplineUser of uplineChain) {
-        const uPos = posMap[uplineUser.id.toUpperCase()];
-        const parentBuyRate = resolveUserBuyRate(uplineUser, uPos, isInstant, activeChannelKey);
-
-        if (parentBuyRate > 0 && parentBuyRate < currentLevelRate) {
-          const marginDiff = parseFloat((currentLevelRate - parentBuyRate).toFixed(4));
-          const commissionEarned = parseFloat(((numAmount * marginDiff) / 100).toFixed(2));
-
-          if (commissionEarned > 0) {
-            distributedUplineTotal += commissionEarned;
-            commissionSplits.push({
-              user_id: uplineUser.id,
-              user_name: uplineUser.name,
-              role: uplineUser.role,
-              amount: commissionEarned,
-              margin_diff: marginDiff,
-              buy_rate: parentBuyRate
-            });
-            currentLevelRate = parentBuyRate;
-          }
-        }
-      }
-
-      // Admin Residual Platform Profit (Paisa-perfect reconciliation)
-      const adminNetMargin = parseFloat(Math.max(0, compFee - distributedUplineTotal).toFixed(2));
-
-      const txnId = `TXN-${activeChannelKey === 'qr' ? 'QR' : (activeChannelKey === 'payswiff' ? 'SW' : 'PL')}-${Date.now().toString().slice(-6)}`;
-      const finalRef = cleanRef || `REF-${Math.floor(100000 + Math.random() * 900000)}`;
-
-      const swipeMeta = {
-        customer_name: customer_name ? customer_name.trim() : 'Counter Customer',
-        customer_mobile: customer_mobile ? customer_mobile.trim() : '',
-        rrn: finalRef,
-        settlement_type: isInstant ? 'INSTANT' : (settlement_type || 'T1'),
-        company_fee: compFee,
-        merchant_buy_rate: merchantBuyRate,
-        net_credited: netCreditAmount,
-        commission_splits: commissionSplits,
-        admin_net_margin: adminNetMargin,
-        terminal_id: bodyTerminalId || (pos ? pos.terminal_id : 'PL-01'),
-        pos_provider: provider,
-        pos_vendor: pos?.vendor_entity || 'Rose Navaneetham Enterprises',
-        user_notes: notes || ''
-      };
-
-      // Atomic Execution with Deficit Offset
-      let createdTxn = null;
-      let updatedMerchantWallet = null;
-
+      const pool = getDbPool();
+      const client = await pool.connect();
       try {
-        await withTransaction(async (client) => {
-          // Atomic in-transaction duplicate check to protect against race conditions & concurrent requests
-          if (cleanRef) {
-            const dupInTxn = (await client.query(`
-              SELECT id FROM transactions 
-              WHERE UPPER(ref_number) = UPPER($1) AND status != 'REJECTED'
-              LIMIT 1
-            `, [cleanRef])).rows;
-            if (dupInTxn.length > 0) {
-              const err = new Error(`Duplicate Reference: Reference/RRN "${cleanRef}" has already been recorded under transaction ${dupInTxn[0].id}.`);
-              err.statusCode = 409;
-              err.code = '23505';
-              throw err;
-            }
-          }
-
-          // Lock merchant wallet
-        const mWallets = (await client.query(`SELECT * FROM wallets WHERE user_id = $1 FOR UPDATE`, [merchant.id])).rows;
-        let mWallet = mWallets[0];
-        if (!mWallet) {
-          mWallet = (await client.query(`
-            INSERT INTO wallets (user_id, available_balance, total_sales, received_sales, pending_balance, withdrawn_amount)
-            VALUES ($1, 0.0, 0.0, 0.0, 0.0, 0.0) RETURNING *
-          `, [merchant.id])).rows[0];
-        }
-
-        const updMWalletRes = await client.query(`
-          UPDATE wallets 
-          SET available_balance = available_balance + $1,
-              received_sales = received_sales + $2,
-              total_sales = total_sales + $2,
-              updated_at = CURRENT_TIMESTAMP
-          WHERE UPPER(user_id) = UPPER($3)
-          RETURNING *
-        `, [netCreditAmount, numAmount, merchant.id]);
-        updatedMerchantWallet = updMWalletRes.rows[0];
-
-        // Credit Uplines
-        for (const split of commissionSplits) {
-          const uId = split.user_id;
-          const commAmt = parseFloat(split.amount) || 0;
-          if (commAmt > 0) {
-            const uWallets = (await client.query(`SELECT * FROM wallets WHERE UPPER(user_id) = UPPER($1) FOR UPDATE`, [uId])).rows;
-            let uWallet = uWallets[0];
-            if (!uWallet) {
-              const insU = await client.query(`
-                INSERT INTO wallets (user_id, available_balance, total_sales, received_sales, pending_balance, withdrawn_amount)
-                VALUES ($1, 0.0, 0.0, 0.0, 0.0, 0.0)
-                ON CONFLICT (user_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
-                RETURNING *
-              `, [uId]);
-              uWallet = insU.rows[0];
-            }
-
-            await client.query(`
-              UPDATE wallets 
-              SET available_balance = available_balance + $1,
-                  total_sales = total_sales + $2,
-                  updated_at = CURRENT_TIMESTAMP
-              WHERE UPPER(user_id) = UPPER($3)
-            `, [commAmt, numAmount, uId]);
-          }
-        }
-
-        // Credit Admin Profit
-        if (adminNetMargin > 0) {
-          const aWallets = (await client.query(`SELECT * FROM wallets WHERE UPPER(user_id) = 'ADM001' FOR UPDATE`)).rows;
-          if (aWallets.length > 0) {
-            await client.query(`
-              UPDATE wallets 
-              SET available_balance = available_balance + $1,
-                  total_sales = total_sales + $2,
-                  updated_at = CURRENT_TIMESTAMP
-              WHERE UPPER(user_id) = 'ADM001'
-            `, [adminNetMargin, numAmount]);
-          }
-        }
-
-        // Insert Transaction with APPROVED status
-        const tRes = await client.query(`
-          INSERT INTO transactions (id, merchant_id, customer_mobile, amount, type, provider, ref_number, notes, status, verified_at)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
-          RETURNING *
-        `, [
-          txnId,
-          merchant.id,
-          customer_mobile || null,
-          numAmount,
-          type || 'POS_SWIPE',
-          provider,
-          finalRef,
-          `[CARD_SWIPE_ENTRY] ${JSON.stringify(swipeMeta)}`,
-          'APPROVED'
-        ]);
-        createdTxn = tRes.rows[0];
-      });
-    } catch (err) {
-      if (err.statusCode === 409 || err.code === '23505' || err.message?.includes('Duplicate Reference') || err.message?.includes('uq_transactions_ref_number')) {
-        return sendJson(res, 409, {
-          success: false,
-          message: err.message || `Duplicate Reference: Reference "${cleanRef}" has already been recorded.`
+        const result = await processSwipeTransaction(client, {
+          merchantId: merchantId.trim(),
+          amountPaise,
+          channel: (body.channel || body.provider || 'pinelabs').toLowerCase(),
+          refNumber: body.ref_number || body.refNumber || null,
+          slipNumber: body.slip_number || body.slipNumber || null,
+          notes: body.notes || null,
+          idempotencyKey,
+          createdBy
         });
-      }
-      return sendJson(res, 500, { success: false, message: err.message });
-    }
 
-      return sendJson(res, 201, {
-        success: true,
-        message: `Sale of ₹${numAmount.toLocaleString('en-IN')} recorded! ₹${netCreditAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} credited immediately.`,
-        transaction: createdTxn,
-        wallet: updatedMerchantWallet
-      });
+        const serializable = {
+          ...result,
+          amount_paise: result.amount_paise?.toString(),
+          customer_charge_paise: result.customer_charge_paise?.toString(),
+          net_amount_paise: result.net_amount_paise?.toString(),
+          distributions: result.distributions?.map(d => ({
+            ...d,
+            amount_paise: d.amount_paise?.toString()
+          }))
+        };
+
+        return sendJson(res, 200, {
+          success: true,
+          message: 'Transaction recorded and routed through Phase B ledger engine.',
+          transaction: serializable
+        });
+      } catch (err) {
+        if (err.message?.includes('DUPLICATE_SWIPE')) {
+          return sendJson(res, 409, { success: false, message: err.message });
+        }
+        if (err.message?.includes('USER_NOT_FOUND')) {
+          return sendJson(res, 404, { success: false, message: err.message });
+        }
+        if (err.message?.includes('INVALID_RATE_HIERARCHY') || err.message?.includes('RATE_NOT_CONFIGURED')) {
+          return sendJson(res, 400, { success: false, message: err.message });
+        }
+        return sendJson(res, 500, { success: false, message: err.message });
+      } finally {
+        client.release();
+      }
     }
 
     if (pathname.startsWith('/api/transactions/merchant/') && method === 'GET') {

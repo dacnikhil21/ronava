@@ -22,6 +22,8 @@ export function getCaller(req) {
     query.userId ||
     body.callerId ||
     body.userId ||
+    body.merchant_id ||
+    body.merchantId ||
     ''
   ).toString().trim();
 

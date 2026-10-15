@@ -1,21 +1,25 @@
 import pg from 'pg';
 
 const { Pool } = pg;
-const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL || 'postgres://ronav_admin:RonavSecure2026!Fintech@localhost:5432/ronav_db';
 
 let pool = null;
 
-try {
-  pool = new Pool({
-    connectionString,
-    ssl: process.env.PG_SSL === 'false' ? false : (process.env.PG_SSL === 'true' ? { rejectUnauthorized: false } : false),
-    max: 20,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000,
-  });
-  console.log('[PostgreSQL] Connected to live enterprise database pool.');
-} catch (err) {
-  console.error('[PostgreSQL] Database pool initialization error:', err.message);
+export function getDbPool() {
+  const connectionString = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL || process.env.POSTGRES_URL || 'postgres://postgres:postgres@localhost:5432/ronav_test_db';
+  if (!pool || pool.__connectionString !== connectionString) {
+    if (pool) {
+      try { pool.end(); } catch (_) {}
+    }
+    pool = new Pool({
+      connectionString,
+      ssl: process.env.PG_SSL === 'false' ? false : (process.env.PG_SSL === 'true' ? { rejectUnauthorized: false } : false),
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+    });
+    pool.__connectionString = connectionString;
+  }
+  return pool;
 }
 
 let mockQueryHandler = null;
@@ -31,10 +35,11 @@ export async function query(sql, params = []) {
   if (mockQueryHandler) {
     return await mockQueryHandler(sql, params);
   }
-  if (!pool) {
+  const dbPool = getDbPool();
+  if (!dbPool) {
     throw new Error('[PostgreSQL] Database connection pool not initialized.');
   }
-  const res = await pool.query(sql, params);
+  const res = await dbPool.query(sql, params);
   return res.rows;
 }
 
@@ -193,10 +198,11 @@ export async function withTransaction(callback) {
     };
     return await callback(mockClient);
   }
-  if (!pool) {
+  const dbPool = getDbPool();
+  if (!dbPool) {
     throw new Error('[PostgreSQL] Database pool not initialized for transaction.');
   }
-  const client = await pool.connect();
+  const client = await dbPool.connect();
   try {
     await client.query('BEGIN');
     const result = await callback(client);
@@ -216,11 +222,11 @@ export async function withTransaction(callback) {
  * Auto-Initialize & Verify PostgreSQL Connection
  */
 export async function initPostgresSchema() {
-  if (!pool) return true;
+  const dbPool = getDbPool();
+  if (!dbPool) return true;
   try {
-    const client = await pool.connect();
+    const client = await dbPool.connect();
     try {
-
       await client.query(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawn_amount NUMERIC DEFAULT 0.0`).catch(e => console.error('[Migration Error wallets.withdrawn_amount]:', e.message));
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS channels JSONB DEFAULT '{}'::jsonb`).catch(e => console.error('[Migration Error users.channels]:', e.message));
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'ACTIVE'`).catch(e => console.error('[Migration Error users.status]:', e.message));
