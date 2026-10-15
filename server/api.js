@@ -570,7 +570,7 @@ export async function handleApiRequest(req, res) {
       }
     }
 
-    if (pathname.startsWith('/api/users/') && method === 'GET' && pathname !== '/api/users/create') {
+    if (pathname.startsWith('/api/users/') && method === 'GET' && pathname !== '/api/users/create' && !pathname.endsWith('/financial-summary')) {
       const userId = decodeURIComponent(pathname.replace('/api/users/', '')).trim();
       try {
         const users = await pgQuery(`
@@ -583,11 +583,13 @@ export async function handleApiRequest(req, res) {
                  p.monthly_rent AS pos_rent,
                  p.settlement_type AS pos_settlement,
                  p.instant_surcharge AS pos_instant_fee,
-                 w.available_balance,
-                 w.total_sales,
-                 w.pending_balance,
-                 w.received_sales,
-                 w.withdrawn_amount
+                 COALESCE((w.balance_paise - w.held_paise) / 100.0, 0) as available_balance,
+                 COALESCE(w.balance_paise / 100.0, 0) as total_sales,
+                 COALESCE(w.held_paise / 100.0, 0) as pending_balance,
+                 COALESCE(w.balance_paise / 100.0, 0) as received_sales,
+                 COALESCE(w.withdrawn_paise / 100.0, 0) as withdrawn_amount,
+                 w.balance_paise,
+                 w.held_paise
           FROM users u
           LEFT JOIN merchant_pos p ON u.id = p.merchant_id
           LEFT JOIN wallets w ON u.id = w.user_id
@@ -1247,10 +1249,13 @@ export async function handleApiRequest(req, res) {
                p.instant_surcharge AS pos_instant_fee,
                c.name AS creator_name,
                c.role AS creator_role,
-               w.available_balance,
-               w.total_sales,
-               w.pending_balance,
-               w.received_sales
+               COALESCE((w.balance_paise - w.held_paise) / 100.0, 0) as available_balance,
+               COALESCE(w.balance_paise / 100.0, 0) as total_sales,
+               COALESCE(w.held_paise / 100.0, 0) as pending_balance,
+               COALESCE(w.balance_paise / 100.0, 0) as received_sales,
+               COALESCE(w.withdrawn_paise / 100.0, 0) as withdrawn_amount,
+               w.balance_paise,
+               w.held_paise
         FROM users u
         LEFT JOIN merchant_pos p ON u.id = p.merchant_id
         LEFT JOIN users c ON u.creator_id = c.id
@@ -1275,10 +1280,13 @@ export async function handleApiRequest(req, res) {
                p.instant_surcharge AS pos_instant_fee,
                c.name AS creator_name,
                c.role AS creator_role,
-               w.available_balance,
-               w.total_sales,
-               w.pending_balance,
-               w.received_sales
+               COALESCE((w.balance_paise - w.held_paise) / 100.0, 0) as available_balance,
+               COALESCE(w.balance_paise / 100.0, 0) as total_sales,
+               COALESCE(w.held_paise / 100.0, 0) as pending_balance,
+               COALESCE(w.balance_paise / 100.0, 0) as received_sales,
+               COALESCE(w.withdrawn_paise / 100.0, 0) as withdrawn_amount,
+               w.balance_paise,
+               w.held_paise
         FROM users u
         LEFT JOIN merchant_pos p ON u.id = p.merchant_id
         LEFT JOIN users c ON u.creator_id = c.id
@@ -2491,6 +2499,271 @@ export async function handleApiRequest(req, res) {
         });
       } catch (err) {
         return sendJson(res, 400, { success: false, message: err.message });
+      }
+    }
+
+    // 2.1 Dynamic System Settings Endpoint
+    if (pathname === '/api/settings' && method === 'GET') {
+      try {
+        const pool = getDbPool();
+        const settings = await getAllSettings(pool);
+        return sendJson(res, 200, {
+          success: true,
+          settings: {
+            ...settings,
+            support_phone: '9966203053',
+            support_email: 'rosenavaneethamenterprises@gmail.com'
+          }
+        });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
+    // 2.2 Authoritative Downstream Rates Configuration & Creator Minimums
+    if (pathname === '/api/rates/config' && method === 'GET') {
+      try {
+        const userId = url.searchParams.get('userId');
+        let creatorId = url.searchParams.get('creatorId');
+        if (!creatorId) {
+          try {
+            creatorId = getCaller(req).id;
+          } catch (_) {}
+        }
+        if (!creatorId && userId) {
+          const userRow = (await pgQuery(`SELECT creator_id FROM users WHERE id = $1`, [userId]))[0];
+          creatorId = userRow?.creator_id || 'ADM001';
+        }
+        if (!creatorId) creatorId = 'ADM001';
+
+        const pool = getDbPool();
+        const client = await pool.connect();
+        try {
+          const channels = ['pinelabs', 'payswiff', 'qr'];
+          const creatorRates = {};
+          for (const ch of channels) {
+            if (ch === 'qr') {
+              const r = await getActiveRate(client, { userId: creatorId, channel: ch, settlementMode: 'NONE' });
+              creatorRates.qr = {
+                rate_bps: r.rate_bps,
+                rate_percent: (r.rate_bps / 100).toFixed(2),
+                is_default: r.is_default
+              };
+            } else {
+              const rT1 = await getActiveRate(client, { userId: creatorId, channel: ch, settlementMode: 'T1' });
+              const rIns = await getActiveRate(client, { userId: creatorId, channel: ch, settlementMode: 'INSTANT' });
+              creatorRates[ch] = {
+                t1: { rate_bps: rT1.rate_bps, rate_percent: (rT1.rate_bps / 100).toFixed(2), is_default: rT1.is_default },
+                instant: { rate_bps: rIns.rate_bps, rate_percent: (rIns.rate_bps / 100).toFixed(2), is_default: rIns.is_default }
+              };
+            }
+          }
+
+          let userRates = null;
+          if (userId) {
+            const rows = (await client.query(`
+              SELECT channel, settlement_mode, rate_bps, needs_review, effective_from
+              FROM user_channel_rates
+              WHERE UPPER(user_id) = UPPER($1) AND effective_to IS NULL
+              ORDER BY channel, settlement_mode
+            `, [userId])).rows;
+
+            userRates = {};
+            for (const r of rows) {
+              const ch = r.channel.toLowerCase();
+              if (!userRates[ch]) userRates[ch] = {};
+              const mode = r.settlement_mode.toUpperCase();
+              userRates[ch][mode] = {
+                rate_bps: r.rate_bps,
+                rate_percent: (r.rate_bps / 100).toFixed(2),
+                needs_review: Boolean(r.needs_review)
+              };
+            }
+          }
+
+          return sendJson(res, 200, {
+            success: true,
+            creator_id: creatorId,
+            creator_rates: creatorRates,
+            user_id: userId || null,
+            user_rates: userRates
+          });
+        } finally {
+          client.release();
+        }
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
+    // 2.3 Authoritative Real Ledger Commission & Sales Financial Summary
+    if (pathname.startsWith('/api/users/') && pathname.endsWith('/financial-summary') && method === 'GET') {
+      try {
+        const parts = pathname.split('/');
+        const targetUserId = parts[3];
+        const pool = getDbPool();
+        const client = await pool.connect();
+        try {
+          const balances = await getWalletBalances(client, targetUserId);
+          const channelBalances = await calculateUserChannelBalances(targetUserId);
+
+          const commRows = (await client.query(`
+            SELECT COALESCE(channel, 'pinelabs') as channel,
+                   SUM(amount_paise) as total_comm_paise,
+                   SUM(CASE WHEN created_at >= CURRENT_DATE THEN amount_paise ELSE 0 END) as today_comm_paise
+            FROM financial_ledger
+            WHERE UPPER(user_id) = UPPER($1) AND type = 'commission'
+            GROUP BY channel
+          `, [targetUserId])).rows;
+
+          let totalCommPaise = 0n;
+          let todayCommPaise = 0n;
+          const channelComms = { pinelabs: 0, payswiff: 0, qr: 0 };
+          for (const cr of commRows) {
+            const cp = BigInt(cr.total_comm_paise || 0);
+            const tcp = BigInt(cr.today_comm_paise || 0);
+            totalCommPaise += cp;
+            todayCommPaise += tcp;
+            const ch = (cr.channel || 'pinelabs').toLowerCase();
+            if (channelComms[ch] !== undefined) {
+              channelComms[ch] = Number(cp) / 100;
+            }
+          }
+
+          const salesRow = (await client.query(`
+            SELECT COALESCE(SUM(amount_paise), 0) as total_sales_paise,
+                   COALESCE(SUM(CASE WHEN transaction_date = CURRENT_DATE THEN amount_paise ELSE 0 END), 0) as today_sales_paise
+            FROM transactions
+            WHERE UPPER(merchant_id) = UPPER($1) AND status != 'REVERSED'
+          `, [targetUserId])).rows[0];
+
+          return sendJson(res, 200, {
+            success: true,
+            user_id: targetUserId,
+            balances,
+            channel_balances: channelBalances,
+            total_commission_paise: totalCommPaise.toString(),
+            today_commission_paise: todayCommPaise.toString(),
+            total_commission_rupees: (Number(totalCommPaise) / 100).toFixed(2),
+            today_commission_rupees: (Number(todayCommPaise) / 100).toFixed(2),
+            channel_commissions: channelComms,
+            total_sales_paise: salesRow ? salesRow.total_sales_paise.toString() : '0',
+            today_sales_paise: salesRow ? salesRow.today_sales_paise.toString() : '0',
+            total_sales_rupees: salesRow ? (Number(salesRow.total_sales_paise) / 100).toFixed(2) : '0.00',
+            today_sales_rupees: salesRow ? (Number(salesRow.today_sales_paise) / 100).toFixed(2) : '0.00'
+          });
+        } finally {
+          client.release();
+        }
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
+    // 2.4 Authoritative Downstream Network Tree & Performance
+    if (pathname === '/api/network/downstream' && method === 'GET') {
+      try {
+        let creatorId = url.searchParams.get('creatorId');
+        if (!creatorId) {
+          try {
+            creatorId = getCaller(req).id;
+          } catch (_) {}
+        }
+        if (!creatorId) creatorId = 'ADM001';
+
+        const pool = getDbPool();
+        const client = await pool.connect();
+        try {
+          const usersRes = await client.query(`
+            WITH RECURSIVE downline AS (
+              SELECT id, name, mobile, role, creator_id, status, 1 as depth
+              FROM users
+              WHERE UPPER(creator_id) = UPPER($1)
+              UNION ALL
+              SELECT u.id, u.name, u.mobile, u.role, u.creator_id, u.status, d.depth + 1
+              FROM users u
+              INNER JOIN downline d ON UPPER(u.creator_id) = UPPER(d.id)
+            )
+            SELECT * FROM downline ORDER BY depth, name;
+          `, [creatorId]);
+
+          const downlineUsers = usersRes.rows;
+          const userIds = downlineUsers.map(u => u.id);
+
+          let commMap = {};
+          let salesMap = {};
+          if (userIds.length > 0) {
+            const commData = await client.query(`
+              SELECT user_id, 
+                     COALESCE(SUM(amount_paise), 0) as total_comm_paise,
+                     COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE THEN amount_paise ELSE 0 END), 0) as today_comm_paise
+              FROM financial_ledger
+              WHERE type = 'commission' AND user_id = ANY($1)
+              GROUP BY user_id
+            `, [userIds]);
+
+            for (const r of commData.rows) {
+              commMap[r.user_id] = {
+                total_comm_paise: r.total_comm_paise,
+                today_comm_paise: r.today_comm_paise
+              };
+            }
+
+            const salesData = await client.query(`
+              SELECT merchant_id,
+                     COALESCE(SUM(amount_paise), 0) as total_sales_paise,
+                     COALESCE(SUM(CASE WHEN transaction_date = CURRENT_DATE THEN amount_paise ELSE 0 END), 0) as today_sales_paise
+              FROM transactions
+              WHERE status != 'REVERSED' AND merchant_id = ANY($1)
+              GROUP BY merchant_id
+            `, [userIds]);
+
+            for (const r of salesData.rows) {
+              salesMap[r.merchant_id] = {
+                total_sales_paise: r.total_sales_paise,
+                today_sales_paise: r.today_sales_paise
+              };
+            }
+          }
+
+          let networkSalesPaise = 0n;
+          let networkCommPaise = 0n;
+
+          const partners = downlineUsers.map(u => {
+            const c = commMap[u.id] || { total_comm_paise: '0', today_comm_paise: '0' };
+            const s = salesMap[u.id] || { total_sales_paise: '0', today_sales_paise: '0' };
+            const commRupees = Number(BigInt(c.total_comm_paise)) / 100;
+            const salesRupees = Number(BigInt(s.total_sales_paise)) / 100;
+            networkSalesPaise += BigInt(s.total_sales_paise);
+            networkCommPaise += BigInt(c.total_comm_paise);
+
+            return {
+              ...u,
+              is_direct: u.depth === 1,
+              commission_earned: commRupees,
+              total_sales: salesRupees,
+              total_commission_paise: c.total_comm_paise,
+              today_commission_paise: c.today_comm_paise,
+              total_sales_paise: s.total_sales_paise,
+              today_sales_paise: s.today_sales_paise
+            };
+          });
+
+          return sendJson(res, 200, {
+            success: true,
+            creator_id: creatorId,
+            partner_count: partners.length,
+            partners,
+            network_sales_paise: networkSalesPaise.toString(),
+            network_commission_paise: networkCommPaise.toString(),
+            network_sales_rupees: (Number(networkSalesPaise) / 100).toFixed(2),
+            network_commission_rupees: (Number(networkCommPaise) / 100).toFixed(2)
+          });
+        } finally {
+          client.release();
+        }
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
       }
     }
 
