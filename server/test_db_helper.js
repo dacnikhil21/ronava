@@ -39,6 +39,15 @@ export async function resetTestDatabase() {
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
       );
+
+      CREATE TABLE merchant_pos (
+        id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        merchant_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        provider VARCHAR(50),
+        terminal_id VARCHAR(50),
+        commission_rate NUMERIC DEFAULT 1.5,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
     `);
 
     // 2. Wallets (Cached balances stored in BIGINT paise, strictly verified against financial_ledger)

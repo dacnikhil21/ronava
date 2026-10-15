@@ -38,15 +38,16 @@ export async function parseJsonBody(req) {
   });
 }
 
-// Helper to send JSON response
+// Helper to send JSON response with native BigInt support
 export function sendJson(res, statusCode, data) {
+  const jsonStr = JSON.stringify(data, (_, v) => typeof v === 'bigint' ? v.toString() : v);
   res.writeHead(statusCode, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization'
   });
-  res.end(JSON.stringify(data));
+  res.end(jsonStr);
 }
 
 /**
@@ -84,18 +85,21 @@ export function resolveUserBuyRate(user, pos, isInstant = false, targetChannel =
 
 /**
  * Authoritative Server-Side Channel Balance Calculator (100% Single Source of Truth)
- * Evaluates real-time swipes and withdrawals strictly in PostgreSQL.
+ * Evaluates real-time swipes and withdrawals strictly from financial_ledger in PostgreSQL.
  */
-export async function calculateUserChannelBalances(userId, wallet) {
+export async function calculateUserChannelBalances(userId) {
   try {
-    const txns = await pgQuery(
-      `SELECT id, amount, provider, status, notes, type FROM transactions WHERE UPPER(merchant_id) = UPPER($1) AND status = 'APPROVED'`, 
-      [userId]
-    );
-    const withs = await pgQuery(
-      `SELECT id, amount, channel, status FROM withdrawals WHERE UPPER(merchant_id) = UPPER($1) AND status != 'REJECTED'`, 
-      [userId]
-    );
+    const pool = getDbPool();
+    const balances = await getWalletBalances(pool, userId);
+    const ledgerRows = await pgQuery(`
+      SELECT COALESCE(channel, 'pinelabs') as channel,
+             SUM(CASE WHEN amount_paise > 0 THEN amount_paise ELSE 0 END) as credited_paise,
+             SUM(CASE WHEN amount_paise < 0 THEN -amount_paise ELSE 0 END) as debited_paise,
+             SUM(amount_paise) as net_paise
+      FROM financial_ledger
+      WHERE UPPER(user_id) = UPPER($1)
+      GROUP BY channel
+    `, [userId]);
 
     const channels = {
       pinelabs: { volume: 0, credited: 0, debited: 0, pending: 0, available_balance: 0, withdrawable_balance: 0 },
@@ -103,44 +107,22 @@ export async function calculateUserChannelBalances(userId, wallet) {
       qr:       { volume: 0, credited: 0, debited: 0, pending: 0, available_balance: 0, withdrawable_balance: 0 },
     };
 
-    (txns || []).forEach(t => {
-      const p = (t.provider || '').toLowerCase();
-      const ch = p.includes('swiff') ? 'payswiff' : (p.includes('qr') ? 'qr' : 'pinelabs');
-      const gross = parseFloat(t.amount) || 0;
-      let net = gross;
-      if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
-        try {
-          const jsonPart = t.notes.slice(t.notes.indexOf('{'));
-          const meta = JSON.parse(jsonPart);
-          if (meta.net_credited !== undefined) {
-            net = parseFloat(meta.net_credited) || 0;
-          } else if (meta.company_fee !== undefined) {
-            net = Math.max(0, gross - (parseFloat(meta.company_fee) || 0));
-          }
-        } catch (_) {}
-      }
-      channels[ch].volume += gross;
-      channels[ch].credited += net;
-    });
+    for (const r of ledgerRows) {
+      const rawCh = (r.channel || 'pinelabs').toLowerCase();
+      const ch = rawCh.includes('swiff') ? 'payswiff' : (rawCh.includes('qr') ? 'qr' : 'pinelabs');
+      const cred = Number(r.credited_paise || 0) / 100;
+      const deb = Number(r.debited_paise || 0) / 100;
+      const net = Math.max(0, Number(r.net_paise || 0) / 100);
+      channels[ch].volume += cred;
+      channels[ch].credited += cred;
+      channels[ch].debited += deb;
+      channels[ch].available_balance = net;
+      channels[ch].withdrawable_balance = net;
+    }
 
-    (withs || []).forEach(w => {
-      const c = (w.channel || '').toLowerCase();
-      const ch = c.includes('swiff') ? 'payswiff' : (c.includes('qr') ? 'qr' : 'pinelabs');
-      const amt = parseFloat(w.amount) || 0;
-      if (w.status === 'APPROVED') {
-        channels[ch].debited += amt;
-      } else if (w.status === 'PENDING') {
-        channels[ch].pending += amt;
-        channels[ch].debited += amt;
-      }
-    });
-
-    const dbAvail = Math.max(0, parseFloat(wallet?.available_balance || 0));
-
+    const totalWithdrawable = Number(balances.withdrawable_balance_paise) / 100;
     for (const ch of Object.keys(channels)) {
-      const raw = Math.max(0, parseFloat((channels[ch].credited - channels[ch].debited).toFixed(2)));
-      channels[ch].available_balance = dbAvail > 0 ? (raw > 0 ? Math.min(raw, dbAvail) : dbAvail) : 0.0;
-      channels[ch].withdrawable_balance = Math.max(0, parseFloat((channels[ch].available_balance - (channels[ch].available_balance > 0 ? 500 : 0)).toFixed(2)));
+      channels[ch].withdrawable_balance = Math.min(channels[ch].available_balance, totalWithdrawable);
     }
 
     return channels;
@@ -706,23 +688,35 @@ export async function handleApiRequest(req, res) {
       }
     }
 
-    if (pathname.startsWith('/api/wallet/') && method === 'GET') {
+    if (pathname.startsWith('/api/wallet/') && !pathname.startsWith('/api/wallet/balance') && method === 'GET') {
       const userId = decodeURIComponent(pathname.replace('/api/wallet/', '')).trim();
       try {
-        const wallets = await pgQuery(`SELECT * FROM wallets WHERE UPPER(user_id) = UPPER($1)`, [userId]);
+        const pool = getDbPool();
+        const balances = await getWalletBalances(pool, userId);
         const pos = (await pgQuery(`SELECT * FROM merchant_pos WHERE UPPER(merchant_id) = UPPER($1)`, [userId]))[0] || null;
-        if (!wallets || wallets.length === 0) {
-          const emptyWallet = { user_id: userId, available_balance: 0, total_sales: 0, received_sales: 0, pending_balance: 0, withdrawn_amount: 0 };
-          emptyWallet.channel_balances = await calculateUserChannelBalances(userId, emptyWallet);
-          return sendJson(res, 200, {
-            success: true,
-            wallet: emptyWallet,
-            pos
-          });
-        }
-        const activeWallet = { ...wallets[0] };
-        activeWallet.channel_balances = await calculateUserChannelBalances(userId, activeWallet);
-        return sendJson(res, 200, { success: true, wallet: activeWallet, pos });
+        const channelBalances = await calculateUserChannelBalances(userId);
+
+        const wallet = {
+          user_id: userId,
+          balance_paise: balances.balance_paise.toString(),
+          held_paise: balances.held_paise.toString(),
+          available_balance: Number(balances.available_balance_paise) / 100,
+          withdrawable_balance: Number(balances.withdrawable_balance_paise) / 100,
+          available_balance_paise: balances.available_balance_paise.toString(),
+          reserve_locked_paise: balances.reserve_locked_paise.toString(),
+          withdrawable_balance_paise: balances.withdrawable_balance_paise.toString(),
+          total_sales: Number(balances.balance_paise) / 100,
+          received_sales: Number(balances.balance_paise) / 100,
+          pending_balance: Number(balances.held_paise) / 100,
+          channel_balances: channelBalances
+        };
+
+        return sendJson(res, 200, {
+          success: true,
+          wallet,
+          pos,
+          balances
+        });
       } catch (err) {
         return sendJson(res, 500, { success: false, message: err.message });
       }
@@ -1188,10 +1182,25 @@ export async function handleApiRequest(req, res) {
         });
       }
 
-      const wallets = await pgQuery(`SELECT * FROM wallets WHERE user_id = $1`, [user.id]);
+      const pool = getDbPool();
+      const balances = await getWalletBalances(pool, user.id);
       const posList = await pgQuery(`SELECT * FROM merchant_pos WHERE merchant_id = $1`, [user.id]);
-      const activeWallet = wallets[0] ? { ...wallets[0] } : { user_id: user.id, available_balance: 0, total_sales: 0, received_sales: 0, pending_balance: 0, withdrawn_amount: 0 };
-      activeWallet.channel_balances = await calculateUserChannelBalances(user.id, activeWallet);
+      const channelBalances = await calculateUserChannelBalances(user.id);
+
+      const activeWallet = {
+        user_id: user.id,
+        balance_paise: balances.balance_paise.toString(),
+        held_paise: balances.held_paise.toString(),
+        available_balance: Number(balances.available_balance_paise) / 100,
+        withdrawable_balance: Number(balances.withdrawable_balance_paise) / 100,
+        available_balance_paise: balances.available_balance_paise.toString(),
+        reserve_locked_paise: balances.reserve_locked_paise.toString(),
+        withdrawable_balance_paise: balances.withdrawable_balance_paise.toString(),
+        total_sales: Number(balances.balance_paise) / 100,
+        received_sales: Number(balances.balance_paise) / 100,
+        pending_balance: Number(balances.held_paise) / 100,
+        channel_balances: channelBalances
+      };
 
       return sendJson(res, 200, {
         success: true,
@@ -1391,24 +1400,6 @@ export async function handleApiRequest(req, res) {
       });
     }
 
-    // ----------------------------------------------------
-    // 2. LIVE WALLET & METRICS
-    // ----------------------------------------------------
-    if (pathname.startsWith('/api/wallet/') && method === 'GET') {
-      const userId = decodeURIComponent(pathname.replace('/api/wallet/', '')).trim();
-      const wallets = await pgQuery(`SELECT * FROM wallets WHERE UPPER(user_id) = UPPER($1)`, [userId]);
-      const posList = await pgQuery(`SELECT * FROM merchant_pos WHERE UPPER(merchant_id) = UPPER($1)`, [userId]);
-      
-      if (!wallets || wallets.length === 0) {
-        const emptyWallet = { user_id: userId, available_balance: 0, total_sales: 0, received_sales: 0, pending_balance: 0, withdrawn_amount: 0 };
-        emptyWallet.channel_balances = await calculateUserChannelBalances(userId, emptyWallet);
-        return sendJson(res, 200, { success: true, wallet: emptyWallet, pos: posList[0] || null });
-      }
-
-      const activeWallet = { ...wallets[0] };
-      activeWallet.channel_balances = await calculateUserChannelBalances(userId, activeWallet);
-      return sendJson(res, 200, { success: true, wallet: activeWallet, pos: posList[0] || null });
-    }
 
     // ----------------------------------------------------
     // 3. TRANSACTIONS & AUTHORITATIVE COMMISSION RECORDING
@@ -2118,7 +2109,7 @@ export async function handleApiRequest(req, res) {
           return sendJson(res, 400, { success: false, message: 'User ID is required to fetch balance.' });
         }
 
-        const balances = await getWalletBalances({ query: pgQuery }, callerId);
+        const balances = await getWalletBalances(getDbPool(), callerId);
         return sendJson(res, 200, {
           success: true,
           balances: {
@@ -2156,7 +2147,7 @@ export async function handleApiRequest(req, res) {
           ? BigInt(body.amount_paise) 
           : BigInt(Math.round(parseFloat(body.amount) * 100));
 
-        const quote = await quoteWithdrawal({ query: pgQuery }, {
+        const quote = await quoteWithdrawal(getDbPool(), {
           userId,
           amountPaise,
           settlementType: body.settlement_type || 'T1',
