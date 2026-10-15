@@ -168,25 +168,35 @@ Verifying Reconciliation across ALL wallets after 100 mixed random ops...
 
 ## 4. DATA MIGRATION VERIFICATION & RECONCILIATION AUDIT
 
-The migration engine (`server/migration_engine.js`) was verified in `server/test_step8_data_migration.mjs`:
-- Migrates historical transactions into opening `swipe_credit` entries and approved withdrawals into `withdrawal_paid` entries.
-- Generates a per-user before/after comparison table:
+The migration engine (`server/migration_engine.js`) and standalone audit tool (`scripts/migrate_existing_data_audit.mjs`) were executed against a local staging database copy.
+Full report published to: [audit/MIGRATION_COMPARISON.md](file:///c:/Users/dache/Desktop/ronava/audit/MIGRATION_COMPARISON.md).
 
-| User ID | Before Balance (Paise) | Migrated Ledger Sum (Paise) | Difference | Mismatch Flag |
-| :--- | :--- | :--- | :--- | :--- |
-| `LEGACY_M1` | 800,000 (₹8,000.00) | 800,000 (₹8,000.00) | 0 | `NO (MATCH)` |
-| `LEGACY_M2` | 450,000 (₹4,500.00) | 450,000 (₹4,500.00) | 0 | `NO (MATCH)` |
+- **Total Historical Transactions Migrated:** 3
+- **Total Historical Withdrawals Migrated:** 2
+- **Matched Accounts:** `MID1001` (100.00% exact match)
+- **Documented Variances:** `ADM001`, `SD1001`, `DIST2001`, `MID3001`, `MID3002` (root-caused by legacy un-seeded demo floats and old UI cross-channel deduction bugs).
 
 ---
 
-## 5. SCOPE ITEMS LEFT UNDONE & WHY
+## 5. CONFIRMATION OF SPECIFIC PHASE B INTEGRITY ITEMS
 
-- **User Authentication (JWT/Sessions):** Deliberately deferred per explicit instructions. Caller identity is routed through `getCaller(req)` in `server/caller.js` so authentication can be connected in a future phase without modifying business logic.
+| Item | Status | Primary Code Location | Test Location | Summary |
+| :--- | :--- | :--- | :--- | :--- |
+| **1. Existing-data Migration & Report** | **NEWLY COMPLETED** | `scripts/migrate_existing_data_audit.mjs:10-155` | `server/test_migration_comparison_script.mjs:10-75` | Built standalone migration audit generating `/audit/MIGRATION_COMPARISON.md` with per-user before/after analysis and root-cause explanations. |
+| **2. Duplicate Manual Entries Rejection** | **ENHANCED & CONFIRMED** | `server/transaction_engine.js:43-58` | `server/test_duplicate_manual_swipes.mjs:10-85` | Rejects duplicate swipes matching same `merchant_id + slip/UTR + amount_paise + transaction_date` with clear `DUPLICATE_SWIPE` error and HTTP 409. |
+| **3. Editing a Swipe after Commission Credit** | **NEWLY COMPLETED** | `server/transaction_engine.js:280-328` | `server/test_edit_swipe_reversal.mjs:10-90` | Function `editSwipeTransaction()` executes atomic old swipe reversal (reversing merchant + all uplines in ledger), then posts corrected transaction without altering historical rows. |
+| **4. Strict Beneficiary ID Enforcement in Withdrawals** | **CONFIRMED & HARDENED** | `server/withdrawal_engine.js:98-115` | `server/test_withdrawal_beneficiary_validation.mjs:10-95` | Rejects requests with raw account numbers without `beneficiary_id` (`BENEFICIARY_REQUIRED`); rejects beneficiaries belonging to other merchants (`INVALID_BENEFICIARY`); ignores any raw bank details in payload. |
+
+---
+
+## 6. SCOPE ITEMS DELIBERATELY DEFERRED
+
+- **User Authentication (JWT/Sessions):** Deliberately deferred per explicit instructions. Caller identity is routed through `getCaller(req)` in `server/caller.js` (exported from `server/api.js:18`) so authentication can be connected in a future phase without modifying business logic.
 - **Frontend UI Changes:** Strictly omitted per Phase B rules. Frontend screens continue to operate while Phase B establishes the backend authoritative single source of truth.
 
 ---
 
-## 6. EXACT LIST OF FRONTEND CHANGES PHASE D MUST MAKE
+## 7. EXACT LIST OF FRONTEND CHANGES PHASE D MUST MAKE
 
 When Phase D commences, the client application (`src/`) must be updated with the following specific changes:
 
