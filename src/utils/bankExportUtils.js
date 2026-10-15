@@ -24,7 +24,9 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
     'Payout Amount (INR)',
     'Slip UTR / Bank Reference',
     'Channel / Provider',
-    'Settlement Speed',
+    'Swipe Mode',
+    'Withdrawal Mode',
+    'Mismatch Flag',
     'Payout Reference ID',
     'Request Date & Time',
     'Status'
@@ -103,8 +105,13 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
       channel = 'Pine Labs';
     }
 
-    // 12. Settlement Speed
-    const speed = (item.settlement_mode || item.settlement_type || 'T1').toUpperCase();
+    // 12. Swipe Mode, Withdrawal Mode, Mismatch Flag
+    const swipeMode = (item.swipe_mode || item.swipe_settlement_type || 'N/A').toUpperCase();
+    const withdrawalMode = (item.withdrawal_mode || item.settlement_mode || item.settlement_type || 'T1').toUpperCase();
+    const isMismatch = item.mismatch_flag !== undefined 
+      ? Boolean(item.mismatch_flag)
+      : (swipeMode !== 'N/A' && swipeMode !== withdrawalMode);
+    const mismatchStr = isMismatch ? 'YES' : 'NO';
 
     // 13. Payout Ref ID
     const refId = item.id || item.ref_number || item.payout_id || 'N/A';
@@ -112,8 +119,16 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
     // 14. Date & Time
     const dateStr = item.created_at ? new Date(item.created_at).toLocaleString('en-IN') : 'N/A';
 
-    // 15. Status
-    const status = item.status || 'PENDING';
+    // 15. Normalized Status: Pending, Submitted to Bank, Completed, Rejected
+    let status = 'Pending';
+    const rawStatus = (item.status || item.sub_status || item._subStatus || '').toUpperCase();
+    if (rawStatus === 'SUBMITTED_TO_BANK' || rawStatus === 'SUBMITTED' || rawStatus === 'PROCESSING') {
+      status = 'Submitted to Bank';
+    } else if (rawStatus === 'COMPLETED' || rawStatus === 'APPROVED' || rawStatus === 'SETTLED') {
+      status = 'Completed';
+    } else if (rawStatus === 'REJECTED' || rawStatus === 'FAILED' || rawStatus === 'CANCELLED') {
+      status = 'Rejected';
+    }
 
     return [
       slNo,
@@ -127,7 +142,9 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
       amt,
       formattedUtr,
       escapeCSV(channel),
-      escapeCSV(speed),
+      escapeCSV(swipeMode),
+      escapeCSV(withdrawalMode),
+      escapeCSV(mismatchStr),
       escapeCSV(refId),
       escapeCSV(dateStr),
       escapeCSV(status)
