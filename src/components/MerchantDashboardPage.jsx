@@ -30,6 +30,8 @@ import {
   formatTerminalDisplay
 } from '../services/api';
 import { downloadRentalReportFile } from '../utils/bankExportUtils';
+import { formatPaiseToRupees, rupeesToPaise, generateIdempotencyKey } from '../utils/formatters';
+import { getRatesConfig, getSystemSettings, getUserFinancialSummary, fetchWithdrawalQuote } from '../services/api';
 import { subscribeToWallet, subscribeToTransactions } from '../services/supabase';
 import RonavLogo from './RonavLogo';
 
@@ -167,6 +169,15 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     ''
   ).trim();
   const [merchantName, setMerchantName] = useState(() => user?.name || 'Partner Account');
+  const [walletError, setWalletError] = useState(null);
+  const [txnError, setTxnError] = useState(null);
+  const [wthError, setWthError] = useState(null);
+  const [withdrawalQuote, setWithdrawalQuote] = useState(null);
+  const [isLoadingQuote, setIsLoadingQuote] = useState(false);
+  const [quoteError, setQuoteError] = useState(null);
+  const [ratesConfig, setRatesConfig] = useState(null);
+  const [systemSettings, setSystemSettings] = useState(null);
+  const [financialSummary, setFinancialSummary] = useState(null);
   const userRole = user?.role ? (user.role === 'MERCHANT' ? 'Retailer' : user.role) : 'Retailer';
 
   // Interactive Profile Details (Available from login and refreshed dynamically)
@@ -919,36 +930,21 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
   // Dynamic Today's Stats filtered strictly for the active machine
   const todayStats = useMemo(() => {
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const todayTxns = activeMachineTransactions.filter(t => {
-      const d = new Date(t.created_at || Date.now()).toISOString().slice(0, 10);
-      return d === todayStr;
-    });
-
     const isRetail = userRole === 'MERCHANT' || userRole === 'Retailer';
-    const directTodayTxns = todayTxns.filter(t => !t.is_commission && t.activityType !== 'COMMISSION_EARNED');
-    const commTodayTxns = todayTxns.filter(t => t.is_commission === true || t.activityType === 'COMMISSION_EARNED');
+    const sales = financialSummary?.today_volume_rupees !== undefined
+      ? parseFloat(financialSummary.today_volume_rupees)
+      : parseFloat(activeMachineWallet.total_sales || 0);
 
-    const sales = isRetail
-      ? directTodayTxns.reduce((acc, t) => acc + (parseFloat(t.amount) || 0), 0)
-      : (directTodayTxns.length > 0
-          ? directTodayTxns.reduce((acc, t) => acc + (parseFloat(t.amount) || 0), 0)
-          : (networkData?.channel_volumes ? (
-              selectedMachineKey === 'qr' ? (networkData.channel_volumes.today_qr || 0) : (
-                selectedMachineKey === 'payswiff' ? (networkData.channel_volumes.today_payswiff || 0) : (networkData.channel_volumes.today_pinelabs || 0)
-              )
-            ) : 0));
-
-    const collected = directTodayTxns.filter(t => (t.status || '').toUpperCase() === 'APPROVED').reduce((acc, t) => acc + (parseFloat(t.amount) || 0), 0);
-    const pending = directTodayTxns.filter(t => (t.status || '').toUpperCase() === 'PENDING').reduce((acc, t) => acc + (parseFloat(t.amount) || 0), 0);
+    const collected = parseFloat(activeMachineWallet.received_sales || 0);
+    const pending = parseFloat(activeMachineWallet.pending_balance || 0);
 
     return {
       sales,
       collected,
       pending,
-      count: isRetail ? directTodayTxns.length : (directTodayTxns.length || commTodayTxns.length)
+      count: isRetail ? activeMachineTransactions.length : (activeMachineTransactions.length || 0)
     };
-  }, [activeMachineTransactions, userRole, networkData, selectedMachineKey]);
+  }, [financialSummary, activeMachineWallet, userRole, activeMachineTransactions]);
 
   // Handle POS Provider Change in Onboarding Drawer
   const handleOnboardProviderChange = (provider) => {
@@ -1057,20 +1053,15 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           downlineList = downlineList.filter(item => downlineIds.has(item.merchant_id) || downlineIds.has(item.creator_id));
         }
 
-        const totalTerminals = downlineList.length;
-        const totalDue = downlineList.reduce((sum, item) => sum + item.monthly_rent, 0);
-        const paidList = downlineList.filter(item => item.rental_status === 'PAID');
-        const pendingList = downlineList.filter(item => item.rental_status === 'PENDING');
-
         setHierarchyRentalData({
           list: downlineList,
-          summary: {
-            totalTerminals,
-            totalDue: parseFloat(totalDue.toFixed(2)),
-            totalCollected: parseFloat(paidList.reduce((sum, item) => sum + item.monthly_rent, 0).toFixed(2)),
-            totalPending: parseFloat(pendingList.reduce((sum, item) => sum + item.monthly_rent, 0).toFixed(2)),
-            paidCount: paidList.length,
-            pendingCount: pendingList.length
+          summary: res.summary || {
+            totalTerminals: downlineList.length,
+            totalDue: 0,
+            totalCollected: 0,
+            totalPending: 0,
+            paidCount: 0,
+            pendingCount: 0
           }
         });
       }
@@ -1315,15 +1306,23 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
   const fetchLiveData = async () => {
     try {
-      const [walletRes, txnRes, wthRes, benRes] = await Promise.all([
+      const [walletRes, txnRes, wthRes, benRes, ratesRes, setRes, finRes] = await Promise.all([
         getWallet(merchantId).catch(err => ({ success: false, message: err.message })),
         getMerchantTransactions(merchantId).catch(err => ({ success: false, message: err.message })),
         getMerchantWithdrawals(merchantId).catch(err => ({ success: false, message: err.message })),
-        getBeneficiaries(merchantId).catch(err => ({ success: false, message: err.message }))
+        getBeneficiaries(merchantId).catch(err => ({ success: false, message: err.message })),
+        getRatesConfig(merchantId).catch(() => null),
+        getSystemSettings().catch(() => null),
+        getUserFinancialSummary(merchantId).catch(() => null)
       ]);
+
+      if (ratesRes && ratesRes.success) setRatesConfig(ratesRes);
+      if (setRes && setRes.success) setSystemSettings(setRes.settings);
+      if (finRes && finRes.success) setFinancialSummary(finRes);
 
       if (walletRes && walletRes.success) {
         setWallet(walletRes.wallet);
+        setWalletError(null);
         if (walletRes.pos) {
           setUserPos(walletRes.pos);
           if (typeof window !== 'undefined') {
@@ -1332,20 +1331,27 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
             } catch (_) {}
           }
         }
-      } else if (walletRes && !walletRes.success) {
-        triggerToast('Failed to sync wallet balance from server: ' + (walletRes.message || 'Connection error'), 'error');
+      } else {
+        const msg = walletRes?.message || 'Failed to sync wallet balance from server';
+        setWalletError(msg);
+        setWallet(null);
+        showToast('⚠️ Error: ' + msg);
       }
 
       if (txnRes && txnRes.success && Array.isArray(txnRes.transactions)) {
         setTransactions(txnRes.transactions);
-      } else if (txnRes && !txnRes.success) {
-        triggerToast('Failed to sync transaction history: ' + (txnRes.message || 'Connection error'), 'error');
+        setTxnError(null);
+      } else {
+        const msg = txnRes?.message || 'Failed to sync transaction history';
+        setTxnError(msg);
       }
 
       if (wthRes && wthRes.success && wthRes.withdrawals) {
         setWithdrawals(wthRes.withdrawals);
-      } else if (wthRes && !wthRes.success) {
-        triggerToast('Failed to sync payout history: ' + (wthRes.message || 'Connection error'), 'error');
+        setWthError(null);
+      } else {
+        const msg = wthRes?.message || 'Failed to sync payout history';
+        setWthError(msg);
       }
 
       if (benRes && benRes.success && benRes.beneficiaries) {
@@ -1354,12 +1360,11 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           const primary = benRes.beneficiaries.find(b => b.is_primary) || benRes.beneficiaries[0];
           setSelectedBankId(primary.id);
         }
-      } else if (benRes && !benRes.success) {
-        triggerToast('Failed to sync bank accounts: ' + (benRes.message || 'Connection error'), 'error');
       }
     } catch (err) {
       console.error('fetchLiveData error:', err);
-      triggerToast('Network error syncing merchant operational data.', 'error');
+      setWalletError('Network connection error: ' + err.message);
+      showToast('Network error syncing merchant operational data.');
     } finally {
       setIsLoadingPos(false);
     }
@@ -1384,7 +1389,44 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   }, [merchantId]);
 
   // Reusable Ronav Wallet Balance Banner for Sub-pages (Matching Image 2 Mobile Fintech Style)
-  const renderWalletBalanceCard = () => (
+  const renderWalletBalanceCard = () => {
+    if (walletError) {
+      return (
+        <div style={{
+          background: '#FEF2F2',
+          border: '1.5px solid #EF4444',
+          borderRadius: '20px',
+          padding: '1.125rem 1.25rem',
+          marginBottom: '1rem',
+          boxShadow: '0 2px 12px rgba(220, 38, 38, 0.08)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+            <AlertCircle style={{ width: '18px', height: '18px', color: '#DC2626' }} />
+            <strong style={{ fontSize: '0.875rem', color: '#991B1B' }}>Wallet Sync Error</strong>
+          </div>
+          <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.75rem', color: '#B91C1C' }}>
+            {walletError}. (An error must never look like zero balance).
+          </p>
+          <button
+            type="button"
+            onClick={fetchLiveData}
+            style={{
+              background: '#DC2626',
+              color: '#FFFFFF',
+              border: 'none',
+              padding: '0.35rem 0.85rem',
+              borderRadius: '6px',
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              cursor: 'pointer'
+            }}
+          >
+            Retry Connection
+          </button>
+        </div>
+      );
+    }
+    return (
     <div style={{
       background: '#FFFFFF',
       borderRadius: '20px',
@@ -1451,6 +1493,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       </div>
     </div>
   );
+  };
 
   // Helpers for channel & purpose categorization (Items #12, #14, #15)
   const isQrTxn = (item) => {
@@ -1697,20 +1740,6 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
     setIsSubmittingSale(true);
     try {
-      const isInstant = saleForm.settlement_type === 'INSTANT' || selectedMachineKey === 'qr';
-      const companyRate = selectedMachineKey === 'qr'
-        ? (parseFloat(activeMachine.rateInstant) || parseFloat(activeMachine.rateT1) || 0)
-        : (isInstant ? (parseFloat(activeMachine.rateInstant) || parseFloat(activeMachine.rateT1) || 0) : (parseFloat(activeMachine.rateT1) || 0));
-
-      if (companyRate === undefined || companyRate === null || isNaN(companyRate) || companyRate <= 0) {
-        showToast('⚠️ No active commission rate configured for this terminal. Please contact Admin.');
-        setIsSubmittingSale(false);
-        return;
-      }
-
-      const companyFee = (amountVal * companyRate) / 100;
-      const netSettlement = Math.max(0, amountVal - companyFee);
-
       const effectiveMid = merchantId || userProfile?.id || user?.id || '';
       if (!effectiveMid) {
         showToast('⚠️ Session expired or merchant ID missing. Please log in again.');
@@ -1718,26 +1747,32 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         return;
       }
 
+      const settlementType = selectedMachineKey === 'qr' ? 'NONE' : (saleForm.settlement_type || 'T1');
+      const idemKey = generateIdempotencyKey('swipe');
+
       const res = await recordMerchantSale({
         merchant_id: effectiveMid,
         amount: amountVal,
+        amount_paise: Math.round(amountVal * 100),
         customer_name: (saleForm.customer_name || 'Customer').trim(),
         customer_mobile: (saleForm.customer_mobile || '').trim(),
         type: selectedMachineKey === 'qr' ? 'QR_SCAN' : 'POS_SWIPE',
         provider: activeMachine.provider,
         ref_number: saleForm.transaction_id.trim().toUpperCase(),
-        settlement_type: selectedMachineKey === 'qr' ? 'INSTANT' : saleForm.settlement_type,
+        settlement_type: settlementType,
         customer_charge: 0,
-        company_fee: companyFee,
-        merchant_commission: 0,
         terminal_id: activeMachine.terminal_id,
         notes: selectedMachineKey === 'qr' 
           ? `Company QR UPI Collection (${companyQrPayeeName || 'RONAV TECHNOLOGIES'})` 
-          : `${activeMachine.title} Swipe`
+          : `${activeMachine.title} Swipe`,
+        idempotency_key: idemKey
       });
 
       if (res.success) {
-        showToast(`✓ ₹${amountVal.toLocaleString('en-IN')} Swipe Logged! Net Credit: ₹${netSettlement.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (Company MDR: -₹${companyFee.toFixed(2)})`);
+        const netCredit = res.transaction?.net_amount_paise 
+          ? formatPaiseToRupees(res.transaction.net_amount_paise)
+          : `₹${amountVal.toLocaleString('en-IN')}`;
+        showToast(`✓ ₹${amountVal.toLocaleString('en-IN')} Swipe Recorded! Net Credit: ${netCredit}`);
         setSaleForm({
           amount: '',
           customer_name: '',
@@ -1757,13 +1792,51 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         showToast(res.message || 'Error recording swipe transaction');
       }
     } catch (err) {
-      showToast('Failed to connect to server');
+      showToast('Failed to connect to server: ' + (err.message || ''));
     } finally {
       setIsSubmittingSale(false);
     }
   };
 
   // Withdraw to Bank submission (Customer Liquidity Disbursal or Merchant Own Account)
+  
+  // Live Authoritative Server Quotation for Withdrawals (Phase D2)
+  useEffect(() => {
+    const amt = parseFloat(withdrawAmount);
+    if (!amt || amt <= 0 || isNaN(amt)) {
+      setWithdrawalQuote(null);
+      setQuoteError(null);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsLoadingQuote(true);
+      setQuoteError(null);
+      try {
+        const ch = selectedMachineKey === 'qr' ? 'qr' : (selectedMachineKey === 'payswiff' ? 'payswiff' : 'pinelabs');
+        const res = await fetchWithdrawalQuote({
+          userId: merchantId,
+          amount: amt,
+          settlement_type: customerPayoutForm.settlement_mode || 'T1',
+          channel: ch
+        });
+        if (res && res.success && res.quote) {
+          setWithdrawalQuote(res.quote);
+        } else {
+          setQuoteError(res?.message || 'Failed to fetch withdrawal quote from server.');
+          setWithdrawalQuote(null);
+        }
+      } catch (err) {
+        setQuoteError(err.message || 'Error fetching quote.');
+        setWithdrawalQuote(null);
+      } finally {
+        setIsLoadingQuote(false);
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [withdrawAmount, customerPayoutForm.settlement_mode, selectedMachineKey, merchantId]);
+
   const handleWithdrawSubmit = async (e) => {
     e.preventDefault();
     const amountNum = parseFloat(withdrawAmount);
@@ -1772,148 +1845,69 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       return;
     }
 
-    const maxWithdrawable = activeMachineWallet.withdrawable_balance !== undefined 
-      ? activeMachineWallet.withdrawable_balance 
-      : activeMachineWallet.available_balance;
-
-    if (amountNum > maxWithdrawable) {
-      const errMsg = (activeMachineWallet.active_hold > 0)
-        ? `⚠️ Insufficient withdrawable balance. A minimum active account reserve of ₹500.00 must be retained in your wallet. Maximum withdrawable amount is ₹${maxWithdrawable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`
-        : `⚠️ Insufficient balance! Maximum withdrawable amount is ₹${maxWithdrawable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`;
-      showToast(errMsg);
+    if (withdrawalQuote && !withdrawalQuote.reserve_compliant) {
+      showToast(`⚠️ Cannot proceed: Rs 500 mandatory reserve cannot be breached. Shortfall: ₹${(Number(withdrawalQuote.shortfall_paise) / 100).toFixed(2)}`);
       return;
-    }
-
-    // Check dynamic Admin configuration for commission payout schedule
-    if (payoutTargetType === 'MERCHANT') {
-      try {
-        const commConfig = await getCommissionPayoutConfig();
-        if (commConfig && commConfig.enabled === false) {
-          showToast(commConfig.message || '🔒 Self-Commission Payouts are currently locked by Admin settings.');
-          return;
-        }
-      } catch (_) {}
     }
 
     const isQrMode = selectedMachineKey === 'qr';
     const finalChannel = isQrMode ? 'qr' : (selectedMachineKey === 'payswiff' ? 'payswiff' : 'pinelabs');
-    const finalProvider = isQrMode ? 'Company QR (UPI)' : activeMachine.provider;
 
-    let payload;
-    if (payoutTargetType === 'CUSTOMER') {
-      if (!customerPayoutForm.customer_name || !customerPayoutForm.customer_name.trim()) {
-        showToast('⚠️ Please enter customer beneficiary name.');
-        return;
-      }
-      if (!customerPayoutForm.account_number || !customerPayoutForm.account_number.trim()) {
-        showToast('⚠️ Please enter customer bank account number.');
-        return;
-      }
-      if (customerPayoutForm.confirm_account && customerPayoutForm.account_number !== customerPayoutForm.confirm_account) {
-        showToast('⚠️ Customer account numbers do not match!');
-        return;
-      }
-      if (!customerPayoutForm.ifsc || !customerPayoutForm.ifsc.trim()) {
-        showToast('⚠️ Please enter bank IFSC code.');
-        return;
-      }
-      if (!customerPayoutForm.bank_name || !customerPayoutForm.bank_name.trim()) {
-        showToast('⚠️ Please enter bank name.');
-        return;
-      }
-      const isCommission = customerPayoutForm.payout_purpose === 'COMMISSION' || payoutTargetType === 'MERCHANT';
+    let targetBank = null;
+    if (selectedBankId) {
+      targetBank = beneficiaries.find(b => b.id === selectedBankId);
+    }
+    if (!targetBank && beneficiaries.length > 0) {
+      targetBank = beneficiaries[0];
+    }
 
-      if (!isCommission) {
-        if (!customerPayoutForm.utr || !customerPayoutForm.utr.trim()) {
-          showToast('⚠️ Bank UTR / Reference Number is required for verification.');
-          return;
-        }
-        if (customerPayoutForm.utr.trim().length < 6) {
-          showToast('⚠️ Please enter a valid Bank UTR / Ref Number (min 6 characters).');
-          return;
-        }
+    if (!targetBank) {
+      if (!customerPayoutForm.bank_name || !customerPayoutForm.account_number) {
+        showToast('⚠️ Please select or link a bank account.');
+        return;
       }
-
-      payload = {
+      const addRes = await addBeneficiary({
         merchant_id: merchantId,
-        amount: amountNum,
-        bank_name: customerPayoutForm.bank_name || 'Customer Bank',
+        bank_name: customerPayoutForm.bank_name,
         account_number: customerPayoutForm.account_number.trim(),
         ifsc: customerPayoutForm.ifsc.trim().toUpperCase(),
-        utr_number: isCommission ? '' : (customerPayoutForm.utr || '').trim().toUpperCase(),
-        ref_number: isCommission ? '' : (customerPayoutForm.utr || '').trim().toUpperCase(),
-        payout_type: isCommission ? 'MERCHANT_OWN' : 'CUSTOMER_DISBURSAL',
-        payout_purpose: isCommission ? 'COMMISSION' : 'REGULAR',
-        remarks: (customerPayoutForm.remarks || '').trim(),
-        customer_name: customerPayoutForm.customer_name.trim(),
-        customer_mobile: (customerPayoutForm.customer_mobile || '').trim(),
-        settlement_mode: customerPayoutForm.settlement_mode || 'INSTANT',
-        channel: finalChannel,
-        provider: finalProvider,
-        client_available_balance: activeMachineWallet.available_balance
-      };
-    } else {
-      const targetBank = beneficiaries.find(b => b.id === selectedBankId) || beneficiaries[0];
-      if (!targetBank) {
-        showToast('⚠️ Please link a bank account first.');
+        holder_name: customerPayoutForm.customer_name.trim()
+      });
+      if (addRes && addRes.success && addRes.beneficiary) {
+        targetBank = addRes.beneficiary;
+      } else {
+        showToast('⚠️ Could not save/verify beneficiary account.');
         return;
       }
-
-      payload = {
-        merchant_id: merchantId,
-        amount: amountNum,
-        bank_name: targetBank.bank_name || targetBank.bank,
-        account_number: targetBank.account_number || targetBank.account,
-        ifsc: targetBank.ifsc || 'SBIN0001234',
-        utr_number: (customerPayoutForm.utr || '').trim().toUpperCase(),
-        ref_number: (customerPayoutForm.utr || '').trim().toUpperCase(),
-        payout_type: 'MERCHANT_OWN',
-        payout_purpose: 'COMMISSION',
-        remarks: (customerPayoutForm.remarks || '').trim(),
-        settlement_mode: 'INSTANT',
-        channel: finalChannel,
-        provider: finalProvider,
-        client_available_balance: activeMachineWallet.available_balance
-      };
     }
 
     setIsSubmittingWithdraw(true);
     try {
+      const idemKey = generateIdempotencyKey('wth');
+      const payload = {
+        merchant_id: merchantId,
+        amount: amountNum,
+        amount_paise: Math.round(amountNum * 100),
+        beneficiary_id: targetBank.id,
+        channel: finalChannel,
+        settlement_type: (customerPayoutForm.settlement_mode || 'T1').toUpperCase(),
+        payout_type: payoutTargetType === 'MERCHANT' ? 'MERCHANT_OWN' : 'CUSTOMER_DISBURSAL',
+        payout_purpose: customerPayoutForm.payout_purpose || 'REGULAR',
+        remarks: (customerPayoutForm.remarks || '').trim(),
+        utr_number: (customerPayoutForm.utr || '').trim().toUpperCase(),
+        idempotency_key: idemKey
+      };
+
       const res = await requestWithdrawal(payload);
-      if (res.success) {
-        const isComm = payload.payout_purpose === 'COMMISSION' || payload.payout_type === 'MERCHANT_OWN';
-        showToast(isComm
-          ? `✓ Commission withdrawal request of ₹${amountNum.toLocaleString('en-IN')} submitted to Admin!`
-          : `✓ Disbursal Request of ₹${amountNum.toLocaleString('en-IN')} Sent to Admin with UTR ${customerPayoutForm.utr.trim().toUpperCase()}!`
-        );
+      if (res && res.success) {
+        showToast(`✓ Withdrawal request of ₹${amountNum.toLocaleString('en-IN')} submitted!`);
         setWithdrawAmount('');
-        if (payoutTargetType === 'CUSTOMER') {
-          setCustomerPayoutForm({
-            customer_name: '',
-            customer_mobile: '',
-            bank_name: 'State Bank of India',
-            account_number: '',
-            confirm_account: '',
-            ifsc: '',
-            utr: '',
-            settlement_mode: 'INSTANT',
-            payout_purpose: 'REGULAR',
-            remarks: ''
-          });
-        } else {
-          setCustomerPayoutForm(prev => ({ ...prev, utr: '', remarks: '' }));
-        }
         fetchLiveData();
       } else {
-        if (res.code === 'USER_NOT_FOUND' || res.code === 'USER_SUSPENDED') {
-          showToast(res.message || '⚠️ Account inactive. Logging out...');
-          setTimeout(() => { if (typeof onLogout === 'function') onLogout(); }, 1500);
-          return;
-        }
-        showToast(res.message || 'Error processing payout request');
+        showToast(res.message || 'Error processing withdrawal request');
       }
     } catch (err) {
-      showToast('Failed to process payout request');
+      showToast('Failed to process withdrawal request: ' + err.message);
     } finally {
       setIsSubmittingWithdraw(false);
     }
@@ -2067,12 +2061,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
   const directPartnersCount = networkData.partners.filter(p => p.is_direct).length;
   const indirectPartnersCount = networkData.partners.filter(p => !p.is_direct).length;
-  const totalTeamVolume = networkData.total_downline_volume !== undefined 
-    ? networkData.total_downline_volume 
-    : networkData.partners.filter(p => p.role === 'MERCHANT' || p.id.startsWith('MID')).reduce((sum, p) => sum + (p.total_volume || 0), 0);
-  const totalTodayVolume = networkData.today_downline_volume !== undefined
-    ? networkData.today_downline_volume
-    : networkData.partners.filter(p => p.role === 'MERCHANT' || p.id.startsWith('MID')).reduce((sum, p) => sum + (p.today_volume || 0), 0);
+  const totalTeamVolume = networkData.total_downline_volume || 0;
+  const totalTodayVolume = networkData.today_downline_volume || 0;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans merchant-responsive-wrapper">
@@ -3938,6 +3928,49 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                             </button>
                           </div>
                         </div>
+
+                        {/* Authoritative Server Quote Box (Phase D2) */}
+                        {isLoadingQuote && (
+                          <div style={{ padding: '0.6rem 0.8rem', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', fontSize: '0.75rem', color: '#64748B', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <Clock style={{ width: '14px', height: '14px', color: '#0F52BA' }} />
+                            <span>Fetching live quote from server ledger...</span>
+                          </div>
+                        )}
+                        {quoteError && (
+                          <div style={{ padding: '0.6rem 0.8rem', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', fontSize: '0.75rem', color: '#DC2626', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <AlertCircle style={{ width: '14px', height: '14px', color: '#DC2626' }} />
+                            <span>{quoteError}</span>
+                          </div>
+                        )}
+                        {withdrawalQuote && !isLoadingQuote && (
+                          <div style={{
+                            background: withdrawalQuote.reserve_compliant ? '#F0FDF4' : '#FEF2F2',
+                            border: `1.5px solid ${withdrawalQuote.reserve_compliant ? '#86EFAC' : '#FCA5A5'}`,
+                            borderRadius: '10px',
+                            padding: '0.75rem 0.85rem',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.35rem'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem' }}>
+                              <span style={{ color: '#475569', fontWeight: 600 }}>Requested Gross:</span>
+                              <strong style={{ color: '#0F172A' }}>₹{withdrawalQuote.requested_amount_rupees}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem' }}>
+                              <span style={{ color: '#475569', fontWeight: 600 }}>Disbursal Fee ({withdrawalQuote.fee_bps} bps):</span>
+                              <strong style={{ color: '#DC2626' }}>-₹{withdrawalQuote.fee_rupees}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8125rem', paddingTop: '0.3rem', borderTop: '1px dashed #CBD5E1' }}>
+                              <span style={{ fontWeight: 800, color: '#166534' }}>Net Bank Disbursal:</span>
+                              <strong style={{ fontWeight: 900, color: '#15803D', fontSize: '1.05rem' }}>₹{withdrawalQuote.net_payout_rupees}</strong>
+                            </div>
+                            {!withdrawalQuote.reserve_compliant && (
+                              <div style={{ marginTop: '0.25rem', padding: '0.35rem 0.5rem', background: '#FEE2E2', borderRadius: '6px', fontSize: '0.7rem', color: '#991B1B', fontWeight: 700 }}>
+                                ⚠️ Insufficient reserve: ₹500 mandatory wallet reserve cannot be breached. Shortfall: ₹{(Number(withdrawalQuote.shortfall_paise) / 100).toFixed(2)}
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {/* Payout Purpose Type Selector (Regular Sales Settlement vs Commission Disbursal) */}
                         <div>
