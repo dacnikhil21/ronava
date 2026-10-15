@@ -939,9 +939,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     const dbAvailableBalance = parseFloat(wallet?.available_balance || 0);
     const channelAvailableBalance = Math.min(rawChannelBalance, dbAvailableBalance);
 
-    const isDistributor = ['SUPER_DISTRIBUTOR', 'DISTRICT_DISTRIBUTOR', 'DISTRIBUTOR', 'MASTER', 'Super Distributor', 'Distributor', 'District Distributor'].includes(userRole);
-    const isCommissionPayout = isDistributor || payoutTargetType === 'MERCHANT';
-    const activeHold = isCommissionPayout ? 0.0 : (channelAvailableBalance > 0 ? 500.0 : 0.0);
+    // Universal ₹500.00 Active Reserve Hold strictly applied across all accounts & payout purposes
+    const activeHold = channelAvailableBalance > 0 ? 500.0 : 0.0;
     const channelWithdrawableBalance = Math.max(0, parseFloat((channelAvailableBalance - activeHold).toFixed(2)));
 
     // Channel-specific sales volume (for distributors/uplines without direct swipes, show downline sales for this machine)

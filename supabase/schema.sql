@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS public.withdrawals (
   customer_mobile VARCHAR(50),
   settlement_mode VARCHAR(50),
   payout_type VARCHAR(50),
+  payout_purpose VARCHAR(50) DEFAULT 'REGULAR',
   created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc', NOW()),
   verified_at TIMESTAMPTZ
 );

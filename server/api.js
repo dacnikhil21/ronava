@@ -1829,7 +1829,8 @@ export async function handleApiRequest(req, res) {
         }
       }
 
-      const reserveHold = isCommissionPayout ? 0.0 : 500.0;
+      // Universal ₹500.00 Active Reserve Hold strictly enforced across all accounts & payout purposes
+      const reserveHold = 500.0;
       const wId = `WTH-${Date.now().toString().slice(-6)}`;
 
       let createdWth = null;
@@ -1850,9 +1851,7 @@ export async function handleApiRequest(req, res) {
 
           const maxWithdrawable = Math.max(0.0, parseFloat((currAvail - reserveHold).toFixed(2)));
           if (numAmount > maxWithdrawable) {
-            const errDetail = reserveHold > 0
-              ? `Insufficient withdrawable balance! Available: ₹${currAvail.toFixed(2)}, Active hold: ₹500.00 required. Max withdrawable: ₹${maxWithdrawable.toFixed(2)}`
-              : `Insufficient available balance. Requested: ₹${numAmount.toFixed(2)}, Available: ₹${currAvail.toFixed(2)}`;
+            const errDetail = `Insufficient withdrawable balance! Available: ₹${currAvail.toFixed(2)}, Active hold: ₹500.00 required. Max withdrawable: ₹${maxWithdrawable.toFixed(2)}`;
             throw new Error(errDetail);
           }
 
@@ -1874,12 +1873,13 @@ export async function handleApiRequest(req, res) {
 
           const cleanChannel = (channel || (provider?.toLowerCase().includes('swiff') ? 'payswiff' : (provider?.toLowerCase().includes('qr') ? 'qr' : 'pinelabs'))).toLowerCase();
           const cleanUtr = (utr_number || ref_number || utr || '').trim().toUpperCase();
+          const resolvedPayoutPurpose = (payout_purpose || (isCommissionPayout ? 'COMMISSION' : 'REGULAR')).toUpperCase();
 
           const metaPayload = {
             channel: cleanChannel,
             provider: provider || 'Pine Labs',
             payout_type: payout_type || 'CUSTOMER_DISBURSAL',
-            payout_purpose: payout_purpose || 'REGULAR',
+            payout_purpose: resolvedPayoutPurpose,
             customer_name: customer_name || '',
             customer_mobile: customer_mobile || '',
             settlement_mode: settlement_mode || 'INSTANT',
@@ -1891,9 +1891,9 @@ export async function handleApiRequest(req, res) {
             INSERT INTO withdrawals (
               id, merchant_id, amount, bank_name, account_number, ifsc, 
               admin_remark, status, channel, utr_number, rrn_number, 
-              customer_name, customer_mobile, settlement_mode, payout_type
+              customer_name, customer_mobile, settlement_mode, payout_type, payout_purpose
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             RETURNING *
           `, [
             wId, 
@@ -1910,7 +1910,8 @@ export async function handleApiRequest(req, res) {
             customer_name || '',
             customer_mobile || '',
             settlement_mode || 'INSTANT',
-            payout_type || 'CUSTOMER_DISBURSAL'
+            payout_type || 'CUSTOMER_DISBURSAL',
+            resolvedPayoutPurpose
           ]);
           createdWth = insRes.rows[0];
         });

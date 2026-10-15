@@ -907,7 +907,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     return allPayouts.filter(p => p.status === 'APPROVED');
   }, [allPayouts]);
 
-  // Channel & Vendor Pending Payouts Counter (strictly PENDING, resets daily with date scope)
+  // Channel & Vendor Pending Items Counter (strictly actionable PENDING items: swipes + withdrawals)
   const channelPendingCounts = useMemo(() => {
     const userPosLookup = {};
     (networkUsers || []).forEach(u => {
@@ -928,7 +928,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     };
     const todayStr = toLocalDateStr(now);
 
-    const pendingItems = (allPayouts || []).filter(w => {
+    const pendingPayouts = (allPayouts || []).filter(w => {
       if (w.status !== 'PENDING') return false;
       if (payoutDateFilter === 'TODAY') {
         const itemDateStr = toLocalDateStr(w.created_at || w.verified_at);
@@ -936,6 +936,17 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       }
       return true;
     });
+
+    const pendingSwipesList = (allSwipes || []).filter(s => {
+      if (s.status !== 'PENDING') return false;
+      if (payoutDateFilter === 'TODAY') {
+        const itemDateStr = toLocalDateStr(s.created_at || s.verified_at);
+        return itemDateStr === todayStr;
+      }
+      return true;
+    });
+
+    const pendingItems = dedupeById([...pendingPayouts, ...pendingSwipesList]);
 
     let pine = 0;
     let swiffRonav = 0;
@@ -970,7 +981,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       qr,
       total: pine + swiffRonav + swiffRp + qr
     };
-  }, [allPayouts, networkUsers, payoutDateFilter]);
+  }, [allPayouts, allSwipes, networkUsers, payoutDateFilter]);
 
   // Process Master Distributors List (Tier 0 / Apex Command Tier)
   const masterDistributorsList = useMemo(() => {
@@ -6010,11 +6021,16 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 });
               };
 
-              const isCommItem = (item) => Boolean(
-                (item.admin_remark || '').includes('[COMMISSION_PAYOUT]') || 
-                item.payout_purpose === 'COMMISSION' || 
-                item.is_commission_payout
-              );
+              const isCommItem = (item) => {
+                if (!item) return false;
+                if (item.payout_purpose === 'COMMISSION' || item.is_commission_payout) return true;
+                if (item.payout_type === 'MERCHANT_OWN') return true;
+                const remark = (item.admin_remark || item.notes || '').toString();
+                if (remark.includes('[COMMISSION_PAYOUT]') || remark.includes('"payout_purpose":"COMMISSION"')) return true;
+                const mId = (item.merchant_id || item.user_id || '').toUpperCase();
+                if (mId.startsWith('SD') || mId.startsWith('MST') || mId.startsWith('DD') || mId.startsWith('DIST')) return true;
+                return false;
+              };
 
               const channelSwipes = dedupeById(filterByDate(filterByChannel(allSwipes)));
               const channelWithdrawals = dedupeById(filterByDate(filterByChannel(allWithdrawals)));
@@ -6185,7 +6201,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 const nameMatch = remark.match(/Name:\s*([^|•\r\n]+)/i);
                 if (nameMatch) recipient = nameMatch[1].trim();
 
-                const isCommission = remark.includes('[COMMISSION_PAYOUT]') || p.payout_purpose === 'COMMISSION';
+                const isCommission = isCommItem(p);
                 const matchNote = remark.match(/Note:\s*([^|•\r\n]+)/i);
                 const merchantNote = matchNote ? matchNote[1].trim() : (p.merchant_remarks || '');
                 
@@ -6375,8 +6391,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
                 // Get all commission withdrawals across the network
                 let allCommPayouts = allWithdrawals.filter(item => 
-                  item._entityType === 'WITHDRAWAL' &&
-                  ((item.admin_remark || '').includes('[COMMISSION_PAYOUT]') || item.payout_purpose === 'COMMISSION' || item.is_commission_payout)
+                  item._entityType === 'WITHDRAWAL' && isCommItem(item)
                 );
 
                 // If specific checkboxes were selected, export only those selected IDs
