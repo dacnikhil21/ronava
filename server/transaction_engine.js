@@ -11,6 +11,7 @@ export async function processSwipeTransaction(client, {
   merchantId,
   amountPaise,
   channel = 'pinelabs',
+  settlementMode = null,
   refNumber = null,
   slipNumber = null,
   notes = null,
@@ -28,6 +29,20 @@ export async function processSwipeTransaction(client, {
   }
 
   const cleanChannel = channel.toLowerCase().replace(/[^a-z0-9]/g, '');
+  let mode = (settlementMode || '').toUpperCase().trim();
+
+  if (cleanChannel === 'qr' || cleanChannel === 'companyqr') {
+    if (mode && mode !== 'NONE') {
+      throw new Error('INVALID_SETTLEMENT_MODE: QR transactions cannot specify a settlement mode (must be NONE).');
+    }
+    mode = 'NONE';
+  } else if (cleanChannel === 'pinelabs' || cleanChannel === 'payswiff') {
+    if (!mode || (mode !== 'T1' && mode !== 'INSTANT')) {
+      throw new Error(`SETTLEMENT_MODE_REQUIRED: Channel "${channel}" requires settlement_mode T1 or INSTANT.`);
+    }
+  } else {
+    if (!mode) mode = 'T1';
+  }
 
   // 1. Idempotency Check
   if (idempotencyKey) {
@@ -64,7 +79,7 @@ export async function processSwipeTransaction(client, {
 
   // 3. Hierarchy Traversal & Rate Resolution
   // Climb from merchant up to ADMIN
-  const hierarchy = []; // [{ user_id, role, creator_id, rate_bps }]
+  const hierarchy = []; // [{ user_id, role, creator_id, rate_bps, settlement_mode }]
   let currentId = merchantId;
 
   while (currentId) {
@@ -76,13 +91,23 @@ export async function processSwipeTransaction(client, {
       throw new Error(`USER_NOT_FOUND: User "${currentId}" not found in hierarchy.`);
     }
     const u = userRes.rows[0];
-    const rateInfo = await getActiveRate(client, { userId: u.id, channel: cleanChannel });
+    const rateInfo = await getActiveRate(client, {
+      userId: u.id,
+      channel: cleanChannel,
+      settlementMode: mode
+    });
+
+    if (u.role !== 'ADMIN' && rateInfo.is_default) {
+      throw new Error(`RATE_NOT_CONFIGURED: Rate not configured for user "${u.id}" on channel "${cleanChannel}" and mode "${mode}".`);
+    }
+
     hierarchy.push({
       user_id: u.id,
       name: u.name,
       role: u.role,
       creator_id: u.creator_id,
-      rate_bps: rateInfo.rate_bps
+      rate_bps: rateInfo.rate_bps,
+      settlement_mode: mode
     });
 
     if (u.role === 'ADMIN' || !u.creator_id) {
@@ -179,8 +204,8 @@ export async function processSwipeTransaction(client, {
     await client.query(`
       INSERT INTO transactions (
         id, merchant_id, amount_paise, customer_charge_paise, net_amount_paise,
-        type, provider, channel, ref_number, slip_number, transaction_date, notes, status, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_DATE, $11, 'APPROVED', NOW())
+        type, provider, channel, settlement_mode, ref_number, slip_number, transaction_date, notes, status, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_DATE, $12, 'APPROVED', NOW())
     `, [
       txnId,
       merchantId,
@@ -190,6 +215,7 @@ export async function processSwipeTransaction(client, {
       'POS_SWIPE',
       cleanChannel,
       cleanChannel,
+      mode,
       refNumber,
       slipNumber,
       notes
@@ -206,7 +232,8 @@ export async function processSwipeTransaction(client, {
       metadata: {
         gross_paise: grossPaise.toString(),
         merchant_fee_paise: merchantFeePaise.toString(),
-        rate_bps: merchant.rate_bps
+        rate_bps: merchant.rate_bps,
+        settlement_mode: mode
       },
       createdBy
     });
@@ -226,6 +253,7 @@ export async function processSwipeTransaction(client, {
             child_rate_bps: dist.child_rate_bps,
             parent_rate_bps: dist.parent_rate_bps,
             channel: cleanChannel,
+            settlement_mode: mode,
             is_admin_remainder: !!dist.is_admin_remainder
           },
           createdBy
@@ -244,6 +272,7 @@ export async function processSwipeTransaction(client, {
       customer_charge_paise: merchantFeePaise,
       net_amount_paise: merchantNetPaise,
       channel: cleanChannel,
+      settlement_mode: mode,
       distributions
     };
 

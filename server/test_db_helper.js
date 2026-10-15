@@ -136,6 +136,7 @@ export async function resetTestDatabase() {
         type VARCHAR(50) NOT NULL,
         provider VARCHAR(50),
         channel VARCHAR(50) NOT NULL,
+        settlement_mode VARCHAR(20) NOT NULL DEFAULT 'T1',
         ref_number TEXT,
         slip_number TEXT,
         transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,

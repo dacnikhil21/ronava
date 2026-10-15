@@ -1360,13 +1360,32 @@ export async function handleApiRequest(req, res) {
       const caller = getCaller(req);
       const createdBy = caller?.id || merchantId;
 
+      const rawMode = body.settlement_type || body.settlementType || body.settlement_mode || body.settlementMode || null;
+      const cleanChannel = (body.channel || body.provider || 'pinelabs').toLowerCase().replace(/[^a-z0-9]/g, '');
+      let settlementMode = rawMode ? String(rawMode).toUpperCase().trim() : null;
+
+      if (cleanChannel === 'qr' || cleanChannel === 'companyqr') {
+        if (settlementMode && settlementMode !== 'NONE') {
+          return sendJson(res, 400, { success: false, message: 'INVALID_SETTLEMENT_MODE: QR channel must have settlement mode NONE.' });
+        }
+        settlementMode = 'NONE';
+      } else if (cleanChannel === 'pinelabs' || cleanChannel === 'payswiff') {
+        if (!settlementMode) {
+          return sendJson(res, 400, { success: false, message: `SETTLEMENT_MODE_REQUIRED: Channel "${cleanChannel}" requires settlement_type (T1 or INSTANT).` });
+        }
+        if (settlementMode !== 'T1' && settlementMode !== 'INSTANT') {
+          return sendJson(res, 400, { success: false, message: `INVALID_SETTLEMENT_MODE: Settlement mode must be T1 or INSTANT for channel "${cleanChannel}".` });
+        }
+      }
+
       const pool = getDbPool();
       const client = await pool.connect();
       try {
         const result = await processSwipeTransaction(client, {
           merchantId: merchantId.trim(),
           amountPaise,
-          channel: (body.channel || body.provider || 'pinelabs').toLowerCase(),
+          channel: cleanChannel,
+          settlementMode,
           refNumber: body.ref_number || body.refNumber || null,
           slipNumber: body.slip_number || body.slipNumber || null,
           notes: body.notes || null,
@@ -1397,7 +1416,12 @@ export async function handleApiRequest(req, res) {
         if (err.message?.includes('USER_NOT_FOUND')) {
           return sendJson(res, 404, { success: false, message: err.message });
         }
-        if (err.message?.includes('INVALID_RATE_HIERARCHY') || err.message?.includes('RATE_NOT_CONFIGURED')) {
+        if (
+          err.message?.includes('INVALID_RATE_HIERARCHY') || 
+          err.message?.includes('RATE_NOT_CONFIGURED') ||
+          err.message?.includes('INVALID_SETTLEMENT_MODE') ||
+          err.message?.includes('SETTLEMENT_MODE_REQUIRED')
+        ) {
           return sendJson(res, 400, { success: false, message: err.message });
         }
         return sendJson(res, 500, { success: false, message: err.message });
