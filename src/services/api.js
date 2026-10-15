@@ -1746,9 +1746,14 @@ export async function clawbackTransaction(txnId, adminReason = 'Payment Cancelle
 // ----------------------------------------------------
 export async function requestWithdrawal(withdrawalData) {
   try {
+    const headers = { 'Content-Type': 'application/json' };
+    const idem = withdrawalData.idempotency_key || withdrawalData.idempotencyKey;
+    if (idem) {
+      headers['idempotency-key'] = idem;
+    }
     const res = await fetchWithTimeout(getApiUrl('/api/withdrawals/request'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(withdrawalData)
     });
     const data = await res.json();
