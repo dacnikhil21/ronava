@@ -1699,151 +1699,64 @@ export async function handleApiRequest(req, res) {
     // 5. WITHDRAWALS & PAYOUT ENGINE (ACID Row-Locked)
     // ----------------------------------------------------
     if (pathname === '/api/withdrawals/request' && method === 'POST') {
-      const { 
-        merchant_id, 
-        amount, 
-        bank_name, 
-        account_number, 
-        ifsc, 
-        remarks, 
-        admin_remark, 
-        channel, 
-        provider, 
-        customer_name, 
-        customer_mobile, 
-        settlement_mode, 
-        payout_type, 
-        payout_purpose,
-        utr_number,
-        ref_number,
-        utr
-      } = await parseJsonBody(req);
-
-      const numAmount = parseFloat(amount);
-      if (!merchant_id || !numAmount || isNaN(numAmount) || numAmount <= 0 || !bank_name || !account_number) {
-        return sendJson(res, 400, { success: false, message: 'Missing or invalid required withdrawal details.' });
-      }
-
-      const users = await pgQuery(`SELECT id, status FROM users WHERE UPPER(id) = UPPER($1)`, [merchant_id.trim()]);
-      if (!users || users.length === 0) {
-        return sendJson(res, 401, { success: false, code: 'USER_NOT_FOUND', message: 'User account not found. Please log in again.' });
-      }
-      if (users[0].status === 'SUSPENDED') {
-        return sendJson(res, 403, { success: false, code: 'USER_SUSPENDED', message: 'Account is suspended. Please contact Admin.' });
-      }
-
-      const user = users[0];
-      const isDistributor = user && ['SUPER_DISTRIBUTOR', 'DISTRICT_DISTRIBUTOR', 'DISTRIBUTOR', 'MASTER'].includes((user.role || '').toUpperCase());
-      const isCommissionPayout = payout_purpose === 'COMMISSION' || isDistributor;
-
-      // Check Admin Master Toggle for Commission Payouts
-      if (isCommissionPayout) {
-        const toggleRows = await pgQuery(`SELECT * FROM inquiries WHERE UPPER(id) = 'SYS-COMMISSION-PAYOUTS'`);
-        const isToggleLocked = toggleRows.length > 0 && toggleRows[0].status === 'INACTIVE';
-        if (isToggleLocked) {
-          return sendJson(res, 403, { 
-            success: false, 
-            message: 'Commission & Profit Withdrawals are currently locked by Admin. Please check back when enabled.' 
-          });
-        }
-      }
-
-      // Universal ₹500.00 Active Reserve Hold strictly enforced across all accounts & payout purposes
-      const reserveHold = 500.0;
-      const wId = `WTH-${Date.now().toString().slice(-6)}`;
-
-      let createdWth = null;
-      let updatedWallet = null;
-
       try {
-        await withTransaction(async (client) => {
-          let wRows = (await client.query(`SELECT * FROM wallets WHERE UPPER(user_id) = UPPER($1) FOR UPDATE`, [merchant_id.trim()])).rows;
-          let wallet = wRows[0];
-          if (!wallet) {
-            wallet = (await client.query(`
-              INSERT INTO wallets (user_id, available_balance, total_sales, received_sales, pending_balance, withdrawn_amount)
-              VALUES ($1, 0.0, 0.0, 0.0, 0.0, 0.0) RETURNING *
-            `, [merchant_id.trim()])).rows[0];
+        const body = await parseJsonBody(req);
+        req.body = body;
+
+        let merchantId = body.merchant_id || body.merchantId || body.userId;
+        if (!merchantId) {
+          try {
+            merchantId = getCaller(req).id;
+          } catch (_) {}
+        }
+        if (!merchantId) {
+          return sendJson(res, 400, { success: false, message: 'Merchant ID is required.' });
+        }
+
+        const rawAmount = body.amount_paise !== undefined ? body.amount_paise : body.amount;
+        if (rawAmount === undefined || rawAmount === null) {
+          return sendJson(res, 400, { success: false, message: 'Withdrawal amount is required.' });
+        }
+
+        let amountPaise;
+        try {
+          if (body.amount_paise !== undefined) {
+            amountPaise = BigInt(body.amount_paise);
+          } else {
+            const num = Number(body.amount);
+            if (isNaN(num) || num <= 0) {
+              return sendJson(res, 400, { success: false, message: 'Withdrawal amount must be a positive number.' });
+            }
+            amountPaise = BigInt(Math.round(num * 100));
           }
+        } catch (e) {
+          return sendJson(res, 400, { success: false, message: 'Invalid withdrawal amount.' });
+        }
 
-          const currAvail = parseFloat(wallet.available_balance || 0);
+        if (amountPaise <= 0n) {
+          return sendJson(res, 400, { success: false, message: 'Withdrawal amount must be a positive number.' });
+        }
 
-          const maxWithdrawable = Math.max(0.0, parseFloat((currAvail - reserveHold).toFixed(2)));
-          if (numAmount > maxWithdrawable) {
-            const errDetail = `Insufficient withdrawable balance! Available: ₹${currAvail.toFixed(2)}, Active hold: ₹500.00 required. Max withdrawable: ₹${maxWithdrawable.toFixed(2)}`;
-            throw new Error(errDetail);
-          }
+        const caller = getCaller(req);
+        const createdBy = caller?.id || merchantId;
+        const idempotencyKey = req.headers['idempotency-key'] || body.idempotency_key || null;
 
-          // Atomic deduction from available balance into pending balance
-          const minRequiredBalance = parseFloat((numAmount + reserveHold).toFixed(2));
-          const updRes = await client.query(`
-            UPDATE wallets 
-            SET available_balance = available_balance - $1,
-                pending_balance = pending_balance + $1,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE UPPER(user_id) = UPPER($2) AND available_balance >= $3
-            RETURNING *
-          `, [numAmount, merchant_id.trim(), minRequiredBalance]);
-
-          if (updRes.rows.length === 0) {
-            throw new Error('Insufficient withdrawable balance during atomic check.');
-          }
-          updatedWallet = updRes.rows[0];
-
-          const cleanChannel = (channel || (provider?.toLowerCase().includes('swiff') ? 'payswiff' : (provider?.toLowerCase().includes('qr') ? 'qr' : 'pinelabs'))).toLowerCase();
-          const cleanUtr = (utr_number || ref_number || utr || '').trim().toUpperCase();
-          const resolvedPayoutPurpose = (payout_purpose || (isCommissionPayout ? 'COMMISSION' : 'REGULAR')).toUpperCase();
-
-          const metaPayload = {
-            channel: cleanChannel,
-            provider: provider || 'Pine Labs',
-            payout_type: payout_type || 'CUSTOMER_DISBURSAL',
-            payout_purpose: resolvedPayoutPurpose,
-            customer_name: customer_name || '',
-            customer_mobile: customer_mobile || '',
-            settlement_mode: settlement_mode || 'INSTANT',
-            utr_number: cleanUtr
-          };
-          const finalRemark = admin_remark || remarks || `[PAYOUT_META]${JSON.stringify(metaPayload)}`;
-
-          const insRes = await client.query(`
-            INSERT INTO withdrawals (
-              id, merchant_id, amount, bank_name, account_number, ifsc, 
-              admin_remark, status, channel, utr_number, rrn_number, 
-              customer_name, customer_mobile, settlement_mode, payout_type, payout_purpose
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-            RETURNING *
-          `, [
-            wId, 
-            merchant_id.trim(), 
-            numAmount, 
-            bank_name, 
-            account_number, 
-            ifsc || 'SBIN0001234', 
-            finalRemark, 
-            'PENDING',
-            cleanChannel,
-            cleanUtr,
-            cleanUtr,
-            customer_name || '',
-            customer_mobile || '',
-            settlement_mode || 'INSTANT',
-            payout_type || 'CUSTOMER_DISBURSAL',
-            resolvedPayoutPurpose
-          ]);
-          createdWth = insRes.rows[0];
+        const result = await withTransaction(async (client) => {
+          return await processWithdrawalRequest(client, {
+            merchantId: merchantId.trim(),
+            amountPaise,
+            beneficiaryId: body.beneficiary_id || body.beneficiaryId,
+            channel: (body.channel || body.provider || 'pinelabs').toLowerCase(),
+            settlementType: (body.settlement_type || body.settlementType || 'T1').toUpperCase(),
+            idempotencyKey,
+            createdBy
+          });
         });
 
-        return sendJson(res, 201, {
-          success: true,
-          message: 'Withdrawal request submitted! Pending Admin payout clearance.',
-          withdrawal: createdWth,
-          wallet: updatedWallet,
-          withdrawal_id: wId
-        });
+        return sendJson(res, 200, { success: true, withdrawal: result });
       } catch (err) {
-        return sendJson(res, 400, { success: false, message: err.message });
+        const status = err.message?.includes('RESERVE_VIOLATION') ? 403 : 400;
+        return sendJson(res, status, { success: false, message: err.message });
       }
     }
 
