@@ -186,3 +186,74 @@ To interface seamlessly with the rewired Phase B ledger backend, Phase D2 must i
 3. `3ffe77a`: `feat(api): rewire /api/withdrawals/request to Phase B atomic withdrawal engine`
 4. `f71429a`: `feat(api): replace in-memory float balance calculations with Phase B ledger engine`
 5. `b6ee078`: `feat(api): rewire admin reversals and withdrawal approvals to Phase B ledger engine`
+
+---
+
+## 9. VERIFICATION (READ-ONLY AUDIT)
+
+### 9.1 Broadened Grep Proof: All SQL & Code Mutating Financial Tables Across `server/`
+Every occurrence of SQL statements that `INSERT`, `UPDATE`, or `DELETE` rows in `wallets`, `transactions`, `commissions`, or `withdrawals` across the entire `server/` directory (production files, utility libraries, and test suites) was inspected:
+
+| File & Line | SQL Statement / Operation | Writes Ledger Row in Same DB Transaction? | Architectural Context |
+| :--- | :--- | :--- | :--- |
+| `server/ledger_engine.js:63` | `INSERT INTO wallets ... ON CONFLICT DO UPDATE SET balance_paise = balance_paise + $2` | **YES** | Executed inside `postLedgerEntry()` in the exact same client transaction immediately after `INSERT INTO financial_ledger`. |
+| `server/transaction_engine.js:180` | `INSERT INTO transactions ...` | **YES** | Executed inside `processSwipeTransaction()` in the same atomic `withTransaction()` block that posts merchant credit and all upline commission ledger entries. |
+| `server/withdrawal_engine.js:167` | `INSERT INTO withdrawals ...` | **YES** | Executed inside `processWithdrawalRequest()` in the same atomic `withTransaction()` block that posts `type: 'withdrawal_hold'` (`amountPaise: -reqPaise`). |
+| `server/reversal_engine.js:75` | `UPDATE transactions SET status = 'REVERSED'` | **YES** | Executed inside `reverseTransaction()` in the same atomic transaction that posts signed reversing ledger entries (`refund` and `adjustment`). |
+| `server/api.js:1723` | `UPDATE wallets SET withdrawn_paise = withdrawn_paise + $1` | **YES** | Executed inside `POST /api/admin/verify-withdrawal` (action `APPROVE`) in the exact same `withTransaction()` block that posts `type: 'withdrawal_paid'`. |
+| `server/api.js:1730` | `UPDATE withdrawals SET status = 'APPROVED'` | **YES** | Executed in the same transaction as the `withdrawal_paid` ledger entry. |
+| `server/api.js:1753` | `UPDATE withdrawals SET status = 'REJECTED'` | **YES** | Executed inside `POST /api/admin/verify-withdrawal` (action `REJECT`) in the exact same `withTransaction()` block that posts `type: 'withdrawal_reversal'` (+held amount restored). |
+| `server/api.js:506` | `UPDATE transactions SET status = 'APPROVED'` | **N/A (Metadata)** | Legacy verification confirmation. All transactions recorded via `/api/transactions/record` are approved and ledger-credited upon swipe. |
+| `server/api.js:747` | `INSERT INTO wallets ...` | **N/A (Initialization)** | Inside `POST /api/users/create`, initializing a new user's wallet with zero balance (`balance_paise: 0`). No money moves. |
+| `server/api.js:1825` | `UPDATE withdrawals SET admin_remark = $1` | **N/A (Metadata)** | Operational batch metadata update. Does not alter wallet balances. |
+| `server/api.js:1842` | `UPDATE withdrawals SET submitted_to_bank_at = $1` | **N/A (Metadata)** | Operational batch timestamp update. Does not alter wallet balances. |
+| `server/api.js:340-344` | `DELETE FROM transactions/withdrawals/wallets` | **N/A (Admin Maintenance)** | Inside `POST /api/admin/system/purge-demo-templates`, purging mock demo accounts. |
+| `server/api.js:885-889` | `DELETE FROM transactions/withdrawals/wallets` | **N/A (Admin Maintenance)** | Inside `POST /api/admin/users/delete`, hard account deletion. |
+| `server/api.js:2020-2023` | `DELETE FROM transactions/wallets/withdrawals` | **N/A (Admin Maintenance)** | Inside `DELETE /api/users/:id`, legacy user deletion. |
+| `server/migration_engine.js:83` | `UPDATE wallets w SET balance_paise = ls.ledger_balance` | **YES (Sync Tool)** | Opening-balance migration script syncing cached wallet balances strictly to `SUM(financial_ledger.amount_paise)`. |
+| `server/pg_db.js:109, 136, 154` | Generic `INSERT/UPDATE/DELETE` helpers | **N/A** | Generic helper functions; only ever invoked for `media_files`. Never called for financial tables. |
+| `server/db.js:144` | `INSERT INTO wallets ...` | **N/A (Obsolete SQLite)** | Obsolete legacy SQLite seed file, not loaded in PostgreSQL production runtime. |
+| `server/test_*.mjs` (16 test scripts) | `INSERT INTO wallets / transactions / withdrawals` | **N/A (Test Fixtures)** | Isolated test setup scripts inserting test users/wallets into `ronav_test_db` before executing TDD assertion suites. |
+| **`commissions` table** | *No mutations found* | **N/A** | The system does not maintain a standalone `commissions` table; upline commissions are recorded as immutable `commission` entries directly in `financial_ledger`. |
+
+### 9.2 Unauthenticated Endpoints Moving Money, Changing Rates, or Changing Credentials
+Because authentication was deliberately deferred to Phase C, the following endpoints currently rely on `getCaller(req)` or lack session verification and can mutate sensitive state:
+
+1. **Can Move Money:**
+   - `POST /api/transactions/record` (Records card swipe, credits merchant wallet, distributes upline commissions).
+   - `POST /api/withdrawals/request` (Places an atomic withdrawal hold on merchant balance).
+   - `POST /api/transactions/edit` (Reverses historical transaction and redistributes new amounts).
+   - `POST /api/admin/verify-transaction` (Reverses transaction and claws back merchant and upline funds).
+   - `POST /api/admin/verify-withdrawal` (Approves bank payout or rejects hold, restoring merchant funds).
+
+2. **Can Change Rates:**
+   - `POST /api/admin/system-settings` (Modifies `reserve_rupees`, `pos_monthly_rent_rupees`, `settlement_flat_fee_rupees`, and default channel rates).
+   - `POST /api/users/update-profile` (Modifies `commission_rate_t1`, `commission_rate_instant`, and `margin_rate`).
+   - `POST /api/users/update-channels` (Assigns POS terminal channels and channel-specific fee rates).
+   - `POST /api/users/create` (Onboards downstream network users with custom commission cuts).
+
+3. **Can Change Credentials:**
+   - `POST /api/auth/reset-password` (Overwrites user password without validating previous password or OTP).
+   - `POST /api/auth/forgot-password` (Initiates password recovery).
+   - `POST /api/users/update-profile` (Updates user mobile, email, and personal identification).
+   - `POST /api/admin/users/delete` (Permanently deletes user accounts and credentials).
+   - `DELETE /api/users/:id` (Legacy hard user deletion).
+
+### 9.3 Migration Comparison Classification & Cross-Channel Rule
+All 5 historical account mismatches documented in [`/audit/MIGRATION_COMPARISON.md`](file:///c:/Users/dache/Desktop/ronava/audit/MIGRATION_COMPARISON.md) are classified as follows:
+
+| User ID | Role | Old App Balance (₹) | New Ledger Balance (₹) | Variance (₹) | Classification | Explanation |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `ADM001` | `ADMIN` | ₹542,000.00 | ₹0.00 | -₹542,000.00 | **(a) Demo/Test data only** | Static mock float seeded in legacy UI without underlying transaction rows. |
+| `DIST2001` | `DISTRIBUTOR` | ₹34,200.00 | ₹0.00 | -₹34,200.00 | **(a) Demo/Test data only** | Static mock float seeded in legacy UI without underlying transaction rows. |
+| `SD1001` | `SUPER_DISTRIBUTOR`| ₹78,400.00 | ₹0.00 | -₹78,400.00 | **(a) Demo/Test data only** | Static mock float seeded in legacy UI without underlying transaction rows. |
+| `MID3001` | `MERCHANT` | ₹38,060.75 | ₹60,500.00 | +₹22,439.25 | **(b) Real logic difference** | Legacy cross-channel deduction subtracted uncleared POS rent from card balance. |
+| `MID3002` | `MERCHANT` | ₹24,150.50 | ₹53,000.00 | +₹28,849.50 | **(b) Real logic difference** | Legacy cross-channel deduction subtracted uncleared POS rent from card balance. |
+
+#### Old Cross-Channel Rule in One Plain Sentence:
+> *The legacy system reduced a merchant's liquid Pine Labs card balance by subtracting unpaid machine rental fees and negative balances incurred on their separate Payswiff POS channel.*
+
+#### User Decision Prompt:
+> [!IMPORTANT]
+> **DECISION REQUIRED FOR USER**: Should cross-channel auto-deductions be kept (where debt or rental fees on one POS terminal automatically reduce available payout balances on another POS terminal), or should terminal balances remain strictly isolated per channel with explicit, auditable transfer entries?
+

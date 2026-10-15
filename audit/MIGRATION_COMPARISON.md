@@ -33,34 +33,44 @@ An automated data migration was executed against a copy of the existing database
 ## 3. DETAILED ROOT-CAUSE ANALYSIS OF MISMATCHES
 
 ### Account: `ADM001` (RONAV Super Admin)
-- **Old App Balance:** ₹542000.00
+- **Classification:** **(a) Demo/Test data only**
+- **Old App Balance:** ₹542,000.00
 - **Authoritative Ledger Balance:** ₹0.00
-- **Variance:** ₹-542000.00
-- **Technical Reason:** MISMATCH (EXPLAINED): User wallet held a hardcoded demo float in legacy seed without underlying transaction rows in the database.
+- **Variance:** ₹-542,000.00
+- **Technical Reason:** The user wallet held a hardcoded static demo float in the legacy seed without any underlying transaction rows in the database.
 
 ### Account: `DIST2001` (Hyderabad Central Distributor)
-- **Old App Balance:** ₹34200.00
+- **Classification:** **(a) Demo/Test data only**
+- **Old App Balance:** ₹34,200.00
 - **Authoritative Ledger Balance:** ₹0.00
-- **Variance:** ₹-34200.00
-- **Technical Reason:** MISMATCH (EXPLAINED): User wallet held a hardcoded demo float in legacy seed without underlying transaction rows in the database.
+- **Variance:** ₹-34,200.00
+- **Technical Reason:** The user wallet held a hardcoded demo float in the legacy seed without underlying transaction rows in the database.
 
 ### Account: `MID3001` (Ravi General Store (Koti))
-- **Old App Balance:** ₹38060.75
-- **Authoritative Ledger Balance:** ₹60500.00
-- **Variance:** ₹22439.25
-- **Technical Reason:** MISMATCH (EXPLAINED): Old UI deducted un-cleared cross-channel machine debts; ledger accurately restored liquid transaction credits (+₹22439.25).
+- **Classification:** **(b) Real logic difference (Cross-channel deduction)**
+- **Old App Balance:** ₹38,060.75
+- **Authoritative Ledger Balance:** ₹60,500.00
+- **Variance:** +₹22,439.25
+- **Old Rule in Plain Language:** The legacy system reduced a merchant's liquid Pine Labs card balance by subtracting unpaid machine rental fees and negative balances incurred on their separate Payswiff POS channel.
+- **Ledger Behavior:** The Phase B ledger isolates channels strictly to their actual credits minus debits, restoring ₹22,439.25 of actual customer card swipe credits.
 
 ### Account: `MID3002` (Lakshmi Supermarket (Ameerpet))
-- **Old App Balance:** ₹24150.50
-- **Authoritative Ledger Balance:** ₹53000.00
-- **Variance:** ₹28849.50
-- **Technical Reason:** MISMATCH (EXPLAINED): Old UI deducted un-cleared cross-channel machine debts; ledger accurately restored liquid transaction credits (+₹28849.50).
+- **Classification:** **(b) Real logic difference (Cross-channel deduction)**
+- **Old App Balance:** ₹24,150.50
+- **Authoritative Ledger Balance:** ₹53,000.00
+- **Variance:** +₹28,849.50
+- **Old Rule in Plain Language:** The legacy system reduced a merchant's liquid Pine Labs card balance by subtracting unpaid machine rental fees and negative balances incurred on their separate Payswiff POS channel.
+- **Ledger Behavior:** The Phase B ledger isolates channels strictly to their actual credits minus debits, restoring ₹28,849.50 of actual customer card swipe credits.
 
 ### Account: `SD1001` (Telangana Super Distributor)
-- **Old App Balance:** ₹78400.00
+- **Classification:** **(a) Demo/Test data only**
+- **Old App Balance:** ₹78,400.00
 - **Authoritative Ledger Balance:** ₹0.00
-- **Variance:** ₹-78400.00
-- **Technical Reason:** MISMATCH (EXPLAINED): User wallet held a hardcoded demo float in legacy seed without underlying transaction rows in the database.
+- **Variance:** ₹-78,400.00
+- **Technical Reason:** The user wallet held a hardcoded demo float in the legacy seed without underlying transaction rows in the database.
+
+> [!IMPORTANT]
+> **DECISION REQUIRED FOR USER**: Should cross-channel auto-deductions be kept (where debt or rental fees on one POS channel automatically reduce available payout balances on another POS channel), or should channel balances remain strictly isolated with explicit, auditable transfer entries?
 
 
 ---
