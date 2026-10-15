@@ -616,6 +616,10 @@ export async function handleApiRequest(req, res) {
     if (pathname.startsWith('/api/wallet/') && !pathname.startsWith('/api/wallet/balance') && method === 'GET') {
       const userId = decodeURIComponent(pathname.replace('/api/wallet/', '')).trim();
       try {
+        const userExists = (await pgQuery(`SELECT id FROM users WHERE UPPER(id) = UPPER($1)`, [userId]))[0];
+        if (!userExists) {
+          return sendJson(res, 404, { success: false, message: `User ${userId} not found.` });
+        }
         const pool = getDbPool();
         const balances = await getWalletBalances(pool, userId);
         const pos = (await pgQuery(`SELECT * FROM merchant_pos WHERE UPPER(merchant_id) = UPPER($1)`, [userId]))[0] || null;
