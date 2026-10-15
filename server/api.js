@@ -8,6 +8,15 @@ import {
   withTransaction
 } from './pg_db.js';
 
+import { getCaller } from './caller.js';
+import { getSetting, getAllSettings, updateSetting } from './settings.js';
+import { getWalletBalances, verifyWalletReconciliation } from './ledger_engine.js';
+import { processSwipeTransaction } from './transaction_engine.js';
+import { quoteWithdrawal, processWithdrawalRequest } from './withdrawal_engine.js';
+import { reverseTransaction } from './reversal_engine.js';
+
+export { getCaller };
+
 // Auto-initialize PostgreSQL schema if DATABASE_URL is configured
 initPostgresSchema().catch(() => {});
 
@@ -2348,6 +2357,220 @@ export async function handleApiRequest(req, res) {
         return sendJson(res, 200, { success: true, message: `Account ${userId} permanently deleted.` });
       } catch (err) {
         return sendJson(res, 500, { success: false, error: err.message });
+      }
+    }
+
+    // ====================================================
+    // PHASE B: AUTHORITATIVE MONEY SERVICES (SINGLE SOURCE OF TRUTH)
+    // ====================================================
+
+    // 1. Authoritative Wallet Balance
+    if ((pathname === '/api/wallets/balance' || pathname === '/api/wallet/balance') && method === 'GET') {
+      try {
+        let callerId = url.searchParams.get('userId') || url.searchParams.get('merchantId');
+        if (!callerId) {
+          try {
+            callerId = getCaller(req).id;
+          } catch (_) {}
+        }
+        if (!callerId) {
+          return sendJson(res, 400, { success: false, message: 'User ID is required to fetch balance.' });
+        }
+
+        const balances = await getWalletBalances({ query: pgQuery }, callerId);
+        return sendJson(res, 200, {
+          success: true,
+          balances: {
+            user_id: balances.user_id,
+            balance_paise: balances.balance_paise.toString(),
+            held_paise: balances.held_paise.toString(),
+            available_balance_paise: balances.available_balance_paise.toString(),
+            reserve_locked_paise: balances.reserve_locked_paise.toString(),
+            reserve_required_paise: balances.reserve_required_paise.toString(),
+            withdrawable_balance_paise: balances.withdrawable_balance_paise.toString(),
+            balance_rupees: (Number(balances.balance_paise) / 100).toFixed(2),
+            withdrawable_rupees: (Number(balances.withdrawable_balance_paise) / 100).toFixed(2)
+          }
+        });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
+    // 2. Authoritative Withdrawal Quote
+    if (pathname === '/api/withdrawals/quote' && method === 'POST') {
+      try {
+        const body = await parseJsonBody(req);
+        let userId = body.userId || body.merchant_id;
+        if (!userId) {
+          try {
+            userId = getCaller(req).id;
+          } catch (_) {}
+        }
+        if (!userId) {
+          return sendJson(res, 400, { success: false, message: 'User ID is required.' });
+        }
+
+        const amountPaise = body.amount_paise 
+          ? BigInt(body.amount_paise) 
+          : BigInt(Math.round(parseFloat(body.amount) * 100));
+
+        const quote = await quoteWithdrawal({ query: pgQuery }, {
+          userId,
+          amountPaise,
+          settlementType: body.settlement_type || 'T1',
+          channel: body.channel || 'pinelabs'
+        });
+
+        return sendJson(res, 200, {
+          success: true,
+          quote: {
+            user_id: quote.user_id,
+            requested_amount_paise: quote.requested_amount_paise.toString(),
+            fee_bps: quote.fee_bps,
+            fee_paise: quote.fee_paise.toString(),
+            net_payout_paise: quote.net_payout_paise.toString(),
+            remaining_balance_paise: quote.remaining_balance_paise.toString(),
+            reserve_required_paise: quote.reserve_required_paise.toString(),
+            reserve_compliant: quote.reserve_compliant,
+            shortfall_paise: quote.shortfall_paise.toString(),
+            requested_amount_rupees: (Number(quote.requested_amount_paise) / 100).toFixed(2),
+            fee_rupees: (Number(quote.fee_paise) / 100).toFixed(2),
+            net_payout_rupees: (Number(quote.net_payout_paise) / 100).toFixed(2)
+          }
+        });
+      } catch (err) {
+        return sendJson(res, 400, { success: false, message: err.message });
+      }
+    }
+
+    // 3. Authoritative Atomic Withdrawal Execution
+    if ((pathname === '/api/withdrawals/execute' || pathname === '/api/withdrawals/request-authoritative') && method === 'POST') {
+      try {
+        const body = await parseJsonBody(req);
+        let merchantId = body.merchant_id || body.userId;
+        if (!merchantId) {
+          try {
+            merchantId = getCaller(req).id;
+          } catch (_) {}
+        }
+        if (!merchantId) {
+          return sendJson(res, 400, { success: false, message: 'Merchant ID is required.' });
+        }
+
+        const amountPaise = body.amount_paise 
+          ? BigInt(body.amount_paise) 
+          : BigInt(Math.round(parseFloat(body.amount) * 100));
+
+        const result = await withTransaction(async (client) => {
+          return await processWithdrawalRequest(client, {
+            merchantId,
+            amountPaise,
+            beneficiaryId: body.beneficiary_id,
+            channel: body.channel || 'pinelabs',
+            settlementType: body.settlement_type || 'T1',
+            idempotencyKey: req.headers['idempotency-key'] || body.idempotency_key || null,
+            createdBy: merchantId
+          });
+        });
+
+        return sendJson(res, 200, { success: true, withdrawal: result });
+      } catch (err) {
+        const status = err.message.includes('RESERVE_VIOLATION') ? 403 : 400;
+        return sendJson(res, status, { success: false, message: err.message });
+      }
+    }
+
+    // 4. Authoritative Swipe / Payment Processing
+    if ((pathname === '/api/transactions/process-swipe' || pathname === '/api/transactions/record-authoritative') && method === 'POST') {
+      try {
+        const body = await parseJsonBody(req);
+        const amountPaise = body.amount_paise 
+          ? BigInt(body.amount_paise) 
+          : BigInt(Math.round(parseFloat(body.amount) * 100));
+
+        const result = await withTransaction(async (client) => {
+          return await processSwipeTransaction(client, {
+            merchantId: body.merchant_id,
+            amountPaise,
+            channel: body.channel || 'pinelabs',
+            refNumber: body.ref_number || body.utr_number || null,
+            slipNumber: body.slip_number || null,
+            notes: body.notes || null,
+            idempotencyKey: req.headers['idempotency-key'] || body.idempotency_key || null,
+            createdBy: body.merchant_id
+          });
+        });
+
+        return sendJson(res, 200, { 
+          success: true, 
+          transaction: {
+            ...result,
+            amount_paise: result.amount_paise.toString(),
+            customer_charge_paise: result.customer_charge_paise.toString(),
+            net_amount_paise: result.net_amount_paise.toString(),
+            distributions: result.distributions.map(d => ({
+              ...d,
+              amount_paise: d.amount_paise.toString()
+            }))
+          } 
+        });
+      } catch (err) {
+        const status = err.message.includes('DUPLICATE_SWIPE') ? 409 : 400;
+        return sendJson(res, status, { success: false, message: err.message });
+      }
+    }
+
+    // 5. Authoritative Transaction Reversal
+    if (pathname === '/api/transactions/reverse' && method === 'POST') {
+      try {
+        const body = await parseJsonBody(req);
+        let callerId = 'ADMIN';
+        try {
+          callerId = getCaller(req).id;
+        } catch (_) {}
+
+        const result = await withTransaction(async (client) => {
+          return await reverseTransaction(client, {
+            txnId: body.txn_id || body.transaction_id,
+            reason: body.reason || 'Reversed by admin',
+            callerId
+          });
+        });
+
+        return sendJson(res, 200, { success: true, reversal: result });
+      } catch (err) {
+        return sendJson(res, 400, { success: false, message: err.message });
+      }
+    }
+
+    // 6. System Settings Read & Update (No hardcoded values)
+    if (pathname === '/api/admin/settings' && method === 'GET') {
+      try {
+        const settings = await getAllSettings({ query: pgQuery });
+        return sendJson(res, 200, { success: true, settings });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, message: err.message });
+      }
+    }
+
+    if (pathname === '/api/admin/settings/update' && method === 'POST') {
+      try {
+        const body = await parseJsonBody(req);
+        let callerId = 'ADMIN';
+        try {
+          callerId = getCaller(req).id;
+        } catch (_) {}
+
+        const updated = await updateSetting(body.key, {
+          value_numeric: body.value_numeric,
+          value_text: body.value_text,
+          value_json: body.value_json
+        }, callerId, { query: pgQuery });
+
+        return sendJson(res, 200, { success: true, setting: updated });
+      } catch (err) {
+        return sendJson(res, 400, { success: false, message: err.message });
       }
     }
 
