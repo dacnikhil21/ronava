@@ -9,6 +9,7 @@ import {
   Download, Edit3, UserCheck, UserX, FileText, MapPin, BadgeCheck, Key,
   Trash2
 } from 'lucide-react';
+import { formatPaiseToRupees } from '../utils/formatters.js';
 import { downloadBankBatchFile, downloadCommissionBatchFile, downloadGstAuditFile, downloadRentalReportFile } from '../utils/bankExportUtils.js';
 import { 
   getCommissionPayoutConfig,
@@ -196,6 +197,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   const [expandedPayoutId, setExpandedPayoutId] = useState(null);
   const [transactionsLedger, setTransactionsLedger] = useState([]);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [adminSystemSettings, setAdminSystemSettings] = useState(null);
+  const [adminRatesConfig, setAdminRatesConfig] = useState(null);
   const [selectedPendingIds, setSelectedPendingIds] = useState(new Set());
   const [expandedBatchIds, setExpandedBatchIds] = useState({});
   const [metrics, setMetrics] = useState({
@@ -534,9 +537,34 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       return;
     }
     const now = new Date();
-    const res = downloadBankBatchFile(itemsToBatch, { fileName: modalMeta.fileName });
-    if (res && res.success) {
+    try {
       const downloadedIds = itemsToBatch.map(w => w.id);
+      // Invoke authoritative backend export endpoint (Phase D1b/D2)
+      const exportRes = await exportWithdrawalsExcel({
+        withdrawal_ids: downloadedIds,
+        batch_name: modalMeta.batchName
+      });
+
+      if (exportRes && exportRes.success && exportRes.csv) {
+        // Trigger direct browser download from backend CSV
+        const blob = new Blob([exportRes.csv], { type: 'text/csv;charset=utf-8;' });
+        const url = (window.URL || window.webkitURL).createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', modalMeta.fileName || `RONAV_Batch_${modalMeta.batchName}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(() => {
+          try {
+            if (document.body.contains(link)) document.body.removeChild(link);
+            (window.URL || window.webkitURL).revokeObjectURL(url);
+          } catch (_) {}
+        }, 2000);
+      } else {
+        // Client fallback export with new columns
+        downloadBankBatchFile(itemsToBatch, { fileName: modalMeta.fileName });
+      }
+
       await markWithdrawalsSubmittedToBank(downloadedIds, {
         batchId: modalMeta.batchId,
         batchName: modalMeta.batchName,
@@ -547,8 +575,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       await fetchAdminData();
       setPayoutStatusFilter('SUBMITTED_TO_BANK');
       triggerToast(`📥 Created ${modalMeta.batchName} with ${itemsToBatch.length} payout(s)! Transferred to Submitted tab.`, 'success');
-    } else {
-      triggerToast(res?.error || 'Failed to download bank sheet.', 'error');
+    } catch (err) {
+      console.error(err);
+      triggerToast('Failed to export bank sheet: ' + err.message, 'error');
     }
   };
 
@@ -816,6 +845,14 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
   // Approve / Reject / Dispatch Payout Action
   const handlePayoutAction = async (id, action, merchantName, amount, utr = '', remark = '') => {
+    if (action === 'APPROVE' && (!utr || !utr.trim())) {
+      const promptUtr = window.prompt(`Enter Bank UTR / Reference number for ${merchantName} (${amount}):`);
+      if (!promptUtr || !promptUtr.trim()) {
+        triggerToast('⚠️ Bank UTR is required to mark a payout as Completed.', 'error');
+        return;
+      }
+      utr = promptUtr.trim().toUpperCase();
+    }
     if (actionProcessingMap[`payout_${id}`]) return;
     setActionProcessingMap(prev => ({ ...prev, [`payout_${id}`]: true }));
     try {
@@ -1192,38 +1229,21 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
     const actualWalletEarned = parseFloat(user.available_balance || 0) + parseFloat(user.withdrawn_amount || 0);
 
-    if (type === 'MASTER' || type === 'SUPER_DISTRIBUTOR') {
-      totalVol = parseFloat(user.network_volume || user.total_sales || 0);
-      if (totalVol === 0 && childMerchants.length > 0) {
-        totalVol = childMerchants.reduce((sum, m) => sum + parseFloat(m.total_sales || 0), 0);
+    // Phase D2: Authoritative Financial Summary directly from PostgreSQL ledger (zero fabricated 0.20%)
+    try {
+      const fin = await getUserFinancialSummary(user.id);
+      if (fin && fin.success) {
+        profitEarned = parseFloat(fin.total_commission_rupees || 0);
+        totalVol = parseFloat(fin.total_volume_rupees || 0);
+      } else {
+        profitEarned = actualWalletEarned > 0 ? actualWalletEarned : parseFloat(user.commission_earned || 0);
+        totalVol = parseFloat(user.network_volume || user.downline_volume || user.total_sales || 0);
       }
-      const cutRate = parseFloat(user.upline_override_rate || (user.channels?.pine_labs?.enabled ? 0.20 : 0.20));
-      profitEarned = actualWalletEarned > 0 ? actualWalletEarned : (totalVol * (cutRate / 100));
-      downlineCount = childDDs.length + childDists.length + childMerchants.length;
-    } else if (type === 'DISTRICT_DISTRIBUTOR') {
-      totalVol = parseFloat(user.downline_volume || user.total_sales || 0);
-      if (totalVol === 0 && childMerchants.length > 0) {
-        totalVol = childMerchants.reduce((sum, m) => sum + parseFloat(m.total_sales || 0), 0);
-      }
-      const cutRate = parseFloat(user.upline_override_rate || (user.channels?.pine_labs?.enabled ? 0.10 : 0.10));
-      profitEarned = actualWalletEarned > 0 ? actualWalletEarned : (totalVol * (cutRate / 100));
-      downlineCount = childDists.length + childMerchants.length;
-    } else if (type === 'DISTRIBUTOR') {
-      totalVol = parseFloat(user.downline_volume || user.total_sales || 0);
-      if (totalVol === 0 && childMerchants.length > 0) {
-        totalVol = childMerchants.reduce((sum, m) => sum + parseFloat(m.total_sales || 0), 0);
-      }
-      const cutRate = parseFloat(user.upline_override_rate || (user.channels?.pine_labs?.enabled ? 0.10 : 0.10));
-      profitEarned = actualWalletEarned > 0 ? actualWalletEarned : (totalVol * (cutRate / 100));
-      downlineCount = childMerchants.length;
-    } else {
-      totalVol = parseFloat(user.total_sales || 0);
-      if (totalVol === 0 && userTxns.length > 0) {
-        totalVol = userTxns.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
-      }
-      profitEarned = actualWalletEarned;
-      downlineCount = 1;
+    } catch (_) {
+      profitEarned = actualWalletEarned > 0 ? actualWalletEarned : parseFloat(user.commission_earned || 0);
+      totalVol = parseFloat(user.network_volume || user.downline_volume || user.total_sales || 0);
     }
+    downlineCount = childSDs.length + childDDs.length + childDists.length + childMerchants.length;
 
     setViewingUserDossier({
       ...user,
@@ -8498,18 +8518,57 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                     </div>
 
                                     <div style={{
-                                      display: 'flex',
-                                      justifyContent: 'space-between',
-                                      alignItems: 'center',
-                                      padding: '0.65rem 0.85rem',
-                                      borderBottom: '1px solid #F1F5F9',
-                                      fontSize: '0.78125rem'
-                                    }}>
-                                      <span style={{ color: '#64748B', fontWeight: 600 }}>Disbursal Mode</span>
-                                      <span style={{ color: speedLabel === 'Instant' ? '#0F52BA' : '#475569', fontWeight: 700 }}>
-                                        {speedLabel === 'Instant' ? '⚡ Instant IMPS' : '📅 T+1 NEFT Batch'}
-                                      </span>
-                                    </div>
+                                       display: 'flex',
+                                       justifyContent: 'space-between',
+                                       alignItems: 'center',
+                                       padding: '0.65rem 0.85rem',
+                                       borderBottom: '1px solid #F1F5F9',
+                                       fontSize: '0.78125rem'
+                                     }}>
+                                       <span style={{ color: '#64748B', fontWeight: 600 }}>Withdrawal Mode</span>
+                                       <span style={{ color: speedLabel === 'Instant' ? '#0F52BA' : '#475569', fontWeight: 700 }}>
+                                         {speedLabel === 'Instant' ? '⚡ Instant IMPS' : '📅 T+1 NEFT Batch'}
+                                       </span>
+                                     </div>
+
+                                     <div style={{
+                                       display: 'flex',
+                                       justifyContent: 'space-between',
+                                       alignItems: 'center',
+                                       padding: '0.65rem 0.85rem',
+                                       borderBottom: '1px solid #F1F5F9',
+                                       fontSize: '0.78125rem'
+                                     }}>
+                                       <span style={{ color: '#64748B', fontWeight: 600 }}>Swipe Mode</span>
+                                       <span style={{ color: '#0F172A', fontWeight: 700 }}>
+                                         {item.swipe_mode ? (item.swipe_mode === 'INSTANT' ? '⚡ Instant IMPS' : (item.swipe_mode === 'NONE' ? '📱 QR (Instant)' : '📅 T+1')) : 'N/A'}
+                                       </span>
+                                     </div>
+
+                                     {Boolean(item.mismatch_flag || (item.swipe_mode && item.swipe_mode !== 'N/A' && (item.withdrawal_mode || item.settlement_mode) && item.swipe_mode !== (item.withdrawal_mode || item.settlement_mode))) && (
+                                       <div style={{
+                                         display: 'flex',
+                                         justifyContent: 'space-between',
+                                         alignItems: 'center',
+                                         padding: '0.65rem 0.85rem',
+                                         borderBottom: '1px solid #F1F5F9',
+                                         fontSize: '0.78125rem',
+                                         background: '#FFFBEB'
+                                       }}>
+                                         <span style={{ color: '#B45309', fontWeight: 700 }}>Mode Mismatch Alert</span>
+                                         <span style={{
+                                           background: '#FEF3C7',
+                                           color: '#92400E',
+                                           border: '1px solid #FDE68A',
+                                           padding: '2px 8px',
+                                           borderRadius: '4px',
+                                           fontWeight: 800,
+                                           fontSize: '0.7rem'
+                                         }}>
+                                           ⚠️ Mismatch Flagged (Swipe: {item.swipe_mode || 'T1'} vs Disbursal: {item.withdrawal_mode || item.settlement_mode || 'T1'})
+                                         </span>
+                                       </div>
+                                     )}
 
                                     <div style={{
                                        display: 'flex',
