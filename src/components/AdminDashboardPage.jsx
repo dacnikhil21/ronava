@@ -1170,6 +1170,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     if (!userId) return 0;
     const uid = String(userId).toUpperCase();
     let total = 0;
+    let hasError = false;
     (transactionsLedger || []).forEach(t => {
       if ((t.status || '').toUpperCase() === 'APPROVED' && t.notes && typeof t.notes === 'string') {
         try {
@@ -1185,9 +1186,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           }
         } catch (err) {
           console.warn('[AdminDashboardPage] Commission split calculation parsing failed:', err);
+          hasError = true;
         }
       }
     });
+    if (hasError) return { error: true, message: 'Could not load rates, try again' };
     return total;
   };
 
@@ -5102,7 +5105,16 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               </strong>
                             </div>
                             {(() => {
-                              const mCommEarned = getUserTotalCommissionEarned(m.id) || parseFloat(m.available_balance || 0);
+                              const commRes = getUserTotalCommissionEarned(m.id);
+                              if (commRes && typeof commRes === 'object' && commRes.error) {
+                                return (
+                                  <div>
+                                    <span style={{ fontSize: '0.55rem', color: '#DC2626', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Master Cut</span>
+                                    <strong style={{ fontSize: '0.6875rem', color: '#DC2626', fontWeight: 800 }}>Could not load rates, try again</strong>
+                                  </div>
+                                );
+                              }
+                              const mCommEarned = typeof commRes === 'number' ? commRes : parseFloat(m.available_balance || 0);
                               const mEffRate = (mVol > 0 && mCommEarned > 0) ? ((mCommEarned / mVol) * 100) : 0;
                               return (
                                 <div>
@@ -5311,7 +5323,16 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               </strong>
                             </div>
                             {(() => {
-                              const sdCommEarned = getUserTotalCommissionEarned(sd.id);
+                              const commRes = getUserTotalCommissionEarned(sd.id);
+                              if (commRes && typeof commRes === 'object' && commRes.error) {
+                                return (
+                                  <div>
+                                    <span style={{ fontSize: '0.55rem', color: '#DC2626', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>SD Cut</span>
+                                    <strong style={{ fontSize: '0.6875rem', color: '#DC2626', fontWeight: 800 }}>Could not load rates, try again</strong>
+                                  </div>
+                                );
+                              }
+                              const sdCommEarned = typeof commRes === 'number' ? commRes : 0;
                               const sdEffRate = (sdVol > 0 && sdCommEarned > 0) ? ((sdCommEarned / sdVol) * 100) : 0;
                               return (
                                 <div>
@@ -5502,7 +5523,16 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               </strong>
                             </div>
                             {(() => {
-                              const ddCommEarned = getUserTotalCommissionEarned(dd.id);
+                              const commRes = getUserTotalCommissionEarned(dd.id);
+                              if (commRes && typeof commRes === 'object' && commRes.error) {
+                                return (
+                                  <div>
+                                    <span style={{ fontSize: '0.55rem', color: '#DC2626', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>DD Cut</span>
+                                    <strong style={{ fontSize: '0.6875rem', color: '#DC2626', fontWeight: 800 }}>Could not load rates, try again</strong>
+                                  </div>
+                                );
+                              }
+                              const ddCommEarned = typeof commRes === 'number' ? commRes : 0;
                               const ddEffRate = (ddVol > 0 && ddCommEarned > 0) ? ((ddCommEarned / ddVol) * 100) : 0;
                               return (
                                 <div>
@@ -5688,7 +5718,16 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               </strong>
                             </div>
                             {(() => {
-                              const distCommEarned = getUserTotalCommissionEarned(d.id);
+                              const commRes = getUserTotalCommissionEarned(d.id);
+                              if (commRes && typeof commRes === 'object' && commRes.error) {
+                                return (
+                                  <div>
+                                    <span style={{ fontSize: '0.55rem', color: '#DC2626', display: 'block', textTransform: 'uppercase', fontWeight: 800 }}>Dist Cut</span>
+                                    <strong style={{ fontSize: '0.6875rem', color: '#DC2626', fontWeight: 800 }}>Could not load rates, try again</strong>
+                                  </div>
+                                );
+                              }
+                              const distCommEarned = typeof commRes === 'number' ? commRes : 0;
                               const distEffRate = (distVol > 0 && distCommEarned > 0) ? ((distCommEarned / distVol) * 100) : 0;
                               return (
                                 <div>
