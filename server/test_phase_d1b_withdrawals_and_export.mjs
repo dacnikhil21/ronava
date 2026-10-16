@@ -252,11 +252,7 @@ async function testWithdrawalsAndExport() {
   }
 }
 
-testWithdrawalsAndExport()
-  .then(() => {
-    setTimeout(() => process.exit(0), 50);
-  })
-  .catch(err => {
-    console.error('❌ Test failed:', err);
-    process.exit(1);
-  });
+testWithdrawalsAndExport().catch(err => {
+  console.error('❌ Test failed:', err);
+  process.exit(1);
+});
