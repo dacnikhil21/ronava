@@ -105,6 +105,9 @@ export async function processWithdrawalRequest(client, {
   if (!beneficiary.is_verified) {
     throw new Error('UNVERIFIED_BENEFICIARY: Beneficiary bank account is not verified for payouts.');
   }
+  if (!beneficiary.account_number || !beneficiary.account_number.trim() || !beneficiary.ifsc || !beneficiary.ifsc.trim()) {
+    throw new Error('INVALID_BENEFICIARY_DETAILS: Beneficiary missing account number or IFSC.');
+  }
 
   // 3. Row-Level Locking on Wallet (SELECT ... FOR UPDATE prevents race conditions / double-spend)
   const walletLockRes = await client.query(`

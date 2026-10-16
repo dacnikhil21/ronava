@@ -37,7 +37,7 @@ import RonavLogo from './RonavLogo';
 
 // Comprehensive Indian Banks Database for Search & Selection
 const ALL_INDIAN_BANKS = [
-  { name: 'State Bank of India', code: 'SBI', ifsc: 'SBIN0001234', popular: true },
+  { name: 'State Bank of India', code: 'SBI', ifsc: '', popular: true },
   { name: 'HDFC Bank', code: 'HDFC', ifsc: 'HDFC0001234', popular: true },
   { name: 'ICICI Bank', code: 'ICICI', ifsc: 'ICIC0001234', popular: true },
   { name: 'Axis Bank', code: 'Axis', ifsc: 'UTIB0001234', popular: true },
@@ -607,7 +607,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     bank_name: 'State Bank of India',
     account_number: '',
     confirm_account: '',
-    ifsc: 'SBIN0001234',
+    ifsc: '',
     holder_name: ''
   });
   const [isSubmittingBank, setIsSubmittingBank] = useState(false);
@@ -1729,7 +1729,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         const mobileMatch = (item.customer_mobile || '').toLowerCase().includes(q);
         const nameMatch = (item.customer_name || '').toLowerCase().includes(q);
         const bankMatch = (item.bank_name || '').toLowerCase().includes(q);
-        const accMatch = (item.account_number || '').toLowerCase().includes(q);
+        const accMatch = (item.account_number || null).toLowerCase().includes(q);
         const ifscMatch = (item.ifsc || '').toLowerCase().includes(q);
         const notesMatch = (item.notes || '').toLowerCase().includes(q);
         const remarkMatch = (item.admin_remark || '').toLowerCase().includes(q);
@@ -1901,6 +1901,10 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       targetBank = beneficiaries[0];
     }
 
+    if (!targetBank || !targetBank.account_number || !targetBank.account_number.trim() || !targetBank.ifsc || !targetBank.ifsc.trim()) {
+      showToast('⚠️ Cannot proceed: No bank account on file (missing account number or IFSC).');
+      return;
+    }
     if (!targetBank) {
       if (!customerPayoutForm.bank_name || !customerPayoutForm.account_number) {
         showToast('⚠️ Please select or link a bank account.');
@@ -1971,7 +1975,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         merchant_id: merchantId,
         bank_name: bankForm.bank_name,
         account_number: bankForm.account_number,
-        ifsc: bankForm.ifsc || 'SBIN0001234',
+        ifsc: bankForm.ifsc ? bankForm.ifsc.trim().toUpperCase() : '',
         holder_name: bankForm.holder_name || merchantName,
         is_primary: beneficiaries.length === 0
       });
@@ -1983,7 +1987,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           bank_name: 'State Bank of India',
           account_number: '',
           confirm_account: '',
-          ifsc: 'SBIN0001234',
+          ifsc: '',
           holder_name: ''
         });
         fetchLiveData();
@@ -2016,7 +2020,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         merchant_id: merchantId,
         bank_name: customerPayoutForm.bank_name.trim(),
         account_number: customerPayoutForm.account_number.trim(),
-        ifsc: customerPayoutForm.ifsc ? customerPayoutForm.ifsc.trim().toUpperCase() : 'SBIN0001234',
+        ifsc: customerPayoutForm.ifsc ? customerPayoutForm.ifsc.trim().toUpperCase() : '',
         holder_name: customerPayoutForm.customer_name ? customerPayoutForm.customer_name.trim() : merchantName,
         is_primary: beneficiaries.length === 0 ? 1 : 0
       });
@@ -4269,7 +4273,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                 </span>
                                 <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
                                   {[
-                                    { name: 'State Bank of India', shortName: 'SBI', ifsc: 'SBIN0001234' },
+                                    { name: 'State Bank of India', shortName: 'SBI', ifsc: '' },
                                     { name: 'HDFC Bank', shortName: 'HDFC', ifsc: 'HDFC0000456' },
                                     { name: 'ICICI Bank', shortName: 'ICICI', ifsc: 'ICIC0000234' },
                                     { name: 'Axis Bank', shortName: 'Axis', ifsc: 'UTIB0000123' },
@@ -9474,9 +9478,11 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                       <span style={{ color: '#64748B', fontWeight: 600 }}>Bank Account Number</span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#0F172A', letterSpacing: showFullAccountInModal ? '0.03em' : '0.08em' }}>
-                          {showFullAccountInModal 
-                            ? (item.account_number && !item.account_number.startsWith('••') ? item.account_number : (item.account_number || '102938475620'))
-                            : (item.account_number ? (item.account_number.startsWith('••') ? item.account_number : `•••• ${item.account_number.slice(-4)}`) : '•••• 9090')}
+                          {item.account_number 
+                            ? (showFullAccountInModal 
+                                ? (item.account_number.startsWith('••') ? item.account_number : item.account_number) 
+                                : (item.account_number.startsWith('••') ? item.account_number : `•••• ${item.account_number.slice(-4)}`)) 
+                            : <span style={{ color: '#DC2626', fontWeight: 800 }}>No bank account on file</span>}
                         </span>
                         <button
                           type="button"
@@ -9489,7 +9495,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                         <button
                           type="button"
                           onClick={() => {
-                            const rawAcc = item.account_number || '102938475620';
+if (!item.account_number) { showToast('⚠️ No bank account on file to copy.'); return; }
+                            const rawAcc = item.account_number;
                             navigator.clipboard.writeText(rawAcc);
                             showToast(`✓ Copied A/C: ${rawAcc}`);
                           }}
@@ -9502,7 +9509,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid #F1F5F9', fontSize: '0.75rem' }}>
                       <span style={{ color: '#64748B', fontWeight: 600 }}>IFSC Code</span>
-                      <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0F172A' }}>{item.ifsc || 'SBIN0001234'}</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0F172A' }}>{item.ifsc || <span style={{ color: '#DC2626', fontWeight: 800 }}>No bank account on file</span>}</span>
                     </div>
 
                     {item.customer_name && (

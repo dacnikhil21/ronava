@@ -536,6 +536,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       triggerToast('No withdrawal items to download.', 'error');
       return;
     }
+    const missingBank = itemsToBatch.filter(w => !w.account_number || !w.account_number.trim() || !w.ifsc_code || !w.ifsc_code.trim());
+    if (missingBank.length > 0) {
+      triggerToast(`⚠️ Cannot export: ${missingBank.length} withdrawal(s) have No bank account on file (missing account number or IFSC).`, 'error');
+      return;
+    }
     const now = new Date();
     try {
       const downloadedIds = itemsToBatch.map(w => w.id);
@@ -6283,7 +6288,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   recipient: recipient || p.merchant_name,
                   bank: p.bank_name || 'Bank',
                   acc: p.account_number || '',
-                  ifsc: p.ifsc_code || 'SBIN0001234',
+                  ifsc: p.ifsc_code || '',
                   isCommission,
                   purpose: isCommission ? 'COMMISSION' : 'REGULAR',
                   remarks: merchantNote
@@ -8502,7 +8507,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                       <span style={{ color: '#64748B', fontWeight: 600 }}>Account Number</span>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                         <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0F172A', fontSize: '0.84375rem' }}>
-                                          {item.account_number || details.acc || '—'}
+                                          {item.account_number || details.acc || <span style={{ color: '#DC2626', fontWeight: 800 }}>No bank account on file</span>}
                                         </span>
                                         {(item.account_number || details.acc) && (
                                           <button
@@ -8536,11 +8541,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                       <span style={{ color: '#64748B', fontWeight: 600 }}>Bank IFSC Code</span>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                         <strong style={{ fontFamily: 'monospace', color: '#0F172A', fontSize: '0.84375rem' }}>
-                                          {item.ifsc_code || details.ifsc || 'SBIN0001234'}
+                                          {item.ifsc_code || details.ifsc || <span style={{ color: '#DC2626', fontWeight: 800 }}>No bank account on file</span>}
                                         </strong>
                                         <button
                                           type="button"
-                                          onClick={() => copyToClipboard(item.ifsc_code || details.ifsc || 'SBIN0001234', `ifsc_${item.id}`)}
+                                          onClick={() => { if (item.ifsc_code || details.ifsc) copyToClipboard(item.ifsc_code || details.ifsc, `ifsc_${item.id}`); }}
                                           style={{
                                             background: '#EFF6FF',
                                             border: '1px solid #BFDBFE',

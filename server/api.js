@@ -978,13 +978,13 @@ export async function handleApiRequest(req, res) {
     if (pathname === '/api/beneficiaries/create' && method === 'POST') {
       try {
         const { merchant_id, bank_name, account_number, ifsc, holder_name, beneficiary_name, is_primary } = await parseJsonBody(req);
-        if (!merchant_id || !bank_name || !account_number) {
-          return sendJson(res, 400, { success: false, message: 'Missing required bank details (merchant_id, bank_name, account_number).' });
+        if (!merchant_id || !bank_name || !account_number || !account_number.trim() || !ifsc || !ifsc.trim()) {
+          return sendJson(res, 400, { success: false, message: 'Missing required bank details (merchant_id, bank_name, account_number, ifsc).' });
         }
 
         const benName = (holder_name || beneficiary_name || 'Account Holder').trim();
         const benId = `BEN-${Date.now().toString().slice(-6)}`;
-        const ifscClean = (ifsc || 'SBIN0001234').trim().toUpperCase();
+        const ifscClean = ifsc.trim().toUpperCase();
 
         const insertRes = await pgQuery(`
           INSERT INTO beneficiaries (id, merchant_id, bank_name, account_number, ifsc, beneficiary_name, holder_name, is_primary)
@@ -1631,15 +1631,15 @@ export async function handleApiRequest(req, res) {
     if (pathname === '/api/beneficiaries/add' && method === 'POST') {
       const { merchant_id, bank_name, account_number, ifsc, holder_name, is_primary } = await parseJsonBody(req);
 
-      if (!merchant_id || !bank_name || !account_number) {
-        return sendJson(res, 400, { success: false, message: 'Missing required bank details.' });
+      if (!merchant_id || !bank_name || !account_number || !account_number.trim() || !ifsc || !ifsc.trim()) {
+        return sendJson(res, 400, { success: false, message: 'Missing required bank details (merchant_id, bank_name, account_number, ifsc).' });
       }
 
       const benId = `BEN-${Date.now().toString().slice(-6)}`;
       await pgQuery(`
         INSERT INTO beneficiaries (id, merchant_id, bank_name, account_number, ifsc, holder_name, is_primary)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `, [benId, merchant_id, bank_name, account_number, ifsc || 'SBIN0001234', holder_name || 'Account Holder', is_primary ? 1 : 0]);
+      `, [benId, merchant_id, bank_name, account_number.trim(), ifsc.trim().toUpperCase(), holder_name || 'Account Holder', is_primary ? 1 : 0]);
 
       const created = await pgQuery(`SELECT * FROM beneficiaries WHERE id = $1`, [benId]);
       return sendJson(res, 201, { success: true, message: 'Beneficiary account added successfully!', beneficiary: created[0] });
@@ -2078,6 +2078,12 @@ export async function handleApiRequest(req, res) {
           if (alreadyExported.length > 0) {
             const badIds = alreadyExported.map(r => `${r.id} (${r.status})`).join(', ');
             throw new Error(`ALREADY_EXPORTED: The following withdrawals are not in PENDING status: ${badIds}`);
+          }
+
+          const missingBankRows = rows.filter(r => !r.ben_account_number || !r.ben_account_number.trim() || !r.ben_ifsc || !r.ben_ifsc.trim());
+          if (missingBankRows.length > 0) {
+            const badIds = missingBankRows.map(r => r.id).join(', ');
+            throw new Error(`MISSING_BANK_DETAILS: Cannot export withdrawals with missing account number or IFSC: ${badIds}`);
           }
 
           const batchId = `BATCH-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
