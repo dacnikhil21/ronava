@@ -36,6 +36,7 @@ import {
   serializeMerchantChannels,
   classifyTransactionChannel,
   getMonthlyRentalReport,
+  getSystemSettings,
   updatePosRentalStatus,
   clawbackTransaction,
   purgeAllTestAccounts,
@@ -235,7 +236,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     pos_provider: 'Pine Labs', // 'Pine Labs' | 'Payswiff'
     pos_vendor: 'Rose Navaneetham Enterprises', // 'Rose Navaneetham Enterprises' | 'RONAV Technologies' | 'R.P. Technologies'
     device_plan: 'RENTAL', // 'RENTAL' | 'LIFETIME'
-    monthly_rent: '499',
+    monthly_rent: '',
     settlement_type: 'T1', // 'T1' | 'INSTANT'
     commission_rate_t1: '1.50', // T+1 Base MDR %
     commission_rate_instant: '1.80', // Instant Settlement MDR %
@@ -249,7 +250,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       terminal_id: '',
       vendor: 'Rose Navaneetham Enterprises',
       plan: 'RENTAL',
-      rent: '499',
+      rent: '',
       rate_t1: '1.50',
       rate_instant: '1.80'
     },
@@ -260,8 +261,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   // Manage Terminals & Channels Modal State for Existing Merchants
   const [managingChannelsMerchant, setManagingChannelsMerchant] = useState(null);
   const [managingChannelsData, setManagingChannelsData] = useState({
-    pine_labs: { enabled: false, terminal_id: '', rate_t1: 1.50, rate_instant: 1.80, vendor: 'Rose Navaneetham Enterprises', plan: 'RENTAL', rent: 499 },
-    payswiff: { enabled: false, terminal_id: '', rate_t1: 1.50, rate_instant: 1.80, vendor: 'RONAV Technologies', plan: 'RENTAL', rent: 499 },
+    pine_labs: { enabled: false, terminal_id: '', rate_t1: 1.50, rate_instant: 1.80, vendor: 'Rose Navaneetham Enterprises', plan: 'RENTAL', rent: '' },
+    payswiff: { enabled: false, terminal_id: '', rate_t1: 1.50, rate_instant: 1.80, vendor: 'RONAV Technologies', plan: 'RENTAL', rent: '' },
     qr: { enabled: false, rate_instant: 1.50, vendor: 'RONAV Technologies' }
   });
   const [isSavingChannels, setIsSavingChannels] = useState(false);
@@ -277,6 +278,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   const [expandedProfitTxnId, setExpandedProfitTxnId] = useState(null);
 
   // Monthly POS Terminal Rental Report State (Items #22 & #23)
+  const [systemSettings, setSystemSettings] = useState(null);
+  const [systemSettingsError, setSystemSettingsError] = useState(null);
   const [rentalReportData, setRentalReportData] = useState({
     list: [],
     summary: { totalTerminals: 0, totalDue: 0, totalCollected: 0, totalPending: 0, paidCount: 0, pendingCount: 0 }
@@ -368,7 +371,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         }
       }).catch(() => {});
 
-      const [pendingRes, usersRes, treeRes, inqRes] = await Promise.all([
+      const [pendingRes, usersRes, treeRes, inqRes, settingsRes] = await Promise.all([
         getAdminPending().catch(err => ({ success: false, message: err.message })),
         getAllUsers().catch(err => ({ success: false, message: err.message })),
         getHierarchyTree().catch(err => ({ success: false, message: err.message })),
@@ -416,6 +419,14 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
       if (treeRes && treeRes.success) {
         setHierarchyData(treeRes);
+      }
+
+      if (settingsRes && settingsRes.success && settingsRes.settings && settingsRes.settings.monthly_rental_rupees) {
+        setSystemSettings(settingsRes.settings);
+        setSystemSettingsError(null);
+      } else if (settingsRes && !settingsRes.success) {
+        setSystemSettings(null);
+        setSystemSettingsError(settingsRes.message || 'Monthly rental amount setting is missing from system_settings.');
       }
 
       fetchRentalReport(rentalMonth);
@@ -642,7 +653,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       pos_provider: 'Pine Labs',
       pos_vendor: 'Rose Navaneetham Enterprises',
       device_plan: 'RENTAL',
-      monthly_rent: '499',
+      monthly_rent: systemSettings?.monthly_rental_rupees || '',
       settlement_type: 'T1',
       commission_rate_t1: rateT1,
       commission_rate_instant: rateInstant,
@@ -656,7 +667,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         terminal_id: '',
         vendor: 'Rose Navaneetham Enterprises',
         plan: 'RENTAL',
-        rent: '499',
+        rent: systemSettings?.monthly_rental_rupees || '',
         rate_t1: rateT1,
         rate_instant: rateInstant
       },
@@ -685,7 +696,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           rate_instant: baseInstant,
           vendor: 'Rose Navaneetham Enterprises',
           plan: 'RENTAL',
-          rent: 499
+          rent: systemSettings?.monthly_rental_rupees || ''
         },
         payswiff: {
           enabled: false,
@@ -694,7 +705,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           rate_instant: baseInstant,
           vendor: 'RONAV Technologies',
           plan: 'RENTAL',
-          rent: 499
+          rent: systemSettings?.monthly_rental_rupees || ''
         },
         qr: {
           enabled: false,
@@ -1177,7 +1188,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   };
 
   // Open Dossier for Any Member (Full Dedicated Page)
-  const handleOpenDossier = (user, type = 'MERCHANT', isDrilldown = false) => {
+  const handleOpenDossier = async (user, type = 'MERCHANT', isDrilldown = false) => {
     if (viewingUserDossier && isDrilldown) {
       setDossierHistory(prev => [...prev, viewingUserDossier]);
     } else if (!isDrilldown) {
@@ -9329,7 +9340,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       Monthly POS Terminal Rental Report
                     </h2>
                     <span style={{ fontSize: '0.75rem', color: '#64748B' }}>
-                      Track merchant terminal rent collection status (Paid vs Pending ₹499/custom rent per merchant)
+                      Track merchant terminal rent collection status (Paid vs Pending {systemSettings?.monthly_rental_rupees ? `₹${systemSettings.monthly_rental_rupees}` : (systemSettingsError ? 'Setting Missing' : 'system')} / custom rent per merchant)
+                    {(!systemSettings?.monthly_rental_rupees || systemSettingsError) && (
+                      <div style={{ marginTop: '0.5rem', padding: '0.5rem 0.75rem', background: '#FEE2E2', border: '1px solid #DC2626', borderRadius: '6px', color: '#991B1B', fontSize: '0.75rem', fontWeight: 700 }}>
+                        ⚠️ System Setting Error: {systemSettingsError || 'Required setting "monthly_rental_paise" is missing in system settings.'}
+                      </div>
+                    )}
                     </span>
                   </div>
 
@@ -9942,7 +9958,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           terminal_id: '',
                           vendor: 'Rose Navaneetham Enterprises',
                           plan: 'RENTAL',
-                          rent: '499',
+                          rent: systemSettings?.monthly_rental_rupees || '',
                           rate_t1: '1.50',
                           rate_instant: '1.80'
                         }
@@ -9975,7 +9991,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           terminal_id: '',
                           vendor: 'RONAV Technologies',
                           plan: 'RENTAL',
-                          rent: '499',
+                          rent: systemSettings?.monthly_rental_rupees || '',
                           rate_t1: '1.50',
                           rate_instant: '1.80'
                         }
@@ -10087,12 +10103,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             const val = e.target.value;
                             setOnboardChannels(prev => ({
                               ...prev,
-                              pine_labs: { ...prev.pine_labs, plan: val, rent: val === 'RENTAL' ? '499' : (prev.pine_labs.rent || '499') }
+                              pine_labs: { ...prev.pine_labs, plan: val, rent: val === 'RENTAL' ? (systemSettings?.monthly_rental_rupees || '') : prev.pine_labs.rent }
                             }));
                           }}
                           style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.6875rem', background: '#FFFFFF' }}
                         >
-                          <option value="RENTAL">Monthly Rental (₹499/mo)</option>
+                          <option value="RENTAL">{systemSettings?.monthly_rental_rupees ? `Monthly Rental (₹${systemSettings.monthly_rental_rupees}/mo)` : "Monthly Rental (Error: Setting Missing)"}</option>
                           <option value="CUSTOM">Custom Plan</option>
                         </select>
 
@@ -10244,12 +10260,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             const val = e.target.value;
                             setOnboardChannels(prev => ({
                               ...prev,
-                              payswiff: { ...prev.payswiff, plan: val, rent: val === 'RENTAL' ? '499' : (prev.payswiff.rent || '499') }
+                              payswiff: { ...prev.payswiff, plan: val, rent: val === 'RENTAL' ? (systemSettings?.monthly_rental_rupees || '') : prev.payswiff.rent }
                             }));
                           }}
                           style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.6875rem', background: '#FFFFFF' }}
                         >
-                          <option value="RENTAL">Monthly Rental (₹499/mo)</option>
+                          <option value="RENTAL">{systemSettings?.monthly_rental_rupees ? `Monthly Rental (₹${systemSettings.monthly_rental_rupees}/mo)` : "Monthly Rental (Error: Setting Missing)"}</option>
                           <option value="CUSTOM">Custom Plan</option>
                         </select>
 
@@ -10542,7 +10558,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         terminal_id: prev.pine_labs?.terminal_id || '',
                         vendor: 'Rose Navaneetham Enterprises',
                         plan: prev.pine_labs?.plan || 'RENTAL',
-                        rent: prev.pine_labs?.rent !== undefined ? prev.pine_labs.rent : 499,
+                        rent: prev.pine_labs?.rent !== undefined ? prev.pine_labs.rent : (systemSettings?.monthly_rental_rupees || ''),
                         rate_t1: prev.pine_labs?.rate_t1 !== undefined ? prev.pine_labs.rate_t1 : '',
                         rate_instant: prev.pine_labs?.rate_instant !== undefined ? prev.pine_labs.rate_instant : ''
                       }
@@ -10575,7 +10591,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         terminal_id: prev.payswiff?.terminal_id || '',
                         vendor: prev.payswiff?.vendor || 'RONAV Technologies',
                         plan: prev.payswiff?.plan || 'RENTAL',
-                        rent: prev.payswiff?.rent !== undefined ? prev.payswiff.rent : 499,
+                        rent: prev.payswiff?.rent !== undefined ? prev.payswiff.rent : (systemSettings?.monthly_rental_rupees || ''),
                         rate_t1: prev.payswiff?.rate_t1 !== undefined ? prev.payswiff.rate_t1 : '',
                         rate_instant: prev.payswiff?.rate_instant !== undefined ? prev.payswiff.rate_instant : ''
                       }
@@ -10681,12 +10697,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           const val = e.target.value;
                           setManagingChannelsData(prev => ({
                             ...prev,
-                            pine_labs: { ...prev.pine_labs, plan: val, rent: val === 'RENTAL' ? 499 : prev.pine_labs.rent }
+                            pine_labs: { ...prev.pine_labs, plan: val, rent: val === 'RENTAL' ? (systemSettings?.monthly_rental_rupees || '') : prev.pine_labs.rent }
                           }));
                         }}
                         style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.6875rem', background: '#FFFFFF' }}
                       >
-                        <option value="RENTAL">Monthly Rental (₹499/mo)</option>
+                        <option value="RENTAL">{systemSettings?.monthly_rental_rupees ? `Monthly Rental (₹${systemSettings.monthly_rental_rupees}/mo)` : "Monthly Rental (Error: Setting Missing)"}</option>
                         <option value="CUSTOM">Custom Plan</option>
                       </select>
                     </div>
@@ -10815,12 +10831,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           const val = e.target.value;
                           setManagingChannelsData(prev => ({
                             ...prev,
-                            payswiff: { ...prev.payswiff, plan: val, rent: val === 'RENTAL' ? 499 : prev.payswiff.rent }
+                            payswiff: { ...prev.payswiff, plan: val, rent: val === 'RENTAL' ? (systemSettings?.monthly_rental_rupees || '') : prev.payswiff.rent }
                           }));
                         }}
                         style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.6875rem', background: '#FFFFFF' }}
                       >
-                        <option value="RENTAL">Monthly Rental (₹499/mo)</option>
+                        <option value="RENTAL">{systemSettings?.monthly_rental_rupees ? `Monthly Rental (₹${systemSettings.monthly_rental_rupees}/mo)` : "Monthly Rental (Error: Setting Missing)"}</option>
                         <option value="CUSTOM">Custom Plan</option>
                       </select>
                     </div>

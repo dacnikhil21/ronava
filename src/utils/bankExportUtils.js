@@ -433,7 +433,7 @@ export function downloadGstAuditFile(transactionsList, options = {}) {
 
 /**
  * Monthly POS Terminal Rental Report Export Utility (Item #22 & #23)
- * Exports merchant terminal rent status (Paid vs Pending ₹499/custom rent per merchant).
+ * Exports merchant terminal rent status (Paid vs Pending monthly/custom rent per merchant).
  */
 export function generateRentalReportCSV(rentalList, options = {}) {
   const headers = [
@@ -468,7 +468,7 @@ export function generateRentalReportCSV(rentalList, options = {}) {
     const provider = item.pos_provider || item.provider || 'Pine Labs';
     const tid = item.terminal_id || item.pos_terminal || 'TID-N/A';
     const plan = item.device_plan || item.plan || 'RENTAL';
-    const rentAmt = parseFloat(item.monthly_rent || item.rent || 499).toFixed(2);
+    const rentAmt = parseFloat(item.monthly_rent !== undefined && item.monthly_rent !== null ? item.monthly_rent : (item.rent !== undefined && item.rent !== null ? item.rent : (options.defaultRent || 0))).toFixed(2);
     const distributor = item.creator_name ? `${item.creator_name} (${item.creator_id || 'DIRECT'})` : (item.creator_id || 'Super Admin');
     const month = item.billing_month || options.billingMonth || new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' });
     const status = (item.rental_status || item.status || 'PENDING').toUpperCase();

@@ -177,6 +177,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   const [quoteError, setQuoteError] = useState(null);
   const [ratesConfig, setRatesConfig] = useState(null);
   const [systemSettings, setSystemSettings] = useState(null);
+  const [systemSettingsError, setSystemSettingsError] = useState(null);
   const [financialSummary, setFinancialSummary] = useState(null);
   const userRole = user?.role ? (user.role === 'MERCHANT' ? 'Retailer' : user.role) : 'Retailer';
 
@@ -285,6 +286,16 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   });
   const [isLoadingPos, setIsLoadingPos] = useState(() => !user?.pos);
 
+  useEffect(() => {
+    if (systemSettings?.monthly_rental_rupees) {
+      setOnboardForm(prev => prev.monthly_rent ? prev : ({ ...prev, monthly_rent: systemSettings.monthly_rental_rupees }));
+      setOnboardChannels(prev => ({
+        ...prev,
+        pine_labs: prev.pine_labs ? { ...prev.pine_labs, rent: prev.pine_labs.rent || systemSettings.monthly_rental_rupees } : prev.pine_labs
+      }));
+    }
+  }, [systemSettings]);
+
   const handleSwitchMachine = (key) => {
     setSelectedMachineKey(key);
     if (typeof window !== 'undefined') {
@@ -350,7 +361,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     pos_provider: 'Pine Labs',
     pos_vendor: 'Rose Navaneetham Enterprises',
     device_plan: 'RENTAL',
-    monthly_rent: '499',
+    monthly_rent: '',
     settlement_type: 'T1',
     commission_rate_t1: '1.48',
     commission_rate_instant: '1.78',
@@ -363,7 +374,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       terminal_id: '',
       vendor: 'Rose Navaneetham Enterprises',
       plan: 'RENTAL',
-      rent: '499',
+      rent: '',
       rate_t1: '1.48',
       rate_instant: '1.78'
     },
@@ -472,7 +483,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         rate: `${rateT1.toFixed(2)}%`,
         rateNum: rateT1,
         plan: ch.plan || 'RENTAL',
-        rent: ch.rent || 499
+        rent: ch.rent || systemSettings?.monthly_rental_rupees || ''
       };
     }
 
@@ -1314,7 +1325,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           pos_vendor: 'Rose Navaneetham Enterprises',
           pos_terminal_id: '',
           device_plan: 'RENTAL',
-          monthly_rent: '499',
+          monthly_rent: systemSettings?.monthly_rental_rupees || '',
           settlement_type: 'T1',
           commission_rate_t1: '1.48',
           commission_rate_instant: '1.78',
@@ -1326,7 +1337,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
             terminal_id: '',
             vendor: 'Rose Navaneetham Enterprises',
             plan: 'RENTAL',
-            rent: '499',
+            rent: systemSettings?.monthly_rental_rupees || '',
             rate_t1: '1.48',
             rate_instant: '1.78'
           },
@@ -1357,7 +1368,13 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       ]);
 
       if (ratesRes && ratesRes.success) setRatesConfig(ratesRes);
-      if (setRes && setRes.success) setSystemSettings(setRes.settings);
+      if (setRes && setRes.success && setRes.settings && setRes.settings.monthly_rental_rupees) {
+        setSystemSettings(setRes.settings);
+        setSystemSettingsError(null);
+      } else {
+        setSystemSettings(null);
+        setSystemSettingsError(setRes?.message || 'Monthly rental amount setting is missing from system_settings.');
+      }
       if (finRes && finRes.success) setFinancialSummary(finRes);
 
       if (walletRes && walletRes.success) {
@@ -6823,7 +6840,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                 terminal_id: '',
                                 vendor: 'Rose Navaneetham Enterprises',
                                 plan: 'RENTAL',
-                                rent: '499',
+                                rent: systemSettings?.monthly_rental_rupees || '',
                                 rate_t1: '1.50',
                                 rate_instant: '1.80'
                               }
@@ -6856,7 +6873,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                 terminal_id: '',
                                 vendor: 'RONAV Technologies',
                                 plan: 'RENTAL',
-                                rent: '499',
+                                rent: systemSettings?.monthly_rental_rupees || '',
                                 rate_t1: '1.50',
                                 rate_instant: '1.80'
                               }
@@ -6968,12 +6985,12 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                   const val = e.target.value;
                                   setOnboardChannels(prev => ({
                                     ...prev,
-                                    pine_labs: { ...prev.pine_labs, plan: val, rent: val === 'RENTAL' ? '499' : (prev.pine_labs.rent || '499') }
+                                    pine_labs: { ...prev.pine_labs, plan: val, rent: val === 'RENTAL' ? (systemSettings?.monthly_rental_rupees || '') : prev.pine_labs.rent }
                                   }));
                                 }}
                                 style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.6875rem', background: '#FFFFFF' }}
                               >
-                                <option value="RENTAL">Monthly Rental (₹499/mo)</option>
+                                <option value="RENTAL">{systemSettings?.monthly_rental_rupees ? `Monthly Rental (₹${systemSettings.monthly_rental_rupees}/mo)` : "Monthly Rental (Error: Setting Missing)"}</option>
                                 <option value="CUSTOM">Custom Plan</option>
                               </select>
 
@@ -7125,12 +7142,12 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                   const val = e.target.value;
                                   setOnboardChannels(prev => ({
                                     ...prev,
-                                    payswiff: { ...prev.payswiff, plan: val, rent: val === 'RENTAL' ? '499' : (prev.payswiff.rent || '499') }
+                                    payswiff: { ...prev.payswiff, plan: val, rent: val === 'RENTAL' ? (systemSettings?.monthly_rental_rupees || '') : prev.payswiff.rent }
                                   }));
                                 }}
                                 style={{ width: '100%', padding: '0.4rem', borderRadius: '6px', border: '1px solid #CBD5E1', fontSize: '0.6875rem', background: '#FFFFFF' }}
                               >
-                                <option value="RENTAL">Monthly Rental (₹499/mo)</option>
+                                <option value="RENTAL">{systemSettings?.monthly_rental_rupees ? `Monthly Rental (₹${systemSettings.monthly_rental_rupees}/mo)` : "Monthly Rental (Error: Setting Missing)"}</option>
                                 <option value="CUSTOM">Custom Plan</option>
                               </select>
 
@@ -7597,7 +7614,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.5rem', background: '#FFFFFF', padding: '0.625rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
                               <div>
                                 <span style={{ color: '#64748B', display: 'block', fontSize: '0.5625rem', fontWeight: 700 }}>DEVICE PLAN</span>
-                                <strong style={{ color: '#0F172A', fontSize: '0.75rem' }}>{p.pos_plan || 'RENTAL'} (₹{p.monthly_rent || 499}/mo)</strong>
+                                <strong style={{ color: '#0F172A', fontSize: '0.75rem' }}>{p.pos_plan || 'RENTAL'} (₹{p.monthly_rent || systemSettings?.monthly_rental_rupees || (systemSettingsError ? 'ERR' : '')}/mo)</strong>
                               </div>
 
                               <div>
@@ -8582,7 +8599,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                           </div>
 
                           <div style={{ fontSize: '0.625rem', color: '#64748B', display: 'flex', justifyContent: 'space-between', padding: '0 2px' }}>
-                            <span>Plan: <strong style={{ color: '#0F172A' }}>{merchantChannels.pine_labs.plan === 'RENTAL' ? '₹499/mo Rental' : `Custom (₹${merchantChannels.pine_labs.rent || 0}/mo)`}</strong></span>
+                            <span>Plan: <strong style={{ color: '#0F172A' }}>{merchantChannels.pine_labs.plan === 'RENTAL' ? (systemSettings?.monthly_rental_rupees ? `₹${systemSettings.monthly_rental_rupees}/mo Rental` : (systemSettingsError ? 'Rental Error (Setting Missing)' : 'Rental')) : `Custom (₹${merchantChannels.pine_labs.rent || 0}/mo)`}</strong></span>
                             <span>Entity: <strong style={{ color: '#0F172A' }}>{merchantChannels.pine_labs.vendor || 'Rose Navaneetham Enterprises'}</strong></span>
                           </div>
                         </div>
@@ -8626,7 +8643,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                           </div>
 
                           <div style={{ fontSize: '0.625rem', color: '#64748B', display: 'flex', justifyContent: 'space-between', padding: '0 2px' }}>
-                            <span>Plan: <strong style={{ color: '#0F172A' }}>{merchantChannels.payswiff.plan === 'RENTAL' ? '₹499/mo Rental' : `Custom (₹${merchantChannels.payswiff.rent || 0}/mo)`}</strong></span>
+                            <span>Plan: <strong style={{ color: '#0F172A' }}>{merchantChannels.payswiff.plan === 'RENTAL' ? (systemSettings?.monthly_rental_rupees ? `₹${systemSettings.monthly_rental_rupees}/mo Rental` : (systemSettingsError ? 'Rental Error (Setting Missing)' : 'Rental')) : `Custom (₹${merchantChannels.payswiff.rent || 0}/mo)`}</strong></span>
                             <span>Entity: <strong style={{ color: '#0F172A' }}>{merchantChannels.payswiff.vendor || 'RONAV Technologies'}</strong></span>
                           </div>
                         </div>
