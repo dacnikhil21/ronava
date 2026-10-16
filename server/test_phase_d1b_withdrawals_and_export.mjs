@@ -247,14 +247,14 @@ async function testWithdrawalsAndExport() {
 
     console.log('✅ ALL WITHDRAWAL LIFECYCLE, EXPORT & UTR TESTS PASSED!');
   } finally {
-    await new Promise(r => server.close(r));
+    server.close();
     await pool.end();
   }
 }
 
 testWithdrawalsAndExport()
   .then(() => {
-    process.exit(0);
+    setTimeout(() => process.exit(0), 50);
   })
   .catch(err => {
     console.error('❌ Test failed:', err);
