@@ -16,6 +16,7 @@ import { processSwipeTransaction } from './transaction_engine.js';
 import { quoteWithdrawal, processWithdrawalRequest } from './withdrawal_engine.js';
 import { reverseTransaction } from './reversal_engine.js';
 import { validateChildParentRates, setUserRate, getActiveRate } from './rate_engine.js';
+import { serializeMoneyFields } from './serializers.js';
 
 export { getCaller };
 
@@ -173,10 +174,10 @@ export async function handleApiRequest(req, res) {
         const [mRes, pRes, volRes, posRes, txRes, disRes] = await Promise.all([
           pgQuery(`SELECT COUNT(*)::int as c FROM users WHERE role = 'MERCHANT'`),
           pgQuery(`SELECT COUNT(*)::int as c FROM users WHERE role IN ('MASTER', 'SUPER_DISTRIBUTOR', 'DISTRICT_DISTRIBUTOR', 'DISTRIBUTOR', 'DIST_FRANCHISE')`),
-          pgQuery(`SELECT COALESCE(SUM(amount), 0)::numeric as s FROM transactions WHERE status = 'APPROVED'`),
+          pgQuery(`SELECT COALESCE(SUM(amount_paise), 0)::numeric / 100.0 as s FROM transactions WHERE status = 'APPROVED'`),
           pgQuery(`SELECT COUNT(*)::int as c FROM merchant_pos`),
           pgQuery(`SELECT COUNT(*)::int as c FROM transactions`),
-          pgQuery(`SELECT COALESCE(SUM(amount), 0)::numeric as s FROM withdrawals WHERE status = 'APPROVED'`)
+          pgQuery(`SELECT COALESCE(SUM(amount_paise), 0)::numeric / 100.0 as s FROM withdrawals WHERE status = 'APPROVED'`)
         ]);
 
         const totalMerchants = parseInt(mRes[0]?.c || 0, 10);
@@ -642,7 +643,7 @@ export async function handleApiRequest(req, res) {
 
         return sendJson(res, 200, {
           success: true,
-          wallet,
+          wallet: serializeMoneyFields(wallet),
           pos,
           balances
         });
@@ -1299,7 +1300,7 @@ export async function handleApiRequest(req, res) {
       `);
 
       const txCounts = await pgQuery(`
-        SELECT merchant_id, COUNT(*) as txn_count, COALESCE(SUM(amount), 0) as total_txn_volume
+        SELECT merchant_id, COUNT(*) as txn_count, COALESCE(SUM(amount_paise) / 100.0, 0) as total_txn_volume
         FROM transactions
         GROUP BY merchant_id
       `);
@@ -1520,7 +1521,7 @@ export async function handleApiRequest(req, res) {
         return sendJson(res, 200, {
           success: true,
           message: 'Transaction recorded and routed through Phase B ledger engine.',
-          transaction: serializable
+          transaction: serializeMoneyFields(serializable)
         });
       } catch (err) {
         if (err.message?.includes('DUPLICATE_SWIPE')) {
@@ -1576,8 +1577,8 @@ export async function handleApiRequest(req, res) {
           if (Array.isArray(meta.commission_splits)) {
             const split = meta.commission_splits.find(s => (s.user_id || '').toUpperCase() === merchantId.toUpperCase());
             if (split) {
-              const commEarned = parseFloat(split.amount || 0);
-              const saleAmt = parseFloat(row.amount || 0);
+              const commEarned = parseFloat(split.amount || split.commission || (Number(split.amount_paise || 0) / 100) || 0);
+              const saleAmt = parseFloat(row.amount || (Number(row.amount_paise || 0) / 100) || 0);
               let commPct = 0;
               if (split.margin_diff !== undefined && split.margin_diff !== null) {
                 commPct = parseFloat(split.margin_diff);
@@ -1608,7 +1609,7 @@ export async function handleApiRequest(req, res) {
         } catch (_) {}
       }
 
-      const allTxns = [...directTxns, ...commissionEntries].sort((a, b) => {
+      const allTxns = serializeMoneyFields([...directTxns, ...commissionEntries]).sort((a, b) => {
         return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
       });
 
@@ -1691,7 +1692,7 @@ export async function handleApiRequest(req, res) {
       let totalAdminProfit = 0;
 
       allApprovedTxns.forEach(t => {
-        const amt = parseFloat(t.amount) || 0;
+        const amt = (Number(t.amount_paise || 0) / 100) || parseFloat(t.amount) || 0;
         const p = (t.provider || '').toLowerCase();
         let fee = 0;
         if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
@@ -1720,8 +1721,8 @@ export async function handleApiRequest(req, res) {
       const mCount = (await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role = 'MERCHANT'`))[0]?.c || 0;
       const sdCount = (await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role = 'SUPER_DISTRIBUTOR'`))[0]?.c || 0;
       const dCount = (await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role IN ('DISTRIBUTOR', 'DISTRICT_DISTRIBUTOR', 'DIST_FRANCHISE')`))[0]?.c || 0;
-      const totalVol = (await pgQuery(`SELECT COALESCE(SUM(amount), 0) as s FROM transactions WHERE status = 'APPROVED'`))[0]?.s || 0;
-      const pendingVol = (await pgQuery(`SELECT COALESCE(SUM(amount), 0) as s FROM transactions WHERE status = 'PENDING'`))[0]?.s || 0;
+      const totalVol = (await pgQuery(`SELECT COALESCE(SUM(amount_paise), 0)::numeric / 100.0 as s FROM transactions WHERE status = 'APPROVED'`))[0]?.s || 0;
+      const pendingVol = (await pgQuery(`SELECT COALESCE(SUM(amount_paise), 0)::numeric / 100.0 as s FROM transactions WHERE status = 'PENDING'`))[0]?.s || 0;
 
       const stats = {
         totalMerchants: parseInt(mCount),
@@ -1739,9 +1740,9 @@ export async function handleApiRequest(req, res) {
 
       return sendJson(res, 200, {
         success: true,
-        pendingTransactions,
-        pendingWithdrawals,
-        allTransactions,
+        pendingTransactions: serializeMoneyFields(pendingTransactions),
+        pendingWithdrawals: serializeMoneyFields(pendingWithdrawals),
+        allTransactions: serializeMoneyFields(allTransactions),
         stats
       });
     }
@@ -1804,7 +1805,7 @@ export async function handleApiRequest(req, res) {
           });
         });
 
-        return sendJson(res, 200, { success: true, withdrawal: result });
+        return sendJson(res, 200, { success: true, withdrawal: serializeMoneyFields(result) });
       } catch (err) {
         const status = err.message?.includes('RESERVE_VIOLATION') ? 403 : 400;
         return sendJson(res, status, { success: false, message: err.message });
@@ -1937,7 +1938,7 @@ export async function handleApiRequest(req, res) {
         return sendJson(res, 200, {
           success: true,
           message: `Withdrawal ${action === 'REJECT' ? 'Rejected' : 'Completed'}.`,
-          withdrawal: updatedWth,
+          withdrawal: serializeMoneyFields(updatedWth),
           balances
         });
       } catch (err) {
@@ -1958,7 +1959,7 @@ export async function handleApiRequest(req, res) {
         WHERE UPPER(w.merchant_id) = UPPER($1) 
         ORDER BY w.created_at DESC
       `, [merchantId]);
-      return sendJson(res, 200, { success: true, withdrawals });
+      return sendJson(res, 200, { success: true, withdrawals: serializeMoneyFields(withdrawals) });
     }
 
     if ((pathname === '/api/admin/withdrawals' || pathname === '/api/withdrawals') && method === 'GET') {
@@ -2000,7 +2001,7 @@ export async function handleApiRequest(req, res) {
         };
       });
 
-      return sendJson(res, 200, { success: true, withdrawals: enriched });
+      return sendJson(res, 200, { success: true, withdrawals: serializeMoneyFields(enriched) });
     }
 
     if (pathname === '/api/admin/withdrawals/export-excel' && method === 'POST') {
@@ -2264,7 +2265,7 @@ export async function handleApiRequest(req, res) {
         LEFT JOIN merchant_pos p ON t.merchant_id = p.merchant_id
         ORDER BY t.created_at DESC
       `);
-      return sendJson(res, 200, { success: true, transactions });
+      return sendJson(res, 200, { success: true, transactions: serializeMoneyFields(transactions) });
     }
 
     if ((pathname === '/api/pos/all' || pathname === '/api/pos') && method === 'GET') {
@@ -2280,7 +2281,7 @@ export async function handleApiRequest(req, res) {
 
     if ((pathname === '/api/wallets' || pathname === '/api/admin/wallets') && method === 'GET') {
       const wallets = await pgQuery(`SELECT * FROM wallets ORDER BY updated_at DESC`);
-      return sendJson(res, 200, { success: true, wallets });
+      return sendJson(res, 200, { success: true, wallets: serializeMoneyFields(wallets) });
     }
 
     // ----------------------------------------------------
@@ -2449,7 +2450,7 @@ export async function handleApiRequest(req, res) {
         const balances = await getWalletBalances(getDbPool(), callerId);
         return sendJson(res, 200, {
           success: true,
-          balances: {
+          balances: serializeMoneyFields({
             user_id: balances.user_id,
             balance_paise: balances.balance_paise.toString(),
             held_paise: balances.held_paise.toString(),
@@ -2459,7 +2460,7 @@ export async function handleApiRequest(req, res) {
             withdrawable_balance_paise: balances.withdrawable_balance_paise.toString(),
             balance_rupees: (Number(balances.balance_paise) / 100).toFixed(2),
             withdrawable_rupees: (Number(balances.withdrawable_balance_paise) / 100).toFixed(2)
-          }
+          })
         });
       } catch (err) {
         return sendJson(res, 500, { success: false, message: err.message });
@@ -2493,9 +2494,10 @@ export async function handleApiRequest(req, res) {
 
         return sendJson(res, 200, {
           success: true,
-          quote: {
+          quote: serializeMoneyFields({
             user_id: quote.user_id,
             requested_amount_paise: quote.requested_amount_paise.toString(),
+            amount_paise: quote.requested_amount_paise.toString(),
             fee_bps: quote.fee_bps,
             fee_paise: quote.fee_paise.toString(),
             net_payout_paise: quote.net_payout_paise.toString(),
@@ -2506,7 +2508,7 @@ export async function handleApiRequest(req, res) {
             requested_amount_rupees: (Number(quote.requested_amount_paise) / 100).toFixed(2),
             fee_rupees: (Number(quote.fee_paise) / 100).toFixed(2),
             net_payout_rupees: (Number(quote.net_payout_paise) / 100).toFixed(2)
-          }
+          })
         });
       } catch (err) {
         return sendJson(res, 400, { success: false, message: err.message });
@@ -2821,7 +2823,7 @@ export async function handleApiRequest(req, res) {
           });
         });
 
-        return sendJson(res, 200, { success: true, withdrawal: result });
+        return sendJson(res, 200, { success: true, withdrawal: serializeMoneyFields(result) });
       } catch (err) {
         const status = err.message.includes('RESERVE_VIOLATION') ? 403 : 400;
         return sendJson(res, status, { success: false, message: err.message });
@@ -2851,7 +2853,7 @@ export async function handleApiRequest(req, res) {
 
         return sendJson(res, 200, { 
           success: true, 
-          transaction: {
+          transaction: serializeMoneyFields({
             ...result,
             amount_paise: result.amount_paise.toString(),
             customer_charge_paise: result.customer_charge_paise.toString(),
@@ -2860,7 +2862,7 @@ export async function handleApiRequest(req, res) {
               ...d,
               amount_paise: d.amount_paise.toString()
             }))
-          } 
+          })
         });
       } catch (err) {
         const status = err.message.includes('DUPLICATE_SWIPE') ? 409 : 400;
@@ -2885,7 +2887,7 @@ export async function handleApiRequest(req, res) {
           });
         });
 
-        return sendJson(res, 200, { success: true, reversal: result });
+        return sendJson(res, 200, { success: true, reversal: serializeMoneyFields(result) });
       } catch (err) {
         return sendJson(res, 400, { success: false, message: err.message });
       }

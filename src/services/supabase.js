@@ -284,7 +284,7 @@ export function subscribeToAdminFeed(callback) {
     } catch (err) {
       console.warn('[supabase] Heartbeat subscription callback failed:', err);
     }
-  }, 10000);
+  }, 30000);
 
   return () => clearInterval(interval);
 }
@@ -298,7 +298,7 @@ export function subscribeToWallet(userId, callback) {
     } catch (err) {
       console.warn('[supabase] Wallet update subscription callback failed:', err);
     }
-  }, 10000);
+  }, 30000);
 
   return () => clearInterval(interval);
 }
@@ -312,7 +312,7 @@ export function subscribeToTransactions(userId, callback) {
     } catch (err) {
       console.warn('[supabase] Transaction update subscription callback failed:', err);
     }
-  }, 10000);
+  }, 30000);
 
   return () => clearInterval(interval);
 }

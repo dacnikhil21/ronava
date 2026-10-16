@@ -11,7 +11,7 @@
  */
 export function formatPaiseToRupees(paise, includeSymbol = true) {
   if (paise === null || paise === undefined || paise === '') {
-    return includeSymbol ? '₹0.00' : '0.00';
+    return 'Error';
   }
 
   let pBig;
@@ -19,7 +19,7 @@ export function formatPaiseToRupees(paise, includeSymbol = true) {
     pBig = BigInt(paise);
   } catch (_) {
     const num = parseFloat(paise);
-    if (isNaN(num)) return includeSymbol ? '₹0.00' : '0.00';
+    if (isNaN(num)) return 'Error';
     pBig = BigInt(Math.round(num));
   }
 
@@ -88,8 +88,9 @@ export function percentToBps(percent) {
  * @returns {string}
  */
 export function formatNumberIndian(val, decimals = 2) {
+  if (val === null || val === undefined || val === '') return 'Error';
   const num = parseFloat(val);
-  if (isNaN(num)) return '0';
+  if (isNaN(num)) return 'Error';
   return num.toLocaleString('en-IN', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals

@@ -617,7 +617,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
     checkCommissionConfig();
     window.addEventListener('storage', checkCommissionConfig);
-    const interval = setInterval(checkCommissionConfig, 10000);
+    const interval = setInterval(checkCommissionConfig, 30000);
     return () => {
       window.removeEventListener('storage', checkCommissionConfig);
       clearInterval(interval);
@@ -1105,28 +1105,40 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     }
   };
 
-  const fetchNetworkData = async () => {
-    setIsLoadingNetwork(true);
+  const fetchNetworkData = async (isSilent = false) => {
+    if (!isSilent) setIsLoadingNetwork(true);
     try {
       const res = await getDownstreamNetwork(merchantId);
       if (res.success) {
         setCreatorPos(res.creator_pos || null);
-        setNetworkData({
-          partners: res.partners || [],
-          total_commission_earned: res.total_commission_earned || 0,
-          today_network_profit: res.today_network_profit || 0,
-          total_downline_volume: res.total_downline_volume || 0,
-          today_downline_volume: res.today_downline_volume || 0,
-          commission_rate_pct: res.commission_rate_pct || 0,
-          channel_commissions: res.channel_commissions || { pinelabs: 0, payswiff: 0, qr: 0 },
-          channel_volumes: res.channel_volumes || { pinelabs: 0, payswiff: 0, qr: 0, all: 0 }
+        setNetworkData(prev => {
+          if (
+            prev &&
+            prev.total_commission_earned === res.total_commission_earned &&
+            prev.today_network_profit === res.today_network_profit &&
+            prev.total_downline_volume === res.total_downline_volume &&
+            prev.today_downline_volume === res.today_downline_volume &&
+            prev.partners?.length === res.partners?.length
+          ) {
+            return prev;
+          }
+          return {
+            partners: res.partners || [],
+            total_commission_earned: res.total_commission_earned || 0,
+            today_network_profit: res.today_network_profit || 0,
+            total_downline_volume: res.total_downline_volume || 0,
+            today_downline_volume: res.today_downline_volume || 0,
+            commission_rate_pct: res.commission_rate_pct || 0,
+            channel_commissions: res.channel_commissions || { pinelabs: 0, payswiff: 0, qr: 0 },
+            channel_volumes: res.channel_volumes || { pinelabs: 0, payswiff: 0, qr: 0, all: 0 }
+          };
         });
       }
       fetchHierarchyRentalReport(rentalMonthFilter);
     } catch (err) {
       console.error('Error fetching network:', err);
     } finally {
-      setIsLoadingNetwork(false);
+      if (!isSilent) setIsLoadingNetwork(false);
     }
   };
 
@@ -1377,7 +1389,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     }
   };
 
-  const fetchLiveData = async () => {
+  const fetchLiveData = async (isSilent = false) => {
     try {
       const [walletRes, txnRes, wthRes, benRes, ratesRes, setRes, finRes] = await Promise.all([
         getWallet(merchantId).catch(err => ({ success: false, message: err.message })),
@@ -1400,7 +1412,19 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       if (finRes && finRes.success) setFinancialSummary(finRes);
 
       if (walletRes && walletRes.success) {
-        setWallet(walletRes.wallet);
+        setWallet(prev => {
+          if (!prev) return walletRes.wallet;
+          if (
+            prev.available_balance === walletRes.wallet?.available_balance &&
+            prev.balance_paise === walletRes.wallet?.balance_paise &&
+            prev.held_paise === walletRes.wallet?.held_paise &&
+            prev.withdrawable_balance === walletRes.wallet?.withdrawable_balance &&
+            prev.total_sales === walletRes.wallet?.total_sales
+          ) {
+            return prev;
+          }
+          return walletRes.wallet;
+        });
         setWalletError(null);
         if (walletRes.pos) {
           setUserPos(walletRes.pos);
@@ -1416,11 +1440,16 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         const msg = walletRes?.message || 'Failed to sync wallet balance from server';
         setWalletError(msg);
         setWallet(null);
-        showToast('⚠️ Error: ' + msg);
+        if (!isSilent) showToast('⚠️ Error: ' + msg);
       }
 
       if (txnRes && txnRes.success && Array.isArray(txnRes.transactions)) {
-        setTransactions(txnRes.transactions);
+        setTransactions(prev => {
+          if (prev && prev.length === txnRes.transactions.length && prev[0]?.id === txnRes.transactions[0]?.id) {
+            return prev;
+          }
+          return txnRes.transactions;
+        });
         setTxnError(null);
       } else {
         const msg = txnRes?.message || 'Failed to sync transaction history';
@@ -1428,7 +1457,12 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       }
 
       if (wthRes && wthRes.success && wthRes.withdrawals) {
-        setWithdrawals(wthRes.withdrawals);
+        setWithdrawals(prev => {
+          if (prev && prev.length === wthRes.withdrawals.length && prev[0]?.id === wthRes.withdrawals[0]?.id) {
+            return prev;
+          }
+          return wthRes.withdrawals;
+        });
         setWthError(null);
       } else {
         const msg = wthRes?.message || 'Failed to sync payout history';
@@ -1445,22 +1479,24 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     } catch (err) {
       console.error('fetchLiveData error:', err);
       setWalletError('Network connection error: ' + err.message);
-      showToast('Network error syncing merchant operational data.');
+      if (!isSilent) showToast('Network error syncing merchant operational data.');
     } finally {
-      setIsLoadingPos(false);
+      if (!isSilent) setIsLoadingPos(false);
     }
   };
 
   useEffect(() => {
-    fetchLiveData();
-    fetchNetworkData();
+    fetchLiveData(false);
+    fetchNetworkData(false);
 
-    // Live realtime subscriptions
-    const unsubWallet = subscribeToWallet(merchantId, (updatedWallet) => {
-      if (updatedWallet) setWallet(updatedWallet);
+    // Live realtime subscriptions (quiet background refresh)
+    const unsubWallet = subscribeToWallet(merchantId, () => {
+      fetchLiveData(true);
+      fetchNetworkData(true);
     });
     const unsubTxns = subscribeToTransactions(merchantId, () => {
-      fetchLiveData();
+      fetchLiveData(true);
+      fetchNetworkData(true);
     });
 
     return () => {
@@ -1535,7 +1571,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       <div style={{ margin: '0.25rem 0 0.875rem' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.375rem' }}>
           <span style={{ fontSize: '1.75rem', fontWeight: 900, color: '#0F172A', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
-            ₹{activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined ? activeMachineWallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : (walletError ? 'Sync Error' : '0.00')}
+            ₹{activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined && !isNaN(Number(activeMachineWallet.available_balance)) ? Number(activeMachineWallet.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : 'Sync Error'}
           </span>
         </div>
         <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 500, marginTop: '2px', display: 'block' }}>
@@ -3224,7 +3260,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                 {activeMachine.title} Available Balance
                               </span>
                               <span style={{ fontSize: '1.35rem', fontWeight: 900, letterSpacing: '-0.01em', color: '#FFFFFF', lineHeight: 1.1 }}>
-                                ₹{activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined ? activeMachineWallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : (walletError ? 'Sync Error' : '0.00')}
+                                ₹{activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined && !isNaN(Number(activeMachineWallet.available_balance)) ? Number(activeMachineWallet.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : 'Sync Error'}
                               </span>
                             </div>
                           </div>
@@ -3950,7 +3986,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                               ₹{(activeMachineWallet.withdrawable_balance !== null && activeMachineWallet.withdrawable_balance !== undefined ? activeMachineWallet.withdrawable_balance : 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                             </span>
                             <span style={{ fontSize: '0.625rem', color: 'rgba(255,255,255,0.75)', display: 'block', marginTop: '1px' }}>
-                              Total Balance: ₹{activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined ? activeMachineWallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : (walletError ? 'Sync Error' : '0.00')} • {activeMachineWallet.active_hold > 0 ? 'Active Reserve Hold: ₹500.00' : 'Reserve Hold: ₹0.00'}
+                              Total Balance: ₹{activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined && !isNaN(Number(activeMachineWallet.available_balance)) ? Number(activeMachineWallet.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : 'Sync Error'} • {activeMachineWallet.active_hold > 0 ? 'Active Reserve Hold: ₹500.00' : 'Reserve Hold: ₹0.00'}
                             </span>
                           </div>
                         </div>
@@ -5057,7 +5093,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                     fontSize: '0.75rem',
                     fontWeight: 700
                   }}>
-                    Available: <strong style={{ fontWeight: 900, color: '#059669' }}>₹{wallet?.available_balance !== null && wallet?.available_balance !== undefined ? parseFloat(wallet.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : (walletError ? 'Sync Error' : '0.00')}</strong>
+                    Available: <strong style={{ fontWeight: 900, color: '#059669' }}>₹{wallet?.available_balance !== null && wallet?.available_balance !== undefined && !isNaN(Number(wallet.available_balance)) ? Number(wallet.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : 'Sync Error'}</strong>
                   </span>
                 </div>
               </div>

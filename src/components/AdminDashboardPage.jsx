@@ -343,25 +343,30 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     }
   };
 
-  const fetchRentalReport = async (monthVal) => {
-    setIsLoadingRental(true);
+  const fetchRentalReport = async (monthVal, isSilent = false) => {
+    if (!isSilent) setIsLoadingRental(true);
     try {
       const res = await getMonthlyRentalReport(monthVal || rentalMonth);
       if (res && res.success) {
-        setRentalReportData({
-          list: res.list || [],
-          summary: res.summary || {}
+        setRentalReportData(prev => {
+          if (prev && prev.list?.length === (res.list || []).length && prev.summary?.total_terminals === res.summary?.total_terminals) {
+            return prev;
+          }
+          return {
+            list: res.list || [],
+            summary: res.summary || {}
+          };
         });
       }
     } catch (e) {
       console.error('Failed to load rental report:', e);
     } finally {
-      setIsLoadingRental(false);
+      if (!isSilent) setIsLoadingRental(false);
     }
   };
 
   // Load Fresh Data from Backend
-  const fetchAdminData = async () => {
+  const fetchAdminData = async (isSilent = false) => {
     try {
       // Sync platform QR from Supabase in background
       getPlatformQrConfig().then(cfg => {
@@ -385,7 +390,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       if (treeRes && !treeRes.success) failedModules.push('Hierarchy Tree');
       if (inqRes && !inqRes.success) failedModules.push('Inquiries');
 
-      if (failedModules.length > 0) {
+      if (failedModules.length > 0 && !isSilent) {
         triggerToast(`⚠️ Server Sync Warning: Failed to load ${failedModules.join(', ')} from database.`, 'error');
       }
 
@@ -394,28 +399,59 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       }
 
       if (pendingRes && pendingRes.success) {
-        setPendingTxns(pendingRes.pendingTransactions || []);
-        setPendingPayouts(pendingRes.pendingWithdrawals || []);
-        setAllPayouts(pendingRes.allWithdrawals || []);
-        setTransactionsLedger(pendingRes.allTransactions || []);
+        setPendingTxns(prev => {
+          const next = pendingRes.pendingTransactions || [];
+          if (prev.length === next.length && prev[0]?.id === next[0]?.id) return prev;
+          return next;
+        });
+        setPendingPayouts(prev => {
+          const next = pendingRes.pendingWithdrawals || [];
+          if (prev.length === next.length && prev[0]?.id === next[0]?.id) return prev;
+          return next;
+        });
+        setAllPayouts(prev => {
+          const next = pendingRes.allWithdrawals || [];
+          if (prev.length === next.length && prev[0]?.id === next[0]?.id) return prev;
+          return next;
+        });
+        setTransactionsLedger(prev => {
+          const next = pendingRes.allTransactions || [];
+          if (prev.length === next.length && prev[0]?.id === next[0]?.id) return prev;
+          return next;
+        });
         if (pendingRes.stats) {
-          setMetrics(prev => ({
-            ...prev,
-            ...pendingRes.stats,
-            vendorSummary: {
-              ...prev.vendorSummary,
-              ...(pendingRes.stats.vendorSummary || {})
-            },
-            devicePlanSummary: {
-              ...prev.devicePlanSummary,
-              ...(pendingRes.stats.devicePlanSummary || {})
+          setMetrics(prev => {
+            const keys = ['totalMerchants', 'totalSuperDistributors', 'totalDistributors', 'withdrawalsCount', 'pendingWithdrawalsCount', 'totalVolume', 'pendingVolume', 'adminNetProfit', 'pineVolume', 'payswiffVolume', 'qrVolume'];
+            let changed = false;
+            for (const k of keys) {
+              if (prev[k] !== pendingRes.stats[k]) {
+                changed = true;
+                break;
+              }
             }
-          }));
+            if (!changed) return prev;
+            return {
+              ...prev,
+              ...pendingRes.stats,
+              vendorSummary: {
+                ...prev.vendorSummary,
+                ...(pendingRes.stats.vendorSummary || {})
+              },
+              devicePlanSummary: {
+                ...prev.devicePlanSummary,
+                ...(pendingRes.stats.devicePlanSummary || {})
+              }
+            };
+          });
         }
       }
 
       if (usersRes && usersRes.success) {
-        setNetworkUsers(usersRes.users || []);
+        setNetworkUsers(prev => {
+          const next = usersRes.users || [];
+          if (prev.length === next.length && prev[0]?.id === next[0]?.id) return prev;
+          return next;
+        });
       }
 
       if (treeRes && treeRes.success) {
@@ -430,10 +466,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         setSystemSettingsError(settingsRes.message || 'Monthly rental amount setting is missing from system_settings.');
       }
 
-      fetchRentalReport(rentalMonth);
+      fetchRentalReport(rentalMonth, isSilent);
     } catch (err) {
       console.error('Error fetching admin data:', err);
-      triggerToast('Error connecting to backend: ' + err.message, 'error');
+      if (!isSilent) triggerToast('Error connecting to backend: ' + err.message, 'error');
     }
   };
 
@@ -601,9 +637,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   };
 
   useEffect(() => {
-    fetchAdminData();
+    fetchAdminData(false);
     const unsubscribe = subscribeToAdminFeed(() => {
-      fetchAdminData();
+      fetchAdminData(true);
     });
     return () => {
       if (unsubscribe) unsubscribe();
