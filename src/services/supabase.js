@@ -281,7 +281,9 @@ export function subscribeToAdminFeed(callback) {
   const interval = setInterval(async () => {
     try {
       if (callback) callback({ type: 'HEARTBEAT', timestamp: new Date().toISOString() });
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[supabase] Heartbeat subscription callback failed:', err);
+    }
   }, 10000);
 
   return () => clearInterval(interval);
@@ -293,7 +295,9 @@ export function subscribeToWallet(userId, callback) {
   const interval = setInterval(async () => {
     try {
       if (callback) callback({ type: 'WALLET_UPDATE', userId, timestamp: new Date().toISOString() });
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[supabase] Wallet update subscription callback failed:', err);
+    }
   }, 10000);
 
   return () => clearInterval(interval);
@@ -305,7 +309,9 @@ export function subscribeToTransactions(userId, callback) {
   const interval = setInterval(async () => {
     try {
       if (callback) callback({ type: 'TXN_UPDATE', userId, timestamp: new Date().toISOString() });
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[supabase] Transaction update subscription callback failed:', err);
+    }
   }, 10000);
 
   return () => clearInterval(interval);

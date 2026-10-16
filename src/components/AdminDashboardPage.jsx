@@ -369,7 +369,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           if (cfg.image) setCompanyQrImage(cfg.image);
           if (cfg.name) setCompanyQrPayeeName(cfg.name);
         }
-      }).catch(() => {});
+      }).catch(err => console.warn('[AdminDashboardPage] Failed to load platform QR config:', err));
 
       const [pendingRes, usersRes, treeRes, inqRes, settingsRes] = await Promise.all([
         getAdminPending().catch(err => ({ success: false, message: err.message })),
@@ -574,7 +574,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           try {
             if (document.body.contains(link)) document.body.removeChild(link);
             (window.URL || window.webkitURL).revokeObjectURL(url);
-          } catch (_) {}
+          } catch (err) {
+            console.debug('[AdminDashboardPage] Download URL cleanup notice:', err);
+          }
         }, 2000);
       } else {
         // Client fallback export with new columns
@@ -1181,7 +1183,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               }
             }
           }
-        } catch (_) {}
+        } catch (err) {
+          console.warn('[AdminDashboardPage] Commission split calculation parsing failed:', err);
+        }
       }
     });
     return total;
@@ -1429,7 +1433,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
             const parsed = JSON.parse(jsonPart);
             if (parsed.company_fee) compFee = parseFloat(parsed.company_fee);
             else if (parsed.merchant_buy_rate) compFee = ((parseFloat(t.amount) || 0) * parseFloat(parsed.merchant_buy_rate)) / 100;
-          } catch (_) {}
+          } catch (err) {
+            console.warn('[AdminDashboardPage] Failed to parse transaction fee metadata:', err);
+          }
         }
       }
       return !isNaN(compFee) && compFee > 0 ? compFee : 0;
@@ -1566,7 +1572,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           if (meta.merchant_commission) merchantComm = parseFloat(meta.merchant_commission);
           if (meta.admin_net_margin !== undefined) savedAdminMargin = parseFloat(meta.admin_net_margin);
           if (Array.isArray(meta.commission_splits)) savedSplits = meta.commission_splits;
-        } catch (_) {}
+        } catch (err) {
+          console.warn('[AdminDashboardPage] Failed to parse commission breakdown notes:', err);
+        }
       }
 
       totalSalesVolume += amt;
@@ -2770,7 +2778,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       const meta = JSON.parse(t.notes.slice(t.notes.indexOf('{')));
                       if (meta.company_fee) fee = parseFloat(meta.company_fee);
                       if (meta.admin_net_margin !== undefined) adminCut = parseFloat(meta.admin_net_margin);
-                    } catch (_) {}
+                    } catch (err) {
+                      console.warn('[AdminDashboardPage] Failed to parse ledger transaction fee metadata:', err);
+                    }
                   }
                   grossMdr += fee;
                   netAdmin += (adminCut || parseFloat(t.admin_net_margin || 0));
@@ -2927,7 +2937,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
                               try {
                                 meta = JSON.parse(t.notes.slice(t.notes.indexOf('{')));
-                              } catch (_) {}
+                              } catch (err) {
+                                console.warn('[AdminDashboardPage] Failed to parse card swipe notes JSON:', err);
+                              }
                             }
 
                             const amt = parseFloat(t.amount || 0);

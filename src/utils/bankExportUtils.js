@@ -175,7 +175,9 @@ export function triggerBrowserDownload(csvContent, fileName) {
           document.body.removeChild(link);
         }
         (window.URL || window.webkitURL).revokeObjectURL(url);
-      } catch (_) {}
+      } catch (err) {
+        console.debug('[bankExportUtils] revokeObjectURL cleanup notice:', err);
+      }
     }, 2000);
     return true;
   } catch (err) {
@@ -192,7 +194,9 @@ export function triggerBrowserDownload(csvContent, fileName) {
           if (document.body.contains(link)) {
             document.body.removeChild(link);
           }
-        } catch (_) {}
+        } catch (err) {
+          console.debug('[bankExportUtils] removeChild cleanup notice:', err);
+        }
       }, 2000);
       return true;
     } catch (fallbackErr) {
@@ -425,7 +429,9 @@ export function downloadGstAuditFile(transactionsList, options = {}) {
     try {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-    } catch (_) {}
+    } catch (err) {
+      console.debug('[bankExportUtils] DOM cleanup notice:', err);
+    }
   }, 3000);
   
   return { success: true, count, fileName };
@@ -519,7 +525,9 @@ export function downloadRentalReportFile(rentalList, options = {}) {
     try {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-    } catch (_) {}
+    } catch (err) {
+      console.debug('[bankExportUtils] DOM cleanup notice:', err);
+    }
   }, 3000);
   
   return { success: true, count, fileName };

@@ -82,7 +82,9 @@ export function getAuthSession() {
     try {
       const u = JSON.parse(rawMerchant);
       if (u && u.id) return { role: u.role || 'MERCHANT', user: u };
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[api] Failed to parse merchant session:', err);
+    }
   }
   if (sessionStorage.getItem('ronav_admin_session') === 'true') {
     return { role: 'ADMIN', user: { id: 'ADM001', name: 'Super Admin', role: 'ADMIN' } };
@@ -389,7 +391,9 @@ export async function getHierarchyTree() {
       if (liveJson && liveJson.success && liveJson.tree) {
         return liveJson;
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[api] Live hierarchy tree fetch failed, falling back:', err);
+    }
 
     const [usersRes, walletsRes, posRes, txnsRes, statusRes] = await Promise.all([
       supabase.from('users').select('*').order('created_at', { ascending: true }),
@@ -401,7 +405,11 @@ export async function getHierarchyTree() {
 
     let cloudStatusMap = {};
     if (statusRes?.data?.remarks) {
-      try { cloudStatusMap = JSON.parse(statusRes.data.remarks); } catch (_) {}
+      try {
+      cloudStatusMap = JSON.parse(statusRes.data.remarks);
+    } catch (err) {
+      console.warn('[api] Failed to parse status remarks JSON:', err);
+    }
     }
 
     const users = usersRes.data || [];
@@ -754,7 +762,9 @@ export function parseMerchantChannels(posRecord) {
         qr: { ...defaultObj.qr, ...(parsed.qr || {}) },
         enabledList
       };
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[api] Failed to parse merchant channel notes:', err);
+    }
   }
 
   // Legacy single machine parsing
@@ -916,7 +926,9 @@ export function parsePosTerminalRates(terminalStr, baseRate = 0.0) {
         uplineCut: 0,
         channels
       };
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[api] Failed to parse legacy machine notes for rate/commission:', err);
+    }
   }
 
   if (str.includes('|')) {
@@ -1045,7 +1057,9 @@ export function classifyTransactionChannel(item) {
         if (userNotes.includes('swiff') || userNotes.includes('payswiff')) return 'payswiff';
         if (userNotes.includes('qr') || userNotes.includes('upi')) return 'qr';
         if (userNotes.includes('pine')) return 'pinelabs';
-      } catch (_) {}
+      } catch (err) {
+        console.warn('[api] Failed to classify user notes channel:', err);
+      }
     } else {
       const n = item.notes.toLowerCase();
       if (n.includes('swiff') || n.includes('payswiff')) return 'payswiff';
@@ -2324,7 +2338,9 @@ export async function purgeAllTestAccounts() {
           return { success: true, message: json.message, purgedCount: json.purgedCount };
         }
       }
-    } catch (_) {}
+    } catch (err) {
+      console.warn('[api] Live purge test accounts endpoint failed:', err);
+    }
 
     // 2. Direct Supabase / PostgreSQL Client Cleanup
     const testIds = ['SD1003', 'SD1004', 'SD1005', 'SD1006', 'SD1008'];
@@ -2370,7 +2386,9 @@ function cleanLocalTestStorage() {
           });
           localStorage.setItem(key, JSON.stringify(filtered));
         }
-      } catch (_) {}
+      } catch (err) {
+        console.warn('[api] Failed to clean localStorage cache key:', err);
+      }
     }
   });
 }
@@ -2410,7 +2428,9 @@ function cleanSingleUserFromLocalStorage(userId) {
           });
           localStorage.setItem(key, JSON.stringify(filtered));
         }
-      } catch (_) {}
+      } catch (err) {
+        console.warn('[api] Failed to clean localStorage cache key:', err);
+      }
     }
   });
 }

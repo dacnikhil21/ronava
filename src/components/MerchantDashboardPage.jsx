@@ -248,7 +248,9 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       setTimeout(() => {
         setCopiedId(prev => ({ ...prev, [id]: false }));
       }, 2000);
-    } catch (_) {}
+    } catch (err) {
+      console.debug('[MerchantDashboardPage] Fallback copy notice:', err);
+    }
   };
 
 
@@ -280,7 +282,9 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       try {
         const cached = sessionStorage.getItem('ronav_user_pos');
         if (cached) return JSON.parse(cached);
-      } catch (_) {}
+      } catch (err) {
+        console.warn('[MerchantDashboardPage] Failed to parse cached user POS:', err);
+      }
     }
     return null;
   });
@@ -596,7 +600,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         if (res && res.success) {
           setIsCommissionPayoutEnabled(res.enabled);
         }
-      }).catch(() => {});
+      }).catch(err => console.warn('[MerchantDashboardPage] Failed to poll commission payout config:', err));
     };
 
     checkCommissionConfig();
@@ -670,7 +674,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           }));
         }
       })
-      .catch(() => {});
+      .catch(err => console.warn('[MerchantDashboardPage] Profile fetch sync failed:', err));
   }, [merchantId]);
 
   // Real-time mobile wake-up sync: Re-fetches fresh data when app returns from background / lockscreen
@@ -776,7 +780,9 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       try {
         const jsonPart = t.notes.slice(t.notes.indexOf('{'));
         meta = JSON.parse(jsonPart);
-      } catch (_) {}
+      } catch (err) {
+        console.warn('[MerchantDashboardPage] Failed to parse transaction notes split JSON:', err);
+      }
     }
 
     if (meta) {
@@ -1385,7 +1391,9 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           if (typeof window !== 'undefined') {
             try {
               sessionStorage.setItem('ronav_user_pos', JSON.stringify(walletRes.pos));
-            } catch (_) {}
+            } catch (err) {
+              console.warn('[MerchantDashboardPage] Failed to cache user POS to sessionStorage:', err);
+            }
           }
         }
       } else {
