@@ -147,20 +147,16 @@ export async function processSwipeTransaction(client, {
   const distributions = []; // [{ user_id, role, amount_paise, rate_used_bps, child_rate_bps, parent_rate_bps }]
   let distributedPaiseSum = 0n;
 
-  // Compute upline margins
+  // Compute upline margins:
+  // Walk up the real parent chain. Each parent earns (rate of person directly below them) minus (parent's own rate).
   for (let i = 1; i < hierarchy.length; i++) {
-    const child = hierarchy[i - 1];
     const current = hierarchy[i];
-    const nextParent = i + 1 < hierarchy.length ? hierarchy[i + 1] : null;
-
-    let marginBps = 0;
-    if (current.role === 'ADMIN' || !nextParent) {
+    if (current.role === 'ADMIN') {
       // Top Admin level: gets remainder after all child cuts
-      // Will be calculated after all child levels
       continue;
-    } else {
-      marginBps = current.rate_bps - nextParent.rate_bps;
     }
+    const child = hierarchy[i - 1];
+    const marginBps = child.rate_bps - current.rate_bps;
 
     // Round each level down to the paisa
     const commPaise = BigInt(Math.floor((Number(grossPaise) * marginBps) / 10000));
@@ -183,17 +179,21 @@ export async function processSwipeTransaction(client, {
   const bankCostBps = isBankCostEnabled ? Number(bankCostBpsSetting.value_numeric || 0) : 0;
   const bankCostPaise = BigInt(Math.floor((Number(grossPaise) * bankCostBps) / 10000));
 
-  // Admin Remainder Rule: Any fractional or base remainder goes strictly to Admin
+  // Admin Remainder Rule:
+  // Admin has NO rate of its own. Admin receives the remainder: the swipe charge minus all commissions paid,
+  // which equals the rate of the top person under Admin, plus any rounding remainder.
   const adminUser = hierarchy[hierarchy.length - 1];
   const adminRemainderPaise = merchantFeePaise - distributedPaiseSum - bankCostPaise;
+  const topPersonUnderAdmin = hierarchy.length > 1 ? hierarchy[hierarchy.length - 2] : merchant;
+  const adminEffectiveRateBps = topPersonUnderAdmin.rate_bps;
 
   distributions.push({
     user_id: adminUser.user_id,
     role: adminUser.role,
     amount_paise: adminRemainderPaise,
-    rate_used_bps: adminUser.rate_bps,
-    child_rate_bps: hierarchy.length > 1 ? hierarchy[hierarchy.length - 2].rate_bps : adminUser.rate_bps,
-    parent_rate_bps: adminUser.rate_bps,
+    rate_used_bps: adminEffectiveRateBps,
+    child_rate_bps: topPersonUnderAdmin.rate_bps,
+    parent_rate_bps: adminEffectiveRateBps,
     is_admin_remainder: true
   });
   distributedPaiseSum += adminRemainderPaise;
