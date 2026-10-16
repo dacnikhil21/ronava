@@ -375,7 +375,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         getAdminPending().catch(err => ({ success: false, message: err.message })),
         getAllUsers().catch(err => ({ success: false, message: err.message })),
         getHierarchyTree().catch(err => ({ success: false, message: err.message })),
-        getInquiries().catch(err => ({ success: false, message: err.message, inquiries: [] }))
+        getInquiries().catch(err => ({ success: false, message: err.message, inquiries: [] })),
+        getSystemSettings().catch(err => ({ success: false, message: err.message }))
       ]);
 
       const failedModules = [];
