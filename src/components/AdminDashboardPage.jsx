@@ -1427,6 +1427,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     let allVol = 0;
     let allProfit = 0;
 
+    let hasFeeError = false;
     const getTxnCompanyFee = (t) => {
       let compFee = parseFloat(t.company_fee);
       if (isNaN(compFee) || compFee <= 0) {
@@ -1438,6 +1439,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
             else if (parsed.merchant_buy_rate) compFee = ((parseFloat(t.amount) || 0) * parseFloat(parsed.merchant_buy_rate)) / 100;
           } catch (err) {
             console.warn('[AdminDashboardPage] Failed to parse transaction fee metadata:', err);
+            hasFeeError = true;
           }
         }
       }
@@ -1468,11 +1470,13 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
     let volume = 0;
     let adminProfit = 0;
+    let filteredHasFeeError = false;
     filteredTxns.forEach(t => {
       const amt = parseFloat(t.amount) || 0;
       if (t.status === 'APPROVED' || t.status === 'Success') {
         volume += amt;
-        adminProfit += getTxnCompanyFee(t);
+        const fee = getTxnCompanyFee(t);
+        adminProfit += fee;
       }
     });
 
@@ -1482,7 +1486,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       adminProfit,
       allVolume: allVol,
       allAdminProfit: allProfit,
-      count: filteredTxns.length
+      count: filteredTxns.length,
+      hasFeeError: filteredHasFeeError || hasFeeError
     };
   }, [transactionsLedger, dateRangeFilter]);
 
@@ -1566,6 +1571,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       let merchantComm = parseFloat(t.merchant_commission) || 0;
       let savedSplits = [];
       let savedAdminMargin = 0;
+      let metaError = false;
 
       if (t.notes && typeof t.notes === 'string' && t.notes.includes('{')) {
         try {
@@ -1577,6 +1583,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           if (Array.isArray(meta.commission_splits)) savedSplits = meta.commission_splits;
         } catch (err) {
           console.warn('[AdminDashboardPage] Failed to parse commission breakdown notes:', err);
+          metaError = true;
         }
       }
 
@@ -1601,8 +1608,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         amount: amt,
         provider: channelDisplayName,
         channel_key: channelKey,
-        commission_rate: amt > 0 && merchantComm > 0 ? `${((merchantComm / amt) * 100).toFixed(2)}%` : 'Direct',
-        commission_amount: merchantComm,
+        commission_rate: metaError ? 'Could not load rates, try again' : (amt > 0 && merchantComm > 0 ? `${((merchantComm / amt) * 100).toFixed(2)}%` : 'Direct'),
+        commission_amount: metaError ? null : merchantComm,
+        hasError: metaError,
         fee_deducted: companyFee,
         paid_uplines: 0,
         admin_cut: 0,
@@ -1646,8 +1654,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           amount: amt,
           provider: channelDisplayName,
           channel_key: channelKey,
-          commission_rate: split ? `${split.margin_diff}% margin` : '0%',
-          commission_amount: cut,
+          commission_rate: metaError ? 'Could not load rates, try again' : (split ? `${split.margin_diff}% margin` : '0%'),
+          commission_amount: metaError ? null : cut,
+          hasError: metaError,
           fee_deducted: companyFee,
           paid_uplines: cut,
           admin_cut: 0,
@@ -1673,8 +1682,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           amount: amt,
           provider: channelDisplayName,
           channel_key: channelKey,
-          commission_rate: split ? `${split.margin_diff}% margin` : '0%',
-          commission_amount: cut,
+          commission_rate: metaError ? 'Could not load rates, try again' : (split ? `${split.margin_diff}% margin` : '0%'),
+          commission_amount: metaError ? null : cut,
+          hasError: metaError,
           fee_deducted: companyFee,
           paid_uplines: cut,
           admin_cut: 0,
@@ -1700,8 +1710,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           amount: amt,
           provider: channelDisplayName,
           channel_key: channelKey,
-          commission_rate: split ? `${split.margin_diff}% margin` : '0%',
-          commission_amount: cut,
+          commission_rate: metaError ? 'Could not load rates, try again' : (split ? `${split.margin_diff}% margin` : '0%'),
+          commission_amount: metaError ? null : cut,
+          hasError: metaError,
           fee_deducted: companyFee,
           paid_uplines: cut,
           admin_cut: 0,
@@ -2772,6 +2783,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 let grossMdr = 0;
                 let netAdmin = 0;
                 let channelNetCredited = 0;
+                let hasDossierFeeError = false;
 
                 approvedTxns.forEach(t => {
                   let fee = parseFloat(t.company_fee) || 0;
@@ -2783,6 +2795,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       if (meta.admin_net_margin !== undefined) adminCut = parseFloat(meta.admin_net_margin);
                     } catch (err) {
                       console.warn('[AdminDashboardPage] Failed to parse ledger transaction fee metadata:', err);
+                      hasDossierFeeError = true;
                     }
                   }
                   grossMdr += fee;
@@ -2832,9 +2845,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                           Admin Net Profit
                         </span>
-                        <strong style={{ display: 'block', fontSize: '1.25rem', fontWeight: 900, color: '#059669', marginTop: '2px' }}>
-                          +₹{netAdmin.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </strong>
+                        {hasDossierFeeError ? (
+                          <strong style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 800, color: '#DC2626', marginTop: '2px' }}>
+                            Could not load rates, try again
+                          </strong>
+                        ) : (
+                          <strong style={{ display: 'block', fontSize: '1.25rem', fontWeight: 900, color: '#059669', marginTop: '2px' }}>
+                            +₹{netAdmin.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </strong>
+                        )}
                       </div>
                     </div>
 
@@ -2851,9 +2870,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       </div>
                       <div style={{ background: '#FFFFFF', padding: '0.5rem', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
                         <span style={{ fontSize: '0.5625rem', color: '#D97706', fontWeight: 800, display: 'block' }}>GROSS MDR</span>
-                        <strong style={{ fontSize: '0.8125rem', color: '#D97706', fontWeight: 800 }}>
-                          ₹{grossMdr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </strong>
+                        {hasDossierFeeError ? (
+                          <strong style={{ fontSize: '0.6875rem', color: '#DC2626', fontWeight: 800 }}>
+                            Could not load rates, try again
+                          </strong>
+                        ) : (
+                          <strong style={{ fontSize: '0.8125rem', color: '#D97706', fontWeight: 800 }}>
+                            ₹{grossMdr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </strong>
+                        )}
                         <span style={{ fontSize: '0.5rem', color: '#64748B', display: 'block' }}>
                           Company Deducted
                         </span>
@@ -3533,9 +3558,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         <DollarSign style={{ width: '15px', height: '15px' }} />
                       </div>
                     </div>
-                    <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#059669', margin: '6px 0 2px' }}>
-                      ₹{adminProfitDisplay}
-                    </h3>
+                    {filteredData.hasFeeError ? (
+                      <h3 style={{ fontSize: '0.875rem', fontWeight: 800, color: '#DC2626', margin: '6px 0 2px' }}>
+                        Could not load rates, try again
+                      </h3>
+                    ) : (
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#059669', margin: '6px 0 2px' }}>
+                        ₹{adminProfitDisplay}
+                      </h3>
+                    )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontSize: '0.625rem', color: '#047857', fontWeight: 700 }}>Company Earnings</span>
                       <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>Inspect 6 Tiers →</span>
@@ -4852,12 +4883,18 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                   </td>
 
                                   <td style={{ padding: '0.625rem 0.75rem', textAlign: 'right' }}>
-                                    <strong style={{ color: '#059669', fontSize: '0.875rem', fontWeight: 900 }}>
-                                      +₹{(item.commission_amount || 0).toFixed(2)}
-                                    </strong>
-                                    <span style={{ display: 'block', fontSize: '0.6rem', color: '#64748B' }}>
-                                      {item.commission_rate}
-                                    </span>
+                                    {item.hasError ? (
+                                      <span style={{ color: '#DC2626', fontSize: '0.75rem', fontWeight: 800 }}>Could not load rates, try again</span>
+                                    ) : (
+                                      <>
+                                        <strong style={{ color: '#059669', fontSize: '0.875rem', fontWeight: 900 }}>
+                                          +₹{(item.commission_amount || 0).toFixed(2)}
+                                        </strong>
+                                        <span style={{ display: 'block', fontSize: '0.6rem', color: '#64748B' }}>
+                                          {item.commission_rate}
+                                        </span>
+                                      </>
+                                    )}
                                   </td>
 
                                   <td style={{ padding: '0.625rem 0.75rem', textAlign: 'center' }}>
@@ -4938,9 +4975,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                   </div>
 
                                   <div style={{ textAlign: 'right' }}>
-                                    <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#059669' }}>
-                                      +₹{(item.commission_amount || 0).toFixed(2)}
-                                    </strong>
+                                    {item.hasError ? (
+                                      <strong style={{ fontSize: '0.8125rem', fontWeight: 800, color: '#DC2626' }}>
+                                        Could not load rates, try again
+                                      </strong>
+                                    ) : (
+                                      <strong style={{ fontSize: '1rem', fontWeight: 900, color: '#059669' }}>
+                                        +₹{(item.commission_amount || 0).toFixed(2)}
+                                      </strong>
+                                    )}
                                     <span style={{ fontSize: '0.625rem', color: '#64748B', display: 'block' }}>
                                       {isExpanded ? '▴ Less' : '▾ Receipt'}
                                     </span>
@@ -4974,7 +5017,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                     )}
                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', paddingTop: '4px', borderTop: '1px solid #F1F5F9' }}>
                                       <span style={{ fontWeight: 800, color: '#0A192F' }}>Tier Net Cut:</span>
+                                      {item.hasError ? (
+                                      <strong style={{ color: '#DC2626', fontWeight: 800 }}>Could not load rates, try again</strong>
+                                    ) : (
                                       <strong style={{ color: '#059669', fontWeight: 900 }}>+₹{(item.commission_amount || 0).toFixed(2)} ({item.commission_rate})</strong>
+                                    )}
                                     </div>
                                     <div style={{ fontSize: '0.58rem', color: '#94A3B8', marginTop: '6px' }}>
                                       UTR: {item.ref_number || item.txn_id} • MID: {item.merchant_id}
