@@ -15,6 +15,7 @@ export async function resetTestDatabase() {
     
     // Drop existing tables in test database to establish clean, pure schema
     await client.query(`
+      DROP TABLE IF EXISTS inquiries CASCADE;
       DROP TABLE IF EXISTS financial_ledger CASCADE;
       DROP TABLE IF EXISTS user_channel_rates CASCADE;
       DROP TABLE IF EXISTS payout_batches CASCADE;
@@ -256,6 +257,24 @@ export async function resetTestDatabase() {
         response_code INTEGER NOT NULL,
         response_body JSONB NOT NULL,
         created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+
+    // 10. Inquiries Table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS inquiries (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        phone TEXT NOT NULL,
+        merchant_id TEXT,
+        amount TEXT,
+        category TEXT,
+        location TEXT,
+        status TEXT DEFAULT 'New',
+        remarks TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
 
