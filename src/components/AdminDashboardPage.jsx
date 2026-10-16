@@ -2962,11 +2962,13 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                           {filteredTxns.map(t => {
                             let meta = {};
+                            let feeError = false;
                             if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
                               try {
                                 meta = JSON.parse(t.notes.slice(t.notes.indexOf('{')));
                               } catch (err) {
                                 console.warn('[AdminDashboardPage] Failed to parse card swipe notes JSON:', err);
+                                feeError = true;
                               }
                             }
 
@@ -2987,7 +2989,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             return (
                               <div
                                 key={t.id}
-                                onClick={() => setSelectedDossierTxn({ ...t, meta, compFee, adminNet, uplinesCut, providerName, terminalId, customerName, utrNumber })}
+                                onClick={() => setSelectedDossierTxn({ ...t, meta, feeError, compFee, adminNet, uplinesCut, providerName, terminalId, customerName, utrNumber })}
                                 className="card-hover"
                                 style={{
                                   background: '#FFFFFF',
@@ -3046,22 +3048,30 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                   marginTop: '2px',
                                   padding: '4px 8px',
                                   borderRadius: '6px',
-                                  background: '#F8FAFC',
-                                  border: '1px solid #F1F5F9',
+                                  background: feeError ? '#FEF2F2' : '#F8FAFC',
+                                  border: feeError ? '1px solid #FCA5A5' : '1px solid #F1F5F9',
                                   display: 'flex',
-                                  justifyContent: 'space-between',
+                                  justifyContent: feeError ? 'center' : 'space-between',
                                   alignItems: 'center',
                                   fontSize: '0.625rem'
                                 }}>
-                                  <span style={{ color: '#64748B' }}>
-                                    Gross MDR: <strong style={{ color: '#D97706' }}>₹{compFee.toFixed(2)}</strong>
-                                  </span>
-                                  <span style={{ color: '#64748B' }}>
-                                    Uplines Cut: <strong style={{ color: '#475569' }}>₹{uplinesCut.toFixed(2)}</strong>
-                                  </span>
-                                  <span style={{ color: '#059669', fontWeight: 800 }}>
-                                    👑 Net Admin: +₹{adminNet.toFixed(2)}
-                                  </span>
+                                  {feeError ? (
+                                    <strong style={{ color: '#DC2626', fontWeight: 800 }}>
+                                      Could not load rates, try again
+                                    </strong>
+                                  ) : (
+                                    <>
+                                      <span style={{ color: '#64748B' }}>
+                                        Gross MDR: <strong style={{ color: '#D97706' }}>₹{compFee.toFixed(2)}</strong>
+                                      </span>
+                                      <span style={{ color: '#64748B' }}>
+                                        Uplines Cut: <strong style={{ color: '#475569' }}>₹{uplinesCut.toFixed(2)}</strong>
+                                      </span>
+                                      <span style={{ color: '#059669', fontWeight: 800 }}>
+                                        👑 Net Admin: +₹{adminNet.toFixed(2)}
+                                      </span>
+                                    </>
+                                  )}
                                 </div>
                               </div>
                             );
@@ -3205,22 +3215,30 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
                     <div style={{ borderTop: '1px dashed #CBD5E1', margin: '0.25rem 0' }} />
 
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0.75rem' }}>
-                      <span style={{ color: '#D97706', fontWeight: 700 }}>Gross Company MDR Fee:</span>
-                      <strong style={{ color: '#D97706' }}>-₹{selectedDossierTxn.compFee.toFixed(2)}</strong>
-                    </div>
+                    {selectedDossierTxn.feeError ? (
+                      <div style={{ padding: '0.75rem', background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: '8px', color: '#DC2626', fontWeight: 800, textAlign: 'center', fontSize: '0.8125rem' }}>
+                        Could not load rates, try again
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0.75rem' }}>
+                          <span style={{ color: '#D97706', fontWeight: 700 }}>Gross Company MDR Fee:</span>
+                          <strong style={{ color: '#D97706' }}>-₹{selectedDossierTxn.compFee.toFixed(2)}</strong>
+                        </div>
 
-                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0.75rem' }}>
-                      <span style={{ color: '#475569' }}>Downline Uplines Split:</span>
-                      <strong style={{ color: '#475569' }}>-₹{selectedDossierTxn.uplinesCut.toFixed(2)}</strong>
-                    </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0.25rem 0.75rem' }}>
+                          <span style={{ color: '#475569' }}>Downline Uplines Split:</span>
+                          <strong style={{ color: '#475569' }}>-₹{selectedDossierTxn.uplinesCut.toFixed(2)}</strong>
+                        </div>
 
-                    <div style={{ display: 'flex', justifyContent: 'space-between', background: '#ECFDF5', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #A7F3D0' }}>
-                      <span style={{ color: '#059669', fontWeight: 800 }}>👑 Net Admin Profit Retained:</span>
-                      <strong style={{ color: '#059669', fontSize: '0.875rem', fontWeight: 900 }}>
-                        +₹{selectedDossierTxn.adminNet.toFixed(2)}
-                      </strong>
-                    </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', background: '#ECFDF5', padding: '0.5rem 0.75rem', borderRadius: '8px', border: '1px solid #A7F3D0' }}>
+                          <span style={{ color: '#059669', fontWeight: 800 }}>👑 Net Admin Profit Retained:</span>
+                          <strong style={{ color: '#059669', fontSize: '0.875rem', fontWeight: 900 }}>
+                            +₹{selectedDossierTxn.adminNet.toFixed(2)}
+                          </strong>
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   <button
