@@ -888,7 +888,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   const activeMachineWallet = useMemo(() => {
     const chKey = (selectedMachineKey === 'qr' ? 'qr' : (selectedMachineKey === 'payswiff' ? 'payswiff' : 'pinelabs')).toLowerCase();
     const backendCh = wallet?.channel_balances?.[chKey];
-    const dbAvailableBalance = Math.max(0, parseFloat(wallet?.available_balance || 0));
+    const dbAvailableBalance = (wallet?.available_balance !== undefined && wallet?.available_balance !== null && !walletError) ? Math.max(0, parseFloat(wallet.available_balance)) : null;
 
     // Downline commission earnings strictly segregated by the active machine channel (for distributors/uplines)
     let earnedCommission = 0;
@@ -2420,6 +2420,40 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
               )}
 
               {/* 1. Virtual Wallet Card (Clean Light Enterprise Application Card) */}
+              {walletError ? (
+                <div style={{
+                  background: '#FEF2F2',
+                  border: '1.5px solid #EF4444',
+                  borderRadius: '16px',
+                  padding: '1.25rem',
+                  marginBottom: '1rem',
+                  boxShadow: '0 2px 12px rgba(220, 38, 38, 0.08)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <AlertCircle style={{ width: '18px', height: '18px', color: '#DC2626' }} />
+                    <strong style={{ fontSize: '0.875rem', color: '#991B1B' }}>Unable to Load Wallet Balance</strong>
+                  </div>
+                  <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.75rem', color: '#B91C1C' }}>
+                    {walletError}. An error must never look like zero balance.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={fetchLiveData}
+                    style={{
+                      background: '#DC2626',
+                      color: '#FFFFFF',
+                      border: 'none',
+                      padding: '0.45rem 1rem',
+                      borderRadius: '8px',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Retry Connection
+                  </button>
+                </div>
+              ) : (
               <div style={{
                 background: '#FFFFFF',
                 borderRadius: '16px',
@@ -2620,6 +2654,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                   </div>
                 </div>
               </div>
+              )}
 
 
 
