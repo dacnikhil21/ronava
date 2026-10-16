@@ -43,21 +43,25 @@ export async function validateChildParentRates(client, { parentId, channel, sett
   const ch = channel.toLowerCase().replace(/[^a-z0-9]/g, '');
   const mode = (settlementMode || (ch === 'qr' || ch === 'companyqr' ? 'NONE' : 'T1')).toUpperCase();
 
-  const parentRate = await getActiveRate(client, { userId: parent.id, channel: ch, settlementMode: mode });
-
   if (parent.role !== 'ADMIN') {
+    const parentRate = await getActiveRate(client, { userId: parent.id, channel: ch, settlementMode: mode });
     if (parentRate.is_default) {
       throw new Error(`PARENT_CHANNEL_MISSING: Parent "${parentId}" does not have channel "${channel}" and mode "${mode}" configured.`);
     }
-  }
 
-  const childBps = Number(childRateBps);
-  if (isNaN(childBps) || childBps < 0 || childBps > 10000) {
-    throw new Error(`INVALID_RATE_VALUE: Child rate must be a valid number between 0 and 10000 bps.`);
-  }
+    const childBps = Number(childRateBps);
+    if (isNaN(childBps) || childBps < 0 || childBps > 10000) {
+      throw new Error(`INVALID_RATE_VALUE: Child rate must be a valid number between 0 and 10000 bps.`);
+    }
 
-  if (childBps < parentRate.rate_bps) {
-    throw new Error(`INVALID_RATE_HIERARCHY: Child rate (${childBps} bps) cannot be lower than parent rate (${parentRate.rate_bps} bps) for channel "${channel}" and mode "${mode}".`);
+    if (childBps < parentRate.rate_bps) {
+      throw new Error(`INVALID_RATE_HIERARCHY: Child rate (${childBps} bps) cannot be lower than parent rate (${parentRate.rate_bps} bps) for channel "${channel}" and mode "${mode}".`);
+    }
+  } else {
+    const childBps = Number(childRateBps);
+    if (isNaN(childBps) || childBps < 0 || childBps > 10000) {
+      throw new Error(`INVALID_RATE_VALUE: Child rate must be a valid number between 0 and 10000 bps.`);
+    }
   }
 
   return true;

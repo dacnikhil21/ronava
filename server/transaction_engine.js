@@ -100,14 +100,17 @@ export async function processSwipeTransaction(client, {
       throw new Error(`USER_NOT_FOUND: User "${currentId}" not found in hierarchy.`);
     }
     const u = userRes.rows[0];
-    const rateInfo = await getActiveRate(client, {
-      userId: u.id,
-      channel: cleanChannel,
-      settlementMode: mode
-    });
+    let rateInfo = { rate_bps: 0 };
+    if (u.role !== 'ADMIN') {
+      rateInfo = await getActiveRate(client, {
+        userId: u.id,
+        channel: cleanChannel,
+        settlementMode: mode
+      });
 
-    if (u.role !== 'ADMIN' && rateInfo.is_default) {
-      throw new Error(`RATE_NOT_CONFIGURED: Rate not configured for user "${u.id}" on channel "${cleanChannel}" and mode "${mode}".`);
+      if (rateInfo.is_default) {
+        throw new Error(`RATE_NOT_CONFIGURED: Rate not configured for user "${u.id}" on channel "${cleanChannel}" and mode "${mode}".`);
+      }
     }
 
     hierarchy.push({
@@ -115,7 +118,7 @@ export async function processSwipeTransaction(client, {
       name: u.name,
       role: u.role,
       creator_id: u.creator_id,
-      rate_bps: rateInfo.rate_bps,
+      rate_bps: u.role === 'ADMIN' ? null : rateInfo.rate_bps,
       settlement_mode: mode
     });
 
@@ -125,11 +128,11 @@ export async function processSwipeTransaction(client, {
     currentId = u.creator_id;
   }
 
-  // 4. Rate Hierarchy Validation (each child rate >= parent rate)
+  // 4. Rate Hierarchy Validation (each child rate >= parent rate, except parent Admin who has no rate)
   for (let i = 0; i < hierarchy.length - 1; i++) {
     const child = hierarchy[i];
     const parent = hierarchy[i + 1];
-    if (child.rate_bps < parent.rate_bps) {
+    if (parent.role !== 'ADMIN' && child.rate_bps < parent.rate_bps) {
       throw new Error(
         `INVALID_RATE_HIERARCHY: ${child.user_id} (${child.rate_bps} bps) has lower rate than upline ${parent.user_id} (${parent.rate_bps} bps).`
       );
