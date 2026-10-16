@@ -1535,7 +1535,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       <div style={{ margin: '0.25rem 0 0.875rem' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.375rem' }}>
           <span style={{ fontSize: '1.75rem', fontWeight: 900, color: '#0F172A', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
-            ₹{activeMachineWallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            ₹{activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined ? activeMachineWallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : (walletError ? 'Sync Error' : '0.00')}
           </span>
         </div>
         <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 500, marginTop: '2px', display: 'block' }}>
@@ -1550,7 +1550,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
             <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#059669' }}></span> Swipes
           </span>
           <strong style={{ fontSize: '0.8125rem', fontWeight: 800, color: '#059669', display: 'block', marginTop: '2px' }}>
-            ₹{activeMachineWallet.total_sales.toLocaleString('en-IN', { minimumFractionDigits: 0 })}
+            ₹{(activeMachineWallet.total_sales || 0).toLocaleString('en-IN', { minimumFractionDigits: 0 })}
           </strong>
         </div>
 
@@ -1559,7 +1559,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
             <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#0F52BA' }}></span> Withdrawn
           </span>
           <strong style={{ fontSize: '0.8125rem', fontWeight: 800, color: '#0F172A', display: 'block', marginTop: '2px' }}>
-            ₹{activeMachineWallet.withdrawn_amount.toLocaleString('en-IN', { minimumFractionDigits: 0 })}
+            ₹{(activeMachineWallet.withdrawn_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 0 })}
           </strong>
         </div>
 
@@ -1568,7 +1568,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
             <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#D97706' }}></span> In Process
           </span>
           <strong style={{ fontSize: '0.8125rem', fontWeight: 800, color: '#D97706', display: 'block', marginTop: '2px' }}>
-            ₹{activeMachineWallet.pending_balance.toLocaleString('en-IN', { minimumFractionDigits: 0 })}
+            ₹{(activeMachineWallet.pending_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 0 })}
           </strong>
         </div>
       </div>
@@ -2088,8 +2088,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       return;
     }
 
-    if (activeMachineWallet.available_balance < amountNum) {
-      showToast(`⚠️ Insufficient balance! Available: ₹${activeMachineWallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+    if (activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance < amountNum) {
+      showToast(`⚠️ Insufficient balance! Available: ₹${(activeMachineWallet.available_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
       return;
     }
 
@@ -2588,7 +2588,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.875rem' }}>
                   <div>
                     <h2 style={{ fontSize: '1.65rem', fontWeight: 800, margin: 0, letterSpacing: '-0.02em', fontFeatureSettings: '"tnum"', lineHeight: 1.15, color: '#0F172A' }}>
-                      {showBalance ? `₹${activeMachineWallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '••••••••'}
+                      {showBalance ? (activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined ? `₹${activeMachineWallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : (walletError ? 'Sync Error' : 'Loading...')) : '••••••••'}
                     </h2>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
@@ -2601,7 +2601,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                         <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: '6px', padding: '1px 6px', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                           <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#F59E0B', display: 'inline-block' }} />
                           <span style={{ fontSize: '0.6rem', color: '#B45309', fontWeight: 700 }}>
-                            ₹{activeMachineWallet.pending_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })} Pending Settlement
+                            ₹{(activeMachineWallet.pending_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })} Pending Settlement
                           </span>
                         </div>
                       )}
@@ -2676,7 +2676,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                       {selectedMachineKey === 'qr' ? 'UPI Collected' : 'Total Sales'}
                     </span>
                     <strong style={{ color: '#0F172A', fontSize: '0.85rem', fontWeight: 800, whiteSpace: 'nowrap' }}>
-                      ₹{activeMachineWallet.total_sales.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      ₹{(activeMachineWallet.total_sales || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                     </strong>
                   </div>
 
@@ -2686,7 +2686,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                       Sent to Bank
                     </span>
                     <strong style={{ color: '#059669', fontSize: '0.85rem', fontWeight: 800, whiteSpace: 'nowrap' }}>
-                      ₹{activeMachineWallet.withdrawn_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      ₹{(activeMachineWallet.withdrawn_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                     </strong>
                   </div>
 
@@ -2696,7 +2696,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                       {selectedMachineKey === 'qr' ? 'Instant Cleared' : 'In Transit'}
                     </span>
                     <strong style={{ color: selectedMachineKey === 'qr' ? '#059669' : '#D97706', fontSize: '0.85rem', fontWeight: 800, whiteSpace: 'nowrap' }}>
-                      {selectedMachineKey === 'qr' ? '✓ Instant' : `₹${activeMachineWallet.pending_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
+                      {selectedMachineKey === 'qr' ? '✓ Instant' : `₹${(activeMachineWallet.pending_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
                     </strong>
                   </div>
                 </div>
@@ -3224,7 +3224,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                 {activeMachine.title} Available Balance
                               </span>
                               <span style={{ fontSize: '1.35rem', fontWeight: 900, letterSpacing: '-0.01em', color: '#FFFFFF', lineHeight: 1.1 }}>
-                                ₹{activeMachineWallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                ₹{activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined ? activeMachineWallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : (walletError ? 'Sync Error' : '0.00')}
                               </span>
                             </div>
                           </div>
@@ -3947,10 +3947,10 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                               </span>
                             </div>
                             <span style={{ fontSize: '1.35rem', fontWeight: 900, letterSpacing: '-0.01em', color: '#FFFFFF', lineHeight: 1.1 }}>
-                              ₹{activeMachineWallet.withdrawable_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              ₹{(activeMachineWallet.withdrawable_balance !== null && activeMachineWallet.withdrawable_balance !== undefined ? activeMachineWallet.withdrawable_balance : 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                             </span>
                             <span style={{ fontSize: '0.625rem', color: 'rgba(255,255,255,0.75)', display: 'block', marginTop: '1px' }}>
-                              Total Balance: ₹{activeMachineWallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })} • {activeMachineWallet.active_hold > 0 ? 'Active Reserve Hold: ₹500.00' : 'Reserve Hold: ₹0.00'}
+                              Total Balance: ₹{activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined ? activeMachineWallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 }) : (walletError ? 'Sync Error' : '0.00')} • {activeMachineWallet.active_hold > 0 ? 'Active Reserve Hold: ₹500.00' : 'Reserve Hold: ₹0.00'}
                             </span>
                           </div>
                         </div>
@@ -5057,7 +5057,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                     fontSize: '0.75rem',
                     fontWeight: 700
                   }}>
-                    Available: <strong style={{ fontWeight: 900, color: '#059669' }}>₹{wallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                    Available: <strong style={{ fontWeight: 900, color: '#059669' }}>₹{wallet?.available_balance !== null && wallet?.available_balance !== undefined ? parseFloat(wallet.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : (walletError ? 'Sync Error' : '0.00')}</strong>
                   </span>
                 </div>
               </div>

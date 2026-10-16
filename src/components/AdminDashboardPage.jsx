@@ -1500,8 +1500,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     ? parseFloat(metrics.adminNetProfit || filteredData.allAdminProfit || 0)
     : filteredData.adminProfit;
 
-  const totalVolumeDisplay = displayVolume.toLocaleString('en-IN', { minimumFractionDigits: 2 });
-  const adminProfitDisplay = displayAdminProfit.toLocaleString('en-IN', { minimumFractionDigits: 2 });
+  const totalVolumeDisplay = (displayVolume || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+  const adminProfitDisplay = (displayAdminProfit || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 
   // Dedicated Calculation Engine for Today's Profit & Commission Distribution Hub
   const profitDistributionData = useMemo(() => {
