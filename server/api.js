@@ -1533,7 +1533,8 @@ export async function handleApiRequest(req, res) {
           err.message?.includes('INVALID_RATE_HIERARCHY') || 
           err.message?.includes('RATE_NOT_CONFIGURED') ||
           err.message?.includes('INVALID_SETTLEMENT_MODE') ||
-          err.message?.includes('SETTLEMENT_MODE_REQUIRED')
+          err.message?.includes('SETTLEMENT_MODE_REQUIRED') ||
+          err.message?.includes('ADMIN_CANNOT_SWIPE')
         ) {
           return sendJson(res, 400, { success: false, message: err.message });
         }

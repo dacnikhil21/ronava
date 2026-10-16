@@ -28,6 +28,15 @@ export async function processSwipeTransaction(client, {
     throw new Error('INVALID_TRANSACTION_AMOUNT: Transaction amount must be greater than 0 paise.');
   }
 
+  // 0. Verify swiper is not an Admin
+  const swiperCheck = await client.query(
+    `SELECT id, role FROM users WHERE UPPER(id) = UPPER($1)`,
+    [merchantId]
+  );
+  if (swiperCheck.rows.length > 0 && swiperCheck.rows[0].role === 'ADMIN') {
+    throw new Error('ADMIN_CANNOT_SWIPE: Administrators cannot record payment transactions.');
+  }
+
   const cleanChannel = channel.toLowerCase().replace(/[^a-z0-9]/g, '');
   let mode = (settlementMode || '').toUpperCase().trim();
 
