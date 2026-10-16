@@ -58,19 +58,17 @@ async function seed() {
       `, [u.id]);
     }
 
-    // 3. User channel rates (Pine Labs T+1 Reference Hierarchy)
-    // Area 1.50% (150 bps), District 1.20% (120 bps), SD 1.00% (100 bps), Master 0.80% (80 bps), Admin 0.60% (60 bps)
+    // 3. User channel rates (Pine Labs Charged Rate Reference Hierarchy - Phase D3)
+    // Merchant charged 1.50% (150 bps), Area 1.20% (120 bps), District 1.00% (100 bps), SD 0.80% (80 bps), Master 0.60% (60 bps), Admin remainder
     const rates = [
-      { userId: 'ADM001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 60 },
-      { userId: 'ADM001', channel: 'pinelabs', settlementMode: 'INSTANT', rateBps: 90 },
-      { userId: 'MST1001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 80 },
-      { userId: 'MST1001', channel: 'pinelabs', settlementMode: 'INSTANT', rateBps: 110 },
-      { userId: 'SD1001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 100 },
-      { userId: 'SD1001', channel: 'pinelabs', settlementMode: 'INSTANT', rateBps: 130 },
-      { userId: 'DIST2001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 120 },
-      { userId: 'DIST2001', channel: 'pinelabs', settlementMode: 'INSTANT', rateBps: 150 },
-      { userId: 'AREA3001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 150 },
-      { userId: 'AREA3001', channel: 'pinelabs', settlementMode: 'INSTANT', rateBps: 180 },
+      { userId: 'MST1001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 60 },
+      { userId: 'MST1001', channel: 'pinelabs', settlementMode: 'INSTANT', rateBps: 90 },
+      { userId: 'SD1001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 80 },
+      { userId: 'SD1001', channel: 'pinelabs', settlementMode: 'INSTANT', rateBps: 110 },
+      { userId: 'DIST2001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 100 },
+      { userId: 'DIST2001', channel: 'pinelabs', settlementMode: 'INSTANT', rateBps: 130 },
+      { userId: 'AREA3001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 120 },
+      { userId: 'AREA3001', channel: 'pinelabs', settlementMode: 'INSTANT', rateBps: 160 },
       { userId: 'MID4001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 150 },
       { userId: 'MID4001', channel: 'pinelabs', settlementMode: 'INSTANT', rateBps: 180 },
     ];

@@ -121,17 +121,16 @@ async function runTests() {
     `);
 
     // Set rates using authoritative rate engine:
-    // Admin: 0 bps (floor)
-    // Master: 60 bps (margin: 60 - 0 = 60 to Admin)
-    // SD: 80 bps (margin: 80 - 60 = 20)
-    // DD: 100 bps (margin: 100 - 80 = 20)
-    // Area Dist: 120 bps (margin: 120 - 100 = 20)
-    // Retailer: 150 bps (margin: 150 - 120 = 30)
-    await setUserRate(client, { userId: 'ADM001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 60 });
-    await setUserRate(client, { userId: 'D2_MST_10K', channel: 'pinelabs', settlementMode: 'T1', rateBps: 80 });
-    await setUserRate(client, { userId: 'D2_SD_10K', channel: 'pinelabs', settlementMode: 'T1', rateBps: 100 });
-    await setUserRate(client, { userId: 'D2_DD_10K', channel: 'pinelabs', settlementMode: 'T1', rateBps: 120 });
-    await setUserRate(client, { userId: 'D2_DIST_10K', channel: 'pinelabs', settlementMode: 'T1', rateBps: 150 });
+    // Admin: receives remainder (60)
+    // Master: 60 bps (margin: 80 - 60 = 20)
+    // SD: 80 bps (margin: 100 - 80 = 20)
+    // DD: 100 bps (margin: 120 - 100 = 20)
+    // Area Dist: 120 bps (margin: 150 - 120 = 30)
+    // Retailer: 150 bps (charged 150 bps)
+    await setUserRate(client, { userId: 'D2_MST_10K', channel: 'pinelabs', settlementMode: 'T1', rateBps: 60 });
+    await setUserRate(client, { userId: 'D2_SD_10K', channel: 'pinelabs', settlementMode: 'T1', rateBps: 80 });
+    await setUserRate(client, { userId: 'D2_DD_10K', channel: 'pinelabs', settlementMode: 'T1', rateBps: 100 });
+    await setUserRate(client, { userId: 'D2_DIST_10K', channel: 'pinelabs', settlementMode: 'T1', rateBps: 120 });
     await setUserRate(client, { userId: 'D2_MID_10K', channel: 'pinelabs', settlementMode: 'T1', rateBps: 150 });
 
     // Perform swipe of Rs 10,000 via transaction engine

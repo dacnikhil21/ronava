@@ -35,12 +35,12 @@ async function runMasterSuite() {
         ('BEN-MID4001-1', 'MID4001', 'State Bank of India', '123456789012', 'SBIN0001234', 'Test Merchant', true);
     `);
 
-    // Set exact reference rates: Area 1.5%, District 1.2%, SD 1.0%, Master 0.8%, Admin 0.6%
-    await setUserRate(client, { userId: 'ADM001', channel: 'pinelabs', rateBps: 60 });
-    await setUserRate(client, { userId: 'MST1001', channel: 'pinelabs', rateBps: 80 });
-    await setUserRate(client, { userId: 'SD1001', channel: 'pinelabs', rateBps: 100 });
-    await setUserRate(client, { userId: 'DIST2001', channel: 'pinelabs', rateBps: 120 });
-    await setUserRate(client, { userId: 'AREA3001', channel: 'pinelabs', rateBps: 150 });
+    // Set exact reference rates per Phase D3 charged rate model:
+    // Admin > Master(60) > SD(80) > District(100) > Area(120) > Merchant(150)
+    await setUserRate(client, { userId: 'MST1001', channel: 'pinelabs', rateBps: 60 });
+    await setUserRate(client, { userId: 'SD1001', channel: 'pinelabs', rateBps: 80 });
+    await setUserRate(client, { userId: 'DIST2001', channel: 'pinelabs', rateBps: 100 });
+    await setUserRate(client, { userId: 'AREA3001', channel: 'pinelabs', rateBps: 120 });
     await setUserRate(client, { userId: 'MID4001', channel: 'pinelabs', rateBps: 150 });
   } finally {
     client.release();

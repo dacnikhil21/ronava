@@ -91,16 +91,15 @@ async function testSwipeMode() {
     assert.equal(instData.transaction.customer_charge_paise, '18000', 'Merchant charge at 1.80% must be 18,000 paise (Rs 180)');
     assert.equal(instData.transaction.net_amount_paise, '982000', 'Merchant net must be 982,000 paise (Rs 9,820)');
 
-    // Verify distributions used INSTANT rates:
     // Area: 180 - 160 = 20 bps -> Rs 20 (2,000 paise)
     // Dist: 160 - 130 = 30 bps -> Rs 30 (3,000 paise)
     // SD: 130 - 110 = 20 bps -> Rs 20 (2,000 paise)
     // Master: 110 - 90 = 20 bps -> Rs 20 (2,000 paise)
-    // Admin: 90 - 0 = remainder -> Rs 90 (9,000 paise, including 60 bps cut + 30 bps margin)
+    // Admin: 90 - 0 = remainder -> Rs 90 (9,000 paise)
     // Total: 20 + 30 + 20 + 20 + 90 = 180. Net + Fees = 10,000.
     const dists = instData.transaction.distributions;
     const areaDist = dists.find(d => d.user_id === 'AREA3001');
-    assert.equal(areaDist.amount_paise, '3000', 'Area margin must be Rs 30 (3,000 paise) using Instant rates (160 - 130 bps)');
+    assert.equal(areaDist.amount_paise, '2000', 'Area margin must be Rs 20 (2,000 paise) using Instant rates (180 - 160 bps)');
 
     // -----------------------------------------------------------------
     // TEST 2: Swipe in T+1 mode for Pine Labs
