@@ -74,7 +74,7 @@ export function getAuthSession() {
       const parsed = JSON.parse(raw);
       if (parsed && parsed.user) return parsed;
     }
-  } catch (_) {}
+  } catch (err) { console.warn('Session parse error:', err); }
 
   // Fallback / legacy compatibility
   const rawMerchant = sessionStorage.getItem('ronav_merchant_user');
@@ -216,7 +216,7 @@ export async function registerWithReferral(data) {
       pos_provider: pos_provider || 'Pine Labs',
       pos_vendor: pos_provider === 'Pine Labs' ? 'Rose Navaneetham Enterprises' : 'RONAV Technologies',
       device_plan: 'RENTAL',
-      monthly_rent: '499',
+      monthly_rent: data.monthly_rent || data.rent || '',
       settlement_type: 'T1'
     };
 
@@ -282,7 +282,7 @@ export async function getAllUsers() {
 
     let cloudStatusMap = {};
     if (statusRes?.data?.remarks) {
-      try { cloudStatusMap = JSON.parse(statusRes.data.remarks); } catch (_) {}
+      try { cloudStatusMap = JSON.parse(statusRes.data.remarks); } catch (err) { console.warn('cloudStatusMap parse error:', err); }
     }
 
     const walletMap = {};
@@ -1634,7 +1634,7 @@ export async function getAdminPending() {
 
     const rentalPos = allPos.filter(p => p.device_plan === 'RENTAL' || !p.device_plan);
     const lifetimePos = allPos.filter(p => p.device_plan === 'LIFETIME');
-    const monthlyRentTotal = rentalPos.reduce((sum, p) => sum + (parseFloat(p.monthly_rent) || 499), 0);
+    const monthlyRentTotal = rentalPos.reduce((sum, p) => sum + (parseFloat(p.monthly_rent) || 0), 0);
 
     const stats = {
       totalMerchants: allUsers.filter(u => u.role === 'MERCHANT').length,
@@ -2118,11 +2118,16 @@ export async function getMonthlyRentalReport(targetMonth = '') {
   try {
     const monthKey = targetMonth || new Date().toISOString().slice(0, 7); // 'YYYY-MM'
     
-    // 1. Fetch live merchants, creators, and pos records
-    const [usersRes, posRes] = await Promise.all([
+    // 1. Fetch live merchants, creators, pos records, and dynamic system settings
+    const [usersRes, posRes, settingsRes] = await Promise.all([
       supabase.from('users').select('*'),
-      supabase.from('merchant_pos').select('*')
+      supabase.from('merchant_pos').select('*'),
+      fetch('/api/settings').then(r => r.json()).catch(() => null)
     ]);
+    if (!settingsRes || !settingsRes.success || !settingsRes.settings?.monthly_rental_rupees) {
+      throw new Error('SETTING_NOT_FOUND: Monthly rental amount setting is missing from server.');
+    }
+    const defaultRentalRupees = parseFloat(settingsRes.settings.monthly_rental_rupees);
 
     const allUsers = usersRes.data || [];
     const allPos = posRes.data || [];
@@ -2151,11 +2156,7 @@ export async function getMonthlyRentalReport(targetMonth = '') {
       console.warn('Could not fetch rental ledger records from Supabase:', e);
     }
 
-    // Also check localStorage cache for fast offline / local updates
-    try {
-      const localMap = JSON.parse(localStorage.getItem(`ronav_rental_ledger_${monthKey}`) || '{}');
-      rentalStatusMap = { ...rentalStatusMap, ...localMap };
-    } catch (e) {}
+    // Offline localStorage cache removed per Phase D2b mandate
 
     // 3. Compile terminal list
     const rentalList = [];
@@ -2173,7 +2174,7 @@ export async function getMonthlyRentalReport(targetMonth = '') {
         const pine = channels.pine_labs;
         const plan = pine.plan || posRec?.device_plan || 'RENTAL';
         if (plan === 'RENTAL' || plan === 'CUSTOM') {
-          const rent = parseFloat(pine.rent || posRec?.monthly_rent || 499);
+          const rent = parseFloat(pine.rent || posRec?.monthly_rent || defaultRentalRupees);
           const tid = pine.terminal_id || posRec?.terminal_id || `PL-${m.id.slice(-4)}`;
           const lookupKey = `${m.id}_${tid}`;
           const recorded = rentalStatusMap[lookupKey] || { status: 'PENDING', remarks: '', paid_at: null };
@@ -2203,7 +2204,7 @@ export async function getMonthlyRentalReport(targetMonth = '') {
         const swiff = channels.payswiff;
         const plan = swiff.plan || posRec?.device_plan || 'RENTAL';
         if (plan === 'RENTAL' || plan === 'CUSTOM') {
-          const rent = parseFloat(swiff.rent || posRec?.monthly_rent || 499);
+          const rent = parseFloat(swiff.rent || posRec?.monthly_rent || defaultRentalRupees);
           const tid = swiff.terminal_id || posRec?.terminal_id || `SWIFF-${m.id.slice(-4)}`;
           const lookupKey = `${m.id}_${tid}`;
           const recorded = rentalStatusMap[lookupKey] || { status: 'PENDING', remarks: '', paid_at: null };
@@ -2289,16 +2290,7 @@ export async function updatePosRentalStatus({ merchant_id, terminal_id, billing_
       console.warn('Could not persist rental status to Supabase:', e);
     }
 
-    // 2. Update localStorage cache
-    try {
-      const localMap = JSON.parse(localStorage.getItem(`ronava_rental_ledger_${monthKey}`) || '{}');
-      localMap[lookupKey] = {
-        status: cleanStatus,
-        remarks: remarks || '',
-        paid_at: paidAt
-      };
-      localStorage.setItem(`ronava_rental_ledger_${monthKey}`, JSON.stringify(localMap));
-    } catch (e) {}
+    // Offline localStorage update removed per Phase D2b mandate
 
     return {
       success: true,

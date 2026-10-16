@@ -2517,10 +2517,23 @@ export async function handleApiRequest(req, res) {
       try {
         const pool = getDbPool();
         const settings = await getAllSettings(pool);
+        if (!settings.monthly_rental_paise || settings.monthly_rental_paise.value_numeric === null) {
+          throw new Error('SETTING_NOT_FOUND: Required setting "monthly_rental_paise" is missing in system_settings table.');
+        }
+        const rentalPaise = Number(settings.monthly_rental_paise.value_numeric);
+        const rentalRupees = (rentalPaise / 100).toFixed(2);
+        const reservePaise = settings.reserve_amount_paise?.value_numeric !== null
+          ? Number(settings.reserve_amount_paise?.value_numeric)
+          : 50000;
+        const reserveRupees = (reservePaise / 100).toFixed(2);
         return sendJson(res, 200, {
           success: true,
           settings: {
             ...settings,
+            monthly_rental_paise: rentalPaise,
+            monthly_rental_rupees: rentalRupees,
+            reserve_amount_paise: reservePaise,
+            reserve_amount_rupees: reserveRupees,
             support_phone: '9966203053',
             support_email: 'rosenavaneethamenterprises@gmail.com'
           }
