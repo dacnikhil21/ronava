@@ -776,12 +776,14 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     let merchantCommission = t.merchant_commission || 0;
     let meta = null;
 
+    let parseError = false;
     if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
       try {
         const jsonPart = t.notes.slice(t.notes.indexOf('{'));
         meta = JSON.parse(jsonPart);
       } catch (err) {
         console.warn('[MerchantDashboardPage] Failed to parse transaction notes split JSON:', err);
+        parseError = true;
       }
     }
 
@@ -834,7 +836,9 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       merchantCommission,
       posProvider,
       posVendor,
-      channel: ch
+      channel: ch,
+      parseError,
+      rateError: parseError
     };
   };
 
@@ -9616,19 +9620,27 @@ if (!item.account_number) { showToast('⚠️ No bank account on file to copy.')
                     </div>
 
                     {/* Financial Ledger Breakdown */}
-                    <div style={{ background: '#F8FAFC', padding: '0.625rem 0.75rem', borderRadius: '10px', border: '1px solid #E2E8F0', marginTop: '0.25rem', display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.71875rem' }}>
+                    <div style={{ background: parsed.parseError ? '#FEF2F2' : '#F8FAFC', padding: '0.625rem 0.75rem', borderRadius: '10px', border: parsed.parseError ? '1px solid #FCA5A5' : '1px solid #E2E8F0', marginTop: '0.25rem', display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.71875rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748B' }}>
                         <span>{isQRTxn(item) ? 'Gross UPI Received:' : 'Gross Card Swipe:'}</span>
                         <span style={{ fontWeight: 700, color: '#0F172A' }}>₹{amountNum.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748B' }}>
-                        <span>{isQRTxn(item) ? 'UPI Service Fee (1.20%):' : 'Company Fee:'}</span>
-                        <span style={{ fontWeight: 600, color: '#0F172A' }}>-₹{parseFloat(parsed.companyFee || 0).toFixed(2)}</span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed #CBD5E1', paddingTop: '0.3rem', fontWeight: 800, color: '#059669' }}>
-                        <span>Net Credited to Wallet:</span>
-                        <span>₹{(amountNum - parseFloat(parsed.companyFee || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                      </div>
+                      {parsed.parseError ? (
+                        <div style={{ padding: '0.4rem 0', color: '#DC2626', fontWeight: 800, textAlign: 'center' }}>
+                          Could not load rates, try again
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', color: '#64748B' }}>
+                            <span>{isQRTxn(item) ? 'UPI Service Fee (1.20%):' : 'Company Fee:'}</span>
+                            <span style={{ fontWeight: 600, color: '#0F172A' }}>-₹{parseFloat(parsed.companyFee || 0).toFixed(2)}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed #CBD5E1', paddingTop: '0.3rem', fontWeight: 800, color: '#059669' }}>
+                            <span>Net Credited to Wallet:</span>
+                            <span>₹{(amountNum - parseFloat(parsed.companyFee || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </>
                 )}
