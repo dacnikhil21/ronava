@@ -764,6 +764,11 @@ export function parseMerchantChannels(posRecord) {
       };
     } catch (err) {
       console.warn('[api] Failed to parse merchant channel notes:', err);
+      return {
+        ...defaultObj,
+        hasError: true,
+        error: 'Could not load rates, try again'
+      };
     }
   }
 
@@ -928,6 +933,17 @@ export function parsePosTerminalRates(terminalStr, baseRate = 0.0) {
       };
     } catch (err) {
       console.warn('[api] Failed to parse legacy machine notes for rate/commission:', err);
+      return {
+        terminal_id: 'ERR',
+        raw_terminal: str,
+        rateT1: null,
+        rateInstant: null,
+        adminCut: null,
+        uplineCut: null,
+        channels: {},
+        hasError: true,
+        error: 'Could not load rates, try again'
+      };
     }
   }
 

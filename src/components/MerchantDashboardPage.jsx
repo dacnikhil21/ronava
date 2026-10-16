@@ -447,6 +447,18 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       : (availableMachineTabs[0] || 'pine_labs');
     const base = POS_MACHINES_DATA[effectiveKey] || POS_MACHINES_DATA.pine_labs;
 
+    const hasRateError = !!(merchantChannels?.hasError || userPosRates?.hasError);
+    if (hasRateError) {
+      return {
+        ...base,
+        hasRateError: true,
+        rateStrT1: 'Could not load rates, try again',
+        rateStrInstant: 'Could not load rates, try again',
+        rate: 'Could not load rates, try again',
+        rateNum: null
+      };
+    }
+
     const ch = merchantChannels?.[effectiveKey];
     const profile = userProfile || user;
     const profileRateT1 = parseFloat(profile?.commission_rate_t1 || profile?.commission_rate || 0);
@@ -2547,20 +2559,26 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                     gap: '0.35rem',
                     fontSize: '0.625rem',
                     color: '#64748B',
-                    background: '#F8FAFC',
+                    background: activeMachine.hasRateError ? '#FEF2F2' : '#F8FAFC',
                     padding: '2.5px 7px',
                     borderRadius: '6px',
-                    border: '1px solid #E2E8F0'
+                    border: activeMachine.hasRateError ? '1px solid #FCA5A5' : '1px solid #E2E8F0'
                   }}>
-                    <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0F172A' }}>{activeMachine.terminal_id}</span>
-                    <span style={{ color: '#CBD5E1' }}>•</span>
-                    {selectedMachineKey === 'qr' ? (
-                      <span style={{ color: '#059669', fontWeight: 800 }}>⚡ Instant ({activeMachine.rateStrInstant})</span>
+                    {activeMachine.hasRateError ? (
+                      <span style={{ color: '#DC2626', fontWeight: 800 }}>Could not load rates, try again</span>
                     ) : (
                       <>
-                        <span>T+1: <strong style={{ color: '#0F172A' }}>{activeMachine.rateStrT1}</strong></span>
+                        <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0F172A' }}>{activeMachine.terminal_id}</span>
                         <span style={{ color: '#CBD5E1' }}>•</span>
-                        <span>Instant: <strong style={{ color: '#0F172A' }}>{activeMachine.rateStrInstant}</strong></span>
+                        {selectedMachineKey === 'qr' ? (
+                          <span style={{ color: '#059669', fontWeight: 800 }}>⚡ Instant ({activeMachine.rateStrInstant})</span>
+                        ) : (
+                          <>
+                            <span>T+1: <strong style={{ color: '#0F172A' }}>{activeMachine.rateStrT1}</strong></span>
+                            <span style={{ color: '#CBD5E1' }}>•</span>
+                            <span>Instant: <strong style={{ color: '#0F172A' }}>{activeMachine.rateStrInstant}</strong></span>
+                          </>
+                        )}
                       </>
                     )}
                   </div>
@@ -3258,7 +3276,11 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                               fontSize: '0.625rem',
                               fontWeight: 800
                             }}>
-                              ⚡ 100% Instant IMPS Settlement ({activeMachine.rateStrInstant} Fee)
+                              {activeMachine.hasRateError ? (
+                                <span style={{ color: '#DC2626' }}>Could not load rates, try again</span>
+                              ) : (
+                                <>⚡ 100% Instant IMPS Settlement ({activeMachine.rateStrInstant} Fee)</>
+                              )}
                             </div>
 
                             {/* Official QR Image / Vector */}
@@ -3631,14 +3653,24 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                 <span style={{ fontSize: '0.625rem', color: '#166534', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                                   Net Credit to Wallet
                                 </span>
-                                <strong style={{ fontSize: '1.0625rem', color: '#15803D', fontWeight: 900 }}>
-                                  ₹{netSettlement.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                                </strong>
+                                {activeMachine.hasRateError ? (
+                                  <strong style={{ fontSize: '0.875rem', color: '#DC2626', fontWeight: 800 }}>
+                                    Could not load rates, try again
+                                  </strong>
+                                ) : (
+                                  <strong style={{ fontSize: '1.0625rem', color: '#15803D', fontWeight: 900 }}>
+                                    ₹{netSettlement.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                  </strong>
+                                )}
                               </div>
 
                               <div style={{ textAlign: 'right', fontSize: '0.65625rem', color: '#64748B', lineHeight: 1.35 }}>
                                 <div>Gross Swipe: <strong style={{ color: '#0F172A' }}>₹{cardSwipeAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></div>
-                                <div>Company Fee ({companyRate.toFixed(2)}%): <strong style={{ color: '#DC2626' }}>-₹{companyFee.toFixed(2)}</strong></div>
+                                {activeMachine.hasRateError ? (
+                                  <div><strong style={{ color: '#DC2626' }}>Could not load rates, try again</strong></div>
+                                ) : (
+                                  <div>Company Fee ({companyRate.toFixed(2)}%): <strong style={{ color: '#DC2626' }}>-₹{companyFee.toFixed(2)}</strong></div>
+                                )}
                               </div>
                             </div>
                           )}
@@ -3648,7 +3680,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                         {/* Submit CTA Button */}
                         <button 
                           type="submit"
-                          disabled={isSubmittingSale || cardSwipeAmount <= 0 || !saleForm.transaction_id}
+                          disabled={isSubmittingSale || cardSwipeAmount <= 0 || !saleForm.transaction_id || activeMachine.hasRateError}
                           style={{
                             width: '100%',
                             background: (cardSwipeAmount > 0 && saleForm.transaction_id)
