@@ -86,24 +86,33 @@ The following endpoints do not require a verified Bearer token by deliberate des
 ## 4. Verification & Test Evidence
 
 ### Suite 1: Automated Security Guardrail & Functional Suite (`server/test_security_core.mjs`)
-- **Guardrail Route Audit**: Passed. All registered endpoints are audited and mapped to either verified token gates or authorized public doors.
+- **Strict Server Boot Refusal**: Tested and verified. The server strictly refuses to boot if `JWT_SECRET` is unset, empty, or shorter than 32 characters, outputting `SECURITY_CONFIG_ERROR`. Zero code or git fallbacks. Template `.env.example` provided.
+- **Role-Based Token Lifetimes**: Verified deterministically using a controllable clock:
+  - Admin tokens expire after 2 days (172,800 seconds). Valid at 1.99 days, rejected at 2.01 days.
+  - Merchant/other role tokens expire after 30 days (2,592,000 seconds). Valid at 29.99 days, rejected at 30.01 days.
+  - Both lifetimes dynamically configure via `ADMIN_TOKEN_EXPIRY_SECONDS` and `USER_TOKEN_EXPIRY_SECONDS` settings.
+- **Silent Token Renewal**:
+  - In-memory & HTTP tests verified: when a token has $\ge 50\%$ life remaining, no renewal occurs; when remaining life is $\le 50\%$, the server issues a fresh replacement ticket in the `X-Renewed-Token` header.
+  - The shared frontend request layer automatically detects `X-Renewed-Token` and replaces the stored token without disrupting active users.
+- **Clean 401 & Friendly Messages**:
+  - Missing, expired, or invalid tokens strictly return clean HTTP 401 with `message: "Your session ended. Please log in again."`.
+  - Zero raw technical codes (`AUTH_TOKEN_EXPIRED`, `x-caller-id`) are shown to the user.
+- **Idempotency Preservation**:
+  - 401 session expiration does not consume or invalidate idempotency keys. Users safely resubmit swipes or withdrawals after re-authenticating without losing requests or creating duplicate transactions.
 - **Password Hashing**: 100% of rows in `users` verified to have `scrypt:salt:key` format. Plaintext password attempts fail; correct password passes `verifyPassword`.
-- **Token Signature & Tampering**:
-  - Valid token generates 200 OK.
-  - Tampered payload or signature triggers immediate 401 Unauthorized.
-  - Expired token triggers immediate 401 Unauthorized (`Token expired`).
 - **Identity Spoofing Defenses**:
   - Unauthenticated request with `x-caller-id: ADM001` returns 401 Unauthorized.
   - Unauthenticated request without headers returns 401 Unauthorized.
-  - Merchant token calling `/api/admin/swipes/1/review` returns 403 Forbidden (`Admin access required`).
-  - Distributor token querying a user outside their downline tree returns 403 Forbidden (`Access denied: target user is not in your downline`).
+  - Merchant token calling `/api/admin/pending` returns 403 Forbidden (`Admin access required`).
+  - Distributor token querying a user outside their downline tree returns 403 Forbidden.
   - Distributor token querying a user inside their downline tree succeeds with 200 OK.
 - **Zero Credential Leakage**: Inspecting all user JSON responses confirmed zero instances of `password`, `password_hash`, or `salt`.
 - **Public Rate Limiter**: Verified that burst attempts exceeding threshold return HTTP 429 Too Many Requests (`Too many requests, please try again later.`).
-- **Browser Playwright Verification**:
-  - Automated headless browser performed real UI login with `ADM001` / `Ronav@123`.
-  - Stored token verified in `sessionStorage.getItem('ronav_auth_token')`.
-  - When token is cleared/corrupted, subsequent API calls fire `ronav_auth_expired`, automatically redirecting the browser to `/login` with an expiration toast.
+- **Real Browser Playwright Verification**:
+  - Confirmed login with `MID4001` / `Ronav@123` on local test DB (`localhost:3000`).
+  - Recorded real Card Swipe Sale: verified success toast and saved screenshot to `audit/screens/security/e2e_swipe_recorded.png`.
+  - Tested Withdrawal Request tab: verified live ledger quote and saved screenshot to `audit/screens/security/e2e_withdraw_tab.png`.
+  - Verified 401 expiration simulation: cleared token, fired `ronav_auth_expired`, displayed friendly toast, and redirected to login. Screenshot saved to `audit/screens/security/auth_expired_redirect.png`.
 
 ### Suite 2: Regression Suites & 32-Scenario Master Runner
 - `server/test_step1_settings_and_caller.mjs`: **PASSED**.
