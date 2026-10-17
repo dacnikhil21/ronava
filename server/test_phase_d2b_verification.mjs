@@ -23,6 +23,7 @@ import { getAllSettings, updateSetting } from './settings.js';
 import http from 'http';
 import fs from 'fs';
 import path from 'path';
+import { runGuardrailAudit } from './test_guardrail_no_fallbacks.mjs';
 
 let server;
 let baseUrl;
@@ -184,7 +185,11 @@ async function runTests() {
     // Call /api/admin/withdrawals/export-excel
     const exportRes = await fetch(`${baseUrl}/api/admin/withdrawals/export-excel`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-caller-id': 'ADM001',
+        'x-caller-role': 'ADMIN'
+      },
       body: JSON.stringify({ withdrawal_ids: [badWithdrawalId] })
     });
     const exportJson = await exportRes.json();
@@ -289,6 +294,7 @@ async function runTests() {
     assert(!foundFallbackIfsc, 'Grep proof: Zero occurrences of fallback IFSC "SBIN0001234"');
     assert(!foundRentalOfflineCache, 'Grep proof: Zero occurrences of rental localStorage offline cache');
     assert(emptyCatchCount === 0, `Grep proof: Zero empty catch blocks remaining across all files in src/ (found ${emptyCatchCount})`);
+    assert(runGuardrailAudit(), 'Guardrail proof: Zero hardcoded user/role fallbacks across server/ and src/');
   }
 
   console.log('\n====================================================');
