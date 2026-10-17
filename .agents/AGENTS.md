@@ -1,5 +1,8 @@
 # RONAV TECHNOLOGIES — MASTER PRODUCT DESIGN & SYSTEM RULES
 
+> [!IMPORTANT]
+> **MANDATORY RULES GOVERNANCE**: Every session MUST strictly read, observe, and enforce the 7 non-negotiable engineering rules in [RULES.md](file:///c:/Users/dache/Desktop/ronava/RULES.md) before performing any changes or proposing architectural work. Zero shortcuts, zero invented business logic, zero client-side money math, and zero production interference.
+
 ## Core Product Vision & Identity (Chapter 01)
 - **Company**: RONAV Technologies (Established 2021)
 - **Product Type**: Enterprise FinTech Merchant Financial Services Platform.
@@ -203,7 +206,7 @@ Every single screen must instantly communicate:
   ```
 
 ### 4. Admin & Test Credentials Reference
-- **Super Admin ID**: `ADM001` (Password: `Ronav@123` or `admin`)
+- **Super Admin ID**: `ADM001` (Password: `Ronav@123`)
 - **Support Hotline**: `9966203053`
 - **Support Email**: `rosenavaneethamenterprises@gmail.com`
 

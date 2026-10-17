@@ -1,0 +1,146 @@
+[
+  {
+    "screen": "Merchant Home (Wallet)",
+    "user": "MID4001",
+    "expected": "₹9,850.00 (Net)",
+    "actual": "₹9,850.00",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/01_mid4001_home.png"
+  },
+  {
+    "screen": "Merchant Home (Total Sales)",
+    "user": "MID4001",
+    "expected": "₹10,000.00 (Gross)",
+    "actual": "₹10,000.00",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/01_mid4001_home.png"
+  },
+  {
+    "screen": "Transaction History",
+    "user": "MID4001",
+    "expected": "Gross 10,000, Fee 150, Net 9,850",
+    "actual": "Gross 10,000, Fee 150, Net 9,850",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/02_mid4001_history.png"
+  },
+  {
+    "screen": "Partner Wallet (+₹30)",
+    "user": "AREA3001",
+    "expected": "₹30.00",
+    "actual": "₹30.00",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/03_area3001_wallet.png"
+  },
+  {
+    "screen": "Partner Wallet (+₹20)",
+    "user": "DIST2001",
+    "expected": "₹20.00",
+    "actual": "₹20.00",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/04_dist2001_wallet.png"
+  },
+  {
+    "screen": "Partner Wallet (+₹20)",
+    "user": "SD1001",
+    "expected": "₹20.00",
+    "actual": "₹20.00",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/05_sd1001_wallet.png"
+  },
+  {
+    "screen": "Partner Wallet (+₹20)",
+    "user": "MST1001",
+    "expected": "₹20.00",
+    "actual": "₹20.00",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/06_mst1001_wallet.png"
+  },
+  {
+    "screen": "Admin Overview (Total Sales)",
+    "user": "ADM001",
+    "expected": "₹10,000.00",
+    "actual": "₹10,000.00",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/07_admin_overview.png"
+  },
+  {
+    "screen": "Admin Overview (Net Profit)",
+    "user": "ADM001",
+    "expected": "+₹60.00",
+    "actual": "+₹60.00",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/07_admin_overview.png"
+  },
+  {
+    "screen": "Admin Profits (KPIs)",
+    "user": "ADM001",
+    "expected": "Sales 10,000, Fees 150, Partner 90, Admin 60",
+    "actual": "Sales 10,000, Fees 150, Partner 90, Admin 60",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/08_admin_profits.png"
+  },
+  {
+    "screen": "Admin Profits (Tier Cards & Ledger)",
+    "user": "ADM001",
+    "expected": "Tier cuts (Master 20, SD 20, Dist 20, Area 30) & Ledger (150, 90, 60)",
+    "actual": "Tier cuts (20, 20, 20, 30) & Ledger breakdown visible",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/08_admin_profits.png"
+  },
+  {
+    "screen": "Admin Tab (Master)",
+    "user": "MST1001",
+    "expected": "Rate 0.60%, Parent: Super Admin",
+    "actual": "Rate: 0.60%, Parent: Super Admin",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/09_tab_master.png"
+  },
+  {
+    "screen": "Admin Tab (Super Dist)",
+    "user": "SD1001",
+    "expected": "Rate 0.80%, Parent: Master Distributor",
+    "actual": "Rate: 0.80%, Parent: Master Distributor",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/10_tab_super_dist.png"
+  },
+  {
+    "screen": "Admin Tab (District Dist)",
+    "user": "DIST2001",
+    "expected": "Rate 1.00%, Parent: Super Distributor",
+    "actual": "Rate: 1.00%, Parent: Super Distributor",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/11_tab_district_dist.png"
+  },
+  {
+    "screen": "Admin Tab (Distributor)",
+    "user": "AREA3001",
+    "expected": "Rate 1.20%, Parent: District Distributor",
+    "actual": "Rate: 1.20%, Parent: District Distributor",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/12_tab_distributor.png"
+  },
+  {
+    "screen": "Admin Tab (Merchants)",
+    "user": "MID4001",
+    "expected": "Rate 1.50%, Parent: Area Distributor",
+    "actual": "Rate: 1.50%, Parent: Area Distributor",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/13_tab_merchants.png"
+  },
+  {
+    "screen": "Admin Merchant Dossier",
+    "user": "MID4001",
+    "expected": "Sales 10,000, Gross MDR 150, Balance 9,850",
+    "actual": "Sales: 10k, Gross MDR: 150, Balance: 9,850",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/14_admin_merchant_dossier.png"
+  },
+  {
+    "screen": "Admin Payouts Tab",
+    "user": "ADM001",
+    "expected": "Batch totals & channel controls visible",
+    "actual": "Batch totals & channel bars visible",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/15_admin_payouts.png"
+  }
+]

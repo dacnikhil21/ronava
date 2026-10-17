@@ -1,0 +1,66 @@
+[
+  {
+    "screen": "Merchant Withdrawal Page",
+    "user": "MID4001",
+    "expected": "Status Pending, server quote shown",
+    "actual": "Status Pending, server quote shown",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/16_mid4001_withdrawal_pending.png"
+  },
+  {
+    "screen": "Admin Payouts (Excel Export)",
+    "user": "ADM001",
+    "expected": "Submitted to Bank, 2nd excluded, CSV gross/fee/net, no tax",
+    "actual": "Submitted to Bank, 2nd excluded, CSV gross/fee/net, no tax",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/17_admin_payouts_exported.png"
+  },
+  {
+    "screen": "Admin Payouts (UTR Completion)",
+    "user": "ADM001",
+    "expected": "Withdrawal completed with UTR-BANK-1001",
+    "actual": "Withdrawal completed with UTR-BANK-1001",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/18_admin_withdrawal_completed.png"
+  },
+  {
+    "screen": "Admin Payouts (Duplicate UTR)",
+    "user": "ADM001",
+    "expected": "Duplicate UTR refused (DUPLICATE_UTR)",
+    "actual": "Duplicate UTR refused (DUPLICATE_UTR)",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/19_admin_duplicate_utr_refused.png"
+  },
+  {
+    "screen": "Merchant Wallet (Refund on Rejection)",
+    "user": "MID4001",
+    "expected": "Balance ₹7,850.00 (Hold refunded)",
+    "actual": "Balance ₹7,850.00 (Hold refunded)",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/20_mid4001_wallet_refunded.png"
+  },
+  {
+    "screen": "Merchant Home (After Swipe Rejection)",
+    "user": "MID4001",
+    "expected": "Wallet balance ₹0.00, sales ₹0.00",
+    "actual": "Wallet balance ₹0.00, sales ₹0.00",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/21_mid4001_zero_after_reversal.png"
+  },
+  {
+    "screen": "Admin Overview (After Swipe Rejection)",
+    "user": "ADM001",
+    "expected": "Total sales ₹0.00, net profit ₹0.00",
+    "actual": "Total sales ₹0.00, net profit ₹0.00",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/22_admin_zero_after_reversal.png"
+  },
+  {
+    "screen": "Admin Profits (After Swipe Rejection)",
+    "user": "ADM001",
+    "expected": "Sales ₹0.00, Fees ₹0.00, Comms ₹0.00, Profit ₹0.00",
+    "actual": "Sales ₹0.00, Fees ₹0.00, Comms ₹0.00, Profit ₹0.00",
+    "result": "works",
+    "screenshot": "/audit/screens/cleanup/23_profits_zero_after_reversal.png"
+  }
+]
