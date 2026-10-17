@@ -130,3 +130,6 @@ vite.config.js.timestamp*
 # Security Keys
 *.pem
 *.key
+
+# Local scratch and debug files
+scratch/
