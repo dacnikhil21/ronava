@@ -8,6 +8,7 @@ import pg from 'pg';
 import { resetTestDatabase } from './test_db_helper.js';
 import { setUserRate } from './rate_engine.js';
 import { TEST_PASSWORD } from './test_config.js';
+import { hashPassword } from './security.js';
 const { Pool } = pg;
 
 const pool = new Pool({
@@ -24,7 +25,7 @@ export async function cleanAndReseed() {
     await client.query('BEGIN');
 
     console.log('[Clean & Reseed] Seeding 6 reference users with clean wallets (0 paise)...');
-    const defaultPassword = TEST_PASSWORD;
+    const defaultPassword = hashPassword(TEST_PASSWORD);
     const users = [
       { id: 'ADM001', name: 'RONAV Super Admin', mobile: '9966203053', role: 'ADMIN', creator_id: null },
       { id: 'MST1001', name: 'Master Distributor', mobile: '9966203000', role: 'MASTER', creator_id: 'ADM001' },

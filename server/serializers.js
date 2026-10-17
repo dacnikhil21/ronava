@@ -133,8 +133,27 @@ export function serializeMoneyFields(data) {
   return out;
 }
 
+/**
+ * Remove sensitive password and hash fields from user models
+ */
+export function sanitizeUser(user) {
+  if (!user) return user;
+  if (Array.isArray(user)) {
+    return user.map(u => sanitizeUser(u));
+  }
+  if (typeof user !== 'object') {
+    return user;
+  }
+  const safe = { ...user };
+  delete safe.password;
+  delete safe.password_hash;
+  delete safe.salt;
+  return safe;
+}
+
 export default {
   paiseToRupees,
   paiseToRupeesNum,
-  serializeMoneyFields
+  serializeMoneyFields,
+  sanitizeUser
 };

@@ -5,6 +5,7 @@ process.env.TEST_DATABASE_URL = process.env.TEST_DATABASE_URL || 'postgres://pos
 
 import pg from 'pg';
 import { setUserRate } from './rate_engine.js';
+import { hashPassword } from './security.js';
 const { Pool } = pg;
 
 const pool = new Pool({
@@ -27,7 +28,7 @@ async function seed() {
     `);
 
     // 2. Reference Users with standard test password "Ronav@123"
-    const defaultPassword = 'Ronav@123';
+    const defaultPassword = hashPassword('Ronav@123');
     const users = [
       { id: 'ADM001', name: 'RONAV Super Admin', mobile: '9966203053', role: 'ADMIN', creator_id: null },
       { id: 'MST1001', name: 'Master Distributor', mobile: '9966203000', role: 'MASTER', creator_id: 'ADM001' },
