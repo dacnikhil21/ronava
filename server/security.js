@@ -1,7 +1,20 @@
 import crypto from 'node:crypto';
+import dotenv from 'dotenv';
 
-// Secret key for HMAC token signing (falls back to a default high-entropy key for dev/test)
-const JWT_SECRET = process.env.JWT_SECRET || 'ronav-enterprise-fintech-jwt-secret-2026-strict-key-secure';
+dotenv.config();
+
+/**
+ * Authoritative JWT_SECRET getter & validator.
+ * Refuses execution if JWT_SECRET is missing or shorter than 32 characters.
+ * Zero development fallbacks in code or git.
+ */
+export function getJwtSecret() {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || typeof secret !== 'string' || secret.trim().length < 32) {
+    throw new Error('SECURITY_CONFIG_ERROR: JWT_SECRET environment variable is missing or shorter than 32 characters. Refusing to start.');
+  }
+  return secret.trim();
+}
 
 /**
  * Hash plain-text password using crypto.scrypt
@@ -43,29 +56,45 @@ export function verifyPassword(plainText, storedHash) {
   }
 }
 
-// Token lifetime: configurable via TOKEN_EXPIRY_SECONDS, defaults to 8 hours (28,800 seconds)
-const DEFAULT_TOKEN_EXPIRY_SECONDS = Number(process.env.TOKEN_EXPIRY_SECONDS) || 28800;
+/**
+ * Read token lifetime settings from environment variables.
+ * Admin default: 2 days (172,800 seconds)
+ * All other roles default: 30 days (2,592,000 seconds)
+ */
+export function getTokenExpiryForRole(role) {
+  const cleanRole = (role || '').toUpperCase();
+  if (cleanRole === 'ADMIN' || cleanRole === 'SUPER_ADMIN') {
+    return Number(process.env.ADMIN_TOKEN_EXPIRY_SECONDS) || 172800; // 2 days
+  }
+  return Number(process.env.USER_TOKEN_EXPIRY_SECONDS) || 2592000; // 30 days
+}
 
 /**
  * Generate a cryptographically signed expiring bearer token (HMAC-SHA256)
+ * Supports controllable clock via options.currentTime
  */
-export function generateToken(user, expiresInSeconds = DEFAULT_TOKEN_EXPIRY_SECONDS) {
+export function generateToken(user, expiresInSeconds = null, options = {}) {
   if (!user || !user.id || !user.role) {
     throw new Error('CANNOT_GENERATE_TOKEN: Valid user with id and role is required.');
   }
-  const now = Math.floor(Date.now() / 1000);
+  const role = user.role.toUpperCase();
+  const expiry = expiresInSeconds !== null && expiresInSeconds !== undefined
+    ? Number(expiresInSeconds)
+    : getTokenExpiryForRole(role);
+
+  const now = options.currentTime !== undefined ? options.currentTime : Math.floor(Date.now() / 1000);
   const header = { alg: 'HS256', typ: 'JWT' };
   const payload = {
     id: user.id.toUpperCase(),
-    role: user.role.toUpperCase(),
+    role: role,
     name: user.name || user.id,
-    iat: now,
-    exp: now + expiresInSeconds
+    iat: options.iat !== undefined ? options.iat : now,
+    exp: now + expiry
   };
 
   const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
   const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const signature = crypto.createHmac('sha256', JWT_SECRET)
+  const signature = crypto.createHmac('sha256', getJwtSecret())
     .update(`${encodedHeader}.${encodedPayload}`)
     .digest('base64url');
 
@@ -74,10 +103,11 @@ export function generateToken(user, expiresInSeconds = DEFAULT_TOKEN_EXPIRY_SECO
 
 /**
  * Verify and decode signed bearer token
+ * Supports controllable clock via options.currentTime
  */
-export function verifyToken(token) {
+export function verifyToken(token, options = {}) {
   if (!token || typeof token !== 'string') {
-    const err = new Error('AUTH_TOKEN_MISSING: Authorization header Bearer token is required.');
+    const err = new Error('Your session ended. Please log in again.');
     err.code = 'AUTH_TOKEN_MISSING';
     err.statusCode = 401;
     throw err;
@@ -86,19 +116,19 @@ export function verifyToken(token) {
   const cleanToken = token.startsWith('Bearer ') ? token.slice(7).trim() : token.trim();
   const parts = cleanToken.split('.');
   if (parts.length !== 3) {
-    const err = new Error('AUTH_TOKEN_INVALID: Malformed authorization token.');
+    const err = new Error('Your session ended. Please log in again.');
     err.code = 'AUTH_TOKEN_INVALID';
     err.statusCode = 401;
     throw err;
   }
 
   const [encodedHeader, encodedPayload, signature] = parts;
-  const expectedSig = crypto.createHmac('sha256', JWT_SECRET)
+  const expectedSig = crypto.createHmac('sha256', getJwtSecret())
     .update(`${encodedHeader}.${encodedPayload}`)
     .digest('base64url');
 
   if (signature !== expectedSig) {
-    const err = new Error('AUTH_TOKEN_INVALID: Token signature verification failed.');
+    const err = new Error('Your session ended. Please log in again.');
     err.code = 'AUTH_TOKEN_INVALID';
     err.statusCode = 401;
     throw err;
@@ -108,21 +138,80 @@ export function verifyToken(token) {
   try {
     payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
   } catch (_) {
-    const err = new Error('AUTH_TOKEN_INVALID: Failed to parse token payload.');
+    const err = new Error('Your session ended. Please log in again.');
     err.code = 'AUTH_TOKEN_INVALID';
     err.statusCode = 401;
     throw err;
   }
 
-  const now = Math.floor(Date.now() / 1000);
+  const now = options.currentTime !== undefined ? options.currentTime : Math.floor(Date.now() / 1000);
   if (payload.exp && payload.exp < now) {
-    const err = new Error('AUTH_TOKEN_EXPIRED: Token has expired. Please log in again.');
+    const err = new Error('Your session ended. Please log in again.');
     err.code = 'AUTH_TOKEN_EXPIRED';
     err.statusCode = 401;
     throw err;
   }
 
   return payload;
+}
+
+/**
+ * Check if a token has less than half its life left.
+ * If eligible and valid, generates a fresh replacement token.
+ * Returns { shouldRenew: boolean, payload: object, renewedToken?: string }
+ */
+export function checkTokenRenewal(token, options = {}) {
+  if (!token || typeof token !== 'string') return null;
+  const cleanToken = token.startsWith('Bearer ') ? token.slice(7).trim() : token.trim();
+  const parts = cleanToken.split('.');
+  if (parts.length !== 3) return null;
+
+  let secret;
+  try {
+    secret = getJwtSecret();
+  } catch (_) {
+    return null;
+  }
+
+  const [encodedHeader, encodedPayload, signature] = parts;
+  const expectedSig = crypto.createHmac('sha256', secret)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest('base64url');
+
+  if (signature !== expectedSig) return null;
+
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
+  } catch (_) {
+    return null;
+  }
+
+  const now = options.currentTime !== undefined ? options.currentTime : Math.floor(Date.now() / 1000);
+  if (payload.exp && payload.exp < now) {
+    return null; // Expired tokens cannot be silently renewed
+  }
+
+  const totalLifetime = (payload.exp || 0) - (payload.iat || 0);
+  const remainingLifetime = (payload.exp || 0) - now;
+
+  // Less than half its life left:
+  const shouldRenew = totalLifetime > 0 && remainingLifetime <= (totalLifetime / 2);
+
+  let renewedToken = null;
+  if (shouldRenew) {
+    renewedToken = generateToken({
+      id: payload.id,
+      role: payload.role,
+      name: payload.name
+    }, null, { currentTime: now });
+  }
+
+  return {
+    shouldRenew,
+    payload,
+    renewedToken
+  };
 }
 
 /**

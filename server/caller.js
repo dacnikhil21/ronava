@@ -21,7 +21,7 @@ export function getCaller(req) {
   const authHeader = headers['authorization'] || headers['Authorization'];
 
   if (!authHeader || typeof authHeader !== 'string' || !authHeader.trim()) {
-    const err = new Error('AUTH_TOKEN_MISSING: Missing Authorization header with Bearer token.');
+    const err = new Error('Your session ended. Please log in again.');
     err.statusCode = 401;
     err.code = 'AUTH_TOKEN_MISSING';
     throw err;

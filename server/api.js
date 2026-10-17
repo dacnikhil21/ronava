@@ -17,13 +17,18 @@ import { quoteWithdrawal, processWithdrawalRequest } from './withdrawal_engine.j
 import { reverseTransaction } from './reversal_engine.js';
 import { validateChildParentRates, setUserRate, getActiveRate } from './rate_engine.js';
 import { 
+  getJwtSecret,
   hashPassword, 
   verifyPassword, 
   generateToken, 
   checkRateLimit, 
   getDownlineUserIds, 
-  assertCanAccessUser 
+  assertCanAccessUser,
+  checkTokenRenewal
 } from './security.js';
+
+// Enforce strict security configuration on boot: refuse execution if JWT_SECRET is missing or insecure (<32 chars)
+getJwtSecret();
 import { sanitizeUser, serializeMoneyFields } from './serializers.js';
 
 export function requireAuth(req) {
@@ -74,12 +79,17 @@ export async function parseJsonBody(req) {
 // Helper to send JSON response with native BigInt support
 export function sendJson(res, statusCode, data) {
   const jsonStr = JSON.stringify(data, (_, v) => typeof v === 'bigint' ? v.toString() : v);
-  res.writeHead(statusCode, {
+  const headers = {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-  });
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, idempotency-key',
+    'Access-Control-Expose-Headers': 'X-Renewed-Token, Content-Type, Authorization'
+  };
+  if (res && res._renewedToken) {
+    headers['X-Renewed-Token'] = res._renewedToken;
+  }
+  res.writeHead(statusCode, headers);
   res.end(jsonStr);
 }
 
@@ -283,9 +293,23 @@ export async function handleApiRequest(req, res) {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, idempotency-key',
+      'Access-Control-Expose-Headers': 'X-Renewed-Token, Content-Type, Authorization'
     });
     return res.end();
+  }
+
+  // Silent Token Renewal Check (renew when remaining lifetime is less than half)
+  const authHeader = req.headers['authorization'] || req.headers['Authorization'];
+  if (authHeader && typeof authHeader === 'string' && authHeader.trim()) {
+    try {
+      const renewal = checkTokenRenewal(authHeader);
+      if (renewal && renewal.shouldRenew && renewal.renewedToken) {
+        res._renewedToken = renewal.renewedToken;
+      }
+    } catch (_) {
+      // Route auth gates handle invalid/expired tokens
+    }
   }
 
   try {
@@ -3673,6 +3697,7 @@ export async function handleApiRequest(req, res) {
   } catch (err) {
     console.error('API Error:', err);
     const status = err.statusCode || (err.message && err.message.startsWith('AUTH_') ? 401 : (err.message && err.message.startsWith('ACCESS_') ? 403 : 500));
-    return sendJson(res, status, { success: false, error: err.code || 'ERROR', message: err.message || 'Internal Server Error' });
+    const message = status === 401 ? 'Your session ended. Please log in again.' : (err.message || 'Internal Server Error');
+    return sendJson(res, status, { success: false, error: err.code || 'ERROR', message });
   }
 }
