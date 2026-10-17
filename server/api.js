@@ -16,7 +16,38 @@ import { processSwipeTransaction, editSwipeTransaction, quoteSwipeTransaction } 
 import { quoteWithdrawal, processWithdrawalRequest } from './withdrawal_engine.js';
 import { reverseTransaction } from './reversal_engine.js';
 import { validateChildParentRates, setUserRate, getActiveRate } from './rate_engine.js';
-import { serializeMoneyFields } from './serializers.js';
+import { 
+  hashPassword, 
+  verifyPassword, 
+  generateToken, 
+  checkRateLimit, 
+  getDownlineUserIds, 
+  assertCanAccessUser 
+} from './security.js';
+import { sanitizeUser, serializeMoneyFields } from './serializers.js';
+
+export function requireAuth(req) {
+  return getCaller(req);
+}
+
+export function requireAdmin(req) {
+  const caller = getCaller(req);
+  if (caller.role !== 'ADMIN' && caller.id !== 'ADM001') {
+    const err = new Error('ACCESS_FORBIDDEN: Administrator access required.');
+    err.statusCode = 403;
+    err.code = 'FORBIDDEN_ADMIN_ONLY';
+    throw err;
+  }
+  return caller;
+}
+
+export function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.socket?.remoteAddress || req.connection?.remoteAddress || '127.0.0.1';
+}
 
 export { getCaller };
 
@@ -302,7 +333,8 @@ export async function handleApiRequest(req, res) {
           }
         });
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
@@ -310,142 +342,161 @@ export async function handleApiRequest(req, res) {
     // 0.2 PASSWORD MANAGEMENT & VERIFICATION ENDPOINTS
     // ----------------------------------------------------
     if (pathname === '/api/auth/change-password' && method === 'POST') {
-      const { userId, currentPassword, newPassword } = await parseJsonBody(req);
-      if (!userId || !currentPassword || !newPassword) {
-        return sendJson(res, 400, { success: false, message: 'User ID, current password, and new password are required.' });
-      }
-      if (newPassword.trim().length < 6) {
-        return sendJson(res, 400, { success: false, message: 'New password must be at least 6 characters long.' });
-      }
+      try {
+        const caller = requireAuth(req);
+        const { userId, currentPassword, newPassword } = await parseJsonBody(req);
+        const cleanUserId = (userId || caller.id).trim().toUpperCase();
+        if (caller.id !== cleanUserId && caller.role !== 'ADMIN') {
+          return sendJson(res, 403, { success: false, message: 'Access Denied: You may only change your own password.' });
+        }
+        if (!currentPassword || !newPassword) {
+          return sendJson(res, 400, { success: false, message: 'Current password and new password are required.' });
+        }
+        if (newPassword.trim().length < 6) {
+          return sendJson(res, 400, { success: false, message: 'New password must be at least 6 characters long.' });
+        }
 
-      const users = await pgQuery(`SELECT * FROM users WHERE UPPER(id) = UPPER($1)`, [userId.trim()]);
-      const user = users[0];
-      if (!user) {
-        return sendJson(res, 404, { success: false, message: 'User not found.' });
-      }
+        const users = await pgQuery(`SELECT * FROM users WHERE UPPER(id) = UPPER($1)`, [cleanUserId]);
+        const user = users[0];
+        if (!user) {
+          return sendJson(res, 404, { success: false, message: 'User not found.' });
+        }
 
-      if ((user.password || '').trim() !== currentPassword.trim()) {
-        return sendJson(res, 401, { success: false, message: 'Current password does not match. Please verify your credentials.' });
-      }
+        if (!verifyPassword(currentPassword.trim(), user.password)) {
+          return sendJson(res, 401, { success: false, message: 'Current password does not match. Please verify your credentials.' });
+        }
 
-      await pgQuery(`UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE UPPER(id) = UPPER($2)`, [newPassword.trim(), userId.trim()]);
-      return sendJson(res, 200, { success: true, message: 'Password changed successfully!' });
+        const hashedPassword = hashPassword(newPassword.trim());
+        await pgQuery(`UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE UPPER(id) = UPPER($2)`, [hashedPassword, cleanUserId]);
+        return sendJson(res, 200, { success: true, message: 'Password changed successfully!' });
+      } catch (err) {
+        return sendJson(res, err.statusCode || 400, { success: false, message: err.message });
+      }
     }
 
     if (pathname === '/api/auth/forgot-password-request' && method === 'POST') {
-      const { query: userQuery } = await parseJsonBody(req);
-      if (!userQuery || !userQuery.trim()) {
-        return sendJson(res, 400, { success: false, message: 'Please enter your registered User ID or Mobile Number.' });
+      try {
+        const clientIp = getClientIp(req);
+        if (!checkRateLimit(`forgot-pwd:${clientIp}`, { limit: 10, windowMs: 60000 })) {
+          return sendJson(res, 429, { 
+            success: false, 
+            code: 'RATE_LIMIT_EXCEEDED', 
+            message: 'Too many password reset requests. Please wait a minute and try again.' 
+          });
+        }
+
+        const { query: userQuery } = await parseJsonBody(req);
+        if (!userQuery || !userQuery.trim()) {
+          return sendJson(res, 400, { success: false, message: 'Please enter your registered User ID or Mobile Number.' });
+        }
+
+        const clean = userQuery.trim();
+        const users = await pgQuery(`
+          SELECT id, name, mobile, role 
+          FROM users 
+          WHERE UPPER(id) = UPPER($1) OR mobile = $1
+        `, [clean]);
+
+        const user = users[0];
+        if (!user) {
+          return sendJson(res, 404, { success: false, message: 'No registered account found matching that User ID or Mobile.' });
+        }
+
+        const ticketId = `PWD-REQ-${Date.now().toString().slice(-6)}`;
+        await pgQuery(`
+          INSERT INTO inquiries (id, type, name, phone, merchant_id, amount, category, location, remarks)
+          VALUES ($1, 'PASSWORD_RESET', $2, $3, $4, '0', 'SECURITY', 'PORTAL', $5)
+        `, [ticketId, user.name, user.mobile, user.id, `Password reset requested for ${user.id} (${user.role}). Verification required by Help Desk.`]);
+
+        return sendJson(res, 200, {
+          success: true,
+          ticketId,
+          message: `Password reset request registered (Ticket #${ticketId}). For security, please contact RONAV Support at 9966203053 or your assigned Distributor to verify your identity.`,
+          user: { id: user.id, name: user.name, mobile: user.mobile.replace(/(\d{3})\d{4}(\d{3})/, '$1****$2') }
+        });
+      } catch (err) {
+        return sendJson(res, err.statusCode || 500, { success: false, message: err.message });
       }
-
-      const clean = userQuery.trim();
-      const users = await pgQuery(`
-        SELECT id, name, mobile, role 
-        FROM users 
-        WHERE UPPER(id) = UPPER($1) OR mobile = $1
-      `, [clean]);
-
-      const user = users[0];
-      if (!user) {
-        return sendJson(res, 404, { success: false, message: 'No registered account found matching that User ID or Mobile.' });
-      }
-
-      const ticketId = `PWD-REQ-${Date.now().toString().slice(-6)}`;
-      await pgQuery(`
-        INSERT INTO inquiries (id, type, name, phone, merchant_id, amount, category, location, remarks)
-        VALUES ($1, 'PASSWORD_RESET', $2, $3, $4, '0', 'SECURITY', 'PORTAL', $5)
-      `, [ticketId, user.name, user.mobile, user.id, `Password reset requested for ${user.id} (${user.role}). Verification required by Help Desk.`]);
-
-      return sendJson(res, 200, {
-        success: true,
-        ticketId,
-        message: `Password reset request registered (Ticket #${ticketId}). For security, please contact RONAV Support at 9966203053 or your assigned Distributor to verify your identity.`,
-        user: { id: user.id, name: user.name, mobile: user.mobile.replace(/(\d{3})\d{4}(\d{3})/, '$1****$2') }
-      });
     }
 
     if (pathname === '/api/admin/users/reset-password' && method === 'POST') {
-      const { adminId, adminPassword, targetUserId, newPassword } = await parseJsonBody(req);
-      let caller = null;
-      try { caller = getCaller(req); } catch (_) {}
-      const cleanAdminId = (adminId || caller?.id || '').trim();
-      if (!cleanAdminId) {
-        return sendJson(res, 401, { success: false, message: 'CALLER_IDENTIFICATION_REQUIRED: Admin ID is required.' });
-      }
-      if (!targetUserId) {
-        return sendJson(res, 400, { success: false, message: 'Target User ID is required.' });
-      }
-
-      const admins = await pgQuery(`SELECT * FROM users WHERE UPPER(id) = UPPER($1)`, [cleanAdminId]);
-      const admin = admins[0];
-      if (!admin || (admin.role !== 'ADMIN' && admin.role !== 'MASTER')) {
-        return sendJson(res, 403, { success: false, message: 'Access Denied: Only authorized Administrators can perform password resets.' });
-      }
-
-      if (adminPassword && adminPassword.trim()) {
-        if ((admin.password || '').trim() !== adminPassword.trim()) {
-          return sendJson(res, 401, { success: false, message: 'Invalid Admin credentials.' });
+      try {
+        const caller = requireAdmin(req);
+        const { targetUserId, newPassword } = await parseJsonBody(req);
+        if (!targetUserId) {
+          return sendJson(res, 400, { success: false, message: 'Target User ID is required.' });
         }
+
+        const targets = await pgQuery(`SELECT * FROM users WHERE UPPER(id) = UPPER($1)`, [targetUserId.trim()]);
+        const target = targets[0];
+        if (!target) {
+          return sendJson(res, 404, { success: false, message: 'Target user not found.' });
+        }
+
+        const randomDigits = Math.floor(1000 + Math.random() * 9000);
+        const resetPass = newPassword && newPassword.trim().length >= 6 ? newPassword.trim() : `Ronav@${randomDigits}`;
+        const hashedPassword = hashPassword(resetPass);
+
+        await pgQuery(`UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE UPPER(id) = UPPER($2)`, [hashedPassword, targetUserId.trim()]);
+
+        return sendJson(res, 200, {
+          success: true,
+          message: `Password reset successfully for ${target.name} (${target.id})!`,
+          newPassword: resetPass
+        });
+      } catch (err) {
+        return sendJson(res, err.statusCode || 400, { success: false, message: err.message });
       }
-
-      const targets = await pgQuery(`SELECT * FROM users WHERE UPPER(id) = UPPER($1)`, [targetUserId.trim()]);
-      const target = targets[0];
-      if (!target) {
-        return sendJson(res, 404, { success: false, message: 'Target user not found.' });
-      }
-
-      const randomDigits = Math.floor(1000 + Math.random() * 9000);
-      const resetPass = newPassword && newPassword.trim().length >= 6 ? newPassword.trim() : `Ronav@${randomDigits}`;
-
-      await pgQuery(`UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE UPPER(id) = UPPER($2)`, [resetPass, targetUserId.trim()]);
-
-      return sendJson(res, 200, {
-        success: true,
-        message: `Password reset successfully for ${target.name} (${target.id})!`,
-        newPassword: resetPass
-      });
     }
 
     if (pathname === '/api/admin/users/toggle-status' && method === 'POST') {
-      const { adminId, targetUserId, status } = await parseJsonBody(req);
-      if (!targetUserId || !status) {
-        return sendJson(res, 400, { success: false, message: 'targetUserId and status are required.' });
+      try {
+        const caller = requireAdmin(req);
+        const { targetUserId, status } = await parseJsonBody(req);
+        if (!targetUserId || !status) {
+          return sendJson(res, 400, { success: false, message: 'targetUserId and status are required.' });
+        }
+
+        if (targetUserId.toUpperCase() === 'ADM001') {
+          return sendJson(res, 400, { success: false, message: 'Cannot suspend Super Admin (ADM001).' });
+        }
+
+        const validStatuses = ['ACTIVE', 'SUSPENDED'];
+        if (!validStatuses.includes(status.toUpperCase())) {
+          return sendJson(res, 400, { success: false, message: 'Invalid status. Allowed: ACTIVE, SUSPENDED.' });
+        }
+
+        await pgQuery(`UPDATE users SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE UPPER(id) = UPPER($2)`, [status.toUpperCase(), targetUserId.trim()]);
+
+        const statusRows = await pgQuery(`SELECT * FROM inquiries WHERE id = 'SYS-USER-STATUSES'`);
+        let statusMap = {};
+        if (statusRows.length > 0 && statusRows[0].remarks) {
+          try {
+            const parsed = JSON.parse(statusRows[0].remarks);
+            if (parsed && typeof parsed === 'object') statusMap = parsed;
+          } catch (_) {}
+        }
+        statusMap[targetUserId] = status.toUpperCase();
+
+        await pgQuery(`
+          INSERT INTO inquiries (id, type, name, phone, merchant_id, amount, category, location, remarks)
+          VALUES ('SYS-USER-STATUSES', 'SYSTEM', 'System Status Map', '9966203053', 'ADM001', '0', 'SYSTEM', 'SERVER', $1)
+          ON CONFLICT (id) DO UPDATE SET remarks = EXCLUDED.remarks, updated_at = CURRENT_TIMESTAMP
+        `, [JSON.stringify(statusMap)]);
+
+        return sendJson(res, 200, {
+          success: true,
+          message: `Account ${targetUserId} status updated to ${status.toUpperCase()}.`,
+          status: status.toUpperCase()
+        });
+      } catch (err) {
+        return sendJson(res, err.statusCode || 400, { success: false, message: err.message });
       }
-
-      if (targetUserId.toUpperCase() === 'ADM001') {
-        return sendJson(res, 400, { success: false, message: 'Cannot suspend Super Admin (ADM001).' });
-      }
-
-      const validStatuses = ['ACTIVE', 'SUSPENDED'];
-      if (!validStatuses.includes(status.toUpperCase())) {
-        return sendJson(res, 400, { success: false, message: 'Invalid status. Allowed: ACTIVE, SUSPENDED.' });
-      }
-
-      const statusRows = await pgQuery(`SELECT * FROM inquiries WHERE id = 'SYS-USER-STATUSES'`);
-      let statusMap = {};
-      if (statusRows.length > 0 && statusRows[0].remarks) {
-        try {
-          const parsed = JSON.parse(statusRows[0].remarks);
-          if (parsed && typeof parsed === 'object') statusMap = parsed;
-        } catch (_) {}
-      }
-      statusMap[targetUserId] = status.toUpperCase();
-
-      await pgQuery(`
-        INSERT INTO inquiries (id, type, name, phone, merchant_id, amount, category, location, remarks)
-        VALUES ('SYS-USER-STATUSES', 'SYSTEM', 'System Status Map', '9966203053', 'ADM001', '0', 'SYSTEM', 'SERVER', $1)
-        ON CONFLICT (id) DO UPDATE SET remarks = EXCLUDED.remarks, updated_at = CURRENT_TIMESTAMP
-      `, [JSON.stringify(statusMap)]);
-
-      return sendJson(res, 200, {
-        success: true,
-        message: `Account ${targetUserId} status updated to ${status.toUpperCase()}.`,
-        status: status.toUpperCase()
-      });
     }
 
     if (pathname === '/api/admin/system/purge-demo-templates' && method === 'POST') {
       try {
+        requireAdmin(req);
         const demoIds = ['SD101', 'DD101', 'DIST101', 'MID101'];
         await pgQuery(`DELETE FROM transactions WHERE merchant_id = ANY($1)`, [demoIds]);
         await pgQuery(`DELETE FROM withdrawals WHERE merchant_id = ANY($1)`, [demoIds]);
@@ -455,16 +506,16 @@ export async function handleApiRequest(req, res) {
         await pgQuery(`DELETE FROM users WHERE id = ANY($1)`, [demoIds]);
         return sendJson(res, 200, { success: true, message: 'Template demo accounts removed successfully.' });
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        return sendJson(res, err.statusCode || 500, { success: false, message: err.message });
       }
     }
 
     if (pathname === '/api/users/update-profile' && method === 'POST') {
       try {
+        const caller = requireAuth(req);
         const { userId, name, mobile, email, aadhaar, pan, address, creator_id, commission_rate_t1, commission_rate_instant, margin_rate } = await parseJsonBody(req);
-        if (!userId) {
-          return sendJson(res, 400, { success: false, message: 'userId is required.' });
-        }
+        const targetUserId = (userId || caller.id).trim();
+        await assertCanAccessUser(caller, targetUserId, { query: pgQuery });
 
         const updateRes = await pgQuery(`
           UPDATE users 
@@ -492,7 +543,7 @@ export async function handleApiRequest(req, res) {
           commission_rate_t1 !== undefined && commission_rate_t1 !== null ? parseFloat(commission_rate_t1) : null,
           commission_rate_instant !== undefined && commission_rate_instant !== null ? parseFloat(commission_rate_instant) : null,
           margin_rate !== undefined && margin_rate !== null ? parseFloat(margin_rate) : null,
-          userId.trim()
+          targetUserId
         ]);
 
         if (updateRes.length === 0) {
@@ -502,10 +553,10 @@ export async function handleApiRequest(req, res) {
         return sendJson(res, 200, {
           success: true,
           message: 'User profile updated successfully.',
-          user: updateRes[0]
+          user: sanitizeUser(updateRes[0])
         });
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        return sendJson(res, err.statusCode || 500, { success: false, message: err.message });
       }
     }
 
@@ -513,6 +564,7 @@ export async function handleApiRequest(req, res) {
     // 0.3 POS TERMINAL & CHANNELS ASSIGNMENT
     // ----------------------------------------------------
     if (pathname === '/api/pos/assign' && method === 'POST') {
+      requireAdmin(req);
       const { 
         adminId, 
         merchantId, 
@@ -592,6 +644,7 @@ export async function handleApiRequest(req, res) {
     // 0.4 ADMIN TRANSACTION VERIFICATION & APPROVAL / REVERSAL
     // ----------------------------------------------------
     if (pathname === '/api/admin/verify-transaction' && method === 'POST') {
+      requireAdmin(req);
       const body = await parseJsonBody(req);
       const targetTxnId = (body.transaction_id || body.txnId || body.txn_id || body.id || '').toString().trim();
       const action = (body.action || '').toUpperCase();
@@ -663,28 +716,26 @@ export async function handleApiRequest(req, res) {
     // 0.5 SINGLE USER PROFILE WITH POS & WALLET
     // ----------------------------------------------------
     if (pathname === '/api/auth/verify' && method === 'GET') {
-      const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-      const userId = (parsedUrl.searchParams.get('userId') || parsedUrl.searchParams.get('id') || '').trim();
-      if (!userId) {
-        return sendJson(res, 400, { success: false, message: 'userId is required.' });
-      }
       try {
-        const users = await pgQuery(`SELECT id, name, role, COALESCE(status, 'ACTIVE') as status FROM users WHERE UPPER(id) = UPPER($1)`, [userId]);
+        const caller = requireAuth(req);
+        const users = await pgQuery(`SELECT id, name, role, COALESCE(status, 'ACTIVE') as status FROM users WHERE UPPER(id) = UPPER($1)`, [caller.id]);
         if (!users || users.length === 0) {
           return sendJson(res, 404, { success: false, code: 'USER_NOT_FOUND', message: 'User account not found.' });
         }
         if (users[0].status === 'SUSPENDED') {
           return sendJson(res, 403, { success: false, code: 'USER_SUSPENDED', message: 'User account is suspended.' });
         }
-        return sendJson(res, 200, { success: true, user: users[0] });
+        return sendJson(res, 200, { success: true, user: sanitizeUser(users[0]) });
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        return sendJson(res, err.statusCode || 500, { success: false, message: err.message });
       }
     }
 
     if (pathname.startsWith('/api/users/') && method === 'GET' && pathname !== '/api/users/create' && !pathname.endsWith('/financial-summary')) {
       const userId = decodeURIComponent(pathname.replace('/api/users/', '')).trim();
       try {
+        const caller = requireAuth(req);
+        await assertCanAccessUser(caller, userId, { query: pgQuery });
         const users = await pgQuery(`
           SELECT u.id, u.name, u.mobile, u.email, u.pan, u.aadhaar, u.address, u.role, u.creator_id, u.margin_rate, COALESCE(u.status, 'ACTIVE') as status, u.created_at,
                  p.provider AS pos_provider, 
@@ -723,15 +774,18 @@ export async function handleApiRequest(req, res) {
         delete userProfile.password;
         const enrichedProfile = await enrichUsersWithChannelRates(userProfile);
 
-        return sendJson(res, 200, { success: true, user: enrichedProfile });
+        return sendJson(res, 200, { success: true, user: sanitizeUser(enrichedProfile) });
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
     if (pathname.startsWith('/api/wallet/') && !pathname.startsWith('/api/wallet/balance') && method === 'GET') {
       const userId = decodeURIComponent(pathname.replace('/api/wallet/', '')).trim();
       try {
+        const caller = requireAuth(req);
+        await assertCanAccessUser(caller, userId, { query: pgQuery });
         const userExists = (await pgQuery(`SELECT id FROM users WHERE UPPER(id) = UPPER($1)`, [userId]))[0];
         if (!userExists) {
           return sendJson(res, 404, { success: false, message: `User ${userId} not found.` });
@@ -763,7 +817,8 @@ export async function handleApiRequest(req, res) {
           balances
         });
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
@@ -772,6 +827,7 @@ export async function handleApiRequest(req, res) {
     // ----------------------------------------------------
     if (pathname === '/api/users/create' && method === 'POST') {
       try {
+        const caller = requireAuth(req);
         const userData = await parseJsonBody(req);
         const { 
           creator_id, 
@@ -835,6 +891,7 @@ export async function handleApiRequest(req, res) {
 
         const randomSuffix = Math.floor(1000 + Math.random() * 9000);
         const initialPassword = userData.password || `Ronav@${randomSuffix}`;
+        const hashedPassword = hashPassword(initialPassword);
 
         let createdUser = null;
         let createdPOS = null;
@@ -877,7 +934,7 @@ export async function handleApiRequest(req, res) {
             userData.address || null,
             dbRole,
             assignedCreatorId,
-            initialPassword,
+            hashedPassword,
             parseFloat(userData.margin_rate) || 0.0,
             parseFloat(userData.commission_rate_t1) || 0.0,
             parseFloat(userData.commission_rate_instant || userData.commission_rate_t1) || 0.0
@@ -1058,6 +1115,7 @@ export async function handleApiRequest(req, res) {
     // ----------------------------------------------------
     if (pathname === '/api/admin/users/delete' && method === 'POST') {
       try {
+        requireAdmin(req);
         const { userId } = await parseJsonBody(req);
         if (!userId || userId.trim().toUpperCase() === 'ADM001') {
           return sendJson(res, 400, { success: false, message: 'Cannot delete Super Admin (ADM001).' });
@@ -1073,7 +1131,8 @@ export async function handleApiRequest(req, res) {
         });
         return sendJson(res, 200, { success: true, message: `Account ${cleanId} and associated records deleted successfully.` });
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
@@ -1081,6 +1140,7 @@ export async function handleApiRequest(req, res) {
     // 0.62 CLEANUP VERIFIED ANTIGRAVITY TEST ACCOUNTS ONLY
     // ----------------------------------------------------
     if (pathname === '/api/admin/cleanup-test-accounts' && method === 'POST') {
+      requireAdmin(req);
       return sendJson(res, 403, { 
         success: false, 
         error: 'ACCESS_DENIED',
@@ -1093,12 +1153,15 @@ export async function handleApiRequest(req, res) {
     // ----------------------------------------------------
     if (pathname === '/api/beneficiaries/create' && method === 'POST') {
       try {
+        const caller = requireAuth(req);
         const { merchant_id, bank_name, account_number, ifsc, holder_name, beneficiary_name, is_primary } = await parseJsonBody(req);
         if (!merchant_id || !bank_name || !account_number || !account_number.trim() || !ifsc || !ifsc.trim()) {
           return sendJson(res, 400, { success: false, message: 'Missing required bank details (merchant_id, bank_name, account_number, ifsc).' });
         }
 
+        await assertCanAccessUser(caller, merchant_id.trim(), { query: pgQuery });
         const benName = (holder_name || beneficiary_name || 'Account Holder').trim();
+        await assertCanAccessUser(caller, (merchant_id || caller.id).trim(), { query: pgQuery });
         const benId = `BEN-${Date.now().toString().slice(-6)}`;
         const ifscClean = ifsc.trim().toUpperCase();
 
@@ -1114,7 +1177,8 @@ export async function handleApiRequest(req, res) {
           beneficiary: insertRes[0]
         });
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
@@ -1123,6 +1187,10 @@ export async function handleApiRequest(req, res) {
     // ----------------------------------------------------
     if (pathname === '/api/inquiries/submit' && method === 'POST') {
       try {
+        const clientIp = getClientIp(req);
+        if (!checkRateLimit(`inquiry:${clientIp}`, { limit: 20, windowMs: 60000 })) {
+          return sendJson(res, 429, { success: false, code: 'RATE_LIMIT_EXCEEDED', message: 'Too many inquiries submitted. Please wait a moment and try again.' });
+        }
         const { type, name, phone, merchant_id, amount, category, location, remarks } = await parseJsonBody(req);
         if (!name || !phone) {
           return sendJson(res, 400, { success: false, message: 'Name and Phone number are required.' });
@@ -1146,12 +1214,14 @@ export async function handleApiRequest(req, res) {
           inquiry: insertRes[0]
         });
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
     if (pathname === '/api/inquiries/update-status' && method === 'POST') {
       try {
+        requireAdmin(req);
         const { inquiryId, status, remarks } = await parseJsonBody(req);
         if (!inquiryId || !status) {
           return sendJson(res, 400, { success: false, message: 'inquiryId and status are required.' });
@@ -1174,7 +1244,8 @@ export async function handleApiRequest(req, res) {
           inquiry: updateRes[0]
         });
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
@@ -1189,6 +1260,7 @@ export async function handleApiRequest(req, res) {
         if (!merchantId || !channels) {
           return sendJson(res, 400, { success: false, message: 'merchantId and channels are required.' });
         }
+        await assertCanAccessUser(caller, merchantId.trim(), { query: pgQuery });
 
         await withTransaction(async (client) => {
           const userRes = await client.query(`SELECT id, creator_id FROM users WHERE UPPER(id) = UPPER($1)`, [merchantId.trim()]);
@@ -1290,6 +1362,14 @@ export async function handleApiRequest(req, res) {
       }
     }
     if (pathname === '/api/auth/login' && method === 'POST') {
+      const clientIp = getClientIp(req);
+      if (!checkRateLimit(`login:${clientIp}`, { limit: 20, windowMs: 60000 })) {
+        return sendJson(res, 429, { 
+          success: false, 
+          code: 'RATE_LIMIT_EXCEEDED', 
+          message: 'Too many login attempts. Please wait a moment and try again.' 
+        });
+      }
       const { id, password } = await parseJsonBody(req);
       let cleanId = (id || '').toString().trim();
       const cleanPass = (password || '').toString().trim();
@@ -1322,12 +1402,13 @@ export async function handleApiRequest(req, res) {
       }
 
       const expectedPassword = (user.password || '').trim();
-      if (!expectedPassword || cleanPass !== expectedPassword) {
+      if (!expectedPassword || !verifyPassword(cleanPass, expectedPassword)) {
         return sendJson(res, 401, { 
           success: false, 
           message: 'Incorrect password. Please verify your credentials.' 
         });
       }
+      const token = generateToken(user);
 
       const pool = getDbPool();
       const balances = await getWalletBalances(pool, user.id);
@@ -1351,42 +1432,59 @@ export async function handleApiRequest(req, res) {
 
       return sendJson(res, 200, {
         success: true,
-        user,
+        token,
+        user: sanitizeUser(user),
         wallet: activeWallet,
         pos: posList[0] || null
       });
     }
 
-    // List all users in hierarchy
+    // List all users in hierarchy (Downline Scoped)
     if (pathname === '/api/users' && method === 'GET') {
-      const users = await pgQuery(`
-        SELECT u.*, 
-               p.provider AS pos_provider, 
-               p.terminal_id AS pos_terminal, 
-               p.commission_rate AS pos_rate,
-               p.vendor_entity AS pos_vendor,
-               p.device_plan AS pos_plan,
-               p.monthly_rent AS pos_rent,
-               p.settlement_type AS pos_settlement,
-               p.instant_surcharge AS pos_instant_fee,
-               c.name AS creator_name,
-               c.role AS creator_role,
-               COALESCE((w.balance_paise - w.held_paise) / 100.0, 0) as available_balance,
-               COALESCE(w.balance_paise / 100.0, 0) as total_sales,
-               COALESCE(w.held_paise / 100.0, 0) as pending_balance,
-               COALESCE(w.balance_paise / 100.0, 0) as received_sales,
-               COALESCE(w.withdrawn_paise / 100.0, 0) as withdrawn_amount,
-               w.balance_paise,
-               w.held_paise
-        FROM users u
-        LEFT JOIN merchant_pos p ON u.id = p.merchant_id
-        LEFT JOIN users c ON u.creator_id = c.id
-        LEFT JOIN wallets w ON u.id = w.user_id
-        ORDER BY u.created_at DESC
-      `);
+      try {
+        const caller = requireAuth(req);
+        let downlineFilter = '';
+        let queryParams = [];
 
-      const enrichedUsers = await enrichUsersWithChannelRates(users);
-      return sendJson(res, 200, { success: true, users: enrichedUsers });
+        if (caller.role !== 'ADMIN' && caller.id !== 'ADM001') {
+          const downline = await getDownlineUserIds({ query: pgQuery }, caller.id);
+          downline.add(caller.id);
+          downlineFilter = `WHERE UPPER(u.id) = ANY($1)`;
+          queryParams = [Array.from(downline)];
+        }
+
+        const users = await pgQuery(`
+          SELECT u.*, 
+                 p.provider AS pos_provider, 
+                 p.terminal_id AS pos_terminal, 
+                 p.commission_rate AS pos_rate,
+                 p.vendor_entity AS pos_vendor,
+                 p.device_plan AS pos_plan,
+                 p.monthly_rent AS pos_rent,
+                 p.settlement_type AS pos_settlement,
+                 p.instant_surcharge AS pos_instant_fee,
+                 c.name AS creator_name,
+                 c.role AS creator_role,
+                 COALESCE((w.balance_paise - w.held_paise) / 100.0, 0) as available_balance,
+                 COALESCE(w.balance_paise / 100.0, 0) as total_sales,
+                 COALESCE(w.held_paise / 100.0, 0) as pending_balance,
+                 COALESCE(w.balance_paise / 100.0, 0) as received_sales,
+                 COALESCE(w.withdrawn_paise / 100.0, 0) as withdrawn_amount,
+                 w.balance_paise,
+                 w.held_paise
+          FROM users u
+          LEFT JOIN merchant_pos p ON u.id = p.merchant_id
+          LEFT JOIN users c ON u.creator_id = c.id
+          LEFT JOIN wallets w ON u.id = w.user_id
+          ${downlineFilter}
+          ORDER BY u.created_at DESC
+        `, queryParams);
+
+        const enrichedUsers = await enrichUsersWithChannelRates(users);
+        return sendJson(res, 200, { success: true, users: sanitizeUser(enrichedUsers) });
+      } catch (err) {
+        return sendJson(res, err.statusCode || 500, { success: false, message: err.message });
+      }
     }
 
     // Comprehensive Hierarchy Tree with Roll-Up Metrics
@@ -1818,6 +1916,7 @@ export async function handleApiRequest(req, res) {
     // 4. ADMIN VERIFICATION & APPROVAL ENGINE
     // ----------------------------------------------------
     if (pathname === '/api/admin/pending' && method === 'GET') {
+      requireAdmin(req);
       const pendingTransactions = await pgQuery(`
         SELECT t.*, u.name as merchant_name, u.mobile as merchant_mobile, COALESCE(t.provider, p.provider, CASE WHEN t.type = 'QR_SCAN' THEN 'Company QR (UPI)' WHEN t.type = 'BBPS_BILL' THEN 'BBPS' ELSE 'Pine Labs' END) as pos_provider, p.commission_rate as pos_rate
         FROM transactions t
@@ -2098,6 +2197,7 @@ export async function handleApiRequest(req, res) {
     }
 
     if (pathname === '/api/admin/verify-withdrawal' && method === 'POST') {
+      requireAdmin(req);
       const body = await parseJsonBody(req);
       req.body = body;
       const { withdrawal_id, withdrawalId, id, action: reqAction, remark, utr } = body;
@@ -2222,7 +2322,8 @@ export async function handleApiRequest(req, res) {
           balances
         });
       } catch (err) {
-        return sendJson(res, 400, { success: false, message: err.message });
+        const status = err.statusCode || 400;
+        return sendJson(res, status, { success: false, error: err.code || 'BAD_REQUEST', message: err.message });
       }
     }
 
@@ -2231,6 +2332,8 @@ export async function handleApiRequest(req, res) {
     // ----------------------------------------------------
     if (pathname.startsWith('/api/withdrawals/merchant/') && method === 'GET') {
       const merchantId = decodeURIComponent(pathname.replace('/api/withdrawals/merchant/', '')).trim();
+      const caller = requireAuth(req);
+      await assertCanAccessUser(caller, merchantId, { query: pgQuery });
       const withdrawals = await pgQuery(`
         SELECT w.*, 
                COALESCE(w.amount, (w.amount_paise / 100.0)) as amount,
@@ -2243,6 +2346,15 @@ export async function handleApiRequest(req, res) {
     }
 
     if ((pathname === '/api/admin/withdrawals' || pathname === '/api/withdrawals') && method === 'GET') {
+      const caller = pathname === '/api/admin/withdrawals' ? requireAdmin(req) : requireAuth(req);
+      let downlineWithdrawalFilter = '';
+      let downlineWithdrawalParams = [];
+      if (caller.role !== 'ADMIN' && caller.id !== 'ADM001') {
+        const downline = await getDownlineUserIds({ query: pgQuery }, caller.id);
+        downline.add(caller.id);
+        downlineWithdrawalFilter = 'WHERE UPPER(w.merchant_id) = ANY($1)';
+        downlineWithdrawalParams = [Array.from(downline)];
+      }
       const withdrawals = await pgQuery(`
         SELECT w.*, 
                COALESCE(w.amount, (w.amount_paise / 100.0)) as amount,
@@ -2325,6 +2437,7 @@ export async function handleApiRequest(req, res) {
 
     if (pathname === '/api/admin/withdrawals/export-excel' && method === 'POST') {
       try {
+        requireAdmin(req);
         const body = await parseJsonBody(req);
         req.body = body;
         const { withdrawalIds, batchTag, bankName } = body;
@@ -2509,11 +2622,13 @@ export async function handleApiRequest(req, res) {
           ...result
         });
       } catch (err) {
-        return sendJson(res, 400, { success: false, message: err.message });
+        const status = err.statusCode || 400;
+        return sendJson(res, status, { success: false, error: err.code || 'BAD_REQUEST', message: err.message });
       }
     }
 
     if (pathname.startsWith('/api/admin/withdrawals/batches/') || pathname.startsWith('/api/admin/withdrawals/batch/')) {
+      requireAdmin(req);
       const parts = pathname.split('/');
       const batchId = parts[parts.length - 1] === 'download' ? parts[parts.length - 2] : parts[parts.length - 1];
       const batchRes = await pgQuery(`SELECT * FROM payout_batches WHERE id = $1`, [batchId]);
@@ -2525,6 +2640,7 @@ export async function handleApiRequest(req, res) {
 
     if (pathname === '/api/admin/withdrawals/batch-status' && method === 'POST') {
       try {
+        requireAdmin(req);
         const { withdrawalIds, status, adminRemark, batchTag, batchNameTag, batchReference, bankName, action } = await parseJsonBody(req);
         if (!Array.isArray(withdrawalIds) || withdrawalIds.length === 0) {
           return sendJson(res, 400, { success: false, message: 'withdrawalIds array is required.' });
@@ -2571,7 +2687,8 @@ export async function handleApiRequest(req, res) {
           return sendJson(res, 400, { success: false, message: 'Invalid action. Allowed: SUBMITTED_TO_BANK, REVERT_PENDING.' });
         }
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
@@ -2579,30 +2696,52 @@ export async function handleApiRequest(req, res) {
     // 5.2 TRANSACTIONS, POS & WALLETS BULK READS
     // ----------------------------------------------------
     if ((pathname === '/api/admin/transactions' || pathname === '/api/transactions') && method === 'GET') {
+      const caller = pathname === '/api/admin/transactions' ? requireAdmin(req) : requireAuth(req);
+      let downlineTxnFilter = '';
+      let downlineTxnParams = [];
+      if (caller.role !== 'ADMIN' && caller.id !== 'ADM001') {
+        const downline = await getDownlineUserIds({ query: pgQuery }, caller.id);
+        downline.add(caller.id);
+        downlineTxnFilter = 'WHERE UPPER(t.merchant_id) = ANY($1)';
+        downlineTxnParams = [Array.from(downline)];
+      }
       const transactions = await pgQuery(`
         SELECT t.*, u.name as merchant_name, u.mobile as merchant_mobile,
                COALESCE(t.provider, p.provider, CASE WHEN t.type = 'QR_SCAN' THEN 'Company QR (UPI)' WHEN t.type = 'BBPS_BILL' THEN 'BBPS' ELSE 'Pine Labs' END) as pos_provider
         FROM transactions t
         LEFT JOIN users u ON t.merchant_id = u.id
         LEFT JOIN merchant_pos p ON t.merchant_id = p.merchant_id
+        ${downlineTxnFilter}
         ORDER BY t.created_at DESC
-      `);
+      `, downlineTxnParams);
       return sendJson(res, 200, { success: true, transactions: serializeMoneyFields(transactions) });
     }
 
     if ((pathname === '/api/pos/all' || pathname === '/api/pos') && method === 'GET') {
+      requireAdmin(req);
       const pos = await pgQuery(`SELECT * FROM merchant_pos ORDER BY created_at DESC`);
       return sendJson(res, 200, { success: true, pos });
     }
 
     if (pathname.startsWith('/api/pos/merchant/') && method === 'GET') {
       const mId = decodeURIComponent(pathname.replace('/api/pos/merchant/', '')).trim();
+      const caller = requireAuth(req);
+      await assertCanAccessUser(caller, mId, { query: pgQuery });
       const pos = await pgQuery(`SELECT * FROM merchant_pos WHERE UPPER(merchant_id) = UPPER($1)`, [mId]);
       return sendJson(res, 200, { success: true, pos: pos[0] || null });
     }
 
     if ((pathname === '/api/wallets' || pathname === '/api/admin/wallets') && method === 'GET') {
-      const wallets = await pgQuery(`SELECT * FROM wallets ORDER BY updated_at DESC`);
+      const caller = pathname === '/api/admin/wallets' ? requireAdmin(req) : requireAuth(req);
+      let downlineWalletFilter = '';
+      let downlineWalletParams = [];
+      if (caller.role !== 'ADMIN' && caller.id !== 'ADM001') {
+        const downline = await getDownlineUserIds({ query: pgQuery }, caller.id);
+        downline.add(caller.id);
+        downlineWalletFilter = 'WHERE UPPER(user_id) = ANY($1)';
+        downlineWalletParams = [Array.from(downline)];
+      }
+      const wallets = await pgQuery(`SELECT * FROM wallets ${downlineWalletFilter} ORDER BY updated_at DESC`, downlineWalletParams);
       return sendJson(res, 200, { success: true, wallets: serializeMoneyFields(wallets) });
     }
 
@@ -2610,11 +2749,13 @@ export async function handleApiRequest(req, res) {
     // 6. INQUIRIES & SYSTEM SETTINGS
     // ----------------------------------------------------
     if (pathname === '/api/inquiries' && method === 'GET') {
+      requireAdmin(req);
       const inquiries = await pgQuery(`SELECT * FROM inquiries ORDER BY created_at DESC`);
       return sendJson(res, 200, { success: true, inquiries });
     }
 
     if (pathname.startsWith('/api/settings/config') && method === 'GET') {
+      requireAdmin(req);
       const configKey = decodeURIComponent(pathname.replace('/api/settings/config/', '').replace('/api/settings/config', '')).trim() || 'SYS-COMMISSION-PAYOUTS';
       const rows = await pgQuery(`SELECT * FROM inquiries WHERE UPPER(id) = UPPER($1)`, [configKey]);
       let value = null;
@@ -2627,6 +2768,7 @@ export async function handleApiRequest(req, res) {
     }
 
     if (pathname === '/api/settings/config' && method === 'POST') {
+      requireAdmin(req);
       try {
         const { key, value, status, enabled } = await parseJsonBody(req);
         if (!key) return sendJson(res, 400, { success: false, message: 'key is required.' });
@@ -2656,7 +2798,8 @@ export async function handleApiRequest(req, res) {
           value 
         });
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
@@ -2664,11 +2807,13 @@ export async function handleApiRequest(req, res) {
     // AWS S3 STORAGE INTEGRATION
     // ----------------------------------------------------
     if (pathname === '/api/s3/status' && method === 'GET') {
+      requireAuth(req);
       const status = await verifyS3Connection();
       return sendJson(res, status.success ? 200 : 500, status);
     }
 
     if (pathname === '/api/s3/presigned-url' && method === 'POST') {
+      requireAuth(req);
       const { fileName, contentType, folder } = await parseJsonBody(req);
       if (!fileName) {
         return sendJson(res, 400, { success: false, message: 'fileName is required.' });
@@ -2677,11 +2822,13 @@ export async function handleApiRequest(req, res) {
         const presigned = await getPresignedUploadUrl(fileName, contentType, folder);
         return sendJson(res, 200, { success: true, ...presigned });
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
     if (pathname === '/api/s3/upload-base64' && method === 'POST') {
+      requireAuth(req);
       const { base64Data, fileName, contentType, folder } = await parseJsonBody(req);
       if (!base64Data || !fileName) {
         return sendJson(res, 400, { success: false, message: 'base64Data and fileName are required.' });
@@ -2694,11 +2841,13 @@ export async function handleApiRequest(req, res) {
         const result = await uploadBufferToS3(buffer, key, contentType || 'application/octet-stream');
         return sendJson(res, 200, { success: true, ...result });
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
     if (pathname === '/api/s3/media' && method === 'GET') {
+      requireAuth(req);
       const merchantId = url.searchParams.get('merchant_id');
       const entityType = url.searchParams.get('entity_type');
       const media = await getMediaFiles(merchantId, entityType);
@@ -2706,6 +2855,7 @@ export async function handleApiRequest(req, res) {
     }
 
     if (pathname === '/api/s3/delete' && method === 'POST') {
+      requireAuth(req);
       const { key } = await parseJsonBody(req);
       if (!key) {
         return sendJson(res, 400, { success: false, message: 'Object key is required.' });
@@ -2714,7 +2864,8 @@ export async function handleApiRequest(req, res) {
         const result = await deleteS3Object(key);
         return sendJson(res, 200, { success: true, ...result });
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
@@ -2724,6 +2875,7 @@ export async function handleApiRequest(req, res) {
     // ADMIN PURGE & DELETE (Pure PostgreSQL)
     // ----------------------------------------------------
     if (pathname === '/api/admin/users/purge-test-accounts') {
+      requireAdmin(req);
       return sendJson(res, 403, { 
         success: false, 
         error: 'ACCESS_DENIED',
@@ -2759,17 +2911,11 @@ export async function handleApiRequest(req, res) {
     // 1. Authoritative Wallet Balance
     if ((pathname === '/api/wallets/balance' || pathname === '/api/wallet/balance') && method === 'GET') {
       try {
-        let callerId = url.searchParams.get('userId') || url.searchParams.get('merchantId');
-        if (!callerId) {
-          try {
-            callerId = getCaller(req).id;
-          } catch (_) {}
-        }
-        if (!callerId) {
-          return sendJson(res, 400, { success: false, message: 'User ID is required to fetch balance.' });
-        }
+        const caller = requireAuth(req);
+        const targetUserId = url.searchParams.get('userId') || url.searchParams.get('merchantId') || caller.id;
+        await assertCanAccessUser(caller, targetUserId, { query: pgQuery });
 
-        const balances = await getWalletBalances(getDbPool(), callerId);
+        const balances = await getWalletBalances(getDbPool(), targetUserId);
         return sendJson(res, 200, {
           success: true,
           balances: serializeMoneyFields({
@@ -2785,14 +2931,17 @@ export async function handleApiRequest(req, res) {
           })
         });
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
     // 2. Authoritative Withdrawal Quote
     if (pathname === '/api/withdrawals/quote' && method === 'POST') {
       try {
+        const caller = requireAuth(req);
         const body = await parseJsonBody(req);
+        await assertCanAccessUser(caller, body.merchant_id || body.merchantId || body.userId || caller.id, { query: pgQuery });
         let userId = body.userId || body.merchant_id;
         if (!userId) {
           try {
@@ -2833,12 +2982,14 @@ export async function handleApiRequest(req, res) {
           })
         });
       } catch (err) {
-        return sendJson(res, 400, { success: false, message: err.message });
+        const status = err.statusCode || 400;
+        return sendJson(res, status, { success: false, error: err.code || 'BAD_REQUEST', message: err.message });
       }
     }
 
     // 2.1 Dynamic System Settings Endpoint
     if (pathname === '/api/settings' && method === 'GET') {
+      requireAuth(req);
       try {
         const pool = getDbPool();
         const settings = await getAllSettings(pool);
@@ -2864,12 +3015,14 @@ export async function handleApiRequest(req, res) {
           }
         });
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
     // 2.2 Authoritative Downstream Rates Configuration & Creator Minimums
     if (pathname === '/api/rates/config' && method === 'GET') {
+      requireAuth(req);
       try {
         const userId = url.searchParams.get('userId');
         let creatorId = url.searchParams.get('creatorId');
@@ -2942,15 +3095,18 @@ export async function handleApiRequest(req, res) {
           client.release();
         }
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
     // 2.3 Authoritative Real Ledger Commission & Sales Financial Summary
     if (pathname.startsWith('/api/users/') && pathname.endsWith('/financial-summary') && method === 'GET') {
       try {
+        const caller = requireAuth(req);
         const parts = pathname.split('/');
         const targetUserId = parts[3];
+        await assertCanAccessUser(caller, targetUserId, { query: pgQuery });
         const pool = getDbPool();
         const client = await pool.connect();
         try {
@@ -3007,21 +3163,17 @@ export async function handleApiRequest(req, res) {
           client.release();
         }
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
     // 2.4 Authoritative Downstream Network Tree & Performance
     if (pathname === '/api/network/downstream' && method === 'GET') {
       try {
-        let creatorId = url.searchParams.get('creatorId');
-        if (!creatorId) {
-          const caller = getCaller(req);
-          creatorId = caller.id;
-        }
-        if (!creatorId) {
-          return sendJson(res, 400, { success: false, message: 'CALLER_IDENTIFICATION_REQUIRED: creatorId or caller ID is required.' });
-        }
+        const caller = requireAuth(req);
+        let creatorId = url.searchParams.get('creatorId') || caller.id;
+        await assertCanAccessUser(caller, creatorId, { query: pgQuery });
 
         const pool = getDbPool();
         const client = await pool.connect();
@@ -3134,18 +3286,21 @@ export async function handleApiRequest(req, res) {
           client.release();
         }
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
     // 2.5 Authoritative Partner Transactions & Downline Profit Ledger
     if (pathname === '/api/network/partner-transactions' && method === 'GET') {
       try {
-        const creatorId = url.searchParams.get('creatorId');
+        const caller = requireAuth(req);
         const partnerId = url.searchParams.get('partnerId');
-        if (!creatorId || !partnerId) {
-          return sendJson(res, 400, { success: false, message: 'creatorId and partnerId are required.' });
+        if (!partnerId) {
+          return sendJson(res, 400, { success: false, message: 'partnerId is required.' });
         }
+        const creatorId = caller.role === 'ADMIN' ? (url.searchParams.get('creatorId') || caller.id) : caller.id;
+        await assertCanAccessUser(caller, partnerId, { query: pgQuery });
 
         const pool = getDbPool();
         const client = await pool.connect();
@@ -3201,12 +3356,14 @@ export async function handleApiRequest(req, res) {
           client.release();
         }
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
     // 2.6 Authoritative POS Rentals Report with Server-Computed Totals
     if (pathname === '/api/admin/pos-rentals-report' && method === 'GET') {
+      requireAdmin(req);
       try {
         const monthKey = url.searchParams.get('monthKey') || new Date().toISOString().slice(0, 7);
         const pool = getDbPool();
@@ -3281,7 +3438,8 @@ export async function handleApiRequest(req, res) {
           client.release();
         }
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
@@ -3364,6 +3522,7 @@ export async function handleApiRequest(req, res) {
     // 5. Authoritative Transaction Reversal
     if (pathname === '/api/transactions/reverse' && method === 'POST') {
       try {
+        requireAdmin(req);
         const body = await parseJsonBody(req);
         const caller = getCaller(req);
         const callerId = caller.id;
@@ -3378,13 +3537,15 @@ export async function handleApiRequest(req, res) {
 
         return sendJson(res, 200, { success: true, reversal: serializeMoneyFields(result) });
       } catch (err) {
-        return sendJson(res, 400, { success: false, message: err.message });
+        const status = err.statusCode || 400;
+        return sendJson(res, status, { success: false, error: err.code || 'BAD_REQUEST', message: err.message });
       }
     }
 
     // 5.1 Authoritative Transaction Edit
     if (pathname === '/api/transactions/edit' && method === 'POST') {
       try {
+        requireAdmin(req);
         const body = await parseJsonBody(req);
         const caller = getCaller(req);
         const callerId = caller.id;
@@ -3422,22 +3583,26 @@ export async function handleApiRequest(req, res) {
           })
         });
       } catch (err) {
-        return sendJson(res, 400, { success: false, message: err.message });
+        const status = err.statusCode || 400;
+        return sendJson(res, status, { success: false, error: err.code || 'BAD_REQUEST', message: err.message });
       }
     }
 
     // 6. System Settings Read & Update (No hardcoded values)
     if (pathname === '/api/admin/settings' && method === 'GET') {
       try {
+        requireAdmin(req);
         const settings = await getAllSettings({ query: pgQuery });
         return sendJson(res, 200, { success: true, settings });
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
     if (pathname === '/api/admin/settings/update' && method === 'POST') {
       try {
+        requireAdmin(req);
         const body = await parseJsonBody(req);
         const caller = getCaller(req);
         const callerId = caller.id;
@@ -3450,12 +3615,14 @@ export async function handleApiRequest(req, res) {
 
         return sendJson(res, 200, { success: true, setting: updated });
       } catch (err) {
-        return sendJson(res, 400, { success: false, message: err.message });
+        const status = err.statusCode || 400;
+        return sendJson(res, status, { success: false, error: err.code || 'BAD_REQUEST', message: err.message });
       }
     }
 
     if (pathname === '/api/admin/system/migrate' && (method === 'POST' || method === 'GET')) {
       try {
+        requireAdmin(req);
         await pgQuery(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawn_amount NUMERIC DEFAULT 0.0`).catch(() => {});
         await pgQuery(`ALTER TABLE users ADD COLUMN IF NOT EXISTS channels JSONB DEFAULT '{}'::jsonb`).catch(() => {});
         const cols = await pgQuery(`SELECT column_name FROM information_schema.columns WHERE table_name = 'wallets'`);
@@ -3465,15 +3632,26 @@ export async function handleApiRequest(req, res) {
           wallet_columns: cols.map(c => c.column_name) 
         });
       } catch (err) {
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
       }
     }
 
     // ----------------------------------------------------
-    // AUTOMATIC GITHUB AUTO-DEPLOY WEBHOOK
+    // AUTOMATIC GITHUB AUTO-DEPLOY WEBHOOK (STRICT SECRET ENFORCED)
     // ----------------------------------------------------
     if ((pathname === '/api/system/webhook-deploy' || pathname === '/api/webhook-deploy') && (method === 'POST' || method === 'GET')) {
-      console.log('⚡ Received GitHub Auto-Deploy trigger! Pulling latest code and building...');
+      const webhookSecret = process.env.WEBHOOK_DEPLOY_SECRET;
+      const incomingSecret = req.headers['x-webhook-secret'] || req.headers['x-deploy-secret'] || url.searchParams.get('secret');
+      if (!webhookSecret || incomingSecret !== webhookSecret) {
+        return sendJson(res, 401, {
+          success: false,
+          error: 'WEBHOOK_UNAUTHORIZED',
+          message: 'Webhook trigger rejected: Invalid or unconfigured WEBHOOK_DEPLOY_SECRET.'
+        });
+      }
+
+      console.log('⚡ Received verified GitHub Auto-Deploy trigger! Pulling latest code and building...');
       exec('git pull origin main && npm run build && pm2 restart all', { cwd: '/var/www/ronava' }, (err, stdout) => {
         if (err) {
           console.error('❌ Auto-deploy build error:', err.message);
@@ -3494,6 +3672,7 @@ export async function handleApiRequest(req, res) {
 
   } catch (err) {
     console.error('API Error:', err);
-    return sendJson(res, 500, { success: false, message: err.message || 'Internal Server Error' });
+    const status = err.statusCode || (err.message && err.message.startsWith('AUTH_') ? 401 : (err.message && err.message.startsWith('ACCESS_') ? 403 : 500));
+    return sendJson(res, status, { success: false, error: err.code || 'ERROR', message: err.message || 'Internal Server Error' });
   }
 }
