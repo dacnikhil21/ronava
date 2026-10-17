@@ -52,10 +52,26 @@ export async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
       signal: controller.signal
     });
     clearTimeout(id);
+
+    // Silent renewal: automatically capture and replace stored token
+    const renewedToken = res.headers?.get ? (res.headers.get('x-renewed-token') || res.headers.get('X-Renewed-Token')) : null;
+    if (renewedToken && typeof window !== 'undefined') {
+      sessionStorage.setItem('ronav_token', renewedToken);
+      localStorage.setItem('ronav_token', renewedToken);
+      try {
+        const rawSession = sessionStorage.getItem('ronav_session');
+        if (rawSession) {
+          const sessionObj = JSON.parse(rawSession);
+          sessionObj.token = renewedToken;
+          sessionStorage.setItem('ronav_session', JSON.stringify(sessionObj));
+        }
+      } catch (_) {}
+    }
+
     if (res.status === 401 && typeof window !== 'undefined' && !url.includes('/api/auth/login')) {
       sessionStorage.removeItem('ronav_token');
       localStorage.removeItem('ronav_token');
-      window.dispatchEvent(new CustomEvent('ronav_auth_expired', { detail: { message: 'Your session has expired. Please log in again.' } }));
+      window.dispatchEvent(new CustomEvent('ronav_auth_expired', { detail: { message: 'Your session ended. Please log in again.' } }));
     }
     return res;
   } catch (err) {

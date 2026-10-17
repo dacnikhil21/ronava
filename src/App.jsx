@@ -196,7 +196,7 @@ export default function App() {
   // Listen to 401 unauthenticated / expired token events from shared request layer
   useEffect(() => {
     const handleAuthExpired = (e) => {
-      const msg = e.detail?.message || 'Your session has expired. Please log in again.';
+      const msg = e.detail?.message || 'Your session ended. Please log in again.';
       clearAuthSession();
       setCurrentUser(null);
       handleShowToast(msg);

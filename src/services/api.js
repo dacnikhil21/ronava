@@ -1182,13 +1182,7 @@ export async function verifyTransaction(txnId, action, remark = '', utr = '') {
     const callerRole = session?.role || session?.user?.role;
     const res = await fetchWithTimeout(getApiUrl('/api/admin/verify-transaction'), {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-caller-id': callerId,
-        'x-user-id': callerId,
-        'x-caller-role': callerRole,
-        'x-user-role': callerRole
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ txn_id: txnId, action, remark, utr, callerId })
     });
     const data = await res.json();
