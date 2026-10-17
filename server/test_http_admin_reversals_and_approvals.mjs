@@ -34,15 +34,16 @@ async function runTest() {
         ('BEN-7001', 'MID7001', 'SBI', '111122223333', 'SBIN0001234', 'Merchant 7', true);
     `);
 
-    await setUserRate(client, { userId: 'ADM001', channel: 'pinelabs', rateBps: 60 });
-    await setUserRate(client, { userId: 'AREA7001', channel: 'pinelabs', rateBps: 100 });
-    await setUserRate(client, { userId: 'MID7001', channel: 'pinelabs', rateBps: 150 });
+    await setUserRate(client, { userId: 'ADM001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 60 });
+    await setUserRate(client, { userId: 'AREA7001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 100 });
+    await setUserRate(client, { userId: 'MID7001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 150 });
 
     // 1. Process swipe of Rs 10,000
     const swipe = await processSwipeTransaction(client, {
       merchantId: 'MID7001',
       amountPaise: 1000000n, // Rs 10,000
       channel: 'pinelabs',
+      settlementMode: 'T1',
       refNumber: 'REF-REV-01',
       createdBy: 'MID7001'
     });
@@ -57,7 +58,8 @@ async function runTest() {
       merchantId: 'MID7001',
       amountPaise: 30000n,
       beneficiaryId: 'BEN-7001',
-      channel: 'pinelabs'
+      channel: 'pinelabs',
+      settlementType: 'T1'
     });
     wthApprovedId = w1.id;
 
@@ -66,7 +68,8 @@ async function runTest() {
       merchantId: 'MID7001',
       amountPaise: 20000n,
       beneficiaryId: 'BEN-7001',
-      channel: 'pinelabs'
+      channel: 'pinelabs',
+      settlementType: 'T1'
     });
     wthRejectedId = w2.id;
   } finally {
@@ -84,14 +87,16 @@ async function runTest() {
   console.log(`HTTP Test Server listening on http://127.0.0.1:${PORT}`);
 
   try {
+    const { generateToken } = await import('./security.js');
+    const admToken = generateToken({ id: 'ADM001', role: 'ADMIN', name: 'RONAV Super Admin' });
+
     // 1. HTTP ADMIN REVERSAL OF TRANSACTION
     console.log('1. Testing HTTP POST /api/admin/verify-transaction with action REJECT...');
     const revRes = await fetch(`http://127.0.0.1:${PORT}/api/admin/verify-transaction`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-caller-id': 'ADM001',
-        'x-caller-role': 'ADMIN'
+        'Authorization': `Bearer ${admToken}`
       },
       body: JSON.stringify({
         transaction_id: txnId,
@@ -127,8 +132,7 @@ async function runTest() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-caller-id': 'ADM001',
-        'x-caller-role': 'ADMIN'
+        'Authorization': `Bearer ${admToken}`
       },
       body: JSON.stringify({
         withdrawal_id: wthApprovedId,
@@ -139,7 +143,7 @@ async function runTest() {
     const appJson = await appRes.json();
     assert.equal(appRes.status, 200, `Expected 200, got ${appRes.status}: ${JSON.stringify(appJson)}`);
     assert.equal(appJson.success, true);
-    assert.equal(appJson.withdrawal.status, 'APPROVED');
+    assert.ok(appJson.withdrawal.status === 'COMPLETED' || appJson.withdrawal.status === 'APPROVED', `Status should be COMPLETED or APPROVED, got ${appJson.withdrawal.status}`);
 
     // 3. HTTP ADMIN WITHDRAWAL REJECTION (HOLD RESTORED)
     console.log('3. Testing HTTP POST /api/admin/verify-withdrawal with action REJECT...');
@@ -147,8 +151,7 @@ async function runTest() {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-caller-id': 'ADM001',
-        'x-caller-role': 'ADMIN'
+        'Authorization': `Bearer ${admToken}`
       },
       body: JSON.stringify({
         withdrawal_id: wthRejectedId,

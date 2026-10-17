@@ -16,6 +16,15 @@ import { setUserRate } from './rate_engine.js';
 import { processWithdrawalRequest } from './withdrawal_engine.js';
 import { runNoBrowserMoneyMathGuardrail } from './test_guardrail_no_browser_money_math.mjs';
 import { performConfirmedLogin as confirmedLoginHelper, TEST_USERS } from './test_config.js';
+import { generateToken } from './security.js';
+
+function getAuthHeaders(userId, role = 'MERCHANT') {
+  const token = generateToken({ id: userId, role: role || (userId.startsWith('ADM') ? 'ADMIN' : 'MERCHANT') });
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`
+  };
+}
 
 const BASE_URL = 'http://localhost:3000';
 const SCREENSHOT_DIR = path.resolve('audit/screens/scenarios');
@@ -102,7 +111,7 @@ async function runScenarioSuite() {
     console.log('\n--- Scenario 7: Pine Labs T+1 Swipe (Rs 10,000) ---');
     const swipeT1Res = await fetch(`${BASE_URL}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'MID4001', 'x-user-role': 'MERCHANT' },
+      headers: getAuthHeaders('MID4001', 'MERCHANT'),
       body: JSON.stringify({
         merchant_id: 'MID4001',
         amount_paise: 1000000,
@@ -124,7 +133,7 @@ async function runScenarioSuite() {
     console.log('\n--- Scenario 8: Pine Labs Instant Swipe (Rs 10,000) ---');
     const swipeInstantRes = await fetch(`${BASE_URL}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'MID4001', 'x-user-role': 'MERCHANT' },
+      headers: getAuthHeaders('MID4001', 'MERCHANT'),
       body: JSON.stringify({
         merchant_id: 'MID4001',
         amount_paise: 1000000,
@@ -163,7 +172,7 @@ async function runScenarioSuite() {
 
     const swiffRes = await fetch(`${BASE_URL}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'MID4001', 'x-user-role': 'MERCHANT' },
+      headers: getAuthHeaders('MID4001', 'MERCHANT'),
       body: JSON.stringify({
         merchant_id: 'MID4001',
         amount_paise: 500000,
@@ -194,7 +203,7 @@ async function runScenarioSuite() {
 
     const qrRes = await fetch(`${BASE_URL}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'MID4001', 'x-user-role': 'MERCHANT' },
+      headers: getAuthHeaders('MID4001', 'MERCHANT'),
       body: JSON.stringify({
         merchant_id: 'MID4001',
         amount_paise: 200000,
@@ -215,7 +224,7 @@ async function runScenarioSuite() {
     console.log('\n--- Scenario 11: Long Chain Swipe (5 Tiers Complete) ---');
     const longChainRes = await fetch(`${BASE_URL}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'MID4001', 'x-user-role': 'MERCHANT' },
+      headers: getAuthHeaders('MID4001', 'MERCHANT'),
       body: JSON.stringify({
         merchant_id: 'MID4001',
         amount_paise: 1500000,
@@ -250,7 +259,7 @@ async function runScenarioSuite() {
 
     const shortChainRes = await fetch(`${BASE_URL}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'SC_MID1', 'x-user-role': 'MERCHANT' },
+      headers: getAuthHeaders('SC_MID1', 'MERCHANT'),
       body: JSON.stringify({
         merchant_id: 'SC_MID1',
         amount_paise: 1000000,
@@ -284,7 +293,7 @@ async function runScenarioSuite() {
 
     const shortDistRes = await fetch(`${BASE_URL}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'SC_MID2', 'x-user-role': 'MERCHANT' },
+      headers: getAuthHeaders('SC_MID2', 'MERCHANT'),
       body: JSON.stringify({
         merchant_id: 'SC_MID2',
         amount_paise: 1000000,
@@ -303,7 +312,7 @@ async function runScenarioSuite() {
     console.log('\n--- Scenario 14: Distributor Self-Swipe ---');
     const selfSwipeRes = await fetch(`${BASE_URL}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'DIST2001', 'x-user-role': 'DISTRICT_DISTRIBUTOR' },
+      headers: getAuthHeaders('DIST2001', 'DISTRICT_DISTRIBUTOR'),
       body: JSON.stringify({
         merchant_id: 'DIST2001',
         amount_paise: 1000000,
@@ -322,7 +331,7 @@ async function runScenarioSuite() {
     console.log('\n--- Scenario 15: Admin Blocked From Swiping ---');
     const adminSwipeRes = await fetch(`${BASE_URL}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         merchant_id: 'ADM001',
         amount_paise: 1000000,
@@ -343,7 +352,7 @@ async function runScenarioSuite() {
     console.log('\n--- Scenario 16: Reject a Swipe ---');
     const reject1Res = await fetch(`${BASE_URL}/api/admin/verify-transaction`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         transaction_id: swipeT1Id,
         action: 'REJECT',
@@ -360,7 +369,7 @@ async function runScenarioSuite() {
     console.log('\n--- Scenario 17: Reject Two Swipes ---');
     const reject2Res = await fetch(`${BASE_URL}/api/admin/verify-transaction`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         transaction_id: swipeInstantId,
         action: 'REJECT',
@@ -378,7 +387,7 @@ async function runScenarioSuite() {
     // First record a swipe to edit
     const editBaseRes = await fetch(`${BASE_URL}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'MID4001', 'x-user-role': 'MERCHANT' },
+      headers: getAuthHeaders('MID4001', 'MERCHANT'),
       body: JSON.stringify({
         merchant_id: 'MID4001',
         amount_paise: 1000000,
@@ -394,7 +403,7 @@ async function runScenarioSuite() {
     // Now edit to 8,000 INR
     const editRes = await fetch(`${BASE_URL}/api/transactions/edit`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         transaction_id: editSrcId,
         new_amount: 8000,
@@ -411,7 +420,7 @@ async function runScenarioSuite() {
     console.log('\n--- Scenario 19: Rate Changed After Swipe, Then Reject ---');
     const r19SwipeRes = await fetch(`${BASE_URL}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'MID4001', 'x-user-role': 'MERCHANT' },
+      headers: getAuthHeaders('MID4001', 'MERCHANT'),
       body: JSON.stringify({
         merchant_id: 'MID4001',
         amount_paise: 1000000,
@@ -435,7 +444,7 @@ async function runScenarioSuite() {
     // Now reject the swipe
     const r19RejRes = await fetch(`${BASE_URL}/api/admin/verify-transaction`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         transaction_id: r19TxnId,
         action: 'REJECT',
@@ -452,7 +461,7 @@ async function runScenarioSuite() {
     console.log('\n--- Scenario 20: Rate Changed After Swipe, Then Edit ---');
     const r20SwipeRes = await fetch(`${BASE_URL}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'MID4001', 'x-user-role': 'MERCHANT' },
+      headers: getAuthHeaders('MID4001', 'MERCHANT'),
       body: JSON.stringify({
         merchant_id: 'MID4001',
         amount_paise: 1000000,
@@ -476,7 +485,7 @@ async function runScenarioSuite() {
     // Edit amount to 7,500 INR
     const r20EditRes = await fetch(`${BASE_URL}/api/transactions/edit`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         transaction_id: r20TxnId,
         new_amount: 7500,
@@ -493,7 +502,7 @@ async function runScenarioSuite() {
     console.log('\n--- Scenario 21: Missing Bank Details Blocked From Withdrawal ---');
     const wthNoBankRes = await fetch(`${BASE_URL}/api/withdrawals/request`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'MID4001', 'x-user-role': 'MERCHANT' },
+      headers: getAuthHeaders('MID4001', 'MERCHANT'),
       body: JSON.stringify({
         merchant_id: 'MID4001',
         amount: 1000,
@@ -513,7 +522,7 @@ async function runScenarioSuite() {
     console.log('\n--- Scenario 22: Withdrawal Request (Hold Created) ---');
     const wthReqRes = await fetch(`${BASE_URL}/api/withdrawals/request`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'MID4001', 'x-user-role': 'MERCHANT' },
+      headers: getAuthHeaders('MID4001', 'MERCHANT'),
       body: JSON.stringify({
         merchant_id: 'MID4001',
         amount: 2000,
@@ -534,7 +543,7 @@ async function runScenarioSuite() {
     console.log('\n--- Scenario 23: Excel Export (Second Export Excludes It) ---');
     const exp1Res = await fetch(`${BASE_URL}/api/admin/withdrawals/export-excel`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         withdrawalIds: [wthId1],
         batchTag: 'BATCH-SCENARIO-01',
@@ -546,7 +555,7 @@ async function runScenarioSuite() {
     // Second export of the exact same withdrawal must be refused
     const exp2Res = await fetch(`${BASE_URL}/api/admin/withdrawals/export-excel`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         withdrawalIds: [wthId1]
       })
@@ -560,7 +569,7 @@ async function runScenarioSuite() {
     console.log('\n--- Scenario 24: UTR Completion ---');
     const utrRes = await fetch(`${BASE_URL}/api/admin/verify-withdrawal`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         withdrawal_id: wthId1,
         action: 'APPROVE',
@@ -578,7 +587,7 @@ async function runScenarioSuite() {
     // Create second withdrawal to test duplicate UTR on
     const wth2Res = await fetch(`${BASE_URL}/api/withdrawals/request`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'MID4001', 'x-user-role': 'MERCHANT' },
+      headers: getAuthHeaders('MID4001', 'MERCHANT'),
       body: JSON.stringify({
         merchant_id: 'MID4001',
         amount: 1500,
@@ -591,7 +600,7 @@ async function runScenarioSuite() {
 
     const dupUtrRes = await fetch(`${BASE_URL}/api/admin/verify-withdrawal`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         withdrawal_id: wthId2,
         action: 'APPROVE',
@@ -610,7 +619,7 @@ async function runScenarioSuite() {
     console.log('\n--- Scenario 26: Withdrawal Reject (Hold Refunded) ---');
     const rejWthRes = await fetch(`${BASE_URL}/api/admin/verify-withdrawal`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         withdrawal_id: wthId2,
         action: 'REJECT',
@@ -627,7 +636,7 @@ async function runScenarioSuite() {
     console.log('\n--- Scenario 27: Onboarding With 1 Channel ---');
     const ob1Res = await fetch(`${BASE_URL}/api/users/create`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         name: 'Merchant One Channel',
         mobile: '9888111001',
@@ -651,7 +660,7 @@ async function runScenarioSuite() {
     console.log('\n--- Scenario 28: Onboarding With 2 Channels ---');
     const ob2Res = await fetch(`${BASE_URL}/api/users/create`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         name: 'Merchant Two Channels',
         mobile: '9888111002',
@@ -680,7 +689,7 @@ async function runScenarioSuite() {
     console.log('\n--- Scenario 29: Onboarding With 3 Channels ---');
     const ob3Res = await fetch(`${BASE_URL}/api/users/create`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         name: 'Merchant Three Channels',
         mobile: '9888111003',
@@ -714,7 +723,7 @@ async function runScenarioSuite() {
     console.log('\n--- Scenario 30: Child Below Parent Rate Refused ---');
     const badRateRes = await fetch(`${BASE_URL}/api/users/create`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         name: 'Merchant Bad Rate',
         mobile: '9888111004',
@@ -754,7 +763,7 @@ async function runScenarioSuite() {
 
     const badChannelRes = await fetch(`${BASE_URL}/api/users/create`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         name: 'Child Merchant Bad Channel',
         mobile: '9888999002',

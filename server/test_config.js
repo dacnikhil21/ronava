@@ -4,6 +4,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { generateToken } from './security.js';
 
 export const TEST_PASSWORD = 'Ronav@123';
 
@@ -137,3 +138,15 @@ export async function performConfirmedLogin(page, userId, { baseUrl = 'http://lo
     screenshotPath
   };
 }
+
+/**
+ * Generate a cryptographically valid test Bearer token for automated API testing
+ */
+export function getTestAuthToken(userId) {
+  const user = TEST_USERS[userId];
+  if (!user) {
+    throw new Error(`Unknown test user ID: ${userId}`);
+  }
+  return generateToken(user);
+}
+

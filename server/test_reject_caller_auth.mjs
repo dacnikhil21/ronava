@@ -25,14 +25,17 @@ async function runTest() {
   });
 
   try {
+    const { getTestAuthToken } = await import('./test_config.js');
+    const midToken = getTestAuthToken('MID4001');
+    const admToken = getTestAuthToken('ADM001');
+
     // 2. Record a swipe as MID4001
     console.log('1. Recording swipe as MID4001...');
     const swipeRes = await fetch(`${BASE_URL}/api/transactions/record`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-user-id': 'MID4001',
-        'x-user-role': 'MERCHANT'
+        'Authorization': `Bearer ${midToken}`
       },
       body: JSON.stringify({
         merchant_id: 'MID4001',
@@ -47,11 +50,14 @@ async function runTest() {
     const txnId = swipeJson.transaction.id;
     console.log('   Recorded txn ID:', txnId);
 
-    // 3. Attempt to reject transaction with NO caller ID in headers or payload
-    console.log('2. Attempting to reject transaction with NO caller ID...');
+    // 3. Attempt to reject transaction with NO token or spoofed header
+    console.log('2. Attempting to reject transaction with NO caller token...');
     const rejectNoAuthRes = await fetch(`${BASE_URL}/api/admin/verify-transaction`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-caller-id': 'ADM001' // Spoofed header must be ignored
+      },
       body: JSON.stringify({
         txn_id: txnId,
         action: 'REJECT',
@@ -62,30 +68,26 @@ async function runTest() {
     console.log('   Response status:', rejectNoAuthRes.status);
     console.log('   Response body:', rejectNoAuthJson);
 
-    assert.notEqual(rejectNoAuthRes.status, 200, 'Must NOT succeed without caller ID');
+    assert.equal(rejectNoAuthRes.status, 401, 'Must return 401 without Bearer token');
     assert.match(
       rejectNoAuthJson.message || '',
-      /CALLER_IDENTIFICATION_REQUIRED/,
-      'Server must return CALLER_IDENTIFICATION_REQUIRED error'
+      /AUTH_TOKEN_MISSING/,
+      'Server must return AUTH_TOKEN_MISSING error'
     );
-    console.log('   ✓ Rejected as expected with CALLER_IDENTIFICATION_REQUIRED');
+    console.log('   ✓ Rejected as expected with 401 AUTH_TOKEN_MISSING');
 
-    // 4. Attempt to reject transaction through the real screen request layer (with ADM001 caller identification)
+    // 4. Attempt to reject transaction through the real screen request layer (with ADM001 Bearer token)
     console.log('3. Rejecting transaction as authenticated ADM001...');
     const rejectAuthRes = await fetch(`${BASE_URL}/api/admin/verify-transaction`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-caller-id': 'ADM001',
-        'x-user-id': 'ADM001',
-        'x-caller-role': 'ADMIN',
-        'x-user-role': 'ADMIN'
+        'Authorization': `Bearer ${admToken}`
       },
       body: JSON.stringify({
         txn_id: txnId,
         action: 'REJECT',
-        remark: 'Verified reject by Super Admin',
-        callerId: 'ADM001'
+        remark: 'Verified reject by Super Admin'
       })
     });
     const rejectAuthJson = await rejectAuthRes.json();
@@ -118,7 +120,11 @@ async function runTest() {
   }
 }
 
-runTest().catch(err => {
-  console.error('TEST FAILED:', err);
-  process.exit(1);
-});
+runTest()
+  .then(() => {
+    process.exit(0);
+  })
+  .catch(err => {
+    console.error('TEST FAILED:', err);
+    process.exit(1);
+  });

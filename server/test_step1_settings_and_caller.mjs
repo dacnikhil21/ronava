@@ -27,26 +27,26 @@ async function runTest() {
   const updated = await getSetting('reserve_amount_paise', testPool);
   assert.equal(updated.value_numeric, 60000, 'Reserve should be updated to 60,000 paise');
 
-  // 4. Test getCaller
+  // 4. Test getCaller with signed Bearer token
+  const { generateToken } = await import('./security.js');
+  const token = generateToken({ id: 'ADM001', role: 'ADMIN', name: 'RONAV Super Admin' });
   const mockReqHeader = {
-    headers: { 'x-caller-id': 'ADM001', 'x-caller-role': 'ADMIN' }
+    headers: { 'authorization': `Bearer ${token}` }
   };
   const caller1 = getCaller(mockReqHeader);
   assert.equal(caller1.id, 'ADM001');
   assert.equal(caller1.role, 'ADMIN');
 
-  const mockReqBody = {
-    headers: {},
-    body: { callerId: 'MID3001', callerRole: 'MERCHANT' }
-  };
-  const caller2 = getCaller(mockReqBody);
-  assert.equal(caller2.id, 'MID3001');
-  assert.equal(caller2.role, 'MERCHANT');
+  // getCaller rejects spoofed headers and missing token
+  assert.throws(
+    () => getCaller({ headers: { 'x-caller-id': 'ADM001', 'x-caller-role': 'ADMIN' } }),
+    { code: 'AUTH_TOKEN_MISSING' },
+    'getCaller must reject spoofed x-caller-id header without Bearer token'
+  );
 
-  // getCaller throws when no caller provided
   assert.throws(
     () => getCaller({ headers: {} }),
-    { message: /CALLER_IDENTIFICATION_REQUIRED/ },
+    { code: 'AUTH_TOKEN_MISSING' },
     'getCaller must throw when caller is missing'
   );
 

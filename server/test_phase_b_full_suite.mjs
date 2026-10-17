@@ -38,17 +38,17 @@ async function runMasterSuite() {
         ('ADM001', 0), ('MST1001', 0), ('SD1001', 0), ('DIST2001', 0), ('AREA3001', 0), ('MID4001', 0);
     `);
 
-    await setUserRate(client, { userId: 'ADM001', channel: 'pinelabs', rateBps: 60 });
-    await setUserRate(client, { userId: 'MST1001', channel: 'pinelabs', rateBps: 80 });
-    await setUserRate(client, { userId: 'SD1001', channel: 'pinelabs', rateBps: 100 });
-    await setUserRate(client, { userId: 'DIST2001', channel: 'pinelabs', rateBps: 120 });
-    await setUserRate(client, { userId: 'AREA3001', channel: 'pinelabs', rateBps: 150 });
-    await setUserRate(client, { userId: 'MID4001', channel: 'pinelabs', rateBps: 150 });
+    await setUserRate(client, { userId: 'ADM001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 60 });
+    await setUserRate(client, { userId: 'MST1001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 60 });
+    await setUserRate(client, { userId: 'SD1001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 80 });
+    await setUserRate(client, { userId: 'DIST2001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 100 });
+    await setUserRate(client, { userId: 'AREA3001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 120 });
+    await setUserRate(client, { userId: 'MID4001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 150 });
 
     const swipeRef = await processSwipeTransaction(client, {
       merchantId: 'MID4001',
       amountPaise: 1000000n, // Rs 10,000
-      channel: 'pinelabs',
+      channel: 'pinelabs', settlementMode: 'T1',
       refNumber: 'REF-MASTER-10000',
       slipNumber: 'SLIP-001',
       idempotencyKey: 'IDEMP-REF-10000'
@@ -83,7 +83,7 @@ async function runMasterSuite() {
     await processSwipeTransaction(client, {
       merchantId: 'MID4001',
       amountPaise: 123457n,
-      channel: 'pinelabs',
+      channel: 'pinelabs', settlementMode: 'T1',
       refNumber: 'REF-ROUND-1',
       idempotencyKey: 'IDEMP-ROUND-1'
     });
@@ -92,7 +92,7 @@ async function runMasterSuite() {
     await processSwipeTransaction(client, {
       merchantId: 'MID4001',
       amountPaise: 1n,
-      channel: 'pinelabs',
+      channel: 'pinelabs', settlementMode: 'T1',
       refNumber: 'REF-PAISA-1',
       idempotencyKey: 'IDEMP-PAISA-1'
     });
@@ -102,14 +102,14 @@ async function runMasterSuite() {
     // SUITE 3: EQUAL RATES (ZERO COMMISSION)
     // -------------------------------------------------------------
     console.log('[TEST SUITE 3] Equal Rates (Zero Commission Flow)');
-    // Set District rate = SD rate (both 100 bps)
-    await setUserRate(client, { userId: 'DIST2001', channel: 'pinelabs', rateBps: 100 });
+    // Set District rate = child Area rate (both 120 bps)
+    await setUserRate(client, { userId: 'DIST2001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 120 });
     const distBefore = (await getWalletBalances(client, 'DIST2001')).balance_paise;
 
     await processSwipeTransaction(client, {
       merchantId: 'MID4001',
       amountPaise: 100000n, // Rs 1,000
-      channel: 'pinelabs',
+      channel: 'pinelabs', settlementMode: 'T1',
       refNumber: 'REF-EQUAL-1',
       idempotencyKey: 'IDEMP-EQUAL-1'
     });
@@ -123,7 +123,7 @@ async function runMasterSuite() {
     // -------------------------------------------------------------
     console.log('[TEST SUITE 4] Rate Change after Swipe preserves History');
     // Change Merchant rate from 150 to 250 bps
-    await setUserRate(client, { userId: 'MID4001', channel: 'pinelabs', rateBps: 250 });
+    await setUserRate(client, { userId: 'MID4001', channel: 'pinelabs', settlementMode: 'T1', rateBps: 250 });
     // Verify historical swipe1 ledger metadata was NOT altered
     const snapRows = await client.query(
       `SELECT metadata FROM financial_ledger WHERE reference_id = $1 AND type = 'commission'`,
@@ -145,7 +145,7 @@ async function runMasterSuite() {
         await processSwipeTransaction(client, {
           merchantId: 'MID4001',
           amountPaise: 500000n,
-          channel: 'pinelabs',
+          channel: 'pinelabs', settlementMode: 'T1',
           refNumber: 'REF-FAIL-TEST',
           idempotencyKey: 'IDEMP-FAIL-TEST',
           simulatedFailure: true
@@ -164,7 +164,7 @@ async function runMasterSuite() {
     const idemp1 = await processSwipeTransaction(client, {
       merchantId: 'MID4001',
       amountPaise: 50000n,
-      channel: 'pinelabs',
+      channel: 'pinelabs', settlementMode: 'T1',
       refNumber: 'REF-IDEMP-TEST',
       slipNumber: 'SLIP-IDEMP-1',
       idempotencyKey: 'KEY-TEST-DUP'
@@ -173,7 +173,7 @@ async function runMasterSuite() {
     const idemp2 = await processSwipeTransaction(client, {
       merchantId: 'MID4001',
       amountPaise: 50000n,
-      channel: 'pinelabs',
+      channel: 'pinelabs', settlementMode: 'T1',
       refNumber: 'REF-IDEMP-TEST',
       slipNumber: 'SLIP-IDEMP-1',
       idempotencyKey: 'KEY-TEST-DUP'
@@ -186,7 +186,7 @@ async function runMasterSuite() {
         await processSwipeTransaction(client, {
           merchantId: 'MID4001',
           amountPaise: 50000n,
-          channel: 'pinelabs',
+          channel: 'pinelabs', settlementMode: 'T1',
           refNumber: 'REF-IDEMP-TEST',
           slipNumber: 'SLIP-IDEMP-1',
           idempotencyKey: 'KEY-NEW-DIFFERENT'
@@ -203,7 +203,7 @@ async function runMasterSuite() {
     const swipeToReverse = await processSwipeTransaction(client, {
       merchantId: 'MID4001',
       amountPaise: 200000n, // Rs 2,000
-      channel: 'pinelabs',
+      channel: 'pinelabs', settlementMode: 'T1',
       refNumber: 'REF-TO-REVERSE',
       idempotencyKey: 'IDEMP-REV-TARGET'
     });
@@ -238,7 +238,7 @@ async function runMasterSuite() {
           merchantId: 'MID4001',
           amountPaise: currentMerchantBal, // Requesting full balance
           beneficiaryId: 'BEN-SUITE-1',
-          channel: 'pinelabs'
+          channel: 'pinelabs', settlementMode: 'T1'
         });
       },
       { message: /RESERVE_VIOLATION/ }
@@ -259,7 +259,7 @@ async function runMasterSuite() {
         await processSwipeTransaction(client, {
           merchantId: 'MID4001',
           amountPaise: randomPaise,
-          channel: 'pinelabs',
+          channel: 'pinelabs', settlementMode: 'T1',
           refNumber: `RAND-REF-${op}-${Date.now()}`,
           idempotencyKey: `RAND-IDEMP-${op}`
         });
@@ -272,7 +272,7 @@ async function runMasterSuite() {
             merchantId: 'MID4001',
             amountPaise: wthAmt,
             beneficiaryId: 'BEN-SUITE-1',
-            channel: 'pinelabs',
+            channel: 'pinelabs', settlementMode: 'T1',
             idempotencyKey: `RAND-WTH-${op}`
           });
         }

@@ -24,6 +24,7 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { runGuardrailAudit } from './test_guardrail_no_fallbacks.mjs';
+import { getTestAuthToken } from './test_config.js';
 
 let server;
 let baseUrl;
@@ -75,7 +76,9 @@ async function runTests() {
     assert(hasErrorBanner && noMaskingZero && homeTabShowsBanner, 'Home wallet failure sets dbAvailableBalance to null and renders prominent error banner with retry button');
 
     // Test API failure response
-    const badRes = await fetch(`${baseUrl}/api/wallet/NON_EXISTENT_MERCHANT_ID`);
+    const badRes = await fetch(`${baseUrl}/api/wallet/NON_EXISTENT_MERCHANT_ID`, {
+      headers: { 'Authorization': `Bearer ${getTestAuthToken('ADM001')}` }
+    });
     const badJson = await badRes.json();
     assert(badRes.status === 404 && badJson.success === false, 'API /api/wallet returns 404 error with success: false for nonexistent merchant');
   }
@@ -182,13 +185,14 @@ async function runTests() {
     `);
     const badWithdrawalId = wthRes.rows[0].id;
 
+    const admToken = getTestAuthToken('ADM001');
+
     // Call /api/admin/withdrawals/export-excel
     const exportRes = await fetch(`${baseUrl}/api/admin/withdrawals/export-excel`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'x-caller-id': 'ADM001',
-        'x-caller-role': 'ADMIN'
+        'Authorization': `Bearer ${admToken}`
       },
       body: JSON.stringify({ withdrawal_ids: [badWithdrawalId] })
     });
@@ -206,15 +210,18 @@ async function runTests() {
   // -------------------------------------------------------------------------
   console.log('\n--- Test Group 4: Dynamic Rental Amount from system_settings ---');
   {
+    const admToken = getTestAuthToken('ADM001');
+    const authHeaders = { 'Authorization': `Bearer ${admToken}` };
+
     // 4a. Initial check: monthly_rental_paise = 49900 -> 499.00
-    const initialRes = await fetch(`${baseUrl}/api/settings`);
+    const initialRes = await fetch(`${baseUrl}/api/settings`, { headers: authHeaders });
     const initialJson = await initialRes.json();
     assert(initialJson.success === true && initialJson.settings.monthly_rental_rupees === '499.00', 'Initial /api/settings returns monthly_rental_rupees of 499.00 from database');
 
     // 4b. Update rental amount in system_settings to 649.00 (64900 paise)
     await pool.query(`UPDATE system_settings SET value_numeric = 64900 WHERE key = 'monthly_rental_paise';`);
 
-    const updatedRes = await fetch(`${baseUrl}/api/settings`);
+    const updatedRes = await fetch(`${baseUrl}/api/settings`, { headers: authHeaders });
     const updatedJson = await updatedRes.json();
     assert(updatedJson.success === true && updatedJson.settings.monthly_rental_rupees === '649.00', 'After updating system_settings to 64900 paise, /api/settings returns 649.00');
 
@@ -223,7 +230,7 @@ async function runTests() {
 
     // 4c. Verify missing setting error behavior: delete monthly_rental_paise temporarily
     await pool.query(`DELETE FROM system_settings WHERE key = 'monthly_rental_paise';`);
-    const missingRes = await fetch(`${baseUrl}/api/settings`);
+    const missingRes = await fetch(`${baseUrl}/api/settings`, { headers: authHeaders });
     const missingJson = await missingRes.json();
     assert(missingRes.status === 500 && missingJson.message.includes('SETTING_NOT_FOUND'), 'When monthly_rental_paise is missing from system_settings, /api/settings rejects with SETTING_NOT_FOUND');
 
