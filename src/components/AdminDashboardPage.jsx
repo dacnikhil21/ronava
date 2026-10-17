@@ -101,6 +101,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   
   // Real-Time Date Range Filter
   const [dateRangeFilter, setDateRangeFilter] = useState('ALL'); // 'ALL' | 'TODAY' | 'YESTERDAY' | 'WEEK' | 'MONTH'
+  const [serverSyncError, setServerSyncError] = useState(null);
 
   // Edit Partner Modal State
   const [editingPartner, setEditingPartner] = useState({
@@ -269,7 +270,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   const [actionProcessingMap, setActionProcessingMap] = useState({});
 
   // Dedicated Ecosystem Profit & Commission Distribution State
-  const [profitDateFilter, setProfitDateFilter] = useState('TODAY'); // 'TODAY' | 'YESTERDAY' | 'WEEK' | 'MONTH' | 'ALL' | 'CUSTOM'
+  const [profitDateFilter, setProfitDateFilter] = useState('ALL'); // 'ALL' | 'TODAY' | 'YESTERDAY' | 'WEEK' | 'MONTH' | 'CUSTOM'
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [selectedProfitTier, setSelectedProfitTier] = useState('COMPANY'); // 'COMPANY' | 'MASTER' | 'SUPER' | 'DISTRICT' | 'DISTRIBUTOR' | 'MERCHANT'
@@ -394,6 +395,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         triggerToast(`⚠️ Server Sync Warning: Failed to load ${failedModules.join(', ')} from database.`, 'error');
       }
 
+      if (pendingRes && !pendingRes.success) {
+        setServerSyncError(pendingRes.message || 'Failed to sync ledger data from server.');
+      } else if (pendingRes && pendingRes.success) {
+        setServerSyncError(null);
+      }
+
       if (inqRes && inqRes.inquiries) {
         setInquiriesList(inqRes.inquiries);
       }
@@ -421,7 +428,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         });
         if (pendingRes.stats) {
           setMetrics(prev => {
-            const keys = ['totalMerchants', 'totalSuperDistributors', 'totalDistributors', 'withdrawalsCount', 'pendingWithdrawalsCount', 'totalVolume', 'pendingVolume', 'adminNetProfit', 'pineVolume', 'payswiffVolume', 'qrVolume'];
+            const keys = ['totalMerchants', 'totalSuperDistributors', 'totalDistributors', 'withdrawalsCount', 'pendingWithdrawalsCount', 'totalVolume', 'pendingVolume', 'totalFeesCollected', 'partnerCommissions', 'adminNetProfit', 'pineVolume', 'payswiffVolume', 'qrVolume', 'tierTotals'];
             let changed = false;
             for (const k of keys) {
               if (prev[k] !== pendingRes.stats[k]) {
@@ -469,6 +476,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       fetchRentalReport(rentalMonth, isSilent);
     } catch (err) {
       console.error('Error fetching admin data:', err);
+      setServerSyncError(err.message || 'Error connecting to backend server.');
       if (!isSilent) triggerToast('Error connecting to backend: ' + err.message, 'error');
     }
   };
@@ -888,9 +896,16 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
     setIsSubmitting(true);
     try {
+      const session = getAuthSession();
+      const currentAdminId = session?.user?.id;
+      if (!currentAdminId) {
+        triggerToast('Session expired. Please log in again.', 'error');
+        setIsSubmitting(false);
+        return;
+      }
       const payload = {
-        creator_id: 'ADM001',
-        parent_id: onboardForm.parent_id || 'ADM001',
+        creator_id: currentAdminId,
+        parent_id: onboardForm.parent_id || currentAdminId,
         name: cleanName,
         mobile: cleanMobile,
         email: cleanEmail,
@@ -919,7 +934,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           name: res.user?.name,
           mobile: res.user?.mobile,
           role: res.user?.role,
-          parent_name: res.parent?.name || 'Super Admin',
+          parent_name: res.parent?.name || res.user?.parent_name || 'Direct',
           password: 'Ronav@123'
         });
         triggerToast(`✓ Successfully created ${onboardForm.role}!`, 'success');
@@ -1153,7 +1168,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     }
     return networkUsers.filter(u => u.role === 'SUPER_DISTRIBUTOR' && !(u.id && u.id.startsWith('MST'))).map(u => ({
       ...u,
-      parent_master_name: u.creator_name || 'Super Admin',
+      parent_master_name: u.creator_name || 'Direct',
       distributor_count: 0,
       total_merchant_count: 0,
       network_volume: u.total_sales || 0,
@@ -1172,7 +1187,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       (u.id && (u.id.startsWith('DD') || u.id.startsWith('DF')))
     ).map(u => ({
       ...u,
-      parent_sd_name: u.creator_name || 'Super Admin',
+      parent_sd_name: u.creator_name || 'Direct',
       distributor_count: 0,
       total_merchant_count: 0,
       downline_volume: u.total_sales || 0,
@@ -1190,7 +1205,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       !(u.id && (u.id.startsWith('DD') || u.id.startsWith('DF')))
     ).map(u => ({
       ...u,
-      parent_sd_name: u.creator_name || 'Super Admin',
+      parent_sd_name: u.creator_name || 'Direct',
       merchant_count: 0,
       downline_volume: u.total_sales || 0,
       merchants: []
@@ -1465,15 +1480,17 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     let allProfit = 0;
 
     let hasFeeError = false;
-    const getTxnCompanyFee = (t) => {
-      let compFee = parseFloat(t.company_fee);
+    const getTxnAdminProfit = (t) => {
+      if (t.admin_profit !== undefined && t.admin_profit !== null) {
+        return parseFloat(t.admin_profit) || 0;
+      }
+      let compFee = parseFloat(t.company_fee || t.fee_deducted || t.customer_charge || t.fee);
       if (isNaN(compFee) || compFee <= 0) {
         if (t.notes && typeof t.notes === 'string' && t.notes.includes('{')) {
           try {
             const jsonPart = t.notes.slice(t.notes.indexOf('{'));
             const parsed = JSON.parse(jsonPart);
             if (parsed.company_fee) compFee = parseFloat(parsed.company_fee);
-            else if (parsed.merchant_buy_rate) compFee = ((parseFloat(t.amount) || 0) * parseFloat(parsed.merchant_buy_rate)) / 100;
           } catch (err) {
             console.warn('[AdminDashboardPage] Failed to parse transaction fee metadata:', err);
             hasFeeError = true;
@@ -1487,7 +1504,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       const amt = parseFloat(t.amount) || 0;
       if (t.status === 'APPROVED' || t.status === 'Success') {
         allVol += amt;
-        allProfit += getTxnCompanyFee(t);
+        allProfit += getTxnAdminProfit(t);
       }
     });
 
@@ -1512,7 +1529,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       const amt = parseFloat(t.amount) || 0;
       if (t.status === 'APPROVED' || t.status === 'Success') {
         volume += amt;
-        const fee = getTxnCompanyFee(t);
+        const fee = getTxnAdminProfit(t);
         adminProfit += fee;
       }
     });
@@ -1536,8 +1553,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     ? parseFloat(metrics.adminNetProfit || filteredData.allAdminProfit || 0)
     : filteredData.adminProfit;
 
-  const totalVolumeDisplay = (displayVolume || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
-  const adminProfitDisplay = (displayAdminProfit || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+  const totalVolumeDisplay = serverSyncError ? 'Sync Error' : (displayVolume || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+  const adminProfitDisplay = serverSyncError ? 'Sync Error' : (displayAdminProfit || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 
   // Dedicated Calculation Engine for Today's Profit & Commission Distribution Hub
   const profitDistributionData = useMemo(() => {
@@ -1601,23 +1618,23 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       const amt = parseFloat(t.amount) || 0;
       if (amt <= 0) return;
 
-      const merchant = userMap[t.merchant_id] || { id: t.merchant_id, name: t.merchant_name || t.merchant_id || 'Merchant' };
+      const merchant = userMap[t.merchant_id] || { id: t.merchant_id, name: t.merchant_name || t.merchant_id || '' };
       const merchantDisplayName = merchant.business_name || merchant.name || t.merchant_name || 'Merchant Outlet';
       
-      let companyFee = parseFloat(t.company_fee) || 0;
+      let companyFee = parseFloat(t.company_fee || t.fee_deducted || t.customer_charge || t.fee) || 0;
       let merchantComm = parseFloat(t.merchant_commission) || 0;
-      let savedSplits = [];
-      let savedAdminMargin = 0;
+      let savedSplits = Array.isArray(t.commission_splits) ? t.commission_splits : [];
+      let savedAdminMargin = t.admin_profit !== undefined ? parseFloat(t.admin_profit) : 0;
       let metaError = false;
 
-      if (t.notes && typeof t.notes === 'string' && t.notes.includes('{')) {
+      if (!companyFee && t.notes && typeof t.notes === 'string' && t.notes.includes('{')) {
         try {
           const jsonPart = t.notes.slice(t.notes.indexOf('{'));
           const meta = JSON.parse(jsonPart);
           if (meta.company_fee) companyFee = parseFloat(meta.company_fee);
           if (meta.merchant_commission) merchantComm = parseFloat(meta.merchant_commission);
           if (meta.admin_net_margin !== undefined) savedAdminMargin = parseFloat(meta.admin_net_margin);
-          if (Array.isArray(meta.commission_splits)) savedSplits = meta.commission_splits;
+          if (Array.isArray(meta.commission_splits) && savedSplits.length === 0) savedSplits = meta.commission_splits;
         } catch (err) {
           console.warn('[AdminDashboardPage] Failed to parse commission breakdown notes:', err);
           metaError = true;
@@ -1788,7 +1805,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       }
 
       // Company Net Margin = companyFee - paidUplines
-      const companyEarned = Math.max(0, companyFee - paidUplines);
+      const companyEarned = t.admin_profit !== undefined ? parseFloat(t.admin_profit) : Math.max(0, companyFee - paidUplines);
       companyNet += companyEarned;
 
       // Update Channel Stats
@@ -2479,6 +2496,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
       {/* 4. Main Executive Workspace */}
       <main className="admin-main-container">
+        <h1 className="admin-dashboard-heading" style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: '0 0 1rem 0' }}>
+          Admin Ecosystem Command Center
+        </h1>
         
         {/* If Admin is viewing a specific Person Dossier */}
         {viewingUserDossier ? (
@@ -2814,7 +2834,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   return normCh === normFilter;
                 });
 
-                const totalVol = filteredTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+                const totalVol = parseFloat(viewingUserDossier.total_sales || viewingUserDossier.total_txn_volume || 0);
                 const approvedTxns = filteredTxns.filter(t => (t.status || '').toUpperCase() === 'APPROVED');
                 
                 let grossMdr = 0;
@@ -2843,22 +2863,14 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   if (isComm) {
                     channelNetCredited += gross;
                   } else {
-                    channelNetCredited += Math.max(0, gross - fee);
+                    channelNetCredited += (parseFloat(t.net_amount) || (t.net_amount_paise ? t.net_amount_paise / 100 : gross));
                   }
                 });
 
-                const channelWithdrawn = (dossierWithdrawals || []).filter(w => {
-                  if (dossierMachineFilter === 'ALL') return (w.status || '').toUpperCase() === 'APPROVED';
-                  const ch = classifyTransactionChannel(w);
-                  const normFilter = String(dossierMachineFilter).replace(/_/g, '').toLowerCase();
-                  const normCh = String(ch).replace(/_/g, '').toLowerCase();
-                  return normCh === normFilter && (w.status || '').toUpperCase() === 'APPROVED';
-                }).reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
+                const channelWithdrawn = parseFloat(viewingUserDossier.withdrawn_amount || 0);
 
                 const totalUserBalance = parseFloat(viewingUserDossier.available_balance || 0);
-                const activeDossierBalance = dossierMachineFilter === 'ALL'
-                  ? totalUserBalance
-                  : Math.min(Math.max(0, parseFloat((channelNetCredited - channelWithdrawn).toFixed(2))), totalUserBalance);
+                const activeDossierBalance = totalUserBalance;
 
                 return (
                   <div style={{
@@ -3011,11 +3023,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
                             const amt = parseFloat(t.amount || 0);
                             const compFee = parseFloat(meta.company_fee || t.company_fee || 0);
-                            const totalUplines = meta.commission_splits && Array.isArray(meta.commission_splits)
-                              ? meta.commission_splits.reduce((s, x) => s + (parseFloat(x.amount) || 0), 0)
-                              : 0;
-                            const adminNet = parseFloat((meta.admin_net_margin !== undefined ? meta.admin_net_margin : (totalUplines > 0 ? (compFee - totalUplines) : parseFloat(t.admin_net_margin || 0))).toFixed(2));
-                            const uplinesCut = totalUplines > 0 ? totalUplines : Math.max(0, parseFloat((compFee - adminNet).toFixed(2)));
+                            const adminNet = parseFloat(meta.admin_net_margin !== undefined ? meta.admin_net_margin : (t.admin_net_margin || 0));
+                            const uplinesCut = parseFloat(meta.uplines_cut !== undefined ? meta.uplines_cut : (t.uplines_cut || 0));
                             const providerName = meta.pos_provider || t.provider || 'POS';
                             const terminalId = meta.terminal_id || t.terminal_id || '';
                             const customerName = meta.customer_name || t.customer_name || 'Customer';
@@ -3571,6 +3580,16 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
             {activeTab === 'overview' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                 
+                {serverSyncError && (
+                  <div id="admin-sync-error-banner" style={{ background: '#FEF2F2', border: '1.5px solid #FCA5A5', borderRadius: '12px', padding: '1rem', color: '#991B1B', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <AlertCircle style={{ width: '22px', height: '22px', flexShrink: 0, color: '#DC2626' }} />
+                    <div>
+                      <strong style={{ fontSize: '0.9375rem', display: 'block' }}>Backend Connection Error</strong>
+                      <span style={{ fontSize: '0.8125rem' }}>{serverSyncError}. An error must never look like zero balance or zero sales.</span>
+                    </div>
+                  </div>
+                )}
+
                 {/* 4 Core Financial & Ecosystem KPI Cards */}
                 <div className="admin-kpi-grid">
                   
@@ -4313,13 +4332,19 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 );
               }
 
+              const isAllTime = profitDateFilter === 'ALL';
+              const authoritativeSales = (isAllTime && metrics.totalVolume !== undefined && metrics.totalVolume !== null) ? Number(metrics.totalVolume) : profitDistributionData.totalSalesVolume;
+              const authoritativeFees = (isAllTime && metrics.totalFeesCollected !== undefined && metrics.totalFeesCollected !== null) ? Number(metrics.totalFeesCollected) : profitDistributionData.totalFeesCollected;
+              const authoritativeUplines = (isAllTime && metrics.partnerCommissions !== undefined && metrics.partnerCommissions !== null) ? Number(metrics.partnerCommissions) : profitDistributionData.totalUplinesDistributed;
+              const authoritativeAdminProfit = (isAllTime && metrics.adminNetProfit !== undefined && metrics.adminNetProfit !== null) ? Number(metrics.adminNetProfit) : profitDistributionData.companyNet;
+
               const tierMetaMap = {
                 COMPANY: {
                   title: 'Company Net Margin',
                   icon: '🏢',
                   accentColor: '#059669',
                   tabId: null,
-                  total: profitDistributionData.companyNet,
+                  total: authoritativeAdminProfit,
                   subtitle: `${profitDistributionData.breakdowns.COMPANY?.length || 0} Swipes • Retained Platform Margin`
                 },
                 MASTER: {
@@ -4327,48 +4352,48 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   icon: '👑',
                   accentColor: '#7C3AED',
                   tabId: 'master_distributors',
-                  total: profitDistributionData.masterTotal,
-                  subtitle: `${profitDistributionData.counts.master} Active Partners • 0.05% Override`
+                  total: isAllTime && metrics.tierTotals?.master !== undefined ? Number(metrics.tierTotals.master) : (profitDistributionData.masterTotal || 0),
+                  subtitle: `${profitDistributionData.counts.master} Active Partners`
                 },
                 SUPER: {
                   title: 'Super Distributors',
                   icon: '⚡',
                   accentColor: '#4F46E5',
                   tabId: 'super_distributors',
-                  total: profitDistributionData.superTotal,
-                  subtitle: `${profitDistributionData.counts.super} Active Partners • 0.10% Cut`
+                  total: isAllTime && metrics.tierTotals?.super !== undefined ? Number(metrics.tierTotals.super) : (profitDistributionData.superTotal || 0),
+                  subtitle: `${profitDistributionData.counts.super} Active Partners`
                 },
                 DISTRICT: {
                   title: 'District Distributors',
                   icon: '🏛️',
                   accentColor: '#D97706',
                   tabId: 'district_distributors',
-                  total: profitDistributionData.districtTotal,
-                  subtitle: `${profitDistributionData.counts.district} Active Partners • 0.10% Cut`
+                  total: isAllTime && metrics.tierTotals?.district !== undefined ? Number(metrics.tierTotals.district) : (profitDistributionData.districtTotal || 0),
+                  subtitle: `${profitDistributionData.counts.district} Active Partners`
                 },
                 DISTRIBUTOR: {
                   title: 'Distributors',
                   icon: '📦',
                   accentColor: '#0F52BA',
                   tabId: 'distributors',
-                  total: profitDistributionData.distributorTotal,
-                  subtitle: `${profitDistributionData.counts.distributor} Active Partners • 0.10% Cut`
+                  total: isAllTime && metrics.tierTotals?.distributor !== undefined ? Number(metrics.tierTotals.distributor) : (profitDistributionData.distributorTotal || 0),
+                  subtitle: `${profitDistributionData.counts.distributor} Active Partners`
                 },
                 MERCHANT: {
                   title: 'Retail Merchants',
                   icon: '🏪',
                   accentColor: '#0284C7',
                   tabId: 'merchants',
-                  total: profitDistributionData.merchantTotal,
-                  subtitle: `${profitDistributionData.counts.merchant} Active Merchants • Direct Margin`
+                  total: isAllTime && metrics.tierTotals?.merchant !== undefined ? Number(metrics.tierTotals.merchant) : (profitDistributionData.merchantTotal || 0),
+                  subtitle: `${profitDistributionData.counts.merchant} Active Merchants`
                 }
               };
               const activeMeta = tierMetaMap[currentTierKey] || tierMetaMap.COMPANY;
 
               // Filtered Subtotals for ledger
-              const subtotalSwiped = filteredItems.reduce((acc, it) => acc + (parseFloat(it.amount) || 0), 0);
-              const subtotalFees = filteredItems.reduce((acc, it) => acc + (parseFloat(it.fee_deducted) || 0), 0);
-              const subtotalProfit = filteredItems.reduce((acc, it) => acc + (parseFloat(it.commission_amount) || 0), 0);
+              const subtotalSwiped = authoritativeSales;
+              const subtotalFees = authoritativeFees;
+              const subtotalProfit = authoritativeAdminProfit;
 
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
@@ -4525,7 +4550,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
                     <div style={{ marginTop: '0.5rem' }}>
                       <h2 style={{ fontSize: '1.875rem', fontWeight: 900, margin: 0, color: '#FFFFFF' }}>
-                        ₹{profitDistributionData.companyNet.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        ₹{authoritativeAdminProfit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h2>
                     </div>
 
@@ -4540,19 +4565,19 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       <div>
                         <span style={{ fontSize: '0.58rem', color: '#BFDBFE', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Sales Swiped</span>
                         <strong style={{ fontSize: '0.8125rem', color: '#FFFFFF', fontWeight: 800 }}>
-                          ₹{profitDistributionData.totalSalesVolume.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                          ₹{authoritativeSales.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                         </strong>
                       </div>
                       <div>
                         <span style={{ fontSize: '0.58rem', color: '#BFDBFE', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Fees Collected</span>
                         <strong style={{ fontSize: '0.8125rem', color: '#FFFFFF', fontWeight: 800 }}>
-                          ₹{profitDistributionData.totalFeesCollected.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                          ₹{authoritativeFees.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                         </strong>
                       </div>
                       <div>
                         <span style={{ fontSize: '0.58rem', color: '#FCA5A5', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>Uplines Paid</span>
                         <strong style={{ fontSize: '0.8125rem', color: '#FCA5A5', fontWeight: 800 }}>
-                          -₹{profitDistributionData.totalUplinesDistributed.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                          -₹{authoritativeUplines.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                         </strong>
                       </div>
                     </div>
@@ -4584,10 +4609,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         </div>
                       </div>
                       <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: '6px 0 2px' }}>
-                        ₹{profitDistributionData.totalSalesVolume.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        ₹{authoritativeSales.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h3>
                       <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 600 }}>
-                        {profitDistributionData.txnsCount} transactions swiped
+                        {isAllTime ? (transactionsLedger?.filter(t => t.status === 'APPROVED' || t.status === 'Success').length || 0) : (profitDistributionData.txnsCount || 0)} transactions swiped
                       </span>
                     </div>
 
@@ -4608,7 +4633,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         </div>
                       </div>
                       <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#1E293B', margin: '6px 0 2px' }}>
-                        ₹{profitDistributionData.totalFeesCollected.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        ₹{authoritativeFees.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h3>
                       <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 600 }}>
                         Gross deductions from merchants
@@ -4632,7 +4657,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         </div>
                       </div>
                       <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#4F46E5', margin: '6px 0 2px' }}>
-                        ₹{profitDistributionData.totalUplinesDistributed.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        ₹{authoritativeUplines.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h3>
                       <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 600 }}>
                         Distributed to upline partners
@@ -4656,7 +4681,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         </span>
                       </div>
                       <h3 style={{ fontSize: '1.375rem', fontWeight: 900, color: '#059669', margin: '6px 0 2px' }}>
-                        +₹{profitDistributionData.companyNet.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        +₹{authoritativeAdminProfit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h3>
                       <span style={{ fontSize: '0.625rem', color: '#047857', fontWeight: 700 }}>
                         100% Realized Company Margin
@@ -5154,7 +5179,6 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   <div className="admin-roster-grid">
                     {filteredMasters.map(m => {
                       const mVol = parseFloat(m.network_volume || m.total_sales || 0);
-                      const mCutRate = parseFloat(m.upline_override_rate || m.margin_rate || 0);
 
                       // Robust Downline Aggregation (SD -> DD -> Dist -> Shops)
                       const childSDs = m.super_distributors || superDistributorsList.filter(sd => sd.creator_id === m.id || sd.parent_id === m.id);
@@ -5190,12 +5214,28 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
                                 Apex ID: <strong style={{ color: '#7C3AED' }}>{m.id}</strong> • Mobile: {m.mobile}
                               </span>
+                              <span style={{ fontSize: '0.625rem', color: '#475569', display: 'block', marginTop: '1px' }}>
+                                Under: <strong>{m.parent_name || m.creator_name ? (m.parent_name || m.creator_name) : <span style={{ color: '#DC2626' }}>Parent missing</span>}</strong>
+                              </span>
                             </div>
 
                             {/* Status Pill */}
                             <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '3px 7px', borderRadius: '6px', background: '#FAF5FF', color: '#7C3AED', border: '1px solid #DDD6FE', whiteSpace: 'nowrap' }}>
                               👑 APEX PARTNER
                             </span>
+                          </div>
+
+                          {/* Buy Rate Badge */}
+                          <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                            {(m.commission_rate_t1 !== undefined && m.commission_rate_t1 !== null) || (m.rate_t1 !== undefined && m.rate_t1 !== null) || (m.channels?.pine_labs?.rate_t1 !== undefined && m.channels?.pine_labs?.rate_t1 !== null) ? (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#1E293B', padding: '2px 6px', borderRadius: '4px', border: '1px solid #CBD5E1' }}>
+                                ⚡ Buy Rate: T+1: {parseFloat(m.rate_t1 ?? m.commission_rate_t1 ?? m.channels?.pine_labs?.rate_t1).toFixed(2)}%{(m.rate_instant || m.commission_rate_instant || m.channels?.pine_labs?.rate_instant) ? ` • Instant: ${parseFloat(m.rate_instant ?? m.commission_rate_instant ?? m.channels?.pine_labs?.rate_instant).toFixed(2)}%` : ''}
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#FEF2F2', color: '#DC2626', padding: '2px 6px', borderRadius: '4px', border: '1px solid #FECACA' }}>
+                                ⚠️ Buy Rate missing
+                              </span>
+                            )}
                           </div>
 
                           {/* 4 Metric Pills */}
@@ -5318,7 +5358,6 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   <div className="admin-roster-grid">
                     {filteredSDs.map(sd => {
                       const sdVol = parseFloat(sd.network_volume || sd.total_sales || 0);
-                      const sdCutRate = parseFloat(sd.upline_override_rate || sd.margin_rate || 0);
                       const sdProfit = parseFloat(sd.admin_profit_earned || sd.commission_earned || 0);
 
                       // Robust Downline Aggregation (District Dist -> Dist -> Shops)
@@ -5361,6 +5400,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
                                 ID: <strong style={{ color: '#7C3AED' }}>{sd.id}</strong> • Mobile: {sd.mobile}
                               </span>
+                              <span style={{ fontSize: '0.625rem', color: '#475569', display: 'block', marginTop: '1px' }}>
+                                Under: <strong>{sd.parent_name || sd.creator_name || 'Direct'}</strong>
+                              </span>
                             </div>
 
                             {/* Machines Count Pill */}
@@ -5386,9 +5428,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 📱 QR Active: {(parseFloat(sd.channels.qr.rate_instant || sd.commission_rate_instant || sd.commission_rate_t1) || 0).toFixed(2)}% Instant
                               </span>
                             )}
-                            {(!sd.channels || (!sd.channels.pine_labs?.enabled && !sd.channels.payswiff?.enabled && !sd.channels.qr?.enabled)) && (
-                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#64748B', padding: '2px 6px', borderRadius: '4px' }}>
-                                ⚡ Buy Rate: T+1: {(parseFloat(sd.commission_rate_t1) || 0).toFixed(2)}% • Instant: {(parseFloat(sd.commission_rate_instant || sd.commission_rate_t1) || 0).toFixed(2)}% {sd.upline_override_rate ? `• Cut: ${parseFloat(sd.upline_override_rate).toFixed(2)}%` : ''}
+                            {(sd.commission_rate_t1 || sd.rate_t1 || sd.channels?.pine_labs?.rate_t1) && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#1E293B', padding: '2px 6px', borderRadius: '4px', border: '1px solid #CBD5E1' }}>
+                                ⚡ Buy Rate: T+1: {parseFloat(sd.rate_t1 ?? sd.commission_rate_t1 ?? sd.channels?.pine_labs?.rate_t1).toFixed(2)}%{(sd.rate_instant || sd.commission_rate_instant || sd.channels?.pine_labs?.rate_instant) ? ` • Instant: ${parseFloat(sd.rate_instant ?? sd.commission_rate_instant ?? sd.channels?.pine_labs?.rate_instant).toFixed(2)}%` : ''}
                               </span>
                             )}
                             <button
@@ -5534,7 +5576,6 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   <div className="admin-roster-grid">
                     {filteredDDs.map(dd => {
                       const ddVol = parseFloat(dd.downline_volume || dd.total_sales || 0);
-                      const ddCutRate = parseFloat(dd.upline_override_rate || dd.margin_rate || 0);
                       const ddProfit = parseFloat(dd.admin_profit_earned || dd.commission_earned || 0);
 
                       return (
@@ -5561,7 +5602,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 ID: <strong style={{ color: '#D97706' }}>{dd.id}</strong> • Mobile: {dd.mobile}
                               </span>
                               <span style={{ fontSize: '0.625rem', color: '#475569', display: 'block', marginTop: '1px' }}>
-                                Under: <strong>{dd.parent_sd_name || 'Super Admin'}</strong>
+                                Under: <strong>{dd.parent_name || dd.creator_name || 'Direct'}</strong>
                               </span>
                             </div>
                             <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: '#FEF3C7', color: '#B45309', border: '1px solid #FDE68A' }}>
@@ -5586,9 +5627,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 📱 QR Active: {(parseFloat(dd.channels.qr.rate_instant || dd.commission_rate_instant || dd.commission_rate_t1) || 0).toFixed(2)}% Instant
                               </span>
                             )}
-                            {(!dd.channels || (!dd.channels.pine_labs?.enabled && !dd.channels.payswiff?.enabled && !dd.channels.qr?.enabled)) && (
-                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#64748B', padding: '2px 6px', borderRadius: '4px' }}>
-                                ⚡ Buy Rate: T+1: {(parseFloat(dd.commission_rate_t1) || 0).toFixed(2)}% • Instant: {(parseFloat(dd.commission_rate_instant || dd.commission_rate_t1) || 0).toFixed(2)}% {dd.upline_override_rate ? `• Cut: ${parseFloat(dd.upline_override_rate).toFixed(2)}%` : ''}
+                            {(dd.commission_rate_t1 || dd.rate_t1 || dd.channels?.pine_labs?.rate_t1) && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#1E293B', padding: '2px 6px', borderRadius: '4px', border: '1px solid #CBD5E1' }}>
+                                ⚡ Buy Rate: T+1: {parseFloat(dd.rate_t1 ?? dd.commission_rate_t1 ?? dd.channels?.pine_labs?.rate_t1).toFixed(2)}%{(dd.rate_instant || dd.commission_rate_instant || dd.channels?.pine_labs?.rate_instant) ? ` • Instant: ${parseFloat(dd.rate_instant ?? dd.commission_rate_instant ?? dd.channels?.pine_labs?.rate_instant).toFixed(2)}%` : ''}
                               </span>
                             )}
                             <button
@@ -5730,7 +5771,6 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   <div className="admin-roster-grid">
                     {filteredDists.map(d => {
                       const distVol = parseFloat(d.downline_volume || d.total_sales || 0);
-                      const distCutRate = parseFloat(d.upline_override_rate || d.margin_rate || 0);
                       const distProfit = parseFloat(d.admin_profit_earned || d.commission_earned || 0);
 
                       return (
@@ -5756,7 +5796,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 ID: <strong style={{ color: '#0F52BA' }}>{d.id}</strong> • Mobile: {d.mobile}
                               </span>
                               <span style={{ fontSize: '0.625rem', color: '#475569', display: 'block', marginTop: '1px' }}>
-                                Under: <strong>{d.parent_sd_name || 'Super Admin'}</strong>
+                                Under: <strong>{d.parent_name || d.creator_name || 'Direct'}</strong>
                               </span>
                             </div>
                             <span style={{ fontSize: '0.625rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', background: '#EFF6FF', color: '#0F52BA', border: '1px solid #BFDBFE' }}>
@@ -5781,9 +5821,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 📱 QR Active: {(parseFloat(d.channels.qr.rate_instant || d.commission_rate_instant || d.commission_rate_t1) || 0).toFixed(2)}% Instant
                               </span>
                             )}
-                            {(!d.channels || (!d.channels.pine_labs?.enabled && !d.channels.payswiff?.enabled && !d.channels.qr?.enabled)) && (
-                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#64748B', padding: '2px 6px', borderRadius: '4px' }}>
-                                ⚡ Buy Rate: T+1: {(parseFloat(d.commission_rate_t1) || 0).toFixed(2)}% • Instant: {(parseFloat(d.commission_rate_instant || d.commission_rate_t1) || 0).toFixed(2)}% {d.upline_override_rate ? `• Cut: ${parseFloat(d.upline_override_rate).toFixed(2)}%` : ''}
+                            {(d.commission_rate_t1 || d.rate_t1 || d.channels?.pine_labs?.rate_t1) && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#1E293B', padding: '2px 6px', borderRadius: '4px', border: '1px solid #CBD5E1' }}>
+                                ⚡ Buy Rate: T+1: {parseFloat(d.rate_t1 ?? d.commission_rate_t1 ?? d.channels?.pine_labs?.rate_t1).toFixed(2)}%{(d.rate_instant || d.commission_rate_instant || d.channels?.pine_labs?.rate_instant) ? ` • Instant: ${parseFloat(d.rate_instant ?? d.commission_rate_instant ?? d.channels?.pine_labs?.rate_instant).toFixed(2)}%` : ''}
                               </span>
                             )}
                             <button
@@ -6004,9 +6044,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 📱 QR Active: {(parseFloat(m.channels.qr.rate_instant || m.commission_rate_instant || m.commission_rate_t1) || 0).toFixed(2)}% Instant
                               </span>
                             )}
-                            {(!m.channels || (!m.channels.pine_labs?.enabled && !m.channels.payswiff?.enabled && !m.channels.qr?.enabled)) && (
-                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#64748B', padding: '2px 6px', borderRadius: '4px' }}>
-                                📟 {m.pos_provider || 'Pine Labs'} (T+1: {(parseFloat(m.commission_rate_t1) || 0).toFixed(2)}% • Instant: {(parseFloat(m.commission_rate_instant || m.commission_rate_t1) || 0).toFixed(2)}%)
+                            {(m.commission_rate_t1 || m.rate_t1 || m.channels?.pine_labs?.rate_t1) && (
+                              <span style={{ fontSize: '0.6rem', fontWeight: 800, background: '#F1F5F9', color: '#1E293B', padding: '2px 6px', borderRadius: '4px', border: '1px solid #CBD5E1' }}>
+                                ⚡ Buy Rate: T+1: {parseFloat(m.rate_t1 ?? m.commission_rate_t1 ?? m.channels?.pine_labs?.rate_t1).toFixed(2)}%{(m.rate_instant || m.commission_rate_instant || m.channels?.pine_labs?.rate_instant) ? ` • Instant: ${parseFloat(m.rate_instant ?? m.commission_rate_instant ?? m.channels?.pine_labs?.rate_instant).toFixed(2)}%` : ''}
                               </span>
                             )}
                             <button
@@ -6320,23 +6360,23 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
               // T+1 Batch Items
               const t1BatchPendingItems = channelRegularWithdrawals.filter(w => w._subStatus === 'PENDING' && !isItemInstant(w));
-              const totalBatchAmount = t1BatchPendingItems.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
+              const totalBatchAmount = parseFloat(metrics.withdrawalTotals?.pending_t1_amount || 0);
 
-              // Executive Financial Totals
+              // Executive Financial Totals directly from server
               const pendingWithdrawalsList = channelRegularWithdrawals.filter(w => w._subStatus === 'PENDING');
-              const totalPendingWithdrawalAmount = pendingWithdrawalsList.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
+              const totalPendingWithdrawalAmount = parseFloat(metrics.withdrawalTotals?.pending_amount || 0);
 
               const pendingCommissionList = channelCommissionWithdrawals.filter(w => w._subStatus === 'PENDING');
-              const totalPendingCommissionAmount = pendingCommissionList.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
+              const totalPendingCommissionAmount = parseFloat(metrics.withdrawalTotals?.pending_commission_amount || 0);
 
               const pendingSwipesList = channelSwipes.filter(s => s._subStatus === 'PENDING');
-              const totalPendingSwipesAmount = pendingSwipesList.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
+              const totalPendingSwipesAmount = parseFloat(metrics.pendingVolume || 0);
 
               const submittedWithdrawalsList = channelWithdrawals.filter(w => w._subStatus === 'SUBMITTED_TO_BANK');
-              const totalSubmittedAmount = submittedWithdrawalsList.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
+              const totalSubmittedAmount = parseFloat(metrics.withdrawalTotals?.submitted_amount || 0);
 
               const completedWithdrawalsList = channelWithdrawals.filter(w => w._subStatus === 'APPROVED');
-              const totalCompletedWithdrawalAmount = completedWithdrawalsList.reduce((acc, item) => acc + (parseFloat(item.amount) || 0), 0);
+              const totalCompletedWithdrawalAmount = parseFloat(metrics.withdrawalTotals?.completed_amount || 0);
 
               // Apply Search Query
               const q = (payoutSearchQuery || '').toLowerCase().trim();
@@ -6472,7 +6512,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 });
               };
 
-              const channelTotalVol = channelAllItems.reduce((acc, i) => acc + (parseFloat(i.amount) || 0), 0);
+              // channelTotalVol eliminated (handled by server summary)
 
               const handleInitiateBankDownload = () => {
                 setIsExportMenuOpen(false);
@@ -6594,7 +6634,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 const channelWithdrawals = filterByDate(filterByChannel(allWithdrawals));
                 const allChannelItems = [...channelSwipes, ...channelWithdrawals];
 
-                // For GST & Tax filing, only completed/approved transactions are exported
+                // Export completed/approved sales ledger showing gross, fee, and net
                 const completedItems = allChannelItems.filter(item => item._subStatus === 'APPROVED');
 
                 const channelName = selectedChannel === 'all'
@@ -6607,7 +6647,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   : payoutDateFilter;
 
                 if (completedItems.length === 0) {
-                  triggerToast(`No completed sales found for ${channelName} (${dateLabel}) for GST filing.`, 'info');
+                  triggerToast(`No completed sales found for ${channelName} (${dateLabel}).`, 'info');
                   return;
                 }
 
@@ -6618,13 +6658,13 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       : (selectedPayswiffVendor === 'rp' ? 'Payswiff_RP' : 'Payswiff_RONAV'));
                 const dateSlug = dateLabel.replace(/[^a-zA-Z0-9_-]/g, '_');
                 const today = new Date().toISOString().slice(0, 10);
-                const fileName = `RONAV_Completed_Sales_GST_${channelSlug}_${dateSlug}_${today}.csv`;
+                const fileName = `RONAV_Completed_Sales_${channelSlug}_${dateSlug}_${today}.csv`;
 
                 const res = downloadGstAuditFile(completedItems, { fileName });
                 if (res && res.success) {
-                  triggerToast(`📊 Downloaded completed sales (${dateLabel}) with 18% GST for CA filing!`, 'success');
+                  triggerToast(`📊 Downloaded completed sales (${dateLabel}) with gross, fee, and net!`, 'success');
                 } else {
-                  triggerToast(res?.error || 'Failed to download GST audit file.', 'error');
+                  triggerToast(res?.error || 'Failed to download completed sales file.', 'error');
                 }
               };
 
@@ -6720,7 +6760,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 });
 
                 const arr = Array.from(batchesMap.values()).map(b => {
-                  const totalAmount = b.items.reduce((sum, it) => sum + (parseFloat(it.amount) || 0), 0);
+                  const totalAmount = parseFloat(b.total_amount || b.items[0]?.batch_total || b.items[0]?.total_amount || 0);
                   return { ...b, totalAmount };
                 });
 
@@ -7006,13 +7046,13 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       </div>
                     </div>
 
-                    {/* Compact Download Icon-Only Button for GST & Audit Reports (Hidden on Pending tab to avoid duplicate button confusion) */}
+                    {/* Compact Download Icon-Only Button for Audit Reports (Hidden on Pending tab to avoid duplicate button confusion) */}
                     {payoutStatusFilter !== 'PENDING' && (
                       <div style={{ position: 'relative', flexShrink: 0 }}>
                         <button
                           type="button"
                           onClick={() => setIsExportMenuOpen(prev => !prev)}
-                          title="Download Completed Sales (For GST & Taxes)"
+                          title="Download Completed Sales"
                           aria-label="Export Financial Reports"
                           style={{
                             width: '38px',
@@ -7067,10 +7107,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 letterSpacing: '0.05em',
                                 textTransform: 'uppercase'
                               }}>
-                                Reports & Tax Filing
+                                Reports & Audits
                               </div>
 
-                              {/* Option: Download Completed Sales (For GST & Taxes) */}
+                              {/* Option: Download Completed Sales */}
                               <button
                                 type="button"
                                 onClick={() => {
@@ -7119,11 +7159,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                       Download Completed Sales
                                     </strong>
                                     <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#EFF6FF', color: '#1E40AF', padding: '1px 5px', borderRadius: '4px', whiteSpace: 'nowrap' }}>
-                                      For GST
+                                      Sales CSV
                                     </span>
                                   </div>
                                   <div style={{ fontSize: '0.71875rem', color: '#64748B', marginTop: '2px', lineHeight: 1.3 }}>
-                                    For your CA / Tax filing. Settled sales for <strong>{payoutDateFilter === 'CUSTOM' ? (payoutCustomDate || 'Selected Date') : payoutDateFilter}</strong> with 18% GST & Bank UTRs.
+                                    Settled sales for <strong>{payoutDateFilter === 'CUSTOM' ? (payoutCustomDate || 'Selected Date') : payoutDateFilter}</strong> with Gross, Fee, Net & Bank UTRs.
                                   </div>
                                 </div>
                               </button>
@@ -7525,8 +7565,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
                       const isAllSelected = selectedPendingIds.size > 0 && selectedPendingIds.size === pendingWithdrawals.length;
                       const selectedList = pendingWithdrawals.filter(w => selectedPendingIds.has(w.id));
-                      const selectedTotal = selectedList.reduce((acc, w) => acc + (parseFloat(w.amount) || 0), 0);
-                      const allPendingTotal = pendingWithdrawals.reduce((acc, w) => acc + (parseFloat(w.amount) || 0), 0);
+                      const allPendingTotal = parseFloat(metrics.withdrawalTotals?.pending_amount || 0);
+                      const selectedTotal = selectedPendingIds.size === pendingWithdrawals.length
+                        ? allPendingTotal
+                        : (selectedPendingIds.size === 0 ? 0 : parseFloat(metrics.withdrawalTotals?.pending_amount || 0));
 
                       const handleToggleSelectAll = () => {
                         if (isAllSelected) {
@@ -7848,7 +7890,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                             <div>
                                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                                                 <strong style={{ fontSize: '0.875rem', color: '#0F172A' }}>
-                                                  {item.merchant_name || details.recipient || 'Merchant'}
+                                                  {item.merchant_name || details.recipient || ''}
                                                 </strong>
                                                 <span style={{ fontSize: '0.6875rem', color: '#64748B', fontFamily: 'monospace' }}>
                                                   ({item.merchant_id})
@@ -8171,7 +8213,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
                         if (isSwipe) {
                           amountStr = `+₹${parseFloat(item.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-                          merchantTitle = item.merchant_name || 'Merchant';
+                          merchantTitle = item.merchant_name || '';
                           rrnOrUtr = item.rrn_number || item.ref_number || item.id || 'N/A';
                           channelTag = sourceChannelLabel;
                         } else {
@@ -9768,7 +9810,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                   <span style={{ margin: '0 4px' }}>•</span>
                                   <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0F52BA' }}>{item.terminal_id}</span>
                                   <span style={{ margin: '0 4px' }}>•</span>
-                                  <span>Distributor: <strong>{item.creator_name || 'Super Admin'}</strong></span>
+                                  <span>Distributor: <strong>{item.creator_name || 'Direct'}</strong></span>
                                 </div>
                               </div>
                             </div>
@@ -11885,7 +11927,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 type="button"
                 disabled={disbursingPayout.isSubmitting}
                 onClick={() => {
-                  triggerToast(`Withdrawal payout for ${disbursingPayout.payout?.merchant_name || 'Merchant'} kept in pending queue.`, 'info');
+                  triggerToast(`Withdrawal payout for ${disbursingPayout.payout?.merchant_name || disbursingPayout.payout?.merchant_id || ''} kept in pending queue.`, 'info');
                   setDisbursingPayout(null);
                 }}
                 title="Leave this transaction in Pending status"
@@ -12059,9 +12101,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
             {(() => {
               const isInstant = downloadConfirmModal.selectedSpeed === 'INSTANT';
               const t1Items = downloadConfirmModal.t1Withdrawals || [];
-              const t1Total = t1Items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+              const t1Total = parseFloat(downloadConfirmModal.t1TotalAmount || metrics.withdrawalTotals?.pending_t1_amount || 0);
               const insItems = downloadConfirmModal.instantWithdrawals || [];
-              const insTotal = insItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+              const insTotal = parseFloat(downloadConfirmModal.insTotalAmount || metrics.withdrawalTotals?.pending_instant_amount || 0);
 
               const activeBatchItems = isInstant ? insItems : t1Items;
               const activeTotalAmount = isInstant ? insTotal : t1Total;

@@ -21,7 +21,9 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
     'Account Number',
     'IFSC Code',
     'Bank Name',
-    'Payout Amount (INR)',
+    'Gross Amount (INR)',
+    'Fee (INR)',
+    'Net Payout (INR)',
     'Slip UTR / Bank Reference',
     'Channel / Provider',
     'Swipe Mode',
@@ -46,7 +48,7 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
     const merchantId = item.merchant_id || item.user_id || 'MID-UNKNOWN';
 
     // 3. Merchant Name
-    const merchantName = item.merchant_name || item.name || 'Merchant';
+    const merchantName = item.merchant_name || item.name || '';
 
     // 4. Merchant Mobile (Formatted as text formula ="..." so Excel never shows 5.75E+09 scientific notation)
     const rawMob = String(item.merchant_mobile || item.mobile || '').replace(/[^0-9]/g, '').trim();
@@ -70,8 +72,10 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
     // 8. Bank Name
     const bankName = item.bank_name || item.bankName || 'Bank';
 
-    // 9. Payout Amount
-    const amt = parseFloat(item.amount || 0).toFixed(2);
+    // 9. Gross, Fee, Net Payout (Authoritative DB / Server fields)
+    const grossAmt = parseFloat(item.amount || item.amount_rupees || 0);
+    const feeAmt = parseFloat(item.fee !== undefined ? item.fee : (item.fee_paise !== undefined ? (Number(item.fee_paise) / 100) : 0));
+    const netAmt = parseFloat(item.net_payout !== undefined ? item.net_payout : (item.net_payout_paise !== undefined ? (Number(item.net_payout_paise) / 100) : (grossAmt - feeAmt)));
 
     // 10. Slip UTR / Bank Reference Number
     let utrVal = item.utr_number || item.rrn_number || item.utr || item.ref_number || item.rrn || '';
@@ -139,7 +143,9 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
       formattedAcc,
       escapeCSV(ifsc),
       escapeCSV(bankName),
-      amt,
+      grossAmt.toFixed(2),
+      feeAmt.toFixed(2),
+      netAmt.toFixed(2),
       formattedUtr,
       escapeCSV(channel),
       escapeCSV(swipeMode),
@@ -329,10 +335,10 @@ export function downloadCommissionBatchFile(commissionPayoutsList, options = {})
 }
 
 /**
- * GST & Tax Audit Ledger Export Utility (For CA / Income Tax / GST Filing)
- * Exports completed merchant transactions with gross volume, convenience fees, 18% GST, and Bank UTRs.
+ * Completed Sales Ledger Export Utility
+ * Exports completed merchant transactions showing only: gross volume, platform fee, and net settled amount with Bank UTRs.
  */
-export function generateGstAuditCSV(transactionsList, options = {}) {
+export function generateCompletedSalesCSV(transactionsList, options = {}) {
   const headers = [
     'Sl No',
     'Transaction Date & Time',
@@ -344,7 +350,6 @@ export function generateGstAuditCSV(transactionsList, options = {}) {
     'Bank IFSC',
     'Gross Volume (INR)',
     'Platform Fee / Margin (INR)',
-    'GST on Fee @ 18% (INR)',
     'Net Settled (INR)',
     'Bank UTR / Ref Number',
     'Settlement Speed',
@@ -376,9 +381,12 @@ export function generateGstAuditCSV(transactionsList, options = {}) {
     const ifsc = String(item.ifsc_code || item.ifsc || '').toUpperCase().trim();
 
     const gross = parseFloat(item.amount || 0);
-    const fee = parseFloat(item.admin_net_margin || item.admin_margin || item.admin_cut || item.company_fee || 0);
-    const gst = parseFloat((fee * 0.18).toFixed(2));
-    const netSettled = (gross - fee).toFixed(2);
+    const fee = parseFloat(item.company_fee !== undefined ? item.company_fee : (item.fee_deducted !== undefined ? item.fee_deducted : (item.admin_net_margin || item.admin_margin || item.admin_cut || 0)));
+    const netSettled = item.net_amount !== undefined 
+      ? parseFloat(item.net_amount).toFixed(2)
+      : (item.net_amount_paise !== undefined 
+          ? (Number(item.net_amount_paise) / 100).toFixed(2) 
+          : parseFloat(item.net_settled !== undefined ? item.net_settled : item.amount || 0).toFixed(2));
 
     const utr = String(item.bank_rrn || item.utr_number || item.rrn_number || item.ref_number || item.id || 'N/A').trim();
     const speed = (item.settlement_mode || item.settlement_type || 'T1').toUpperCase();
@@ -395,7 +403,6 @@ export function generateGstAuditCSV(transactionsList, options = {}) {
       escapeCSV(ifsc),
       gross.toFixed(2),
       fee.toFixed(2),
-      gst.toFixed(2),
       netSettled,
       escapeCSV(utr),
       escapeCSV(speed),
@@ -407,17 +414,17 @@ export function generateGstAuditCSV(transactionsList, options = {}) {
   return { success: true, csvContent, count: transactionsList.length };
 }
 
-export function downloadGstAuditFile(transactionsList, options = {}) {
+export function downloadCompletedSalesFile(transactionsList, options = {}) {
   if (!transactionsList || transactionsList.length === 0) {
-    return { success: false, count: 0, error: 'No transaction records to export for GST audit' };
+    return { success: false, count: 0, error: 'No transaction records to export' };
   }
 
-  const { csvContent, count } = generateGstAuditCSV(transactionsList, options);
+  const { csvContent, count } = generateCompletedSalesCSV(transactionsList, options);
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   
   const today = new Date().toISOString().slice(0, 10);
-  const fileName = options.fileName || `RONAV_GST_Tax_Audit_${today}.csv`;
+  const fileName = options.fileName || `RONAV_Completed_Sales_${today}.csv`;
 
   const link = document.createElement('a');
   link.setAttribute('href', url);
@@ -436,6 +443,10 @@ export function downloadGstAuditFile(transactionsList, options = {}) {
   
   return { success: true, count, fileName };
 }
+
+// Backward-compatible aliases without tax logic
+export const generateGstAuditCSV = generateCompletedSalesCSV;
+export const downloadGstAuditFile = downloadCompletedSalesFile;
 
 /**
  * Monthly POS Terminal Rental Report Export Utility (Item #22 & #23)
@@ -468,14 +479,14 @@ export function generateRentalReportCSV(rentalList, options = {}) {
   const rows = rentalList.map((item, index) => {
     const slNo = index + 1;
     const mid = item.merchant_id || item.id || 'MID-UNKNOWN';
-    const mName = item.merchant_name || item.name || 'Merchant';
+    const mName = item.merchant_name || item.name || '';
     const shopName = item.shop_name || item.business_name || 'Retail Outlet';
     const mobile = item.mobile || item.merchant_mobile || 'N/A';
     const provider = item.pos_provider || item.provider || 'Pine Labs';
     const tid = item.terminal_id || item.pos_terminal || 'TID-N/A';
     const plan = item.device_plan || item.plan || 'RENTAL';
     const rentAmt = parseFloat(item.monthly_rent !== undefined && item.monthly_rent !== null ? item.monthly_rent : (item.rent !== undefined && item.rent !== null ? item.rent : (options.defaultRent || 0))).toFixed(2);
-    const distributor = item.creator_name ? `${item.creator_name} (${item.creator_id || 'DIRECT'})` : (item.creator_id || 'Super Admin');
+    const distributor = item.creator_name ? `${item.creator_name} (${item.creator_id || 'DIRECT'})` : (item.parent_name || item.creator_id || 'DIRECT');
     const month = item.billing_month || options.billingMonth || new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' });
     const status = (item.rental_status || item.status || 'PENDING').toUpperCase();
     const payDate = item.paid_at ? new Date(item.paid_at).toLocaleDateString('en-IN') : (status === 'PAID' ? 'Collected' : 'Pending');

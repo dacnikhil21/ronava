@@ -18,14 +18,81 @@ export function getApiUrl(endpoint) {
 }
 
 export async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
+  const mergedHeaders = { ...(options.headers || {}) };
+  let callerId = mergedHeaders['x-caller-id'] || mergedHeaders['x-user-id'];
+  let callerRole = mergedHeaders['x-caller-role'] || mergedHeaders['x-user-role'];
+
+  if (typeof window !== 'undefined' && !callerId) {
+    try {
+      const raw = sessionStorage.getItem('ronav_session');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.user?.id) {
+          callerId = parsed.user.id;
+          callerRole = parsed.role || parsed.user.role;
+        }
+      }
+      if (!callerId) {
+        const rawMerchant = sessionStorage.getItem('ronav_merchant_user');
+        if (rawMerchant) {
+          const parsed = JSON.parse(rawMerchant);
+          if (parsed?.id) {
+            callerId = parsed.id;
+            callerRole = parsed.role;
+          }
+        }
+      }
+      if (!callerId) {
+        const rawAdmin = sessionStorage.getItem('ronav_admin_user');
+        if (rawAdmin) {
+          const parsed = JSON.parse(rawAdmin);
+          if (parsed?.id) {
+            callerId = parsed.id;
+            callerRole = parsed.role;
+          }
+        }
+      }
+    } catch (sessionErr) {
+      console.warn('[fetchWithTimeout] Session header resolution warning:', sessionErr);
+    }
+  }
+
+  if (callerId) {
+    mergedHeaders['x-caller-id'] = callerId;
+    mergedHeaders['x-user-id'] = callerId;
+    if (callerRole) {
+      mergedHeaders['x-caller-role'] = callerRole;
+      mergedHeaders['x-user-role'] = callerRole;
+    }
+  }
+
+  let finalBody = options.body;
+  if (callerId && typeof finalBody === 'string' && finalBody.trim().startsWith('{')) {
+    try {
+      const parsedBody = JSON.parse(finalBody);
+      if (!parsedBody.callerId && !parsedBody.caller_id && !parsedBody.userId && !parsedBody.user_id) {
+        parsedBody.callerId = callerId;
+        finalBody = JSON.stringify(parsedBody);
+      }
+    } catch (parseErr) {
+      console.warn('[fetchWithTimeout] Body parse warning:', parseErr);
+    }
+  }
+
+  const finalOptions = {
+    ...options,
+    headers: mergedHeaders,
+    body: finalBody
+  };
+
   if (typeof AbortController === 'undefined') {
-    return fetch(url, options);
+    return fetch(url, finalOptions);
   }
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
-      ...options,
+      ...finalOptions,
       signal: controller.signal
     });
     clearTimeout(id);

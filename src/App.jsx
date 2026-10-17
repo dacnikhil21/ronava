@@ -244,7 +244,7 @@ export default function App() {
       return;
     }
 
-    setAuthSession({ role: user.role || 'MERCHANT', user });
+    setAuthSession({ role: user.role, user });
     setCurrentUser(user);
     if (typeof window !== 'undefined') {
       sessionStorage.setItem('ronav_current_view', 'merchant-dashboard');
@@ -259,8 +259,8 @@ export default function App() {
   };
 
   const handleAdminLoginSuccess = (adminData) => {
-    const admin = adminData || { id: 'ADM001', name: 'Super Admin', role: 'ADMIN' };
-    setAuthSession({ role: 'ADMIN', user: admin });
+    if (!adminData || !adminData.id) return;
+    setAuthSession({ role: adminData.role, user: adminData });
     if (typeof window !== 'undefined') {
       sessionStorage.setItem('ronav_current_view', 'admin-dashboard');
       window.history.pushState({}, '', '/admin');

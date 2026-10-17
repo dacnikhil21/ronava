@@ -2,10 +2,11 @@
  * RONAV S3 Storage Client Helper
  * Supports direct presigned uploads (Browser -> S3) and Base64 uploads (via Backend API)
  */
+import { fetchWithTimeout, getApiUrl } from './supabase.js';
 
 export async function checkS3Status() {
   try {
-    const res = await fetch('/api/s3/status');
+    const res = await fetchWithTimeout(getApiUrl('/api/s3/status'));
     return await res.json();
   } catch (err) {
     return { success: false, error: err.message };
@@ -23,7 +24,7 @@ export async function uploadFileToS3(file, folder = 'documents', onProgress = nu
   if (!file) throw new Error('No file provided for upload.');
 
   // 1. Get presigned upload URL from backend
-  const presignedRes = await fetch('/api/s3/presigned-url', {
+  const presignedRes = await fetchWithTimeout(getApiUrl('/api/s3/presigned-url'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -39,7 +40,7 @@ export async function uploadFileToS3(file, folder = 'documents', onProgress = nu
     return uploadFileViaBase64(file, folder);
   }
 
-  // 2. Direct PUT to S3 using the presigned URL
+  // 2. Direct PUT to S3 using the presigned URL (External S3 storage bucket endpoint)
   const uploadRes = await fetch(presignedData.uploadUrl, {
     method: 'PUT',
     headers: {
@@ -69,7 +70,7 @@ export async function uploadFileViaBase64(file, folder = 'documents') {
     reader.onload = async () => {
       try {
         const base64Data = reader.result;
-        const res = await fetch('/api/s3/upload-base64', {
+        const res = await fetchWithTimeout(getApiUrl('/api/s3/upload-base64'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -100,7 +101,7 @@ export async function uploadFileViaBase64(file, folder = 'documents') {
  * Delete a file from S3 by key
  */
 export async function deleteFileFromS3(key) {
-  const res = await fetch('/api/s3/delete', {
+  const res = await fetchWithTimeout(getApiUrl('/api/s3/delete'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ key }),

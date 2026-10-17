@@ -12,6 +12,7 @@ import {
   getCommissionPayoutConfig,
   getWallet, 
   getMerchantTransactions, 
+  quoteTransaction,
   recordMerchantSale, 
   requestWithdrawal, 
   getBeneficiaries, 
@@ -32,7 +33,7 @@ import {
 import { downloadRentalReportFile } from '../utils/bankExportUtils';
 import { formatPaiseToRupees, rupeesToPaise, generateIdempotencyKey } from '../utils/formatters';
 import { getRatesConfig, getSystemSettings, getUserFinancialSummary, fetchWithdrawalQuote } from '../services/api';
-import { subscribeToWallet, subscribeToTransactions } from '../services/supabase';
+import { subscribeToWallet, subscribeToTransactions, fetchWithTimeout, getApiUrl } from '../services/supabase';
 import RonavLogo from './RonavLogo';
 
 // Comprehensive Indian Banks Database for Search & Selection
@@ -189,7 +190,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     aadhaar: user?.aadhaar || user?.user?.aadhaar || '',
     pan: user?.pan || user?.user?.pan || '',
     address: user?.address || user?.user?.address || '',
-    role: user?.role || user?.user?.role || 'MERCHANT',
+    role: user?.role || user?.user?.role || '',
     commission_rate_t1: user?.commission_rate_t1 || user?.user?.commission_rate_t1 || null,
     commission_rate_instant: user?.commission_rate_instant || user?.user?.commission_rate_instant || null,
     margin_rate: user?.margin_rate || user?.user?.margin_rate || null,
@@ -459,16 +460,32 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       };
     }
 
-    const ch = merchantChannels?.[effectiveKey];
     const profile = userProfile || user;
-    const profileRateT1 = parseFloat(profile?.commission_rate_t1 || profile?.commission_rate || 0);
-    const profileRateInstant = parseFloat(profile?.commission_rate_instant || profileRateT1 || 0);
+    const ch = profile?.channels?.[effectiveKey] || merchantChannels?.[effectiveKey];
+    const profileRateT1 = profile?.rate_t1 !== undefined && profile?.rate_t1 !== null 
+      ? parseFloat(profile.rate_t1) 
+      : (profile?.commission_rate_t1 ? parseFloat(profile.commission_rate_t1) : null);
+    const profileRateInstant = profile?.rate_instant !== undefined && profile?.rate_instant !== null
+      ? parseFloat(profile.rate_instant)
+      : (profile?.commission_rate_instant ? parseFloat(profile.commission_rate_instant) : profileRateT1);
 
     // QR Channel: Strictly inherits merchant's assigned custom Instant fee % and RONAV Technologies corporate entity
     if (effectiveKey === 'qr') {
-      const instantRate = parseFloat((ch && ch.rate_instant)
-        ? ch.rate_instant
-        : ((userPosRates && userPosRates.rateInstant) || profileRateInstant || profileRateT1 || base.rateInstant || 0));
+      const instantRate = (ch && ch.rate_instant !== undefined && ch.rate_instant !== null)
+        ? parseFloat(ch.rate_instant)
+        : ((userPosRates && userPosRates.rateInstant !== undefined) 
+            ? parseFloat(userPosRates.rateInstant) 
+            : (profileRateInstant !== null ? profileRateInstant : null));
+      if (instantRate === null || isNaN(instantRate)) {
+        return {
+          ...base,
+          hasRateError: true,
+          rateStrT1: 'Could not load rates, try again',
+          rateStrInstant: 'Could not load rates, try again',
+          rate: 'Could not load rates, try again',
+          rateNum: null
+        };
+      }
       return {
         ...base,
         provider: 'Company QR (UPI)',
@@ -485,17 +502,31 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
     // Hardware POS terminals (Pine Labs or Payswiff)
     if (ch && ch.enabled) {
-      const rateT1 = parseFloat(ch.rate_t1 || profileRateT1 || base.rateT1 || 0);
-      const rateInstant = parseFloat(ch.rate_instant || profileRateInstant || rateT1 || base.rateInstant || 0);
+      const rateT1 = ch.rate_t1 !== undefined && ch.rate_t1 !== null
+        ? parseFloat(ch.rate_t1)
+        : (profileRateT1 !== null ? profileRateT1 : null);
+      const rateInstant = ch.rate_instant !== undefined && ch.rate_instant !== null
+        ? parseFloat(ch.rate_instant)
+        : (profileRateInstant !== null ? profileRateInstant : (rateT1 !== null ? rateT1 : null));
+      if (rateT1 === null || isNaN(rateT1)) {
+        return {
+          ...base,
+          hasRateError: true,
+          rateStrT1: 'Could not load rates, try again',
+          rateStrInstant: 'Could not load rates, try again',
+          rate: 'Could not load rates, try again',
+          rateNum: null
+        };
+      }
       return {
         ...base,
         provider: effectiveKey === 'payswiff' ? 'Payswiff' : 'Pine Labs',
         vendor: ch.vendor || (effectiveKey === 'payswiff' ? 'RONAV Technologies' : 'Rose Navaneetham Enterprises'),
         terminal_id: ch.terminal_id || (effectiveKey === 'payswiff' ? 'SWIFF-01' : 'PL-01'),
         rateT1,
-        rateInstant,
+        rateInstant: rateInstant !== null ? rateInstant : rateT1,
         rateStrT1: `${rateT1.toFixed(2)}%`,
-        rateStrInstant: `${rateInstant.toFixed(2)}%`,
+        rateStrInstant: `${(rateInstant !== null ? rateInstant : rateT1).toFixed(2)}%`,
         rate: `${rateT1.toFixed(2)}%`,
         rateNum: rateT1,
         plan: ch.plan || 'RENTAL',
@@ -504,8 +535,18 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     }
 
     if (userPos && userPosRates) {
-      const rateT1 = parseFloat(userPosRates.rateT1 || profileRateT1 || base.rateT1 || 0);
-      const rateInstant = parseFloat(userPosRates.rateInstant || profileRateInstant || rateT1 || base.rateInstant || 0);
+      const rateT1 = userPosRates.rateT1 !== undefined && userPosRates.rateT1 !== null ? parseFloat(userPosRates.rateT1) : profileRateT1;
+      const rateInstant = userPosRates.rateInstant !== undefined && userPosRates.rateInstant !== null ? parseFloat(userPosRates.rateInstant) : (profileRateInstant || rateT1);
+      if (rateT1 === null || isNaN(rateT1)) {
+        return {
+          ...base,
+          hasRateError: true,
+          rateStrT1: 'Could not load rates, try again',
+          rateStrInstant: 'Could not load rates, try again',
+          rate: 'Could not load rates, try again',
+          rateNum: null
+        };
+      }
       return {
         ...base,
         provider: userPos.provider || base.provider,
@@ -518,7 +559,28 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         rateNum: rateT1
       };
     }
-    return base;
+
+    if (profileRateT1 !== null && !isNaN(profileRateT1)) {
+      return {
+        ...base,
+        terminal_id: `PL-${profile?.id || '01'}`,
+        rateT1: profileRateT1,
+        rateInstant: profileRateInstant !== null ? profileRateInstant : profileRateT1,
+        rateStrT1: `${profileRateT1.toFixed(2)}%`,
+        rateStrInstant: `${(profileRateInstant !== null ? profileRateInstant : profileRateT1).toFixed(2)}%`,
+        rate: `${profileRateT1.toFixed(2)}%`,
+        rateNum: profileRateT1
+      };
+    }
+
+    return {
+      ...base,
+      hasRateError: true,
+      rateStrT1: 'Could not load rates, try again',
+      rateStrInstant: 'Could not load rates, try again',
+      rate: 'Could not load rates, try again',
+      rateNum: null
+    };
   }, [selectedMachineKey, userPos, userPosRates, availableMachineTabs, merchantChannels, userProfile, user]);
 
   // Live Wallet State (Pure Dynamic DB)
@@ -575,6 +637,57 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     notes: ''
   });
   const [isSubmittingSale, setIsSubmittingSale] = useState(false);
+
+  // Server-authoritative live quote state for card swipe (Zero browser math)
+  const [swipeQuote, setSwipeQuote] = useState(null);
+  const [swipeQuoteLoading, setSwipeQuoteLoading] = useState(false);
+  const [swipeQuoteError, setSwipeQuoteError] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const amt = parseFloat(saleForm.amount) || 0;
+    const userId = userProfile?.id || user?.id;
+    if (amt <= 0 || !userId) {
+      setSwipeQuote(null);
+      setSwipeQuoteError(null);
+      setSwipeQuoteLoading(false);
+      return;
+    }
+
+    const channel = selectedMachineKey;
+    const settlementMode = selectedMachineKey === 'qr' ? 'NONE' : saleForm.settlement_type;
+
+    setSwipeQuoteLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await quoteTransaction({
+          merchant_id: userId,
+          amount_paise: Math.round(amt * 100),
+          channel,
+          settlement_mode: settlementMode
+        });
+        if (!isMounted) return;
+        if (res.success && res.quote) {
+          setSwipeQuote(res.quote);
+          setSwipeQuoteError(null);
+        } else {
+          setSwipeQuote(null);
+          setSwipeQuoteError(res.message || 'Could not load rates, try again');
+        }
+      } catch (err) {
+        if (!isMounted) return;
+        setSwipeQuote(null);
+        setSwipeQuoteError(err.message || 'Could not load rates, try again');
+      } finally {
+        if (isMounted) setSwipeQuoteLoading(false);
+      }
+    }, 150);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
+  }, [saleForm.amount, saleForm.settlement_type, selectedMachineKey, userProfile?.id, user?.id]);
 
   // Withdraw to Bank Form state (Merchant Payout or Customer Disbursal)
   const [payoutTargetType, setPayoutTargetType] = useState('CUSTOMER'); // 'CUSTOMER' | 'MERCHANT'
@@ -654,7 +767,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   // Dynamic User Profile Sync: Fetch fresh registered details (Mobile, Gmail, KYC) from database on mount
   useEffect(() => {
     if (!merchantId) return;
-    fetch(`/api/users/${encodeURIComponent(merchantId)}`)
+    fetchWithTimeout(getApiUrl(`/api/users/${encodeURIComponent(merchantId)}`))
       .then(res => {
         if (res.status === 404 || res.status === 401) {
           showToast('⚠️ Session expired or account no longer exists. Redirecting to login...');
@@ -916,12 +1029,13 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     return { all: list.length, t1: t1Count, instant: instantCount };
   }, [activeMachineWithdrawals]);
 
+  const dbAvailableBalance = (wallet?.available_balance !== undefined && wallet?.available_balance !== null && !walletError) ? Math.max(0, parseFloat(wallet.available_balance)) : null;
+
   // Authoritative machine-specific Wallet (100% Pure Single Source of Truth from Backend PostgreSQL)
   // Zero client-side subtraction or arithmetic. All channel balances and holds are calculated on the server.
   const activeMachineWallet = useMemo(() => {
     const chKey = (selectedMachineKey === 'qr' ? 'qr' : (selectedMachineKey === 'payswiff' ? 'payswiff' : 'pinelabs')).toLowerCase();
     const backendCh = wallet?.channel_balances?.[chKey];
-    const dbAvailableBalance = (wallet?.available_balance !== undefined && wallet?.available_balance !== null && !walletError) ? Math.max(0, parseFloat(wallet.available_balance)) : null;
 
     // Downline commission earnings strictly segregated by the active machine channel (for distributors/uplines)
     let earnedCommission = 0;
@@ -1353,7 +1467,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           pan: '',
           address: '',
           agreement_accepted: false,
-          role: allowedRolesForCreator[0]?.value || 'MERCHANT',
+          role: allowedRolesForCreator[0]?.value || '',
           shop_name: '',
           pos_provider: 'Pine Labs',
           pos_vendor: 'Rose Navaneetham Enterprises',
@@ -1956,13 +2070,16 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
   const handleWithdrawSubmit = async (e) => {
     e.preventDefault();
+    console.log('[handleWithdrawSubmit] Called, withdrawAmount:', withdrawAmount, 'withdrawalQuote:', withdrawalQuote);
     const amountNum = parseFloat(withdrawAmount);
     if (!amountNum || amountNum <= 0) {
+      console.log('[handleWithdrawSubmit] Aborted: invalid amount', amountNum);
       showToast('⚠️ Please enter a valid payout amount.');
       return;
     }
 
     if (withdrawalQuote && !withdrawalQuote.reserve_compliant) {
+      console.log('[handleWithdrawSubmit] Aborted: reserve not compliant', withdrawalQuote);
       showToast(`⚠️ Cannot proceed: Rs 500 mandatory reserve cannot be breached. Shortfall: ₹${(Number(withdrawalQuote.shortfall_paise) / 100).toFixed(2)}`);
       return;
     }
@@ -1978,7 +2095,10 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       targetBank = beneficiaries[0];
     }
 
+    console.log('[handleWithdrawSubmit] targetBank:', targetBank, 'beneficiaries count:', beneficiaries.length);
+
     if (!targetBank || !targetBank.account_number || !targetBank.account_number.trim() || !targetBank.ifsc || !targetBank.ifsc.trim()) {
+      console.log('[handleWithdrawSubmit] Aborted: missing targetBank or bank details');
       showToast('⚠️ Cannot proceed: No bank account on file (missing account number or IFSC).');
       return;
     }
@@ -2020,14 +2140,17 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       };
 
       const res = await requestWithdrawal(payload);
+      console.log('[handleWithdrawSubmit] requestWithdrawal res:', res);
       if (res && res.success) {
         showToast(`✓ Withdrawal request of ₹${amountNum.toLocaleString('en-IN')} submitted!`);
         setWithdrawAmount('');
+        setCustomerPayoutForm(prev => ({ ...prev, utr: '', remarks: '' }));
         fetchLiveData();
       } else {
         showToast(res.message || 'Error processing withdrawal request');
       }
     } catch (err) {
+      console.error('[handleWithdrawSubmit] error:', err);
       showToast('Failed to process withdrawal request: ' + err.message);
     } finally {
       setIsSubmittingWithdraw(false);
@@ -2370,6 +2493,9 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       {/* 2. Main Workspace Layout */}
       <main className="flex-grow" style={{ padding: '1rem 0 5.5rem' }}>
         <div className="merchant-container">
+          <h1 className="merchant-dashboard-heading" style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: '0 0 0.875rem 0' }}>
+            Merchant Operational Workspace
+          </h1>
           
           {/* ========================================================= */}
           {/* VIEW 1: HOME (MATCHES Merchant dashboard.png IN BOTH VIEWPORTS) */}
@@ -2633,6 +2759,11 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                           {selectedMachineKey === 'qr' ? 'Instant Credited Balance' : 'Available for Withdrawal'}
                         </span>
                       </div>
+                      {dbAvailableBalance !== null && (
+                        <span style={{ fontSize: '0.65rem', color: '#475569', fontWeight: 700 }}>
+                          • Total Wallet: ₹{dbAvailableBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </span>
+                      )}
                       {activeMachineWallet.pending_balance > 0 && (
                         <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: '6px', padding: '1px 6px', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
                           <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#F59E0B', display: 'inline-block' }} />
@@ -3217,14 +3348,10 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                   {(() => {
                     const cardSwipeAmount = parseFloat(saleForm.amount) || 0;
                     const isInstant = saleForm.settlement_type === 'INSTANT';
-                    const profile = userProfile || user;
-                    const profileRateT1 = parseFloat(profile?.commission_rate_t1 || profile?.commission_rate || 0);
-                    const profileRateInstant = parseFloat(profile?.commission_rate_instant || profileRateT1 || 0);
-                    const companyRate = isInstant 
-                      ? (parseFloat(activeMachine.rateInstant) || parseFloat(activeMachine.rateT1) || profileRateInstant || profileRateT1 || 0) 
-                      : (parseFloat(activeMachine.rateT1) || profileRateT1 || 0);
-                    const companyFee = (cardSwipeAmount * companyRate) / 100;
-                    const netSettlement = Math.max(0, cardSwipeAmount - companyFee);
+                    const hasQuoteError = !!swipeQuoteError || !!activeMachine.hasRateError;
+                    const quoteCompanyFee = swipeQuote ? Number(swipeQuote.fee_rupees) : null;
+                    const quoteNetSettlement = swipeQuote ? Number(swipeQuote.net_rupees) : null;
+                    const quoteRatePct = swipeQuote ? Number(swipeQuote.rate_pct) : null;
 
                     return (
                       <form onSubmit={handleRecordSaleSubmit} style={{
@@ -3674,11 +3801,11 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                             </div>
                           </div>
 
-                          {/* 5. Clean Net Settlement Strip (Transparent & Direct) */}
+                          {/* 5. Clean Net Settlement Strip (Transparent & Direct - Pure Server Authoritative) */}
                           {cardSwipeAmount > 0 && (
                             <div style={{
-                              background: '#F0FDF4',
-                              border: '1px solid #86EFAC',
+                              background: hasQuoteError ? '#FEF2F2' : '#F0FDF4',
+                              border: hasQuoteError ? '1px solid #FCA5A5' : '1px solid #86EFAC',
                               borderRadius: '10px',
                               padding: '0.625rem 0.75rem',
                               display: 'flex',
@@ -3686,27 +3813,33 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                               justifyContent: 'space-between'
                             }}>
                               <div>
-                                <span style={{ fontSize: '0.625rem', color: '#166534', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                                <span style={{ fontSize: '0.625rem', color: hasQuoteError ? '#991B1B' : '#166534', fontWeight: 700, display: 'block', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                                   Net Credit to Wallet
                                 </span>
-                                {activeMachine.hasRateError ? (
+                                {swipeQuoteLoading ? (
+                                  <span style={{ fontSize: '0.875rem', color: '#64748B', fontWeight: 700 }}>
+                                    Calculating quote...
+                                  </span>
+                                ) : hasQuoteError ? (
                                   <strong style={{ fontSize: '0.875rem', color: '#DC2626', fontWeight: 800 }}>
                                     Could not load rates, try again
                                   </strong>
-                                ) : (
+                                ) : quoteNetSettlement !== null ? (
                                   <strong style={{ fontSize: '1.0625rem', color: '#15803D', fontWeight: 900 }}>
-                                    ₹{netSettlement.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                    ₹{quoteNetSettlement.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                   </strong>
-                                )}
+                                ) : null}
                               </div>
 
                               <div style={{ textAlign: 'right', fontSize: '0.65625rem', color: '#64748B', lineHeight: 1.35 }}>
                                 <div>Gross Swipe: <strong style={{ color: '#0F172A' }}>₹{cardSwipeAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></div>
-                                {activeMachine.hasRateError ? (
-                                  <div><strong style={{ color: '#DC2626' }}>Could not load rates, try again</strong></div>
-                                ) : (
-                                  <div>Company Fee ({companyRate.toFixed(2)}%): <strong style={{ color: '#DC2626' }}>-₹{companyFee.toFixed(2)}</strong></div>
-                                )}
+                                {swipeQuoteLoading ? (
+                                  <div><span style={{ color: '#64748B' }}>Fetching quote...</span></div>
+                                ) : hasQuoteError ? (
+                                  <div><strong style={{ color: '#DC2626' }}>Rate error</strong></div>
+                                ) : quoteCompanyFee !== null ? (
+                                  <div>Company Fee ({quoteRatePct.toFixed(2)}%): <strong style={{ color: '#DC2626' }}>-₹{quoteCompanyFee.toFixed(2)}</strong></div>
+                                ) : null}
                               </div>
                             </div>
                           )}
@@ -3716,7 +3849,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                         {/* Submit CTA Button */}
                         <button 
                           type="submit"
-                          disabled={isSubmittingSale || cardSwipeAmount <= 0 || !saleForm.transaction_id || activeMachine.hasRateError}
+                          disabled={isSubmittingSale || cardSwipeAmount <= 0 || !saleForm.transaction_id || hasQuoteError || swipeQuoteLoading || !swipeQuote}
                           style={{
                             width: '100%',
                             background: (cardSwipeAmount > 0 && saleForm.transaction_id)
@@ -6257,8 +6390,10 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                     // ==========================================
                     // 2. Card Swipe (Record Sale) Card
                     // ==========================================
-                    const { title, utr, customerMobile, customerName, settlementType } = parseTxnDisplay(item);
+                    const { title, utr, customerMobile, customerName, settlementType, companyFee } = parseTxnDisplay(item);
                     const amountVal = parseFloat(item.amount || 0);
+                    const feeVal = typeof companyFee === 'number' && companyFee > 0 ? companyFee : parseFloat(item.fee || item.customer_charge || 0);
+                    const netVal = item.net_amount ? parseFloat(item.net_amount) : (amountVal - feeVal);
                     const displayCustomerName = customerName || (customerMobile ? `Customer (${customerMobile})` : (title || 'Customer'));
                     const channelLabel = isPayswiffTxn(item) ? 'Payswiff POS' : (isQRTxn(item) ? 'Company QR' : 'Pine Labs POS');
                     const speedLabel = (settlementType === 'INSTANT' || settlementType === 'T0') ? 'Instant' : 'T+1';
@@ -6322,15 +6457,26 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                             )}
                           </div>
 
-                          <div style={{
-                            fontSize: '1rem',
-                            fontWeight: 800,
-                            color: '#059669',
-                            fontVariantNumeric: 'tabular-nums',
-                            letterSpacing: '-0.02em',
-                            whiteSpace: 'nowrap'
-                          }}>
-                            +₹{amountVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                            <div style={{
+                              fontSize: '1rem',
+                              fontWeight: 800,
+                              color: '#059669',
+                              fontVariantNumeric: 'tabular-nums',
+                              letterSpacing: '-0.02em',
+                              whiteSpace: 'nowrap'
+                            }}>
+                              Gross: ₹{amountVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </div>
+                            <div style={{
+                              fontSize: '0.72rem',
+                              fontWeight: 600,
+                              color: '#64748B',
+                              marginTop: '2px',
+                              whiteSpace: 'nowrap'
+                            }}>
+                              Fee: -₹{feeVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })} · Net: ₹{netVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </div>
                           </div>
                         </div>
 
@@ -7893,7 +8039,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                     const txnMargin = t.commission_rate_pct ?? p.channel_margins?.[channel] ?? p.commission_rate_pct ?? 0.0;
                                     const txnProfit = t.commission_profit !== undefined 
                                       ? t.commission_profit 
-                                      : ((parseFloat(t.amount || 0) * txnMargin) / 100);
+                                      : (t.commission_amount !== undefined ? t.commission_amount : 0);
 
                                     return (
                                       <div 

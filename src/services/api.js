@@ -81,13 +81,19 @@ export function getAuthSession() {
   if (rawMerchant) {
     try {
       const u = JSON.parse(rawMerchant);
-      if (u && u.id) return { role: u.role || 'MERCHANT', user: u };
+      if (u && u.id) return { role: u.role, user: u };
     } catch (err) {
       console.warn('[api] Failed to parse merchant session:', err);
     }
   }
-  if (sessionStorage.getItem('ronav_admin_session') === 'true') {
-    return { role: 'ADMIN', user: { id: 'ADM001', name: 'Super Admin', role: 'ADMIN' } };
+  const rawAdmin = sessionStorage.getItem('ronav_admin_user');
+  if (rawAdmin) {
+    try {
+      const a = JSON.parse(rawAdmin);
+      if (a && a.id) return { role: a.role, user: a };
+    } catch (err) {
+      console.warn('[api] Failed to parse admin session:', err);
+    }
   }
   return null;
 }
@@ -99,17 +105,17 @@ export function setAuthSession(sessionData) {
     return;
   }
   const payload = {
-    role: sessionData.role || sessionData.user.role || 'MERCHANT',
+    role: sessionData.role || sessionData.user.role,
     user: sessionData.user,
     timestamp: Date.now()
   };
   sessionStorage.setItem('ronav_session', JSON.stringify(payload));
   if (payload.role === 'ADMIN' || payload.user.id === 'ADM001') {
-    sessionStorage.setItem('ronav_admin_session', 'true');
+    sessionStorage.setItem('ronav_admin_user', JSON.stringify(payload.user));
     sessionStorage.removeItem('ronav_merchant_user');
   } else {
     sessionStorage.setItem('ronav_merchant_user', JSON.stringify(payload.user));
-    sessionStorage.removeItem('ronav_admin_session');
+    sessionStorage.removeItem('ronav_admin_user');
   }
 }
 
@@ -208,13 +214,18 @@ export async function registerWithReferral(data) {
 
     const sponsor = sponsorRes.sponsor;
 
+    const targetRole = role || data.role;
+    if (!targetRole) {
+      return { success: false, message: 'Role is required for registration.' };
+    }
+
     // 2. Delegate to createDownstreamUser with sponsor as creator_id
     const payload = {
       creator_id: sponsor.id,
       parent_id: sponsor.id,
       name: name.trim(),
       mobile: mobile.trim(),
-      role: role || 'MERCHANT',
+      role: targetRole.toUpperCase(),
       pos_provider: pos_provider || 'Pine Labs',
       pos_vendor: pos_provider === 'Pine Labs' ? 'Rose Navaneetham Enterprises' : 'RONAV Technologies',
       device_plan: 'RENTAL',
@@ -316,13 +327,13 @@ export async function getAllUsers() {
       const sdAncestor = upline.find(a => a.role === 'SUPER_DISTRIBUTOR');
       const distAncestor = upline.find(a => a.role === 'DISTRIBUTOR');
 
-      const parent_sd_name = sdAncestor ? sdAncestor.name : (directParent?.role === 'SUPER_DISTRIBUTOR' ? directParent.name : 'Super Admin');
+      const parent_sd_name = sdAncestor ? sdAncestor.name : (directParent?.role === 'SUPER_DISTRIBUTOR' ? directParent.name : 'Direct');
       const parent_sd_id = sdAncestor ? sdAncestor.id : (directParent?.role === 'SUPER_DISTRIBUTOR' ? directParent.id : 'ADM001');
 
       const parent_dist_name = distAncestor ? distAncestor.name : (directParent?.role === 'DISTRIBUTOR' ? directParent.name : null);
       const parent_dist_id = distAncestor ? distAncestor.id : (directParent?.role === 'DISTRIBUTOR' ? directParent.id : null);
 
-      let pathParts = ['Super Admin'];
+      let pathParts = ['Direct'];
       upline.forEach(a => {
         const roleIcon = a.role === 'SUPER_DISTRIBUTOR' ? '⚡' : (a.role === 'DISTRICT_DISTRIBUTOR' || a.role === 'DIST_FRANCHISE') ? '🏛️' : '📦';
         pathParts.push(`${roleIcon} ${a.name}`);
@@ -351,7 +362,7 @@ export async function getAllUsers() {
         ...u,
         status: userStatus,
         pos_raw: p || null,
-        channels: parseMerchantChannels(p),
+        channels: u.channels || parseMerchantChannels(p),
         pos_provider: p.provider || null,
         pos_terminal: p.terminal_id ? p.terminal_id.split('|')[0] : null,
         pos_rate: p.commission_rate || null,
@@ -360,19 +371,24 @@ export async function getAllUsers() {
         pos_rent: parseFloat(p.monthly_rent || 0.0),
         pos_settlement: p.settlement_type || 'T1',
         pos_instant_fee: p.instant_surcharge || 0.0,
-        creator_name: meta.creator_name,
-        creator_role: meta.creator_role,
+        parent_name: u.parent_name || meta.creator_name,
+        creator_name: u.creator_name || meta.creator_name,
+        creator_role: u.creator_role || meta.creator_role,
+        commission_rate_t1: u.commission_rate_t1 !== undefined && u.commission_rate_t1 !== null ? u.commission_rate_t1 : (u.rate_t1 !== undefined && u.rate_t1 !== null ? u.rate_t1 : null),
+        commission_rate_instant: u.commission_rate_instant !== undefined && u.commission_rate_instant !== null ? u.commission_rate_instant : (u.rate_instant !== undefined && u.rate_instant !== null ? u.rate_instant : null),
+        rate_t1: u.rate_t1 !== undefined && u.rate_t1 !== null ? u.rate_t1 : (u.commission_rate_t1 ? parseFloat(u.commission_rate_t1) : null),
+        rate_instant: u.rate_instant !== undefined && u.rate_instant !== null ? u.rate_instant : (u.commission_rate_instant ? parseFloat(u.commission_rate_instant) : null),
         parent_sd_name: meta.parent_sd_name,
         parent_sd_id: meta.parent_sd_id,
         parent_dist_name: meta.parent_dist_name,
         parent_dist_id: meta.parent_dist_id,
         upline_chain: meta.upline_chain,
         upline_path_str: meta.upline_path_str,
-        available_balance: w.available_balance || 0,
-        total_sales: w.total_sales || 0,
-        pending_balance: w.pending_balance || 0,
-        received_sales: w.received_sales || 0,
-        withdrawn_amount: w.withdrawn_amount || 0
+        available_balance: w.available_balance || u.available_balance || 0,
+        total_sales: w.total_sales || u.total_sales || 0,
+        pending_balance: w.pending_balance || u.pending_balance || 0,
+        received_sales: w.received_sales || u.received_sales || 0,
+        withdrawn_amount: w.withdrawn_amount || u.withdrawn_amount || 0
       };
     });
 
@@ -385,294 +401,12 @@ export async function getAllUsers() {
 
 export async function getHierarchyTree() {
   try {
-    try {
-      const liveRes = await fetchWithTimeout(getApiUrl('/api/hierarchy/tree'));
-      const liveJson = await liveRes.json();
-      if (liveJson && liveJson.success && liveJson.tree) {
-        return liveJson;
-      }
-    } catch (err) {
-      console.warn('[api] Live hierarchy tree fetch failed, falling back:', err);
+    const liveRes = await fetchWithTimeout(getApiUrl('/api/hierarchy/tree'));
+    const liveJson = await liveRes.json();
+    if (liveJson && liveJson.success && liveJson.tree) {
+      return liveJson;
     }
-
-    const [usersRes, walletsRes, posRes, txnsRes, statusRes] = await Promise.all([
-      supabase.from('users').select('*').order('created_at', { ascending: true }),
-      supabase.from('wallets').select('*'),
-      supabase.from('merchant_pos').select('*'),
-      supabase.from('transactions').select('merchant_id, amount, status'),
-      supabase.from('inquiries').select('*').eq('id', 'SYS-USER-STATUSES').maybeSingle()
-    ]);
-
-    let cloudStatusMap = {};
-    if (statusRes?.data?.remarks) {
-      try {
-      cloudStatusMap = JSON.parse(statusRes.data.remarks);
-    } catch (err) {
-      console.warn('[api] Failed to parse status remarks JSON:', err);
-    }
-    }
-
-    const users = usersRes.data || [];
-    const wallets = walletsRes.data || [];
-    const posList = posRes.data || [];
-    const txns = txnsRes.data || [];
-
-    const walletMap = {};
-    wallets.forEach(w => { walletMap[w.user_id] = w; });
-
-    const posMap = {};
-    posList.forEach(p => { posMap[p.merchant_id] = p; });
-
-    const userMap = {};
-    users.forEach(u => { userMap[u.id] = u; });
-
-    // Aggregate transactions per merchant
-    const txMap = {};
-    txns.forEach(t => {
-      if (!txMap[t.merchant_id]) {
-        txMap[t.merchant_id] = { txn_count: 0, total_txn_volume: 0 };
-      }
-      txMap[t.merchant_id].txn_count += 1;
-      txMap[t.merchant_id].total_txn_volume += parseFloat(t.amount || 0);
-    });
-
-    // Helper to trace full upline chain for any user
-    const getUplineMeta = (u) => {
-      const upline = [];
-      let currId = u.creator_id;
-      let safety = 0;
-      while (currId && currId !== 'ADM001' && safety < 10) {
-        safety++;
-        const parent = userMap[currId];
-        if (!parent) break;
-        upline.unshift(parent);
-        currId = parent.creator_id;
-      }
-
-      const directParent = userMap[u.creator_id] || null;
-      const creator_name = directParent ? directParent.name : (u.creator_id === 'ADM001' ? 'RONAV Super Admin' : (u.creator_id || 'RONAV Super Admin'));
-      const creator_role = directParent ? directParent.role : 'ADMIN';
-
-      const sdAncestor = upline.find(a => a.role === 'SUPER_DISTRIBUTOR');
-      const distAncestor = upline.find(a => a.role === 'DISTRIBUTOR');
-
-      const parent_sd_name = sdAncestor ? sdAncestor.name : (directParent?.role === 'SUPER_DISTRIBUTOR' ? directParent.name : 'Super Admin');
-      const parent_sd_id = sdAncestor ? sdAncestor.id : (directParent?.role === 'SUPER_DISTRIBUTOR' ? directParent.id : 'ADM001');
-
-      const parent_dist_name = distAncestor ? distAncestor.name : (directParent?.role === 'DISTRIBUTOR' ? directParent.name : null);
-      const parent_dist_id = distAncestor ? distAncestor.id : (directParent?.role === 'DISTRIBUTOR' ? directParent.id : null);
-
-      let pathParts = ['Super Admin'];
-      upline.forEach(a => {
-        const roleIcon = a.role === 'SUPER_DISTRIBUTOR' ? '⚡' : (a.role === 'DISTRICT_DISTRIBUTOR' || a.role === 'DIST_FRANCHISE') ? '🏛️' : '📦';
-        pathParts.push(`${roleIcon} ${a.name}`);
-      });
-      const upline_path_str = pathParts.join(' ➔ ');
-
-      return {
-        creator_name,
-        creator_role,
-        parent_sd_name,
-        parent_sd_id,
-        parent_dist_name,
-        parent_dist_id,
-        upline_chain: upline,
-        upline_path_str
-      };
-    };
-
-    const enriched = users.map(u => {
-      const w = walletMap[u.id] || {};
-      const p = posMap[u.id] || {};
-      const tx = txMap[u.id] || { txn_count: 0, total_txn_volume: 0 };
-      const meta = getUplineMeta(u);
-
-      let userStatus = cloudStatusMap[u.id] || u.status || 'ACTIVE';
-      let userName = u.name;
-      let userMobile = u.mobile;
-
-
-      const parsedChannels = parseMerchantChannels(p || {
-        provider: u.pos_provider || 'Pine Labs',
-        terminal_id: u.pos_terminal || `PL-${u.id}`,
-        commission_rate_t1: u.commission_rate_t1 || 0,
-        commission_rate_instant: u.commission_rate_instant || u.commission_rate_t1 || 0
-      });
-
-      return {
-        ...u,
-        name: userName,
-        mobile: userMobile,
-        status: userStatus,
-        pos_raw: p || null,
-        channels: parsedChannels,
-        commission_rate_t1: u.commission_rate_t1 || p.commission_rate_t1 || (parsedChannels.pine_labs?.enabled ? parsedChannels.pine_labs.rate_t1 : (parsedChannels.payswiff?.enabled ? parsedChannels.payswiff.rate_t1 : (parsedChannels.qr?.enabled ? parsedChannels.qr.rate_instant : 0))),
-        commission_rate_instant: u.commission_rate_instant || p.commission_rate_instant || (parsedChannels.pine_labs?.enabled ? parsedChannels.pine_labs.rate_instant : (parsedChannels.payswiff?.enabled ? parsedChannels.payswiff.rate_instant : (parsedChannels.qr?.enabled ? parsedChannels.qr.rate_instant : 0))),
-        upline_override_rate: u.upline_override_rate || p.upline_override_rate || 0,
-        pos_provider: p.provider || (parsedChannels.pine_labs?.enabled ? 'Pine Labs' : (parsedChannels.payswiff?.enabled ? 'Payswiff' : (parsedChannels.qr?.enabled ? 'Company QR (UPI)' : 'Pine Labs'))),
-        pos_terminal: p.terminal_id ? p.terminal_id.split('|')[0] : (parsedChannels.pine_labs?.terminal_id || `PL-${u.id}`),
-        pos_rate: p.commission_rate || u.commission_rate_t1 || 0,
-        pos_vendor: p.vendor_entity || 'Rose Navaneetham Enterprises',
-        pos_plan: p.device_plan || 'RENTAL',
-        pos_rent: p.monthly_rent || 0.0,
-        pos_settlement: p.settlement_type || 'T1',
-        pos_instant_fee: p.instant_surcharge || 0.0,
-        creator_name: meta.creator_name,
-        creator_role: meta.creator_role,
-        parent_sd_name: meta.parent_sd_name,
-        parent_sd_id: meta.parent_sd_id,
-        parent_dist_name: meta.parent_dist_name,
-        parent_dist_id: meta.parent_dist_id,
-        upline_chain: meta.upline_chain,
-        upline_path_str: meta.upline_path_str,
-        available_balance: w.available_balance || 0,
-        total_sales: w.total_sales || 0,
-        pending_balance: w.pending_balance || 0,
-        received_sales: w.received_sales || 0,
-        withdrawn_amount: w.withdrawn_amount || 0,
-        txn_count: tx.txn_count,
-        total_txn_volume: tx.total_txn_volume
-      };
-    });
-
-    const masterDistributors = enriched.filter(u => u.role === 'MASTER' || u.role === 'MASTER_DISTRIBUTOR' || (u.id && u.id.startsWith('MST')));
-    const superDistributors = enriched.filter(u => (u.role === 'SUPER_DISTRIBUTOR') && !(u.id && u.id.startsWith('MST')) && u.role !== 'MASTER');
-    const districtDistributors = enriched.filter(u => 
-      u.role === 'DISTRICT_DISTRIBUTOR' || 
-      u.role === 'DIST_FRANCHISE' || 
-      (u.id && (u.id.startsWith('DD') || u.id.startsWith('DF')))
-    );
-    const distributors = enriched.filter(u => 
-      u.role === 'DISTRIBUTOR' && 
-      !(u.id && (u.id.startsWith('DD') || u.id.startsWith('DF')))
-    );
-    const merchants = enriched.filter(u => u.role === 'MERCHANT');
-
-    const merchantsByParent = {};
-    merchants.forEach(m => {
-      const pId = m.creator_id || 'DIRECT';
-      if (!merchantsByParent[pId]) merchantsByParent[pId] = [];
-      merchantsByParent[pId].push(m);
-    });
-
-    const enrichedDistributors = distributors.map(d => {
-      const downlineMerchants = merchantsByParent[d.id] || [];
-      const downlineVolume = downlineMerchants.reduce((sum, m) => sum + (parseFloat(m.total_sales) || 0), 0);
-      const commissionEarned = parseFloat(((parseFloat(d.available_balance || 0)) + (parseFloat(d.withdrawn_amount || 0))).toFixed(2));
-      return {
-        ...d,
-        merchants: downlineMerchants,
-        merchant_count: downlineMerchants.length,
-        downline_volume: downlineVolume,
-        commission_earned: commissionEarned,
-        parent_sd_name: d.parent_sd_name || 'Super Admin'
-      };
-    });
-
-    const enrichedDistrictDistributors = districtDistributors.map(dd => {
-      const directDists = enrichedDistributors.filter(d => d.creator_id === dd.id);
-      const directMerchants = merchantsByParent[dd.id] || [];
-      
-      let totalStores = directMerchants.length;
-      let totalVol = directMerchants.reduce((sum, m) => sum + (parseFloat(m.total_sales) || 0), 0);
-      
-      directDists.forEach(d => {
-        totalStores += d.merchant_count;
-        totalVol += d.downline_volume;
-      });
-
-      const commissionEarned = parseFloat(((parseFloat(dd.available_balance || 0)) + (parseFloat(dd.withdrawn_amount || 0))).toFixed(2));
-
-      return {
-        ...dd,
-        distributors: directDists,
-        distributor_count: directDists.length,
-        total_merchant_count: totalStores,
-        downline_volume: totalVol,
-        commission_earned: commissionEarned,
-        parent_sd_name: dd.parent_sd_name || 'Super Admin'
-      };
-    });
-
-    const enrichedSDs = superDistributors.map(sd => {
-      const childDDs = enrichedDistrictDistributors.filter(dd => dd.creator_id === sd.id);
-      const directDists = enrichedDistributors.filter(d => d.creator_id === sd.id);
-      const directMerchants = merchantsByParent[sd.id] || [];
-      
-      let totalMerchantsInSD = directMerchants.length;
-      let totalVolumeInSD = directMerchants.reduce((sum, m) => sum + (parseFloat(m.total_sales) || 0), 0);
-
-      childDDs.forEach(dd => {
-        totalMerchantsInSD += dd.total_merchant_count;
-        totalVolumeInSD += dd.downline_volume;
-      });
-
-      directDists.forEach(d => {
-        totalMerchantsInSD += d.merchant_count;
-        totalVolumeInSD += d.downline_volume;
-      });
-
-      const commissionEarned = parseFloat(((parseFloat(sd.available_balance || 0)) + (parseFloat(sd.withdrawn_amount || 0))).toFixed(2));
-
-      return {
-        ...sd,
-        district_distributors: childDDs,
-        distributors: directDists,
-        direct_merchants: directMerchants,
-        district_count: childDDs.length,
-        distributor_count: directDists.length,
-        total_merchant_count: totalMerchantsInSD,
-        network_volume: totalVolumeInSD,
-        commission_earned: commissionEarned
-      };
-    });
-
-    const enrichedMasters = masterDistributors.map(m => {
-      const childSDs = enrichedSDs.filter(sd => sd.creator_id === m.id || sd.parent_id === m.id);
-      const childDDs = childSDs.flatMap(sd => sd.district_distributors || enrichedDistrictDistributors.filter(dd => dd.creator_id === sd.id || dd.parent_id === sd.id));
-      const childDists = childDDs.flatMap(dd => dd.distributors || enrichedDistributors.filter(d => d.creator_id === dd.id || d.parent_id === dd.id));
-      const allMerchants = childDists.flatMap(d => d.merchants || merchants.filter(mer => mer.creator_id === d.id || mer.parent_id === d.id));
-      
-      const totalMerchantsInMaster = allMerchants.length;
-      const totalVolumeInMaster = allMerchants.reduce((sum, mer) => sum + (parseFloat(mer.total_sales) || 0), 0);
-      const commissionEarned = parseFloat(((parseFloat(m.available_balance || 0)) + (parseFloat(m.withdrawn_amount || 0))).toFixed(2));
-
-      return {
-        ...m,
-        super_distributors: childSDs,
-        super_distributor_count: childSDs.length,
-        total_merchant_count: totalMerchantsInMaster,
-        network_volume: totalVolumeInMaster,
-        commission_earned: commissionEarned
-      };
-    });
-
-    const totalNetworkTurnover = merchants.reduce((sum, m) => sum + (parseFloat(m.total_sales) || 0), 0);
-    const pineTerminals = merchants.filter(m => (m.pos_provider || '').toLowerCase().includes('pine')).length;
-    const payswiffTerminals = merchants.filter(m => (m.pos_provider || '').toLowerCase().includes('payswiff')).length;
-
-    return {
-      success: true,
-      tree: {
-        masterDistributors: enrichedMasters,
-        superDistributors: enrichedSDs,
-        districtDistributors: enrichedDistrictDistributors,
-        distributors: enrichedDistributors,
-        merchants: merchants
-      },
-      flatUsers: enriched,
-      summary: {
-        totalMasterDistributors: masterDistributors.length,
-        totalSuperDistributors: superDistributors.length,
-        totalDistrictDistributors: districtDistributors.length,
-        totalDistributors: distributors.length,
-        totalMerchants: merchants.length,
-        totalTerminals: pineTerminals + payswiffTerminals,
-        pineTerminals,
-        payswiffTerminals,
-        totalNetworkTurnover
-      }
-    };
+    return { success: false, message: liveJson?.error || liveJson?.message || 'Failed to fetch hierarchy tree from server' };
   } catch (err) {
     console.error('getHierarchyTree error:', err);
     return { success: false, message: err.message };
@@ -1228,6 +962,24 @@ export async function validateUtrUniqueness(utr, excludeTxnId = null, excludeWit
   return { isUnique: true };
 }
 
+/**
+ * Server-authoritative card swipe / QR collection quote
+ * Computes exact fees and net payout from user_channel_rates. Zero browser math.
+ */
+export async function quoteTransaction(params) {
+  try {
+    const res = await fetchWithTimeout(getApiUrl('/api/transactions/quote'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    return await res.json();
+  } catch (err) {
+    console.error('quoteTransaction error:', err);
+    return { success: false, message: err.message || 'Quote service unavailable.' };
+  }
+}
+
 export async function recordMerchantSale(saleData) {
   try {
     const { 
@@ -1350,78 +1102,9 @@ export async function getDownstreamNetwork(creatorId) {
 
 export async function getPartnerTransactions(creatorId, partnerId) {
   try {
-    const [allUsersRes, txnsRes, posRes] = await Promise.all([
-      supabase.from('users').select('*'),
-      supabase.from('transactions').select('*').order('created_at', { ascending: false }),
-      supabase.from('merchant_pos').select('*')
-    ]);
-
-    const allUsers = allUsersRes.data || [];
-    const allTxns = txnsRes.data || [];
-    const posList = posRes.data || [];
-
-    const userMap = {};
-    allUsers.forEach(u => { userMap[u.id] = u; });
-
-    const posMap = {};
-    posList.forEach(p => { posMap[p.merchant_id] = p; });
-
-    const creator = userMap[creatorId];
-    const partner = userMap[partnerId];
-    const creatorBuyRate = getUserBuyRate(creator, posMap[creatorId], false);
-    const partnerBuyRate = getUserBuyRate(partner, posMap[partnerId], false);
-    const commRate = parseFloat(Math.max(0, partnerBuyRate - creatorBuyRate).toFixed(2));
-
-    // Gather all transacting user IDs under partnerId (partner themselves + all their downlines)
-    const getTransactingAccountsUnderUser = (rootId) => {
-      const transactingIds = new Set([rootId]);
-      const q = [rootId];
-      while (q.length > 0) {
-        const pId = q.shift();
-        const ch = allUsers.filter(u => u.creator_id === pId);
-        ch.forEach(c => {
-          if (!transactingIds.has(c.id)) {
-            transactingIds.add(c.id);
-            q.push(c.id);
-          }
-        });
-      }
-      return Array.from(transactingIds);
-    };
-
-    const mIds = getTransactingAccountsUnderUser(partnerId);
-    const relevantTxns = allTxns.filter(t => mIds.includes(t.merchant_id));
-
-    const enrichedTxns = relevantTxns.map(t => {
-      const amt = parseFloat(t.amount) || 0;
-      const ch = classifyTransactionChannel(t);
-      const isInstant = t.settlement_type === 'INSTANT';
-      const mObj = userMap[t.merchant_id];
-      const mPos = posMap[t.merchant_id];
-      const mBuyRate = getUserBuyRate(mObj, mPos, isInstant, ch);
-      const cBuyRate = getUserBuyRate(creator, posMap[creatorId], isInstant, ch);
-      const txnMargin = parseFloat(Math.max(0, mBuyRate - cBuyRate).toFixed(2));
-      const profit = (amt * txnMargin) / 100;
-      return {
-        ...t,
-        merchant_name: mObj ? mObj.name : t.merchant_id,
-        channel: ch,
-        commission_profit: parseFloat(profit.toFixed(2)),
-        commission_rate_pct: txnMargin
-      };
-    });
-
-    const totalPartnerSales = enrichedTxns.reduce((acc, t) => acc + (parseFloat(t.amount) || 0), 0);
-    const totalProfitEarned = enrichedTxns.reduce((acc, t) => acc + t.commission_profit, 0);
-
-    return {
-      success: true,
-      partner,
-      transactions: enrichedTxns,
-      total_sales: totalPartnerSales,
-      total_profit_earned: parseFloat(totalProfitEarned.toFixed(2)),
-      commission_rate_pct: commRate
-    };
+    const res = await fetchWithTimeout(getApiUrl(`/api/network/partner-transactions?creatorId=${encodeURIComponent(creatorId)}&partnerId=${encodeURIComponent(partnerId)}`));
+    const data = await res.json();
+    return data;
   } catch (err) {
     console.error('getPartnerTransactions error:', err);
     return { success: false, message: err.message, transactions: [] };
@@ -1468,296 +1151,33 @@ export async function addBeneficiary(data) {
 // ----------------------------------------------------
 export async function getAdminPending() {
   try {
-    const [txnsRes, wthsRes, usersRes, posRes, inqsRes, walletsRes] = await Promise.all([
-      supabase.from('transactions').select('*').order('created_at', { ascending: false }),
-      supabase.from('withdrawals').select('*').order('created_at', { ascending: false }),
-      supabase.from('users').select('*'),
-      supabase.from('merchant_pos').select('*'),
-      supabase.from('inquiries').select('*'),
-      supabase.from('wallets').select('*')
-    ]);
-
-    if (txnsRes.error || wthsRes.error || usersRes.error) {
-      const errMsg = txnsRes.error?.message || wthsRes.error?.message || usersRes.error?.message || 'Database error loading pending operations.';
-      return { success: false, message: errMsg, pendingTransactions: [], pendingWithdrawals: [], allWithdrawals: [], allTransactions: [] };
+    const apiRes = await fetchWithTimeout(getApiUrl('/api/admin/pending'));
+    const apiData = await apiRes.json();
+    if (apiData && apiData.success) {
+      return apiData;
     }
-
-    const allTxns = txnsRes.data || [];
-    const allWths = wthsRes.data || [];
-    const allUsers = usersRes.data || [];
-    const allPos = posRes.data || [];
-    const allInqs = inqsRes.data || [];
-    const allWallets = walletsRes.data || [];
-
-    const userMap = {};
-    allUsers.forEach(u => { userMap[u.id] = u; });
-
-    const posMap = {};
-    allPos.forEach(p => { posMap[p.merchant_id] = p; });
-
-    // Helper to parse JSON swipe metadata safely
-    const parseSwipeMeta = (notes) => {
-      if (!notes) return {};
-      if (typeof notes === 'string' && notes.includes('[CARD_SWIPE_ENTRY]')) {
-        try {
-          const jsonPart = notes.slice(notes.indexOf('{'));
-          return JSON.parse(jsonPart);
-        } catch (_) {
-          return {};
-        }
-      }
-      return {};
-    };
-
-    // Pending Transactions
-    const pendingTransactions = allTxns
-      .filter(t => t.status === 'PENDING')
-      .map(t => {
-        const u = userMap[t.merchant_id] || {};
-        const p = posMap[t.merchant_id] || {};
-        const meta = parseSwipeMeta(t.notes);
-        return {
-          ...t,
-          merchant_name: u.name || t.merchant_id,
-          merchant_mobile: u.mobile || 'N/A',
-          customer_name: meta.customer_name || 'Counter Customer',
-          customer_mobile: meta.customer_mobile || t.customer_mobile || '',
-          rrn_number: meta.rrn || t.ref_number || 'N/A',
-          settlement_type: meta.settlement_type || 'T1',
-          merchant_commission: meta.merchant_commission || 0,
-          company_fee: meta.company_fee || 0,
-          pos_provider: meta.pos_provider || t.provider || p.provider || 'Pine Labs',
-          pos_vendor: meta.pos_vendor || p.vendor_entity || ((t.provider || p.provider) === 'Pine Labs' ? 'Rose Navaneetham Enterprises' : 'RONAV Technologies'),
-          pos_terminal: meta.terminal_id || p.terminal_id || '',
-          pos_rate: parseFloat(p.commission_rate_t1 || p.commission_rate || u.commission_rate_t1 || 0)
-        };
-      });
-
-    // Pending Withdrawals
-    const pendingWithdrawals = allWths
-      .filter(w => w.status === 'PENDING')
-      .map(w => {
-        const u = userMap[w.merchant_id] || {};
-        const p = posMap[w.merchant_id] || {};
-        const isCustomer = (w.admin_remark || '').includes('[CUSTOMER_PAYOUT]');
-        const isCommission = (w.admin_remark || '').includes('[COMMISSION_PAYOUT]');
-        const isSubmittedToBank = (w.admin_remark || '').includes('[SUBMITTED_TO_BANK]');
-        let custName = '';
-        let custMob = '';
-        let settMode = 'T1';
-        let merchantNote = '';
-
-        const matchNote = (w.admin_remark || '').match(/Note:\s*([^|•\r\n]+)/i);
-        if (matchNote) merchantNote = matchNote[1].trim();
-
-        if (isCustomer || isCommission || (w.admin_remark || '').includes('[REGULAR_SETTLEMENT]')) {
-          const matchName = (w.admin_remark || '').match(/Name:\s*([^|]+)/);
-          const matchMob = (w.admin_remark || '').match(/Mob:\s*([^|]+)/);
-          const matchMode = (w.admin_remark || '').match(/Mode:\s*([^|]+)/);
-          if (matchName) custName = matchName[1].trim();
-          if (matchMob) custMob = matchMob[1].trim();
-          if (matchMode) settMode = matchMode[1].trim();
-        }
-
-        const metaParsed = parseRemarkMetadata(w.admin_remark, p);
-
-        return {
-          ...w,
-          merchant_name: u.name || w.merchant_id,
-          merchant_mobile: u.mobile || 'N/A',
-          is_customer_payout: isCustomer,
-          is_commission_payout: isCommission,
-          payout_purpose: isCommission ? 'COMMISSION' : 'REGULAR',
-          merchant_remarks: merchantNote,
-          is_submitted_to_bank: isSubmittedToBank,
-          customer_name: custName,
-          customer_mobile: custMob,
-          settlement_mode: settMode,
-          channel: metaParsed.channel,
-          pos_provider: metaParsed.pos_provider,
-          pos_vendor: metaParsed.pos_vendor,
-          pos_terminal: metaParsed.pos_terminal
-        };
-      });
-
-    // All Transactions enriched
-    const allTransactions = allTxns.slice(0, 100).map(t => {
-      const u = userMap[t.merchant_id] || {};
-      const p = posMap[t.merchant_id] || {};
-      const meta = parseSwipeMeta(t.notes);
-      const ch = classifyTransactionChannel(t);
-      const providerResolved = meta.pos_provider || t.provider || (ch === 'qr' ? 'Company QR (UPI)' : (ch === 'payswiff' ? 'Payswiff' : (p.provider || 'Pine Labs')));
-      const vendorResolved = meta.pos_vendor || p.vendor_entity || ((providerResolved === 'Pine Labs' || ch === 'pinelabs') ? 'Rose Navaneetham Enterprises' : 'RONAV Technologies');
-      return {
-        ...t,
-        channel: ch,
-        merchant_name: u.name || t.merchant_id,
-        customer_name: meta.customer_name || 'Counter Customer',
-        customer_mobile: meta.customer_mobile || t.customer_mobile || '',
-        rrn_number: meta.rrn || t.ref_number || 'N/A',
-        settlement_type: meta.settlement_type || 'T1',
-        merchant_commission: meta.merchant_commission || 0,
-        company_fee: meta.company_fee || 0,
-        pos_provider: providerResolved,
-        pos_vendor: vendorResolved,
-        pos_terminal: meta.terminal_id || p.terminal_id || '',
-        pos_rate: parseFloat(p.commission_rate_t1 || p.commission_rate || u.commission_rate_t1 || 0)
-      };
-    });
-
-    // Approved & Volume metrics
-    const approvedTxns = allTxns.filter(t => t.status === 'APPROVED');
-    const totalVolume = approvedTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-    const pendingVolume = pendingTransactions.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-
-    const pineTxns = approvedTxns.filter(t => {
-      const prov = (t.provider || '').toLowerCase();
-      const tid = (t.id || '').toUpperCase();
-      return prov.includes('pine') || tid.includes('PL');
-    });
-
-    const payswiffTxns = approvedTxns.filter(t => {
-      const prov = (t.provider || '').toLowerCase();
-      const tid = (t.id || '').toUpperCase();
-      return prov.includes('swiff') || tid.includes('SW');
-    });
-
-    const pineVol = pineTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-
-    // Split Payswiff by vendor entity: RONAV Technologies vs R.P. Technologies
-    const payswiffRpTxns = payswiffTxns.filter(t => {
-      const u = userMap[t.merchant_id] || {};
-      const p = posMap[t.merchant_id] || {};
-      const meta = parseSwipeMeta(t.notes);
-      const v = (meta.pos_vendor || p.vendor_entity || u.pos_vendor || '').toLowerCase();
-      return v.includes('rp') || (t.notes || '').toLowerCase().includes('rp');
-    });
-    const payswiffRonavTxns = payswiffTxns.filter(t => !payswiffRpTxns.includes(t));
-
-    const ronavTechVol = payswiffRonavTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-    const rpTechVol = payswiffRpTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-
-    // Real Admin wallet balance (Zero phantom earnings while pending)
-    const adminWallet = allWallets.find(w => w.user_id === 'ADM001');
-    const adminWalletBalance = parseFloat(adminWallet?.available_balance || 0);
-
-    let pineAdminProfit = 0;
-    pineTxns.forEach(t => {
-      const meta = parseSwipeMeta(t.notes);
-      if (meta.company_fee) pineAdminProfit += (parseFloat(meta.company_fee) || 0);
-    });
-    let payswiffAdminProfit = 0;
-    payswiffTxns.forEach(t => {
-      const meta = parseSwipeMeta(t.notes);
-      if (meta.company_fee) payswiffAdminProfit += (parseFloat(meta.company_fee) || 0);
-    });
-
-    const qrTxns = approvedTxns.filter(t => classifyTransactionChannel(t) === 'qr');
-    const qrVol = qrTxns.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-    let qrAdminProfit = 0;
-    qrTxns.forEach(t => {
-      const meta = parseSwipeMeta(t.notes);
-      if (meta.company_fee) qrAdminProfit += (parseFloat(meta.company_fee) || 0);
-    });
-
-    const adminNetProfit = adminWalletBalance;
-
-    const rentalPos = allPos.filter(p => p.device_plan === 'RENTAL' || !p.device_plan);
-    const lifetimePos = allPos.filter(p => p.device_plan === 'LIFETIME');
-    const monthlyRentTotal = rentalPos.reduce((sum, p) => sum + (parseFloat(p.monthly_rent) || 0), 0);
-
-    const stats = {
-      totalMerchants: allUsers.filter(u => u.role === 'MERCHANT').length,
-      totalSuperDistributors: allUsers.filter(u => u.role === 'SUPER_DISTRIBUTOR').length,
-      totalDistributors: allUsers.filter(u => u.role === 'DISTRIBUTOR' || u.role === 'DISTRICT_DISTRIBUTOR' || u.role === 'DIST_FRANCHISE').length,
-      loansCount: allInqs.filter(i => i.type === 'LOAN').length,
-      franchiseRequests: allInqs.filter(i => i.type === 'FRANCHISE').length,
-      bbpsTxns: allTxns.filter(t => t.type === 'BBPS_BILL').length,
-      pgPosTxns: allTxns.filter(t => t.type === 'POS_SWIPE').length,
-      atmTxns: allTxns.filter(t => t.type === 'QR_SCAN' || t.type === 'QR_COLLECT').length,
-      withdrawalsCount: allWths.length,
-      pendingWithdrawalsCount: pendingWithdrawals.length,
-      totalVolume,
-      pendingVolume,
-      adminNetProfit: parseFloat(adminNetProfit.toFixed(2)),
-      vendorSummary: {
-        roseNavaneethamVolume: pineVol,
-        roseNavaneethamProfit: parseFloat(pineAdminProfit.toFixed(2)),
-        ronavTechVolume: ronavTechVol,
-        rpTechVolume: rpTechVol,
-        payswiffAdminProfit: parseFloat(payswiffAdminProfit.toFixed(2)),
-        qrVolume: qrVol,
-        qrAdminProfit: parseFloat(qrAdminProfit.toFixed(2))
-      },
-      devicePlanSummary: {
-        rentalCount: rentalPos.length,
-        lifetimeCount: lifetimePos.length,
-        monthlyRentDue: monthlyRentTotal
-      }
-    };
-
-    // All Withdrawals mapped for audit history
-    const allWithdrawals = allWths.map(w => {
-      const u = userMap[w.merchant_id] || {};
-      const p = posMap[w.merchant_id] || {};
-      const isCustomer = (w.admin_remark || '').includes('[CUSTOMER_PAYOUT]');
-      const isSubmittedToBank = (w.admin_remark || '').includes('[SUBMITTED_TO_BANK]');
-      let custName = '';
-      let custMob = '';
-      let settMode = 'T1';
-      let utrNumber = '';
-      if (isCustomer) {
-        const matchName = (w.admin_remark || '').match(/Name:\s*([^|]+)/);
-        const matchMob = (w.admin_remark || '').match(/Mob:\s*([^|]+)/);
-        const matchMode = (w.admin_remark || '').match(/Mode:\s*([^|]+)/);
-        if (matchName) custName = matchName[1].trim();
-        if (matchMob) custMob = matchMob[1].trim();
-        if (matchMode) settMode = matchMode[1].trim();
-      }
-      if (w.admin_remark) {
-        const utrMatch = w.admin_remark.match(/UTR:\s*([A-Za-z0-9_-]+)/i);
-        if (utrMatch) utrNumber = utrMatch[1];
-      }
-
-      const metaParsed = parseRemarkMetadata(w.admin_remark, p);
-
-      return {
-        ...w,
-        merchant_name: u.name || w.merchant_id,
-        merchant_mobile: u.mobile || 'N/A',
-        is_customer_payout: isCustomer,
-        is_submitted_to_bank: isSubmittedToBank,
-        customer_name: custName,
-        customer_mobile: custMob,
-        settlement_mode: settMode,
-        utr_number: utrNumber,
-        channel: metaParsed.channel,
-        pos_provider: metaParsed.pos_provider,
-        pos_vendor: metaParsed.pos_vendor,
-        pos_terminal: metaParsed.pos_terminal
-      };
-    });
-
-    return {
-      success: true,
-      pendingTransactions,
-      pendingWithdrawals,
-      allWithdrawals,
-      allTransactions,
-      stats
-    };
-  } catch (err) {
-    console.error('getAdminPending error:', err);
-    return { success: false, message: err.message };
+    return { success: false, message: apiData?.message || 'Failed to fetch admin pending data' };
+  } catch (apiErr) {
+    console.error('[getAdminPending] Error:', apiErr);
+    return { success: false, message: apiErr.message || 'Failed to load admin pending data' };
   }
 }
 
 export async function verifyTransaction(txnId, action, remark = '', utr = '') {
   try {
+    const session = getAuthSession();
+    const callerId = session?.user?.id;
+    const callerRole = session?.role || session?.user?.role;
     const res = await fetchWithTimeout(getApiUrl('/api/admin/verify-transaction'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ txn_id: txnId, action, remark, utr })
+      headers: {
+        'Content-Type': 'application/json',
+        'x-caller-id': callerId,
+        'x-user-id': callerId,
+        'x-caller-role': callerRole,
+        'x-user-role': callerRole
+      },
+      body: JSON.stringify({ txn_id: txnId, action, remark, utr, callerId })
     });
     const data = await res.json();
     return data;
@@ -2146,141 +1566,10 @@ export async function getPlatformPublicStats() {
 // ----------------------------------------------------
 export async function getMonthlyRentalReport(targetMonth = '') {
   try {
-    const monthKey = targetMonth || new Date().toISOString().slice(0, 7); // 'YYYY-MM'
-    
-    // 1. Fetch live merchants, creators, pos records, and dynamic system settings
-    const [usersRes, posRes, settingsRes] = await Promise.all([
-      supabase.from('users').select('*'),
-      supabase.from('merchant_pos').select('*'),
-      fetch('/api/settings').then(r => r.json()).catch(() => null)
-    ]);
-    if (!settingsRes || !settingsRes.success || !settingsRes.settings?.monthly_rental_rupees) {
-      throw new Error('SETTING_NOT_FOUND: Monthly rental amount setting is missing from server.');
-    }
-    const defaultRentalRupees = parseFloat(settingsRes.settings.monthly_rental_rupees);
-
-    const allUsers = usersRes.data || [];
-    const allPos = posRes.data || [];
-    const userMap = {};
-    allUsers.forEach(u => { userMap[u.id] = u; });
-
-    // 2. Fetch rental status ledger from Supabase (or fallback storage)
-    let rentalStatusMap = {};
-    try {
-      const { data: ledgerRecords } = await supabase
-        .from('inquiries')
-        .select('*')
-        .eq('category', `RENTAL_LEDGER_${monthKey}`);
-      
-      if (ledgerRecords && ledgerRecords.length > 0) {
-        ledgerRecords.forEach(rec => {
-          // id format: RENT-{monthKey}-{mid}-{tid}
-          rentalStatusMap[rec.location] = {
-            status: rec.status, // 'PAID' | 'PENDING'
-            remarks: rec.remarks,
-            paid_at: rec.amount // stores ISO date
-          };
-        });
-      }
-    } catch (e) {
-      console.warn('Could not fetch rental ledger records from Supabase:', e);
-    }
-
-    // Offline localStorage cache removed per Phase D2b mandate
-
-    // 3. Compile terminal list
-    const rentalList = [];
-    const merchants = allUsers.filter(u => u.role === 'MERCHANT');
-
-    merchants.forEach(m => {
-      const posRec = allPos.find(p => p.merchant_id === m.id);
-      const creator = userMap[m.creator_id] || null;
-
-      // Extract multi-device channels
-      const channels = parseMerchantChannels(posRec?.terminal_id, posRec);
-
-      // Pine Labs terminal
-      if (channels.pine_labs?.enabled) {
-        const pine = channels.pine_labs;
-        const plan = pine.plan || posRec?.device_plan || 'RENTAL';
-        if (plan === 'RENTAL' || plan === 'CUSTOM') {
-          const rent = parseFloat(pine.rent || posRec?.monthly_rent || defaultRentalRupees);
-          const tid = pine.terminal_id || posRec?.terminal_id || `PL-${m.id.slice(-4)}`;
-          const lookupKey = `${m.id}_${tid}`;
-          const recorded = rentalStatusMap[lookupKey] || { status: 'PENDING', remarks: '', paid_at: null };
-
-          rentalList.push({
-            merchant_id: m.id,
-            merchant_name: m.name,
-            shop_name: m.address ? m.address.split(',')[0] : `${m.name}'s Store`,
-            mobile: m.mobile,
-            pos_provider: 'Pine Labs',
-            terminal_id: tid,
-            device_plan: plan,
-            monthly_rent: rent,
-            creator_id: m.creator_id,
-            creator_name: creator ? creator.name : 'Super Admin',
-            creator_role: creator ? creator.role : 'ADMIN',
-            billing_month: monthKey,
-            rental_status: recorded.status || 'PENDING',
-            paid_at: recorded.paid_at || null,
-            remarks: recorded.remarks || ''
-          });
-        }
-      }
-
-      // Payswiff terminal
-      if (channels.payswiff?.enabled) {
-        const swiff = channels.payswiff;
-        const plan = swiff.plan || posRec?.device_plan || 'RENTAL';
-        if (plan === 'RENTAL' || plan === 'CUSTOM') {
-          const rent = parseFloat(swiff.rent || posRec?.monthly_rent || defaultRentalRupees);
-          const tid = swiff.terminal_id || posRec?.terminal_id || `SWIFF-${m.id.slice(-4)}`;
-          const lookupKey = `${m.id}_${tid}`;
-          const recorded = rentalStatusMap[lookupKey] || { status: 'PENDING', remarks: '', paid_at: null };
-
-          rentalList.push({
-            merchant_id: m.id,
-            merchant_name: m.name,
-            shop_name: m.address ? m.address.split(',')[0] : `${m.name}'s Store`,
-            mobile: m.mobile,
-            pos_provider: 'Payswiff',
-            terminal_id: tid,
-            device_plan: plan,
-            monthly_rent: rent,
-            creator_id: m.creator_id,
-            creator_name: creator ? creator.name : 'Super Admin',
-            creator_role: creator ? creator.role : 'ADMIN',
-            billing_month: monthKey,
-            rental_status: recorded.status || 'PENDING',
-            paid_at: recorded.paid_at || null,
-            remarks: recorded.remarks || ''
-          });
-        }
-      }
-    });
-
-    // 4. Aggregate metrics
-    const totalTerminals = rentalList.length;
-    const totalDue = rentalList.reduce((sum, item) => sum + item.monthly_rent, 0);
-    const paidList = rentalList.filter(item => item.rental_status === 'PAID');
-    const pendingList = rentalList.filter(item => item.rental_status === 'PENDING');
-    const totalCollected = paidList.reduce((sum, item) => sum + item.monthly_rent, 0);
-    const totalPending = pendingList.reduce((sum, item) => sum + item.monthly_rent, 0);
-
-    return {
-      success: true,
-      billingMonth: monthKey,
-      summary: {
-        totalTerminals,
-        totalDue: parseFloat(totalDue.toFixed(2)),
-        totalCollected: parseFloat(totalCollected.toFixed(2)),
-        totalPending: parseFloat(totalPending.toFixed(2)),
-        paidCount: paidList.length,
-        pendingCount: pendingList.length
-      },
-      list: rentalList
-    };
+    const query = targetMonth ? `?monthKey=${encodeURIComponent(targetMonth)}` : '';
+    const res = await fetchWithTimeout(getApiUrl(`/api/admin/pos-rentals-report${query}`));
+    const data = await res.json();
+    return data;
   } catch (err) {
     console.error('getMonthlyRentalReport error:', err);
     return {
@@ -2343,7 +1632,7 @@ export async function purgeAllTestAccounts() {
   try {
     // 1. Call backend API if available
     try {
-      const res = await fetch('/api/admin/users/purge-test-accounts', {
+      const res = await fetchWithTimeout(getApiUrl('/api/admin/users/purge-test-accounts'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });

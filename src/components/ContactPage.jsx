@@ -47,7 +47,7 @@ export default function ContactPage({ onBack, onShowToast }) {
         phone: formData.mobile,
         category: formData.service || 'General Inquiry',
         location: 'Hyderabad / AP & TS',
-        amount: formData.role || 'Merchant',
+        amount: formData.role || formData.service || 'Inquiry',
         remarks: formData.message || 'Direct inquiry from dedicated contact page'
       });
 

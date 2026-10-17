@@ -37,7 +37,7 @@ export default function ContactSection({ onOpenOfficeModal }) {
         phone: formData.mobile,
         category: formData.service || 'General Inquiry',
         location: 'Hyderabad / AP & TS',
-        amount: formData.role || 'Merchant',
+        amount: formData.role || formData.service || 'Inquiry',
         remarks: formData.message || 'Direct inquiry from homepage contact section'
       });
       if (res && res.success) {
