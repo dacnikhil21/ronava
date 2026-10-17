@@ -2,6 +2,11 @@
 // CANONICAL SHARED TEST CREDENTIALS CONFIGURATION & LOGIN VERIFIER
 // All test scripts MUST import credentials from this file. No script may hardcode or type its own password.
 
+// Test environment configuration: Set test JWT_SECRET strictly for automated test suites
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+  process.env.JWT_SECRET = 'ronav-test-only-jwt-secret-fixed-32-chars-entropy-ok';
+}
+
 import fs from 'fs';
 import path from 'path';
 import { generateToken } from './security.js';
