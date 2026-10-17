@@ -43,10 +43,13 @@ export function verifyPassword(plainText, storedHash) {
   }
 }
 
+// Token lifetime: configurable via TOKEN_EXPIRY_SECONDS, defaults to 8 hours (28,800 seconds)
+const DEFAULT_TOKEN_EXPIRY_SECONDS = Number(process.env.TOKEN_EXPIRY_SECONDS) || 28800;
+
 /**
  * Generate a cryptographically signed expiring bearer token (HMAC-SHA256)
  */
-export function generateToken(user, expiresInSeconds = 86400) { // default 24h
+export function generateToken(user, expiresInSeconds = DEFAULT_TOKEN_EXPIRY_SECONDS) {
   if (!user || !user.id || !user.role) {
     throw new Error('CANNOT_GENERATE_TOKEN: Valid user with id and role is required.');
   }
