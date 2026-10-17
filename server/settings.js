@@ -63,9 +63,12 @@ export async function getAllSettings(dbClient = null) {
 /**
  * Update a setting in PostgreSQL.
  */
-export async function updateSetting(key, { value_numeric, value_text, value_json }, updatedBy = 'ADMIN', dbClient = null) {
+export async function updateSetting(key, { value_numeric, value_text, value_json }, updatedBy, dbClient = null) {
   if (!key) {
     throw new Error('INVALID_ARGUMENT: Setting key must be specified.');
+  }
+  if (!updatedBy) {
+    throw new Error('CALLER_IDENTIFICATION_REQUIRED: updatedBy is required.');
   }
 
   const queryFn = dbClient 

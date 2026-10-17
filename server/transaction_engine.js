@@ -16,11 +16,15 @@ export async function processSwipeTransaction(client, {
   slipNumber = null,
   notes = null,
   idempotencyKey = null,
-  createdBy = 'SYSTEM',
+  createdBy = null,
   simulatedFailure = false
 }) {
   if (!client || typeof client.query !== 'function') {
     throw new Error('DATABASE_CLIENT_REQUIRED: processSwipeTransaction requires an active client.');
+  }
+  const actor = createdBy || merchantId;
+  if (!actor) {
+    throw new Error('CALLER_IDENTIFICATION_REQUIRED: merchantId or createdBy is required for processSwipeTransaction.');
   }
 
   const grossPaise = BigInt(amountPaise);
@@ -247,7 +251,7 @@ export async function processSwipeTransaction(client, {
         rate_bps: merchant.rate_bps,
         settlement_mode: mode
       },
-      createdBy
+      createdBy: actor
     });
 
     // 7.3 Post All Upline Commissions
@@ -268,7 +272,7 @@ export async function processSwipeTransaction(client, {
             settlement_mode: mode,
             is_admin_remainder: !!dist.is_admin_remainder
           },
-          createdBy
+          createdBy: actor
         });
       }
     }
@@ -331,10 +335,13 @@ export async function editSwipeTransaction(client, {
   slipNumber = null,
   notes = null,
   reason = 'Transaction edited',
-  callerId = 'ADMIN'
+  callerId
 }) {
   if (!client || typeof client.query !== 'function') {
     throw new Error('DATABASE_CLIENT_REQUIRED: editSwipeTransaction requires an active client.');
+  }
+  if (!callerId) {
+    throw new Error('CALLER_IDENTIFICATION_REQUIRED: callerId is required for editing a transaction.');
   }
 
   // 1. Fetch old transaction
@@ -359,6 +366,7 @@ export async function editSwipeTransaction(client, {
     merchantId: oldTxn.merchant_id,
     amountPaise: BigInt(correctedAmountPaise),
     channel: channel || oldTxn.channel,
+    settlementMode: oldTxn.settlement_mode || 'T1',
     refNumber: refNumber || (oldTxn.ref_number ? `${oldTxn.ref_number}-REV1` : null),
     slipNumber: slipNumber || oldTxn.slip_number,
     notes: notes || `Correction of ${oldTxnId}: ${reason}`,
@@ -372,3 +380,167 @@ export async function editSwipeTransaction(client, {
     reversal_details: rev
   };
 }
+
+/**
+ * Server-authoritative quote for card swipe / QR collection
+ * Pure read-only calculation using live user_channel_rates.
+ * Throws RATE_NOT_CONFIGURED if no active rate exists. Zero browser math.
+ */
+export async function quoteSwipeTransaction(client, {
+  merchantId,
+  amountPaise,
+  channel = 'pinelabs',
+  settlementMode = null
+}) {
+  if (!client || typeof client.query !== 'function') {
+    throw new Error('DATABASE_CLIENT_REQUIRED: quoteSwipeTransaction requires an active client.');
+  }
+  if (!merchantId) {
+    throw new Error('MERCHANT_ID_REQUIRED: merchantId is required for quote.');
+  }
+  const grossPaise = BigInt(amountPaise || 0);
+  if (grossPaise <= 0n) {
+    throw new Error('INVALID_TRANSACTION_AMOUNT: Transaction amount must be greater than 0 paise.');
+  }
+
+  // 0. Verify swiper is not an Admin
+  const swiperCheck = await client.query(
+    `SELECT id, role FROM users WHERE UPPER(id) = UPPER($1)`,
+    [merchantId]
+  );
+  if (swiperCheck.rows.length === 0) {
+    throw new Error(`USER_NOT_FOUND: User "${merchantId}" not found.`);
+  }
+  if (swiperCheck.rows[0].role === 'ADMIN') {
+    throw new Error('ADMIN_CANNOT_SWIPE: Administrators cannot record payment transactions.');
+  }
+
+  const cleanChannel = (channel || 'pinelabs').toLowerCase().replace(/[^a-z0-9]/g, '');
+  let mode = (settlementMode || '').toUpperCase().trim();
+
+  if (cleanChannel === 'qr' || cleanChannel === 'companyqr') {
+    mode = 'NONE';
+  } else if (cleanChannel === 'pinelabs' || cleanChannel === 'payswiff') {
+    if (!mode || (mode !== 'T1' && mode !== 'INSTANT')) {
+      throw new Error(`SETTLEMENT_MODE_REQUIRED: Channel "${channel}" requires settlement_mode T1 or INSTANT.`);
+    }
+  } else {
+    if (!mode) mode = 'T1';
+  }
+
+  // Hierarchy traversal & rate resolution
+  const hierarchy = [];
+  let currentId = merchantId;
+
+  while (currentId) {
+    const userRes = await client.query(
+      `SELECT id, name, role, creator_id FROM users WHERE UPPER(id) = UPPER($1)`,
+      [currentId]
+    );
+    if (userRes.rows.length === 0) {
+      throw new Error(`USER_NOT_FOUND: User "${currentId}" not found in hierarchy.`);
+    }
+    const u = userRes.rows[0];
+    let rateInfo = { rate_bps: 0 };
+    if (u.role !== 'ADMIN') {
+      rateInfo = await getActiveRate(client, {
+        userId: u.id,
+        channel: cleanChannel,
+        settlementMode: mode
+      });
+
+      if (rateInfo.is_default) {
+        throw new Error(`RATE_NOT_CONFIGURED: Rate not configured for user "${u.id}" on channel "${cleanChannel}" and mode "${mode}".`);
+      }
+    }
+
+    hierarchy.push({
+      user_id: u.id,
+      name: u.name,
+      role: u.role,
+      creator_id: u.creator_id,
+      rate_bps: u.role === 'ADMIN' ? null : rateInfo.rate_bps,
+      settlement_mode: mode
+    });
+
+    if (u.role === 'ADMIN' || !u.creator_id) {
+      break;
+    }
+    currentId = u.creator_id;
+  }
+
+  // Rate hierarchy validation
+  for (let i = 0; i < hierarchy.length - 1; i++) {
+    const child = hierarchy[i];
+    const parent = hierarchy[i + 1];
+    if (parent.role !== 'ADMIN' && child.rate_bps < parent.rate_bps) {
+      throw new Error(
+        `INVALID_RATE_HIERARCHY: ${child.user_id} (${child.rate_bps} bps) has lower rate than upline ${parent.user_id} (${parent.rate_bps} bps).`
+      );
+    }
+  }
+
+  const merchant = hierarchy[0];
+  const merchantFeePaise = BigInt(Math.floor((Number(grossPaise) * merchant.rate_bps) / 10000));
+  const merchantNetPaise = grossPaise - merchantFeePaise;
+
+  const distributions = [];
+  let distributedPaiseSum = 0n;
+
+  for (let i = 1; i < hierarchy.length; i++) {
+    const current = hierarchy[i];
+    if (current.role === 'ADMIN') continue;
+    const child = hierarchy[i - 1];
+    const marginBps = child.rate_bps - current.rate_bps;
+    const commPaise = BigInt(Math.floor((Number(grossPaise) * marginBps) / 10000));
+    distributedPaiseSum += commPaise;
+
+    distributions.push({
+      user_id: current.user_id,
+      name: current.name,
+      role: current.role,
+      amount_paise: commPaise.toString(),
+      amount_rupees: (Number(commPaise) / 100).toFixed(2),
+      rate_used_bps: marginBps,
+      margin_pct: (marginBps / 100).toFixed(2)
+    });
+  }
+
+  const bankCostSetting = await getSetting('bank_cost_enabled', client);
+  const bankCostBpsSetting = await getSetting('bank_cost_bps', client);
+  const isBankCostEnabled = Number(bankCostSetting.value_numeric || 0) === 1;
+  const bankCostBps = isBankCostEnabled ? Number(bankCostBpsSetting.value_numeric || 0) : 0;
+  const bankCostPaise = BigInt(Math.floor((Number(grossPaise) * bankCostBps) / 10000));
+
+  const adminUser = hierarchy[hierarchy.length - 1];
+  const adminRemainderPaise = merchantFeePaise - distributedPaiseSum - bankCostPaise;
+  const topPersonUnderAdmin = hierarchy.length > 1 ? hierarchy[hierarchy.length - 2] : merchant;
+  const adminEffectiveRateBps = topPersonUnderAdmin.rate_bps;
+
+  distributions.push({
+    user_id: adminUser.user_id,
+    name: adminUser.name,
+    role: adminUser.role,
+    amount_paise: adminRemainderPaise.toString(),
+    amount_rupees: (Number(adminRemainderPaise) / 100).toFixed(2),
+    rate_used_bps: adminEffectiveRateBps,
+    margin_pct: (adminEffectiveRateBps / 100).toFixed(2),
+    is_admin_remainder: true
+  });
+
+  return {
+    merchant_id: merchant.user_id,
+    channel: cleanChannel,
+    settlement_mode: mode,
+    amount_paise: grossPaise.toString(),
+    amount_rupees: (Number(grossPaise) / 100).toFixed(2),
+    fee_paise: merchantFeePaise.toString(),
+    fee_rupees: (Number(merchantFeePaise) / 100).toFixed(2),
+    rate_bps: merchant.rate_bps,
+    rate_pct: (merchant.rate_bps / 100).toFixed(2),
+    net_paise: merchantNetPaise.toString(),
+    net_rupees: (Number(merchantNetPaise) / 100).toFixed(2),
+    splits: distributions
+  };
+}
+

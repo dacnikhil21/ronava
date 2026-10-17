@@ -35,11 +35,15 @@ export function getCaller(req) {
     query.role ||
     body.callerRole ||
     body.role ||
-    'MERCHANT'
+    ''
   ).toString().trim().toUpperCase();
 
   if (!callerId) {
     throw new Error('CALLER_IDENTIFICATION_REQUIRED: No caller ID found in request headers or payload.');
+  }
+
+  if (!callerRole) {
+    throw new Error('CALLER_ROLE_REQUIRED: No caller role found in request headers or payload.');
   }
 
   return {

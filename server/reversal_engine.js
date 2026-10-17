@@ -7,10 +7,13 @@ import { postLedgerEntry } from './ledger_engine.js';
 export async function reverseTransaction(client, {
   txnId,
   reason = 'Transaction reversed',
-  callerId = 'ADMIN'
+  callerId
 }) {
   if (!client || typeof client.query !== 'function') {
     throw new Error('DATABASE_CLIENT_REQUIRED: reverseTransaction requires an active client.');
+  }
+  if (!callerId) {
+    throw new Error('CALLER_IDENTIFICATION_REQUIRED: callerId is required for reversal.');
   }
   if (!txnId) {
     throw new Error('INVALID_ARGUMENT: txnId is required for reversal.');

@@ -66,10 +66,14 @@ export async function processWithdrawalRequest(client, {
   channel = 'pinelabs',
   settlementType = 'T1',
   idempotencyKey = null,
-  createdBy = 'MERCHANT'
+  createdBy = null
 }) {
   if (!client || typeof client.query !== 'function') {
     throw new Error('DATABASE_CLIENT_REQUIRED: processWithdrawalRequest requires a transaction client.');
+  }
+  const actor = createdBy || merchantId;
+  if (!actor) {
+    throw new Error('CALLER_IDENTIFICATION_REQUIRED: merchantId or createdBy is required for processWithdrawalRequest.');
   }
 
   const reqPaise = BigInt(amountPaise);
@@ -162,7 +166,7 @@ export async function processWithdrawalRequest(client, {
       net_payout_paise: quote.net_payout_paise.toString(),
       settlement_type: quote.settlement_type
     },
-    createdBy
+    createdBy: actor
   });
 
   // 7. Insert withdrawal record

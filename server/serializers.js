@@ -60,6 +60,8 @@ export function serializeMoneyFields(data) {
     out.customer_charge_rupees = chargeStr;
     out.fee = chargeStr;
     out.fee_rupees = chargeStr;
+    out.fee_deducted = parseFloat(chargeStr);
+    out.company_fee = parseFloat(chargeStr);
     out.customer_charge_num = parseFloat(chargeStr);
   }
 

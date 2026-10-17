@@ -24,10 +24,14 @@ export async function postLedgerEntry(client, {
   referenceType = null,
   channel = null,
   metadata = {},
-  createdBy = 'SYSTEM'
+  createdBy = null
 }) {
   if (!client || typeof client.query !== 'function') {
     throw new Error('DATABASE_CLIENT_REQUIRED: postLedgerEntry requires an active transaction client.');
+  }
+  const actor = createdBy || userId;
+  if (!actor) {
+    throw new Error('CALLER_IDENTIFICATION_REQUIRED: userId or createdBy is required for ledger entry.');
   }
   if (!userId) {
     throw new Error('INVALID_ARGUMENT: userId is required for ledger entry.');
@@ -54,7 +58,7 @@ export async function postLedgerEntry(client, {
     referenceType,
     channel,
     JSON.stringify(metadata),
-    createdBy
+    actor
   ]);
   const ledgerRow = res.rows[0];
 

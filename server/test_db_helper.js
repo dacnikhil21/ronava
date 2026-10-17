@@ -52,7 +52,7 @@ export async function resetTestDatabase() {
 
       CREATE TABLE merchant_pos (
         id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-        merchant_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+        merchant_id TEXT UNIQUE REFERENCES users(id) ON DELETE CASCADE,
         provider VARCHAR(50),
         terminal_id TEXT,
         commission_rate NUMERIC DEFAULT 1.5,
