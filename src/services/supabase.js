@@ -19,70 +19,26 @@ export function getApiUrl(endpoint) {
 
 export async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
   const mergedHeaders = { ...(options.headers || {}) };
-  let callerId = mergedHeaders['x-caller-id'] || mergedHeaders['x-user-id'];
-  let callerRole = mergedHeaders['x-caller-role'] || mergedHeaders['x-user-role'];
 
-  if (typeof window !== 'undefined' && !callerId) {
-    try {
-      const raw = sessionStorage.getItem('ronav_session');
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed?.user?.id) {
-          callerId = parsed.user.id;
-          callerRole = parsed.role || parsed.user.role;
-        }
-      }
-      if (!callerId) {
-        const rawMerchant = sessionStorage.getItem('ronav_merchant_user');
-        if (rawMerchant) {
-          const parsed = JSON.parse(rawMerchant);
-          if (parsed?.id) {
-            callerId = parsed.id;
-            callerRole = parsed.role;
-          }
-        }
-      }
-      if (!callerId) {
-        const rawAdmin = sessionStorage.getItem('ronav_admin_user');
-        if (rawAdmin) {
-          const parsed = JSON.parse(rawAdmin);
-          if (parsed?.id) {
-            callerId = parsed.id;
-            callerRole = parsed.role;
-          }
-        }
-      }
-    } catch (sessionErr) {
-      console.warn('[fetchWithTimeout] Session header resolution warning:', sessionErr);
+  // Strict Token-Based Identity: Attach Bearer token if not explicitly provided
+  let authHeader = mergedHeaders['Authorization'] || mergedHeaders['authorization'];
+  if (!authHeader && typeof window !== 'undefined') {
+    const token = sessionStorage.getItem('ronav_token') || localStorage.getItem('ronav_token');
+    if (token) {
+      mergedHeaders['Authorization'] = `Bearer ${token}`;
     }
   }
 
-  if (callerId) {
-    mergedHeaders['x-caller-id'] = callerId;
-    mergedHeaders['x-user-id'] = callerId;
-    if (callerRole) {
-      mergedHeaders['x-caller-role'] = callerRole;
-      mergedHeaders['x-user-role'] = callerRole;
-    }
-  }
-
-  let finalBody = options.body;
-  if (callerId && typeof finalBody === 'string' && finalBody.trim().startsWith('{')) {
-    try {
-      const parsedBody = JSON.parse(finalBody);
-      if (!parsedBody.callerId && !parsedBody.caller_id && !parsedBody.userId && !parsedBody.user_id) {
-        parsedBody.callerId = callerId;
-        finalBody = JSON.stringify(parsedBody);
-      }
-    } catch (parseErr) {
-      console.warn('[fetchWithTimeout] Body parse warning:', parseErr);
-    }
-  }
+  // Purge any legacy spoofable caller headers
+  delete mergedHeaders['x-caller-id'];
+  delete mergedHeaders['x-user-id'];
+  delete mergedHeaders['x-caller-role'];
+  delete mergedHeaders['x-user-role'];
 
   const finalOptions = {
     ...options,
     headers: mergedHeaders,
-    body: finalBody
+    body: options.body
   };
 
   if (typeof AbortController === 'undefined') {
@@ -96,6 +52,11 @@ export async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
       signal: controller.signal
     });
     clearTimeout(id);
+    if (res.status === 401 && typeof window !== 'undefined' && !url.includes('/api/auth/login')) {
+      sessionStorage.removeItem('ronav_token');
+      localStorage.removeItem('ronav_token');
+      window.dispatchEvent(new CustomEvent('ronav_auth_expired', { detail: { message: 'Your session has expired. Please log in again.' } }));
+    }
     return res;
   } catch (err) {
     clearTimeout(id);

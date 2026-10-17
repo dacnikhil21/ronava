@@ -193,6 +193,20 @@ export default function App() {
     };
   }, []);
 
+  // Listen to 401 unauthenticated / expired token events from shared request layer
+  useEffect(() => {
+    const handleAuthExpired = (e) => {
+      const msg = e.detail?.message || 'Your session has expired. Please log in again.';
+      clearAuthSession();
+      setCurrentUser(null);
+      handleShowToast(msg);
+      const isCurrentlyAdmin = currentView === 'admin-dashboard' || (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin'));
+      handleNavigate(isCurrentlyAdmin ? 'admin-login' : 'merchant-login');
+    };
+    window.addEventListener('ronav_auth_expired', handleAuthExpired);
+    return () => window.removeEventListener('ronav_auth_expired', handleAuthExpired);
+  }, [currentView]);
+
   const handleShowToast = (msg) => {
     setToastMessage(msg);
     setTimeout(() => {

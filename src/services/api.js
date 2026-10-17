@@ -35,7 +35,12 @@ export async function loginUser(credentials) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: cleanId, password, role })
     });
-    return await res.json();
+    const data = await res.json();
+    if (data && data.success && data.token && typeof window !== 'undefined') {
+      sessionStorage.setItem('ronav_token', data.token);
+      localStorage.setItem('ronav_token', data.token);
+    }
+    return data;
   } catch (err) {
     console.error('loginUser error:', err);
     return { success: false, message: err.message || 'Login failed. Please check network connection.' };
@@ -107,9 +112,14 @@ export function setAuthSession(sessionData) {
   const payload = {
     role: sessionData.role || sessionData.user.role,
     user: sessionData.user,
+    token: sessionData.token || (typeof window !== 'undefined' ? sessionStorage.getItem('ronav_token') : null),
     timestamp: Date.now()
   };
   sessionStorage.setItem('ronav_session', JSON.stringify(payload));
+  if (sessionData.token) {
+    sessionStorage.setItem('ronav_token', sessionData.token);
+    localStorage.setItem('ronav_token', sessionData.token);
+  }
   if (payload.role === 'ADMIN' || payload.user.id === 'ADM001') {
     sessionStorage.setItem('ronav_admin_user', JSON.stringify(payload.user));
     sessionStorage.removeItem('ronav_merchant_user');
@@ -128,9 +138,11 @@ export function clearAuthSession() {
   sessionStorage.removeItem('ronav_merchant_active_tab');
   sessionStorage.removeItem('ronav_user_pos');
   sessionStorage.removeItem('ronav_merchant_selected_machine');
+  sessionStorage.removeItem('ronav_token');
   if (typeof localStorage !== 'undefined') {
     localStorage.removeItem('ronav_user');
     localStorage.removeItem('ronav_user_details_overrides');
+    localStorage.removeItem('ronav_token');
   }
 }
 
