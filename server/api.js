@@ -880,24 +880,18 @@ export async function handleApiRequest(req, res) {
         }
 
         let dbRole = role;
-        if (role === 'DIST_FRANCHISE' || role === 'DISTRICT_DISTRIBUTOR') {
-          dbRole = 'DISTRIBUTOR';
-        } else if (role === 'MASTER') {
-          dbRole = 'SUPER_DISTRIBUTOR';
-        }
 
         const prefixMap = {
+          'MASTER': 'MST',
+          'MASTER_DISTRIBUTOR': 'MST',
           'SUPER_DISTRIBUTOR': 'SD',
+          'DISTRICT_DISTRIBUTOR': 'DD',
+          'DIST_FRANCHISE': 'DD',
           'DISTRIBUTOR': 'DIST',
           'MERCHANT': 'MID',
           'RETAILER': 'MID'
         };
-        let idPrefix = prefixMap[dbRole] || prefixMap[role] || 'MID';
-        if (role === 'DIST_FRANCHISE' || role === 'DISTRICT_DISTRIBUTOR') {
-          idPrefix = 'DD';
-        } else if (role === 'MASTER') {
-          idPrefix = 'MST';
-        }
+        let idPrefix = prefixMap[role] || 'MID';
 
         // Collision-Free Sequential ID: Check existing IDs in PostgreSQL
         let newUserId = `${idPrefix}1001`;

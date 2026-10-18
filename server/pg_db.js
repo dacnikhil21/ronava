@@ -234,7 +234,10 @@ export async function initPostgresSchema() {
         CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_ref_number 
         ON transactions (UPPER(ref_number)) 
         WHERE ref_number IS NOT NULL AND ref_number != '' AND status != 'REJECTED';
-      `).catch(e => console.error('[Migration Error uq_transactions_ref_number]:', e.message));
+      `).catch(e => {
+        if (e.code === '42P07' || e.message?.includes('pg_class_relname_nsp_index')) return;
+        console.error('[Migration Error uq_transactions_ref_number]:', e.message);
+      });
     } finally {
       client.release();
     }

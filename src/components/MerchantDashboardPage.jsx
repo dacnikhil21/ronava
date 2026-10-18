@@ -865,7 +865,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       }
     } catch (err) {
       console.error(err);
-      showToast('Error saving profile details');
+      showToast(err?.message || 'Error saving profile details');
     } finally {
       setIsSavingProfile(false);
     }
@@ -1497,7 +1497,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         showToast(res.message || 'Error creating partner account');
       }
     } catch (err) {
-      showToast('Server connection failed');
+      showToast(err?.message || 'Server connection failed');
     } finally {
       setIsSubmittingOnboard(false);
     }
@@ -1593,7 +1593,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     } catch (err) {
       console.error('fetchLiveData error:', err);
       setWalletError('Network connection error: ' + err.message);
-      if (!isSilent) showToast('Network error syncing merchant operational data.');
+      if (!isSilent) showToast(err?.message || 'Network error syncing merchant operational data.');
     } finally {
       if (!isSilent) setIsLoadingPos(false);
     }
@@ -2193,7 +2193,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         fetchLiveData();
       }
     } catch (err) {
-      showToast('Error linking bank account');
+      showToast(err?.message || 'Error linking bank account');
     } finally {
       setIsSubmittingBank(false);
     }
@@ -2232,7 +2232,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         showToast(res.message || 'Failed to save beneficiary');
       }
     } catch (err) {
-      showToast('Error saving beneficiary');
+      showToast(err?.message || 'Error saving beneficiary');
     } finally {
       setIsSavingBeneficiary(false);
     }
@@ -2275,7 +2275,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         showToast(res?.message || 'Error completing bill payment');
       }
     } catch (err) {
-      showToast('Error completing bill payment');
+      showToast(err?.message || 'Error completing bill payment');
     } finally {
       setIsSubmittingBbps(false);
     }

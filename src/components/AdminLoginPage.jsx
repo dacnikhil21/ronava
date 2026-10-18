@@ -76,7 +76,7 @@ export default function AdminLoginPage({ onLoginSuccess, onBackToHome }) {
       }
     } catch (err) {
       console.error(err);
-      setLoginError('Authentication error. Please verify your connection.');
+      setLoginError(err?.message || 'Authentication error. Please verify your connection.');
     } finally {
       setIsLoading(false);
     }

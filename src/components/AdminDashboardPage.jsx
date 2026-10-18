@@ -41,7 +41,10 @@ import {
   clawbackTransaction,
   purgeAllTestAccounts,
   deleteUserAccount,
-  formatTerminalDisplay
+  formatTerminalDisplay,
+  getAuthSession,
+  exportWithdrawalsExcel,
+  getUserFinancialSummary
 } from '../services/api';
 import { subscribeToAdminFeed } from '../services/supabase';
 import RonavLogo from './RonavLogo';
@@ -499,7 +502,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         triggerToast(res?.message || 'Failed to update rental status', 'error');
       }
     } catch (e) {
-      triggerToast('Error updating rental status', 'error');
+      triggerToast(e?.message || 'Error updating rental status', 'error');
     } finally {
       setUpdatingRentalId(null);
     }
@@ -782,7 +785,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       }
     } catch (err) {
       console.error(err);
-      triggerToast('Error saving channels', 'error');
+      triggerToast(err?.message || 'Error saving channels', 'error');
     } finally {
       setIsSavingChannels(false);
     }
@@ -940,11 +943,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         triggerToast(`✓ Successfully created ${onboardForm.role}!`, 'success');
         fetchAdminData();
       } else {
-        triggerToast(res.message || 'Failed to create user', 'error');
+        triggerToast(res?.message || 'Failed to create user', 'error');
       }
     } catch (err) {
       console.error(err);
-      triggerToast('Error creating user', 'error');
+      triggerToast(err.message || 'Error creating user', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -985,13 +988,42 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       }
     } catch (err) {
       console.error(err);
-      triggerToast('Connection error processing payout', 'error');
+      triggerToast(err?.message || 'Connection error processing payout', 'error');
     } finally {
       setActionProcessingMap(prev => {
         const next = { ...prev };
         delete next[`payout_${id}`];
         return next;
       });
+    }
+  };
+
+  // Batch Payout Disbursal Handler
+  const handleBatchPayoutDisbursal = async (items, batchUtr, remark) => {
+    if (!items || items.length === 0) return;
+    if (!batchUtr || !batchUtr.trim()) {
+      triggerToast('⚠️ Batch UTR / Reference number is required.', 'error');
+      return;
+    }
+    setBatchDisbursalModal(prev => ({ ...prev, isSubmitting: true }));
+    try {
+      const cleanUtr = batchUtr.trim().toUpperCase();
+      const finalRemark = remark || 'Settled via Bank Batch';
+      let successCount = 0;
+      for (const item of items) {
+        const res = await verifyWithdrawal(item.id, 'APPROVE', finalRemark, cleanUtr);
+        if (res && res.success) {
+          successCount++;
+        }
+      }
+      triggerToast(`✓ Successfully disbursed ${successCount} payout(s) with UTR ${cleanUtr}!`, 'success');
+      setBatchDisbursalModal(null);
+      fetchAdminData();
+    } catch (err) {
+      console.error(err);
+      triggerToast(err?.message || 'Error processing batch disbursal', 'error');
+    } finally {
+      setBatchDisbursalModal(prev => prev ? ({ ...prev, isSubmitting: false }) : null);
     }
   };
 
@@ -1015,7 +1047,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       }
     } catch (err) {
       console.error(err);
-      triggerToast('Connection error verifying transaction', 'error');
+      triggerToast(err?.message || 'Connection error verifying transaction', 'error');
     } finally {
       setActionProcessingMap(prev => {
         const next = { ...prev };
@@ -1042,7 +1074,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       }
     } catch (err) {
       console.error('handleClawbackTransaction error:', err);
-      triggerToast('Connection error cancelling transaction', 'error');
+      triggerToast(err?.message || 'Connection error cancelling transaction', 'error');
     } finally {
       setActionProcessingMap(prev => {
         const next = { ...prev };
@@ -1877,7 +1909,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         triggerToast(res?.message || 'Failed to update inquiry status', 'error');
       }
     } catch (e) {
-      triggerToast('Error updating inquiry status', 'error');
+      triggerToast(e?.message || 'Error updating inquiry status', 'error');
     }
   };
 
@@ -1904,7 +1936,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         triggerToast(res?.message || 'Failed to update status', 'error');
       }
     } catch (e) {
-      triggerToast('Error updating partner status', 'error');
+      triggerToast(e?.message || 'Error updating partner status', 'error');
     }
   };
 
@@ -1940,7 +1972,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         triggerToast(res?.message || 'Failed to update partner details', 'error');
       }
     } catch (e) {
-      triggerToast('Error updating partner details', 'error');
+      triggerToast(e?.message || 'Error updating partner details', 'error');
     }
   };
 
@@ -1985,7 +2017,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         setResetPassModal(prev => ({ ...prev, isSubmitting: false }));
       }
     } catch (e) {
-      triggerToast('Error updating password', 'error');
+      triggerToast(e?.message || 'Error updating password', 'error');
       setResetPassModal(prev => ({ ...prev, isSubmitting: false }));
     }
   };

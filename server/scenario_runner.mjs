@@ -3,6 +3,7 @@
 // Executes all scenarios, runs consistency checker after EVERY scenario,
 // saves screenshots to /audit/screens/scenarios/, and validates 100% ledger consistency.
 
+import 'dotenv/config';
 process.env.TEST_DATABASE_URL = process.env.TEST_DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ronav_test_db';
 
 import assert from 'node:assert/strict';

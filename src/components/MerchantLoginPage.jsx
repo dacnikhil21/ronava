@@ -51,7 +51,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
         setForgotError(res?.message || 'No registered account found.');
       }
     } catch (err) {
-      setForgotError('Connection error verifying account.');
+      setForgotError(err?.message || 'Connection error verifying account.');
     } finally {
       setIsResetting(false);
     }
@@ -120,7 +120,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
       }
     } catch (err) {
       console.error(err);
-      setLoginError('Authentication error. Please verify your connection.');
+      setLoginError(err?.message || 'Authentication error. Please verify your connection.');
     } finally {
       setIsLoading(false);
     }
