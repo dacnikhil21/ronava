@@ -1,15 +1,17 @@
 import pg from 'pg';
 
 const { Pool } = pg;
-const connectionString = process.env.TEST_DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ronav_test_db';
 
-export const testPool = new Pool({
-  connectionString,
-  ssl: false
-});
+export function getTestPool(targetUrl) {
+  const connectionString = targetUrl || process.env.TEST_DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ronav_scenario_db';
+  return new Pool({ connectionString, ssl: false });
+}
 
-export async function resetTestDatabase() {
-  const client = await testPool.connect();
+export const testPool = getTestPool();
+
+export async function resetTestDatabase(targetUrl) {
+  const pool = getTestPool(targetUrl);
+  const client = await pool.connect();
   try {
     await client.query('BEGIN');
     

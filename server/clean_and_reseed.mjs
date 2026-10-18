@@ -11,15 +11,19 @@ import { TEST_PASSWORD } from './test_config.js';
 import { hashPassword } from './security.js';
 const { Pool } = pg;
 
-const pool = new Pool({
-  connectionString: process.env.TEST_DATABASE_URL,
-  ssl: false
-});
+export async function cleanAndReseed(targetUrl) {
+  const dbUrl = targetUrl || process.env.TEST_DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ronav_scenario_db';
+  if (dbUrl.includes('ronav_test_db') && process.env.ALLOW_RESEED_TEST_DB !== 'true') {
+    throw new Error('SAFETY_VIOLATION: cleanAndReseed() cannot be executed on ronav_test_db with hand-made accounts! Use ronav_scenario_db.');
+  }
+  process.env.TEST_DATABASE_URL = dbUrl;
+  console.log(`[Clean & Reseed] Initializing clean database schema in ${dbUrl}...`);
+  await resetTestDatabase(dbUrl);
 
-export async function cleanAndReseed() {
-  console.log('[Clean & Reseed] Initializing clean database schema in ronav_test_db...');
-  await resetTestDatabase();
-
+  const pool = new Pool({
+    connectionString: dbUrl,
+    ssl: false
+  });
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

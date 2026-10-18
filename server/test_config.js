@@ -61,6 +61,38 @@ export const TEST_USERS = {
     password: TEST_PASSWORD,
     loginPath: '/#merchant-login',
     expectedHeading: 'Merchant Operational Workspace'
+  },
+  MST1002: {
+    id: 'MST1002',
+    role: 'MASTER',
+    name: 'Master Partner',
+    password: TEST_PASSWORD,
+    loginPath: '/#merchant-login',
+    expectedHeading: 'Merchant Operational Workspace'
+  },
+  DD1001: {
+    id: 'DD1001',
+    role: 'DISTRICT_DISTRIBUTOR',
+    name: 'District Partner',
+    password: TEST_PASSWORD,
+    loginPath: '/#merchant-login',
+    expectedHeading: 'Merchant Operational Workspace'
+  },
+  DIST1001: {
+    id: 'DIST1001',
+    role: 'DISTRIBUTOR',
+    name: 'Area Partner',
+    password: TEST_PASSWORD,
+    loginPath: '/#merchant-login',
+    expectedHeading: 'Merchant Operational Workspace'
+  },
+  MID1001: {
+    id: 'MID1001',
+    role: 'MERCHANT',
+    name: 'Hand-made Merchant Store',
+    password: TEST_PASSWORD,
+    loginPath: '/#merchant-login',
+    expectedHeading: 'Merchant Operational Workspace'
   }
 };
 
@@ -100,11 +132,11 @@ export async function performConfirmedLogin(page, userId, { baseUrl = 'http://lo
   await page.fill('input[type="password"]', user.password);
 
   // 2. Click Submit
-  const submitBtn = page.locator('button[type="submit"], button:has-text("Login"), button:has-text("Secure Admin Login"), button:has-text("Sign In")').first();
+  const submitBtn = page.locator('button[type="submit"], button:has-text("SECURE LOGIN"), button:has-text("Secure Admin Login"), button:has-text("Login"), button:has-text("Sign In")').first();
   await submitBtn.click();
 
   // 3. Confirm login form is completely gone
-  const loginFormSelector = isAdm ? 'button:has-text("Secure Admin Login")' : 'button:has-text("Sign In")';
+  const loginFormSelector = isAdm ? 'button:has-text("Secure Admin Login")' : 'button:has-text("SECURE LOGIN")';
   try {
     await page.waitForSelector(loginFormSelector, { state: 'detached', timeout: 10000 });
   } catch (timeoutErr) {

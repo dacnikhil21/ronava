@@ -3643,7 +3643,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       ₹{totalVolumeDisplay}
                     </h3>
                     <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 700 }}>
-                      All Shops Combined
+                      All Channels Combined
                     </span>
                   </div>
 
@@ -3678,7 +3678,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       </h3>
                     )}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.625rem', color: '#047857', fontWeight: 700 }}>Company Earnings</span>
+                      <span style={{ fontSize: '0.625rem', color: '#047857', fontWeight: 700 }}>Company Earnings (All Channels)</span>
                       <span style={{ fontSize: '0.625rem', color: '#059669', fontWeight: 800 }}>Inspect 6 Tiers →</span>
                     </div>
                   </div>

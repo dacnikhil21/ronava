@@ -138,7 +138,7 @@ export async function calculateUserChannelBalances(userId) {
              SUM(CASE WHEN amount_paise > 0 THEN amount_paise ELSE 0 END) as credited_paise,
              SUM(CASE WHEN amount_paise < 0 THEN -amount_paise ELSE 0 END) as debited_paise,
              SUM(amount_paise) as net_paise,
-             SUM(CASE WHEN type = 'commission' THEN amount_paise ELSE 0 END) as commission_paise
+             SUM(CASE WHEN type IN ('commission', 'adjustment') THEN amount_paise ELSE 0 END) as commission_paise
       FROM financial_ledger
       WHERE UPPER(user_id) = UPPER($1)
       GROUP BY COALESCE(channel, 'pinelabs')
