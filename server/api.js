@@ -133,48 +133,93 @@ export function resolveUserBuyRate(user, pos, isInstant = false, targetChannel =
 export async function calculateUserChannelBalances(userId) {
   try {
     const pool = getDbPool();
-    const balances = await getWalletBalances(pool, userId);
     const ledgerRows = await pgQuery(`
       SELECT COALESCE(channel, 'pinelabs') as channel,
              SUM(CASE WHEN amount_paise > 0 THEN amount_paise ELSE 0 END) as credited_paise,
              SUM(CASE WHEN amount_paise < 0 THEN -amount_paise ELSE 0 END) as debited_paise,
-             SUM(amount_paise) as net_paise
+             SUM(amount_paise) as net_paise,
+             SUM(CASE WHEN type = 'commission' THEN amount_paise ELSE 0 END) as commission_paise
       FROM financial_ledger
       WHERE UPPER(user_id) = UPPER($1)
-      GROUP BY channel
+      GROUP BY COALESCE(channel, 'pinelabs')
     `, [userId]);
 
+    const salesRows = await pgQuery(`
+      SELECT COALESCE(channel, provider, 'pinelabs') as channel,
+             SUM(amount_paise) as sales_paise
+      FROM transactions
+      WHERE UPPER(merchant_id) = UPPER($1)
+        AND UPPER(status) = 'APPROVED'
+      GROUP BY COALESCE(channel, provider, 'pinelabs')
+    `, [userId]);
+
+    const wRows = await pgQuery(`
+      SELECT COALESCE(channel, 'pinelabs') as channel,
+             SUM(CASE WHEN UPPER(status) IN ('COMPLETED', 'PAID', 'SUCCESS') THEN amount_paise ELSE 0 END) as sent_paise,
+             SUM(CASE WHEN UPPER(status) IN ('PENDING', 'SUBMITTED_TO_BANK', 'PROCESSING', 'APPROVED') THEN amount_paise ELSE 0 END) as transit_paise
+      FROM withdrawals
+      WHERE UPPER(merchant_id) = UPPER($1)
+      GROUP BY COALESCE(channel, 'pinelabs')
+    `, [userId]);
+
+    const normalizeCh = (raw) => {
+      const lower = (raw || 'pinelabs').toLowerCase();
+      if (lower.includes('swiff')) return 'payswiff';
+      if (lower.includes('qr')) return 'qr';
+      return 'pinelabs';
+    };
+
     const channels = {
-      pinelabs: { volume: 0, credited: 0, debited: 0, pending: 0, available_balance: 0, withdrawable_balance: 0 },
-      payswiff: { volume: 0, credited: 0, debited: 0, pending: 0, available_balance: 0, withdrawable_balance: 0 },
-      qr:       { volume: 0, credited: 0, debited: 0, pending: 0, available_balance: 0, withdrawable_balance: 0 },
+      pinelabs: { balance: 0, available: 0, available_balance: 0, withdrawable_balance: 0, volume: 0, sales: 0, credited: 0, debited: 0, sent_to_bank: 0, in_transit: 0, commission: 0, pending: 0 },
+      payswiff: { balance: 0, available: 0, available_balance: 0, withdrawable_balance: 0, volume: 0, sales: 0, credited: 0, debited: 0, sent_to_bank: 0, in_transit: 0, commission: 0, pending: 0 },
+      qr:       { balance: 0, available: 0, available_balance: 0, withdrawable_balance: 0, volume: 0, sales: 0, credited: 0, debited: 0, sent_to_bank: 0, in_transit: 0, commission: 0, pending: 0 },
     };
 
     for (const r of ledgerRows) {
-      const rawCh = (r.channel || 'pinelabs').toLowerCase();
-      const ch = rawCh.includes('swiff') ? 'payswiff' : (rawCh.includes('qr') ? 'qr' : 'pinelabs');
+      const ch = normalizeCh(r.channel);
       const cred = Number(r.credited_paise || 0) / 100;
       const deb = Number(r.debited_paise || 0) / 100;
-      const net = Math.max(0, Number(r.net_paise || 0) / 100);
-      channels[ch].volume += cred;
+      const net = Number(r.net_paise || 0) / 100;
+      const comm = Number(r.commission_paise || 0) / 100;
       channels[ch].credited += cred;
       channels[ch].debited += deb;
+      channels[ch].balance = net;
       channels[ch].available_balance = net;
-      channels[ch].withdrawable_balance = net;
+      channels[ch].commission = comm;
     }
 
-    const totalWithdrawable = Number(balances.withdrawable_balance_paise) / 100;
+    for (const s of salesRows) {
+      const ch = normalizeCh(s.channel);
+      const sales = Number(s.sales_paise || 0) / 100;
+      channels[ch].sales = sales;
+      channels[ch].volume = sales;
+    }
+
+    for (const w of wRows) {
+      const ch = normalizeCh(w.channel);
+      channels[ch].sent_to_bank = Number(w.sent_paise || 0) / 100;
+      channels[ch].in_transit = Number(w.transit_paise || 0) / 100;
+      channels[ch].pending = Number(w.transit_paise || 0) / 100;
+    }
+
+    // Shared Reserve Rule:
+    // Max withdrawable from channel C = max(0, min(balance of C, total of all channels - 500))
+    const totalBalance = Object.values(channels).reduce((sum, c) => sum + c.balance, 0);
+    const overallAvailable = Math.max(0, totalBalance - 500);
+
     for (const ch of Object.keys(channels)) {
-      channels[ch].withdrawable_balance = Math.min(channels[ch].available_balance, totalWithdrawable);
+      const withdr = Math.max(0, Math.min(channels[ch].balance, overallAvailable));
+      channels[ch].withdrawable_balance = withdr;
+      channels[ch].available = withdr;
     }
 
     return channels;
   } catch (err) {
     console.error('[calculateUserChannelBalances] Error:', err);
     return {
-      pinelabs: { volume: 0, credited: 0, debited: 0, pending: 0, available_balance: 0, withdrawable_balance: 0 },
-      payswiff: { volume: 0, credited: 0, debited: 0, pending: 0, available_balance: 0, withdrawable_balance: 0 },
-      qr:       { volume: 0, credited: 0, debited: 0, pending: 0, available_balance: 0, withdrawable_balance: 0 },
+      pinelabs: { balance: 0, available: 0, available_balance: 0, withdrawable_balance: 0, volume: 0, sales: 0, credited: 0, debited: 0, sent_to_bank: 0, in_transit: 0, commission: 0, pending: 0 },
+      payswiff: { balance: 0, available: 0, available_balance: 0, withdrawable_balance: 0, volume: 0, sales: 0, credited: 0, debited: 0, sent_to_bank: 0, in_transit: 0, commission: 0, pending: 0 },
+      qr:       { balance: 0, available: 0, available_balance: 0, withdrawable_balance: 0, volume: 0, sales: 0, credited: 0, debited: 0, sent_to_bank: 0, in_transit: 0, commission: 0, pending: 0 },
     };
   }
 }
@@ -3252,6 +3297,145 @@ export async function handleApiRequest(req, res) {
           let networkSalesPaise = 0n;
           let networkCommPaise = 0n;
 
+          // Per-channel volumes for all downline transactions
+          const downlineChannelVolRes = userIds.length > 0 ? await client.query(`
+            SELECT 
+              COALESCE(channel, provider, 'pinelabs') as channel,
+              COALESCE(SUM(amount_paise), 0) as total_vol_paise,
+              COALESCE(SUM(CASE WHEN transaction_date = CURRENT_DATE THEN amount_paise ELSE 0 END), 0) as today_vol_paise
+            FROM transactions
+            WHERE status != 'REVERSED' AND UPPER(merchant_id) = ANY($1)
+            GROUP BY COALESCE(channel, provider, 'pinelabs')
+          `, [userIds.map(id => id.toUpperCase())]) : { rows: [] };
+
+          const channelVolumes = {
+            pinelabs: 0,
+            payswiff: 0,
+            qr: 0,
+            all: 0,
+            today_pinelabs: 0,
+            today_payswiff: 0,
+            today_qr: 0,
+            today_all: 0
+          };
+
+          for (const row of downlineChannelVolRes.rows) {
+            const rawCh = (row.channel || 'pinelabs').toLowerCase();
+            const ch = rawCh.includes('swiff') ? 'payswiff' : (rawCh.includes('qr') ? 'qr' : 'pinelabs');
+            const totalRupees = Number(BigInt(row.total_vol_paise)) / 100;
+            const todayRupees = Number(BigInt(row.today_vol_paise)) / 100;
+            channelVolumes[ch] += totalRupees;
+            channelVolumes[`today_${ch}`] += todayRupees;
+            channelVolumes.all += totalRupees;
+            channelVolumes.today_all += todayRupees;
+          }
+
+          // Authoritative Creator Commission per channel from financial_ledger
+          const creatorChannelCommRes = await client.query(`
+            SELECT 
+              COALESCE(channel, 'pinelabs') as channel,
+              COALESCE(SUM(amount_paise), 0) as total_comm_paise,
+              COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE THEN amount_paise ELSE 0 END), 0) as today_comm_paise
+            FROM financial_ledger
+            WHERE (type = 'commission' OR (type = 'adjustment' AND (reference_type = 'REVERSAL' OR metadata->>'original_type' = 'commission')))
+              AND UPPER(user_id) = UPPER($1)
+            GROUP BY COALESCE(channel, 'pinelabs')
+          `, [creatorId]);
+
+          const channelCommissions = {
+            pinelabs: 0,
+            payswiff: 0,
+            qr: 0,
+            today_pinelabs: 0,
+            today_payswiff: 0,
+            today_qr: 0
+          };
+
+          for (const row of creatorChannelCommRes.rows) {
+            const rawCh = (row.channel || 'pinelabs').toLowerCase();
+            const ch = rawCh.includes('swiff') ? 'payswiff' : (rawCh.includes('qr') ? 'qr' : 'pinelabs');
+            const totalRupees = Number(BigInt(row.total_comm_paise)) / 100;
+            const todayRupees = Number(BigInt(row.today_comm_paise)) / 100;
+            channelCommissions[ch] += totalRupees;
+            channelCommissions[`today_${ch}`] += todayRupees;
+          }
+
+          // Rates for creator and partners to compute exact margin cuts
+          const allRateUserIds = [creatorId, ...userIds].map(id => id.toUpperCase());
+          const rateRows = await client.query(`
+            SELECT user_id, channel, settlement_mode, rate_bps
+            FROM user_channel_rates
+            WHERE effective_to IS NULL
+              AND UPPER(user_id) = ANY($1)
+            ORDER BY effective_from DESC
+          `, [allRateUserIds]);
+
+          const ratesByUser = {};
+          for (const r of rateRows.rows) {
+            const uid = (r.user_id || '').toUpperCase();
+            if (!ratesByUser[uid]) ratesByUser[uid] = {};
+            const ch = (r.channel || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            const mode = (r.settlement_mode || 'NONE').toUpperCase();
+            if (!ratesByUser[uid][ch]) ratesByUser[uid][ch] = {};
+            if (ratesByUser[uid][ch][mode] === undefined) {
+              ratesByUser[uid][ch][mode] = Number(r.rate_bps);
+            }
+          }
+
+          const creatorRates = ratesByUser[creatorId.toUpperCase()] || {};
+
+          // Partner-specific channel volumes
+          const partnerChannelVolRes = userIds.length > 0 ? await client.query(`
+            SELECT 
+              merchant_id,
+              COALESCE(channel, provider, 'pinelabs') as channel,
+              COALESCE(SUM(amount_paise), 0) as total_vol_paise
+            FROM transactions
+            WHERE status != 'REVERSED' AND UPPER(merchant_id) = ANY($1)
+            GROUP BY merchant_id, COALESCE(channel, provider, 'pinelabs')
+          `, [userIds.map(id => id.toUpperCase())]) : { rows: [] };
+
+          const partnerVolMap = {};
+          for (const row of partnerChannelVolRes.rows) {
+            const mid = (row.merchant_id || '').toUpperCase();
+            if (!partnerVolMap[mid]) partnerVolMap[mid] = { pinelabs: 0, payswiff: 0, qr: 0 };
+            const rawCh = (row.channel || 'pinelabs').toLowerCase();
+            const ch = rawCh.includes('swiff') ? 'payswiff' : (rawCh.includes('qr') ? 'qr' : 'pinelabs');
+            partnerVolMap[mid][ch] += Number(BigInt(row.total_vol_paise)) / 100;
+          }
+
+          // Partner-specific commissions earned by creator from that partner
+          const partnerCommRes = userIds.length > 0 ? await client.query(`
+            SELECT 
+              t.merchant_id,
+              COALESCE(fl.channel, 'pinelabs') as channel,
+              COALESCE(SUM(fl.amount_paise), 0) as total_comm_paise
+            FROM financial_ledger fl
+            INNER JOIN transactions t ON fl.reference_id = t.id
+            WHERE (fl.type = 'commission' OR (fl.type = 'adjustment' AND (fl.reference_type = 'REVERSAL' OR fl.metadata->>'original_type' = 'commission')))
+              AND UPPER(fl.user_id) = UPPER($1)
+              AND UPPER(t.merchant_id) = ANY($2)
+            GROUP BY t.merchant_id, COALESCE(fl.channel, 'pinelabs')
+          `, [creatorId, userIds.map(id => id.toUpperCase())]) : { rows: [] };
+
+          const partnerCommMap = {};
+          for (const row of partnerCommRes.rows) {
+            const mid = (row.merchant_id || '').toUpperCase();
+            if (!partnerCommMap[mid]) partnerCommMap[mid] = { pinelabs: 0, payswiff: 0, qr: 0 };
+            const rawCh = (row.channel || 'pinelabs').toLowerCase();
+            const ch = rawCh.includes('swiff') ? 'payswiff' : (rawCh.includes('qr') ? 'qr' : 'pinelabs');
+            partnerCommMap[mid][ch] += Number(BigInt(row.total_comm_paise)) / 100;
+          }
+
+          const getBps = (ratesObj, ch) => {
+            const chObj = ratesObj[ch] || {};
+            return chObj.T1 !== undefined ? chObj.T1 : (chObj.NONE !== undefined ? chObj.NONE : chObj.INSTANT);
+          };
+
+          const cPineBps = getBps(creatorRates, 'pinelabs') || 0;
+          const cSwiffBps = getBps(creatorRates, 'payswiff') || 0;
+          const cQrBps = getBps(creatorRates, 'qr') || 0;
+
           const partners = downlineUsers.map(u => {
             const c = commMap[u.id] || { total_comm_paise: '0', today_comm_paise: '0' };
             const s = salesMap[u.id] || { total_sales_paise: '0', today_sales_paise: '0' };
@@ -3259,6 +3443,21 @@ export async function handleApiRequest(req, res) {
             const salesRupees = Number(BigInt(s.total_sales_paise)) / 100;
             networkSalesPaise += BigInt(s.total_sales_paise);
             networkCommPaise += BigInt(c.total_comm_paise);
+
+            const mid = (u.id || '').toUpperCase();
+            const pRates = ratesByUser[mid] || {};
+            const pPineBps = getBps(pRates, 'pinelabs');
+            const pSwiffBps = getBps(pRates, 'payswiff');
+            const pQrBps = getBps(pRates, 'qr');
+
+            const channelMargins = {
+              pinelabs: pPineBps !== undefined ? Number(((pPineBps - cPineBps) / 100).toFixed(2)) : 0,
+              payswiff: pSwiffBps !== undefined ? Number(((pSwiffBps - cSwiffBps) / 100).toFixed(2)) : 0,
+              qr: pQrBps !== undefined ? Number(((pQrBps - cQrBps) / 100).toFixed(2)) : 0
+            };
+
+            const pVol = partnerVolMap[mid] || { pinelabs: 0, payswiff: 0, qr: 0 };
+            const pComm = partnerCommMap[mid] || { pinelabs: 0, payswiff: 0, qr: 0 };
 
             return {
               ...u,
@@ -3268,7 +3467,11 @@ export async function handleApiRequest(req, res) {
               total_commission_paise: c.total_comm_paise,
               today_commission_paise: c.today_comm_paise,
               total_sales_paise: s.total_sales_paise,
-              today_sales_paise: s.today_sales_paise
+              today_sales_paise: s.today_sales_paise,
+              channel_margins: channelMargins,
+              channel_volumes: pVol,
+              channel_commissions: pComm,
+              commission_rate_pct: channelMargins.pinelabs || 0
             };
           });
 
@@ -3279,7 +3482,7 @@ export async function handleApiRequest(req, res) {
               COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE THEN amount_paise ELSE 0 END), 0) as today_comm_paise
             FROM financial_ledger
             WHERE (type = 'commission' OR (type = 'adjustment' AND (reference_type = 'REVERSAL' OR metadata->>'original_type' = 'commission')))
-              AND user_id = $1
+              AND UPPER(user_id) = UPPER($1)
           `, [creatorId]);
           const creatorComm = creatorCommRes.rows[0] || { total_comm_paise: '0', today_comm_paise: '0' };
           const creatorCommRupees = (Number(BigInt(creatorComm.total_comm_paise)) / 100).toFixed(2);
@@ -3298,7 +3501,9 @@ export async function handleApiRequest(req, res) {
             network_sales_paise: networkSalesPaise.toString(),
             network_commission_paise: networkCommPaise.toString(),
             network_sales_rupees: (Number(networkSalesPaise) / 100).toFixed(2),
-            network_commission_rupees: (Number(networkCommPaise) / 100).toFixed(2)
+            network_commission_rupees: (Number(networkCommPaise) / 100).toFixed(2),
+            channel_volumes: channelVolumes,
+            channel_commissions: channelCommissions
           });
         } finally {
           client.release();

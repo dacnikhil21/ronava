@@ -1053,11 +1053,11 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         available_balance: backendCh.available_balance,
         withdrawable_balance: backendCh.withdrawable_balance,
         active_hold: backendCh.available_balance > 0 ? 500.0 : 0.0,
-        total_sales: backendCh.volume,
+        total_sales: backendCh.sales !== undefined ? backendCh.sales : backendCh.volume,
         received_sales: backendCh.credited,
-        commission_earned: earnedCommission,
-        pending_balance: backendCh.pending,
-        withdrawn_amount: backendCh.debited
+        commission_earned: earnedCommission || backendCh.commission || 0,
+        pending_balance: backendCh.in_transit !== undefined ? backendCh.in_transit : backendCh.pending,
+        withdrawn_amount: backendCh.sent_to_bank !== undefined ? backendCh.sent_to_bank : backendCh.debited
       };
     }
 
@@ -2756,12 +2756,12 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                         <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10B981', display: 'inline-block' }} />
                         <span style={{ fontSize: '0.65rem', color: '#64748B', fontWeight: 600 }}>
-                          {selectedMachineKey === 'qr' ? 'Instant Credited Balance' : 'Available for Withdrawal'}
+                          {selectedMachineKey === 'qr' ? 'Instant Credited Balance' : 'Channel Balance'}
                         </span>
                       </div>
-                      {dbAvailableBalance !== null && (
-                        <span style={{ fontSize: '0.65rem', color: '#475569', fontWeight: 700 }}>
-                          • Total Wallet: ₹{dbAvailableBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      {activeMachineWallet.withdrawable_balance !== undefined && activeMachineWallet.withdrawable_balance !== null && (
+                        <span style={{ fontSize: '0.65rem', color: '#059669', fontWeight: 700 }}>
+                          • Available (after reserve): ₹{activeMachineWallet.withdrawable_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                         </span>
                       )}
                       {activeMachineWallet.pending_balance > 0 && (
@@ -2827,43 +2827,53 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                   )}
                 </div>
 
-                {/* 3 Bottom Metrics Recessed Surface: Total Sales, Sent to Bank, In Transit */}
+                {/* 4 Bottom Metrics Recessed Surface: Total Sales, Sent to Bank, In Transit, Commission */}
                 <div style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(3, 1fr)',
+                  gridTemplateColumns: 'repeat(4, 1fr)',
                   background: '#F8FAFC',
                   borderRadius: '12px',
                   border: '1px solid #F1F5F9',
-                  padding: '0.65rem 0.35rem',
+                  padding: '0.65rem 0.25rem',
                   textAlign: 'center'
                 }}>
                   {/* Col 1: Total Sales */}
-                  <div style={{ padding: '0 0.25rem' }}>
-                    <span style={{ color: '#64748B', display: 'block', fontSize: '0.625rem', fontWeight: 600, marginBottom: '2px', whiteSpace: 'nowrap' }}>
-                      {selectedMachineKey === 'qr' ? 'UPI Collected' : 'Total Sales'}
+                  <div style={{ padding: '0 0.15rem' }}>
+                    <span style={{ color: '#64748B', display: 'block', fontSize: '0.6rem', fontWeight: 600, marginBottom: '2px', whiteSpace: 'nowrap' }}>
+                      {selectedMachineKey === 'qr' ? 'UPI Volume' : 'Total Sales'}
                     </span>
-                    <strong style={{ color: '#0F172A', fontSize: '0.85rem', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                    <strong style={{ color: '#0F172A', fontSize: '0.8rem', fontWeight: 800, whiteSpace: 'nowrap' }}>
                       ₹{(activeMachineWallet.total_sales || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                     </strong>
                   </div>
 
                   {/* Col 2: Sent to Bank */}
-                  <div style={{ padding: '0 0.25rem', borderLeft: '1px solid #E2E8F0' }}>
-                    <span style={{ color: '#64748B', display: 'block', fontSize: '0.625rem', fontWeight: 600, marginBottom: '2px', whiteSpace: 'nowrap' }}>
+                  <div style={{ padding: '0 0.15rem', borderLeft: '1px solid #E2E8F0' }}>
+                    <span style={{ color: '#64748B', display: 'block', fontSize: '0.6rem', fontWeight: 600, marginBottom: '2px', whiteSpace: 'nowrap' }}>
                       Sent to Bank
                     </span>
-                    <strong style={{ color: '#059669', fontSize: '0.85rem', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                    <strong style={{ color: '#059669', fontSize: '0.8rem', fontWeight: 800, whiteSpace: 'nowrap' }}>
                       ₹{(activeMachineWallet.withdrawn_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                     </strong>
                   </div>
 
                   {/* Col 3: In Transit */}
-                  <div style={{ padding: '0 0.25rem', borderLeft: '1px solid #E2E8F0' }}>
-                    <span style={{ color: '#64748B', display: 'block', fontSize: '0.625rem', fontWeight: 600, marginBottom: '2px', whiteSpace: 'nowrap' }}>
+                  <div style={{ padding: '0 0.15rem', borderLeft: '1px solid #E2E8F0' }}>
+                    <span style={{ color: '#64748B', display: 'block', fontSize: '0.6rem', fontWeight: 600, marginBottom: '2px', whiteSpace: 'nowrap' }}>
                       {selectedMachineKey === 'qr' ? 'Instant Cleared' : 'In Transit'}
                     </span>
-                    <strong style={{ color: selectedMachineKey === 'qr' ? '#059669' : '#D97706', fontSize: '0.85rem', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                    <strong style={{ color: selectedMachineKey === 'qr' ? '#059669' : '#D97706', fontSize: '0.8rem', fontWeight: 800, whiteSpace: 'nowrap' }}>
                       {selectedMachineKey === 'qr' ? '✓ Instant' : `₹${(activeMachineWallet.pending_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`}
+                    </strong>
+                  </div>
+
+                  {/* Col 4: Commission */}
+                  <div style={{ padding: '0 0.15rem', borderLeft: '1px solid #E2E8F0' }}>
+                    <span style={{ color: '#64748B', display: 'block', fontSize: '0.6rem', fontWeight: 600, marginBottom: '2px', whiteSpace: 'nowrap' }}>
+                      Commission
+                    </span>
+                    <strong style={{ color: '#7C3AED', fontSize: '0.8rem', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                      ₹{(activeMachineWallet.commission_earned || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                     </strong>
                   </div>
                 </div>
@@ -7713,8 +7723,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                 </div>
                                 <span style={{ fontSize: '0.59rem', color: '#64748B', fontWeight: 700 }}>
                                   {networkChannelFilter === 'ALL' 
-                                    ? `${p.commission_rate_pct}% margin` 
-                                    : `${networkSummaryStats.label} (${(p.channel_margins?.[networkChannelFilter] ?? p.commission_rate_pct)}% margin)`}
+                                    ? `${p.commission_rate_pct ?? 0}% margin`
+                                    : `${networkSummaryStats.label} (${(p.channel_margins?.[networkChannelFilter] ?? p.commission_rate_pct ?? 0)}% margin)`}
                                 </span>
                               </div>
 

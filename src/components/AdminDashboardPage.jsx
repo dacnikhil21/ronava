@@ -2902,7 +2902,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 const channelWithdrawn = parseFloat(viewingUserDossier.withdrawn_amount || 0);
 
                 const totalUserBalance = parseFloat(viewingUserDossier.available_balance || 0);
-                const activeDossierBalance = totalUserBalance;
+                const chKey = (dossierMachineFilter || 'ALL').toLowerCase().replace(/[^a-z0-9]/g, '');
+                const chBal = viewingUserDossier.channel_balances?.[chKey.includes('swiff') ? 'payswiff' : (chKey.includes('qr') ? 'qr' : 'pinelabs')];
+                const activeDossierBalance = (dossierMachineFilter !== 'ALL' && chBal)
+                  ? (chBal.available_balance ?? chBal.balance ?? 0)
+                  : totalUserBalance;
 
                 return (
                   <div style={{

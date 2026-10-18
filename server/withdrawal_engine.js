@@ -20,36 +20,55 @@ export async function quoteWithdrawal(clientOrPool, {
     throw new Error('INVALID_WITHDRAWAL_AMOUNT: Amount must be greater than 0 paise.');
   }
 
+  const cleanChannel = (channel || 'pinelabs').trim().toLowerCase();
+  const validChannels = ['pinelabs', 'payswiff', 'qr'];
+  if (!validChannels.includes(cleanChannel)) {
+    throw new Error(`INVALID_CHANNEL: "${channel}" is not a valid channel.`);
+  }
+
   // 1. Fetch live balance and reserve requirement
   const balances = await getWalletBalances(clientOrPool, userId);
 
-  // 2. Resolve fee basis points from settings table
+  // 2. Fetch channel balance directly from financial_ledger
+  const channelLedgerRes = await clientOrPool.query(`
+    SELECT COALESCE(SUM(amount_paise), 0)::bigint AS channel_balance_paise
+    FROM financial_ledger
+    WHERE UPPER(user_id) = UPPER($1) AND channel = $2
+  `, [userId, cleanChannel]);
+  const channelBalancePaise = BigInt(channelLedgerRes.rows[0]?.channel_balance_paise || 0);
+
+  const totalBalancePaise = balances.balance_paise;
+  const reserveRequiredPaise = balances.reserve_required_paise;
+  const totalAfterReserve = totalBalancePaise > reserveRequiredPaise ? totalBalancePaise - reserveRequiredPaise : 0n;
+  const maxWithdrawablePaise = channelBalancePaise > 0n 
+    ? (channelBalancePaise < totalAfterReserve ? channelBalancePaise : totalAfterReserve)
+    : 0n;
+
+  // 3. Resolve fee basis points from settings table
   const isInstant = settlementType.toUpperCase() === 'INSTANT';
   const settingKey = isInstant ? 'instant_settlement_fee_bps' : 't1_settlement_fee_bps';
   const feeSetting = await getSetting(settingKey, clientOrPool);
   const feeBps = Number(feeSetting.value_numeric || (isInstant ? 150 : 0));
 
-  // 3. Compute fee and net payout
+  // 4. Compute fee and net payout
   const feePaise = BigInt(Math.floor((Number(reqPaise) * feeBps) / 10000));
   const netPayoutPaise = reqPaise - feePaise;
 
-  // 4. Reserve compliance check
-  const availableAfterWithdrawal = balances.available_balance_paise - reqPaise;
-  const reserveCompliant = availableAfterWithdrawal >= balances.reserve_required_paise;
-  const shortfallPaise = reserveCompliant 
-    ? 0n 
-    : (balances.reserve_required_paise - availableAfterWithdrawal);
+  const reserveCompliant = reqPaise <= maxWithdrawablePaise;
+  const shortfallPaise = reserveCompliant ? 0n : (reqPaise - maxWithdrawablePaise);
 
   return {
     user_id: userId,
     requested_amount_paise: reqPaise,
     settlement_type: isInstant ? 'INSTANT' : 'T1',
-    channel,
+    channel: cleanChannel,
+    channel_balance_paise: channelBalancePaise,
+    max_withdrawable_paise: maxWithdrawablePaise,
     fee_bps: feeBps,
     fee_paise: feePaise,
     net_payout_paise: netPayoutPaise,
-    remaining_balance_paise: availableAfterWithdrawal,
-    reserve_required_paise: balances.reserve_required_paise,
+    remaining_balance_paise: maxWithdrawablePaise > reqPaise ? maxWithdrawablePaise - reqPaise : 0n,
+    reserve_required_paise: reserveRequiredPaise,
     reserve_compliant: reserveCompliant,
     shortfall_paise: shortfallPaise
   };
@@ -125,18 +144,37 @@ export async function processWithdrawalRequest(client, {
     throw new Error('WALLET_NOT_FOUND: Merchant wallet not found.');
   }
 
-  const currentBalancePaise = BigInt(walletLockRes.rows[0].balance_paise || 0);
-  const currentHeldPaise = BigInt(walletLockRes.rows[0].held_paise || 0);
-  const currentAvailablePaise = currentBalancePaise > currentHeldPaise ? currentBalancePaise - currentHeldPaise : 0n;
+  const cleanChannel = (channel || 'pinelabs').trim().toLowerCase();
+  const validChannels = ['pinelabs', 'payswiff', 'qr'];
+  if (!validChannels.includes(cleanChannel)) {
+    throw new Error(`INVALID_CHANNEL: "${channel}" is not a valid channel.`);
+  }
 
-  // 4. Reserve Check
+  // 4. Per-channel balance & Shared Reserve validation inside the locked transaction
+  const channelLedgerRes = await client.query(`
+    SELECT COALESCE(SUM(amount_paise), 0)::bigint AS channel_balance_paise
+    FROM financial_ledger
+    WHERE UPPER(user_id) = UPPER($1) AND channel = $2
+  `, [merchantId, cleanChannel]);
+  const channelBalancePaise = BigInt(channelLedgerRes.rows[0]?.channel_balance_paise || 0);
+
+  const totalBalancePaise = BigInt(walletLockRes.rows[0].balance_paise || 0);
+
   const reserveSetting = await getSetting('reserve_amount_paise', client);
-  const reserveRequiredPaise = BigInt(reserveSetting.value_numeric || 50000);
+  const reserveRequiredPaise = BigInt(reserveSetting.value_numeric || 50000); // 50,000 paise = Rs 500
 
-  if (currentAvailablePaise - reqPaise < reserveRequiredPaise) {
-    throw new Error(
-      `RESERVE_VIOLATION: Withdrawal would breach mandatory security reserve of ${reserveRequiredPaise} paise (Rs 500). Available: ${currentAvailablePaise} paise, Requested: ${reqPaise} paise.`
-    );
+  // The most withdrawable from channel C = max(0, min(balance of C, total of all channels - 500)).
+  const totalAfterReserve = totalBalancePaise > reserveRequiredPaise ? totalBalancePaise - reserveRequiredPaise : 0n;
+  const maxWithdrawablePaise = channelBalancePaise > 0n
+    ? (channelBalancePaise < totalAfterReserve ? channelBalancePaise : totalAfterReserve)
+    : 0n;
+
+  if (reqPaise > maxWithdrawablePaise) {
+    const formattedMax = (Number(maxWithdrawablePaise) / 100).toLocaleString('en-IN', {
+      minimumFractionDigits: (Number(maxWithdrawablePaise) % 100 === 0) ? 0 : 2,
+      maximumFractionDigits: 2
+    });
+    throw new Error(`You can withdraw at most Rs ${formattedMax}.`);
   }
 
   // 5. Quote fee and net payout

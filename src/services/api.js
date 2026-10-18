@@ -311,7 +311,12 @@ export async function getAllUsers() {
     }
 
     const walletMap = {};
-    wallets.forEach(w => { walletMap[w.user_id] = w; });
+    wallets.forEach(w => {
+      const uid = (w.user_id || '').toUpperCase();
+      if (!walletMap[uid]) {
+        walletMap[uid] = w;
+      }
+    });
 
     const posMap = {};
     posList.forEach(p => { posMap[p.merchant_id] = p; });
@@ -396,7 +401,12 @@ export async function getAllUsers() {
         parent_dist_id: meta.parent_dist_id,
         upline_chain: meta.upline_chain,
         upline_path_str: meta.upline_path_str,
-        available_balance: w.available_balance || u.available_balance || 0,
+        channel_balances: w.channel_balances || {
+          pinelabs: { balance: 0, available_balance: 0 },
+          payswiff: { balance: 0, available_balance: 0 },
+          qr: { balance: 0, available_balance: 0 }
+        },
+        available_balance: w.available_balance !== undefined ? w.available_balance : (u.available_balance || 0),
         total_sales: w.total_sales || u.total_sales || 0,
         pending_balance: w.pending_balance || u.pending_balance || 0,
         received_sales: w.received_sales || u.received_sales || 0,
@@ -1096,14 +1106,28 @@ export async function getDownstreamNetwork(creatorId) {
       creator_id: data.creator_id,
       partners: data.partners || [],
       partner_count: data.partner_count || 0,
-      total_commission_earned: parseFloat(data.network_commission_rupees || 0),
+      total_commission_earned: parseFloat(data.network_commission_rupees || data.total_commission_earned || 0),
       total_downline_volume: parseFloat(data.network_sales_rupees || 0),
+      today_network_profit: parseFloat(data.today_network_profit || 0),
       network_sales_paise: data.network_sales_paise,
       network_commission_paise: data.network_commission_paise,
-      channel_commissions: {
+      channel_volumes: data.channel_volumes || {
         pinelabs: 0,
         payswiff: 0,
-        qr: 0
+        qr: 0,
+        all: 0,
+        today_pinelabs: 0,
+        today_payswiff: 0,
+        today_qr: 0,
+        today_all: 0
+      },
+      channel_commissions: data.channel_commissions || {
+        pinelabs: 0,
+        payswiff: 0,
+        qr: 0,
+        today_pinelabs: 0,
+        today_payswiff: 0,
+        today_qr: 0
       }
     };
   } catch (err) {
