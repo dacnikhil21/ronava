@@ -11,6 +11,7 @@
     "test": "node server/scenario_runner.mjs",
     "test:scenarios": "node server/scenario_runner.mjs",
     "test:phase-b": "node server/test_phase_b_full_suite.mjs",
+    "test:regression": "node scripts/test_comprehensive_browser_regression.mjs",
     "lint": "node scripts/lint_check.mjs",
     "deploy": "git push origin main && node deploy_to_ec2.mjs",
     "deploy:s3": "vite build && node deploy_to_s3.mjs"
