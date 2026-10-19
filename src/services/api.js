@@ -1603,10 +1603,18 @@ export async function getPlatformPublicStats() {
 // ----------------------------------------------------
 // 12. MONTHLY POS TERMINAL RENTAL REPORT & LEDGER (ITEMS #22 & #23)
 // ----------------------------------------------------
-export async function getMonthlyRentalReport(targetMonth = '') {
+export async function getMonthlyRentalReport(targetMonth = '', isAdmin = false) {
   try {
     const query = targetMonth ? `?monthKey=${encodeURIComponent(targetMonth)}` : '';
-    const res = await fetchWithTimeout(getApiUrl(`/api/admin/pos-rentals-report${query}`));
+    let effectiveAdmin = isAdmin;
+    if (!effectiveAdmin && typeof window !== 'undefined') {
+      try {
+        const session = JSON.parse(sessionStorage.getItem('ronav_session') || localStorage.getItem('ronav_session') || '{}');
+        effectiveAdmin = (session?.role === 'ADMIN' || session?.user?.role === 'ADMIN' || session?.user?.id === 'ADM001');
+      } catch (_) {}
+    }
+    const endpoint = effectiveAdmin ? `/api/admin/pos-rentals-report${query}` : `/api/pos-rentals-report${query}`;
+    const res = await fetchWithTimeout(getApiUrl(endpoint));
     const data = await res.json();
     return data;
   } catch (err) {

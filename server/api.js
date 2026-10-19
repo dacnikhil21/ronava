@@ -2874,7 +2874,7 @@ export async function handleApiRequest(req, res) {
     }
 
     if (pathname.startsWith('/api/settings/config') && method === 'GET') {
-      requireAdmin(req);
+      requireAuth(req);
       const configKey = decodeURIComponent(pathname.replace('/api/settings/config/', '').replace('/api/settings/config', '')).trim() || 'SYS-COMMISSION-PAYOUTS';
       const rows = await pgQuery(`SELECT * FROM inquiries WHERE UPPER(id) = UPPER($1)`, [configKey]);
       let value = null;
@@ -3663,6 +3663,91 @@ export async function handleApiRequest(req, res) {
             LEFT JOIN merchant_pos p ON m.id = p.merchant_id
             WHERE m.role = 'MERCHANT'
           `)).rows;
+
+          const rentalList = [];
+          merchants.forEach(m => {
+            const plan = m.device_plan || 'RENTAL';
+            if (plan === 'RENTAL' || plan === 'CUSTOM') {
+              rentalList.push({
+                merchant_id: m.id,
+                merchant_name: m.name,
+                shop_name: m.address ? m.address.split(',')[0] : `${m.name}'s Store`,
+                mobile: m.mobile,
+                pos_provider: m.pos_provider || 'Pine Labs',
+                terminal_id: m.terminal_id || `PL-${m.id.slice(-4)}`,
+                device_plan: plan,
+                monthly_rent: parseFloat(m.monthly_rent || 499),
+                creator_id: m.creator_id,
+                creator_name: m.creator_name || 'Direct',
+                creator_role: m.creator_role || null,
+                billing_month: monthKey,
+                rental_status: 'PENDING',
+                paid_at: null,
+                remarks: ''
+              });
+            }
+          });
+
+          let totalDue = 0;
+          let totalCollected = 0;
+          let totalPending = 0;
+          let paidCount = 0;
+          let pendingCount = 0;
+
+          rentalList.forEach(r => {
+            if (r.rental_status === 'PAID') {
+              totalCollected += r.monthly_rent;
+              paidCount++;
+            } else {
+              totalPending += r.monthly_rent;
+              pendingCount++;
+            }
+            totalDue += r.monthly_rent;
+          });
+
+          return sendJson(res, 200, {
+            success: true,
+            billingMonth: monthKey,
+            summary: {
+              totalTerminals: rentalList.length,
+              totalDue: parseFloat(totalDue.toFixed(2)),
+              totalCollected: parseFloat(totalCollected.toFixed(2)),
+              totalPending: parseFloat(totalPending.toFixed(2)),
+              paidCount,
+              pendingCount
+            },
+            list: rentalList
+          });
+        } finally {
+          client.release();
+        }
+      } catch (err) {
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
+      }
+    }
+
+    // 2.6.1 User-Scoped POS Rentals Report (Non-Admin Downline Safe Read)
+    if (pathname === '/api/pos-rentals-report' && method === 'GET') {
+      const caller = requireAuth(req);
+      try {
+        const monthKey = url.searchParams.get('monthKey') || new Date().toISOString().slice(0, 7);
+        const pool = getDbPool();
+        const client = await pool.connect();
+        try {
+          const downline = await getDownlineUserIds({ query: pgQuery }, caller.id);
+          downline.add(caller.id);
+
+          const merchants = (await client.query(`
+            SELECT m.id, m.name, m.address, m.mobile, m.creator_id,
+                   c.name as creator_name, c.role as creator_role,
+                   p.provider as pos_provider, p.terminal_id, p.device_plan,
+                   COALESCE(p.monthly_rent, 499.0) as monthly_rent
+            FROM users m
+            LEFT JOIN users c ON m.creator_id = c.id
+            LEFT JOIN merchant_pos p ON m.id = p.merchant_id
+            WHERE m.role = 'MERCHANT' AND UPPER(m.id) = ANY($1)
+          `, [Array.from(downline)])).rows;
 
           const rentalList = [];
           merchants.forEach(m => {
