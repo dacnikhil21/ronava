@@ -2006,17 +2006,41 @@ export async function handleApiRequest(req, res) {
       `);
 
       const pendingWithdrawals = await pgQuery(`
-        SELECT w.*, u.name as merchant_name, u.mobile as merchant_mobile
+        SELECT w.*, 
+               u.name as merchant_name, 
+               u.mobile as merchant_mobile,
+               b.bank_name,
+               b.account_number,
+               b.ifsc as ifsc_code,
+               b.ifsc,
+               b.holder_name as beneficiary_name,
+               b.account_number as ben_account_number,
+               b.ifsc as ben_ifsc,
+               b.bank_name as ben_bank_name,
+               b.holder_name as ben_holder_name
         FROM withdrawals w
         JOIN users u ON w.merchant_id = u.id
+        LEFT JOIN beneficiaries b ON w.beneficiary_id = b.id
         WHERE w.status = 'PENDING'
         ORDER BY w.created_at DESC
       `);
 
       const allWithdrawals = await pgQuery(`
-        SELECT w.*, u.name as merchant_name, u.mobile as merchant_mobile
+        SELECT w.*, 
+               u.name as merchant_name, 
+               u.mobile as merchant_mobile,
+               b.bank_name,
+               b.account_number,
+               b.ifsc as ifsc_code,
+               b.ifsc,
+               b.holder_name as beneficiary_name,
+               b.account_number as ben_account_number,
+               b.ifsc as ben_ifsc,
+               b.bank_name as ben_bank_name,
+               b.holder_name as ben_holder_name
         FROM withdrawals w
         JOIN users u ON w.merchant_id = u.id
+        LEFT JOIN beneficiaries b ON w.beneficiary_id = b.id
         ORDER BY w.created_at DESC
         LIMIT 100
       `);
@@ -2417,8 +2441,14 @@ export async function handleApiRequest(req, res) {
       const withdrawals = await pgQuery(`
         SELECT w.*, 
                COALESCE(w.amount, (w.amount_paise / 100.0)) as amount,
-               COALESCE(w.settlement_type, 'T1') as withdrawal_mode
+               COALESCE(w.settlement_type, 'T1') as withdrawal_mode,
+               b.bank_name,
+               b.account_number,
+               b.ifsc as ifsc_code,
+               b.ifsc,
+               b.holder_name as beneficiary_name
         FROM withdrawals w 
+        LEFT JOIN beneficiaries b ON w.beneficiary_id = b.id
         WHERE UPPER(w.merchant_id) = UPPER($1) 
         ORDER BY w.created_at DESC
       `, [merchantId]);
@@ -2440,6 +2470,11 @@ export async function handleApiRequest(req, res) {
                COALESCE(w.amount, (w.amount_paise / 100.0)) as amount,
                u.name as merchant_name, 
                u.mobile as merchant_mobile,
+               b.bank_name,
+               b.account_number,
+               b.ifsc as ifsc_code,
+               b.ifsc,
+               b.holder_name as beneficiary_name,
                b.bank_name as ben_bank_name,
                b.account_number as ben_account_number,
                b.ifsc as ben_ifsc,
@@ -2520,17 +2555,25 @@ export async function handleApiRequest(req, res) {
         requireAdmin(req);
         const body = await parseJsonBody(req);
         req.body = body;
-        const { withdrawalIds, batchTag, bankName } = body;
+        const rawIds = body.withdrawalIds || body.withdrawal_ids || body.ids;
+        const targetIds = Array.isArray(rawIds) ? rawIds : (typeof rawIds === 'string' ? [rawIds] : null);
+        const batchTag = body.batchTag || body.batch_name || '';
+        const bankName = body.bankName || body.bank_name || '';
         const caller = getCaller(req);
 
         const result = await withTransaction(async (client) => {
           let rows;
-          if (Array.isArray(withdrawalIds) && withdrawalIds.length > 0) {
+          if (Array.isArray(targetIds) && targetIds.length > 0) {
             rows = (await client.query(`
               SELECT w.*, 
                      COALESCE(w.amount, (w.amount_paise / 100.0)) as amount,
                      u.name as merchant_name, 
                      u.mobile as merchant_mobile,
+                     b.bank_name,
+                     b.account_number,
+                     b.ifsc as ifsc_code,
+                     b.ifsc,
+                     b.holder_name as beneficiary_name,
                      b.bank_name as ben_bank_name,
                      b.account_number as ben_account_number,
                      b.ifsc as ben_ifsc,
@@ -2550,13 +2593,18 @@ export async function handleApiRequest(req, res) {
               LEFT JOIN beneficiaries b ON w.beneficiary_id = b.id
               WHERE w.id = ANY($1)
               FOR UPDATE OF w
-            `, [withdrawalIds])).rows;
+            `, [targetIds])).rows;
           } else {
             rows = (await client.query(`
               SELECT w.*, 
                      COALESCE(w.amount, (w.amount_paise / 100.0)) as amount,
                      u.name as merchant_name, 
                      u.mobile as merchant_mobile,
+                     b.bank_name,
+                     b.account_number,
+                     b.ifsc as ifsc_code,
+                     b.ifsc,
+                     b.holder_name as beneficiary_name,
                      b.bank_name as ben_bank_name,
                      b.account_number as ben_account_number,
                      b.ifsc as ben_ifsc,
@@ -2589,7 +2637,11 @@ export async function handleApiRequest(req, res) {
             throw new Error(`ALREADY_EXPORTED: The following withdrawals are not in PENDING status: ${badIds}`);
           }
 
-          const missingBankRows = rows.filter(r => !r.ben_account_number || !r.ben_account_number.trim() || !r.ben_ifsc || !r.ben_ifsc.trim());
+          const missingBankRows = rows.filter(r => {
+            const acc = (r.account_number || r.ben_account_number || '').trim();
+            const ifsc = (r.ifsc_code || r.ifsc || r.ben_ifsc || '').trim();
+            return !acc || !ifsc;
+          });
           if (missingBankRows.length > 0) {
             const badIds = missingBankRows.map(r => r.id).join(', ');
             throw new Error(`MISSING_BANK_DETAILS: Cannot export withdrawals with missing account number or IFSC: ${badIds}`);
@@ -2646,10 +2698,10 @@ export async function handleApiRequest(req, res) {
               `"${r.merchant_id || ''}"`,
               `"${(r.merchant_name || '').replace(/"/g, '""')}"`,
               `"${r.merchant_mobile || ''}"`,
-              `"${(r.ben_holder_name || '').replace(/"/g, '""')}"`,
-              `"${r.ben_account_number || ''}"`,
-              `"${r.ben_ifsc || ''}"`,
-              `"${(r.ben_bank_name || '').replace(/"/g, '""')}"`,
+              `"${(r.beneficiary_name || r.ben_holder_name || '').replace(/"/g, '""')}"`,
+              `"${r.account_number || r.ben_account_number || ''}"`,
+              `"${r.ifsc_code || r.ifsc || r.ben_ifsc || ''}"`,
+              `"${(r.bank_name || r.ben_bank_name || '').replace(/"/g, '""')}"`,
               grossRupees,
               feeRupees,
               netRupees,
@@ -2692,6 +2744,7 @@ export async function handleApiRequest(req, res) {
             batchId,
             exportedCount: rows.length,
             payouts: enriched,
+            csv: csvContent,
             csv_content: csvContent
           };
         });

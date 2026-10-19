@@ -114,6 +114,13 @@ const PHRASE_MATCHERS = [
   {
     pattern: /missing account number or ifsc|invalid_beneficiary_details|missing_bank_details/i,
     code: 'INVALID_BENEFICIARY_DETAILS',
+    formatter: (rawMsg) => {
+      const match = rawMsg.match(/(WTH-[A-Za-z0-9_-]+)/g);
+      if (match && match.length > 0) {
+        return `Bank account number or IFSC code is missing for withdrawal ${match.join(', ')}. Please update bank details before exporting.`;
+      }
+      return 'The bank account number or IFSC code is missing or incorrect. Please edit your bank details and try again.';
+    },
     message: 'The bank account number or IFSC code is missing or incorrect. Please edit your bank details and try again.'
   },
   {
@@ -199,12 +206,23 @@ export function getPlainErrorMessage(errorInput) {
     console.warn('[RONAV Server Error Code]:', rawCode || 'UNKNOWN', '| Technical message:', rawMsg);
   }
 
-  // 1. Direct match by code
+  // 1. Phrase matching with dynamic formatters against raw message (preserves IDs and context)
+  if (rawMsg) {
+    for (const matcher of PHRASE_MATCHERS) {
+      if (matcher.pattern.test(rawMsg)) {
+        if (typeof matcher.formatter === 'function') {
+          return matcher.formatter(rawMsg);
+        }
+      }
+    }
+  }
+
+  // 2. Direct match by code
   if (rawCode && ERROR_CODE_MAP[rawCode]) {
     return ERROR_CODE_MAP[rawCode];
   }
 
-  // 2. Phrase matching against raw message
+  // 3. Phrase matching against raw message
   if (rawMsg) {
     for (const matcher of PHRASE_MATCHERS) {
       if (matcher.pattern.test(rawMsg)) {

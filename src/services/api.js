@@ -1835,11 +1835,19 @@ export async function getUserFinancialSummary(userId) {
 }
 
 export async function exportWithdrawalsExcel(withdrawalIds, batchTag = '', bankName = '') {
+  let ids = withdrawalIds;
+  let tag = batchTag;
+  let bName = bankName;
+  if (withdrawalIds && !Array.isArray(withdrawalIds) && typeof withdrawalIds === 'object') {
+    ids = withdrawalIds.withdrawal_ids || withdrawalIds.withdrawalIds || withdrawalIds.ids || [];
+    tag = withdrawalIds.batch_name || withdrawalIds.batchTag || batchTag;
+    bName = withdrawalIds.bank_name || withdrawalIds.bankName || bankName;
+  }
   try {
     const res = await fetchWithTimeout(getApiUrl('/api/admin/withdrawals/export-excel'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ withdrawalIds, batchTag, bankName })
+      body: JSON.stringify({ withdrawalIds: ids, batchTag: tag, bankName: bName })
     });
     return await res.json();
   } catch (err) {

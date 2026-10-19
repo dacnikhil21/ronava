@@ -602,19 +602,25 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       triggerToast('No withdrawal items to download.', 'error');
       return;
     }
-    const missingBank = itemsToBatch.filter(w => !w.account_number || !w.account_number.trim() || !w.ifsc_code || !w.ifsc_code.trim());
+    const missingBank = itemsToBatch.filter(w => {
+      const acc = (w.account_number || w.ben_account_number || '').trim();
+      const ifsc = (w.ifsc_code || w.ifsc || w.ben_ifsc || '').trim();
+      return !acc || !ifsc;
+    });
     if (missingBank.length > 0) {
-      triggerToast(`⚠️ Cannot export: ${missingBank.length} withdrawal(s) have No bank account on file (missing account number or IFSC).`, 'error');
+      const badIds = missingBank.map(w => w.id).join(', ');
+      triggerToast(`Bank account number or IFSC code is missing for withdrawal ${badIds}. Please update bank details before exporting.`, 'error');
       return;
     }
     const now = new Date();
     try {
       const downloadedIds = itemsToBatch.map(w => w.id);
-      // Invoke authoritative backend export endpoint (Phase D1b/D2)
-      const exportRes = await exportWithdrawalsExcel({
-        withdrawal_ids: downloadedIds,
-        batch_name: modalMeta.batchName
-      });
+      // Invoke authoritative backend export endpoint (Phase D1b/D2) passing array of IDs
+      const exportRes = await exportWithdrawalsExcel(downloadedIds, modalMeta.batchName);
+
+      if (exportRes && !exportRes.success) {
+        throw new Error(exportRes.message || 'Failed to export withdrawals.');
+      }
 
       if (exportRes && exportRes.success && exportRes.csv) {
         // Trigger direct browser download from backend CSV
@@ -3220,7 +3226,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               <div>
                                 <strong style={{ fontSize: '0.8125rem', color: '#0A192F' }}>{b.bank_name}</strong>
                                 <span style={{ display: 'block', fontSize: '0.6875rem', color: '#64748B', marginTop: '2px' }}>
-                                  A/C: {b.account_number} • IFSC: {b.ifsc} • {b.holder_name}
+                                  A/C: XXXXXXX{(b.account_number || '').slice(-4)} • IFSC: {b.ifsc} • {b.holder_name}
                                 </span>
                               </div>
                               {b.is_primary && (
@@ -7895,8 +7901,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                     const isItemExpanded = expandedPayoutId === `batch_${batch.batchId}_item_${item.id}`;
                                     const details = parsePayoutDetails(item);
                                     const maskedAcc = item.account_number 
-                                      ? `••••${item.account_number.slice(-4)}`
-                                      : '••••';
+                                      ? `XXXXXXX${item.account_number.slice(-4)}`
+                                      : 'XXXXXXX';
 
                                     return (
                                       <div key={item.id} style={{ borderBottom: idx < batch.items.length - 1 ? '1px solid #F1F5F9' : 'none' }}>
@@ -8266,7 +8272,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           merchantTitle = item.merchant_name || details.recipient || 'Balaji Super Bazaar';
                           rrnOrUtr = details.utr && details.utr !== 'IMPS Cleared' ? details.utr : (item.bank_rrn || item.id);
                           channelTag = item.bank_name 
-                            ? `${item.bank_name}${item.account_number ? ` ••${item.account_number.slice(-4)}` : ''}` 
+                            ? `${item.bank_name}${item.account_number ? ` XXXXXXX${item.account_number.slice(-4)}` : ''}` 
                             : 'Bank Transfer';
                         }
 
@@ -8510,6 +8516,24 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                     <Copy style={{ width: '11px', height: '11px', color: '#3B82F6', flexShrink: 0 }} />
                                   )}
                                 </button>
+
+                                {!isSwipe && channelTag && (
+                                  <span style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    fontSize: '0.72rem',
+                                    fontWeight: 700,
+                                    color: '#0F52BA',
+                                    background: '#EFF6FF',
+                                    border: '1px solid #BFDBFE',
+                                    padding: '3px 8px',
+                                    borderRadius: '5px'
+                                  }}>
+                                    <Landmark style={{ width: '11px', height: '11px', color: '#0F52BA' }} />
+                                    <span>{channelTag}</span>
+                                  </span>
+                                )}
 
                                 {itemChannel === 'qr' && (
                                   <span style={{
@@ -8756,12 +8780,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                       <span style={{ color: '#64748B', fontWeight: 600 }}>Account Number</span>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                         <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0F172A', fontSize: '0.84375rem' }}>
-                                          {item.account_number || details.acc || <span style={{ color: '#DC2626', fontWeight: 800 }}>No bank account on file</span>}
+                                          {(item.account_number || details.acc) ? `XXXXXXX${String(item.account_number || details.acc).slice(-4)}` : <span style={{ color: '#DC2626', fontWeight: 800 }}>No bank account on file</span>}
                                         </span>
                                         {(item.account_number || details.acc) && (
                                           <button
                                             type="button"
-                                            onClick={() => copyToClipboard(item.account_number || details.acc, `acc_${item.id}`)}
+                                            onClick={() => copyToClipboard(`XXXXXXX${String(item.account_number || details.acc).slice(-4)}`, `acc_${item.id}`)}
                                             style={{
                                               background: '#EFF6FF',
                                               border: '1px solid #BFDBFE',
@@ -11704,9 +11728,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               const targetBeneficiary = p.customer_name || p.holder_name || p.merchant_name || 'Beneficiary';
               const targetAmount = parseFloat(p.amount || 0);
               const statusChoice = disbursingPayout.actionType || 'DISPATCH'; // Default: 'DISPATCH' (Pending/In-Transit)
+              const maskedAccount = targetAccount !== 'N/A' ? `XXXXXXX${String(targetAccount).slice(-4)}` : 'N/A';
 
               // Formatted single line for fast pasting into banking portals
-              const allTransferDetails = `Name: ${targetBeneficiary} | Bank: ${targetBank} | A/C: ${targetAccount} | IFSC: ${targetIfsc} | Amount: ₹${targetAmount}`;
+              const allTransferDetails = `Name: ${targetBeneficiary} | Bank: ${targetBank} | A/C: ${maskedAccount} | IFSC: ${targetIfsc} | Amount: ₹${targetAmount}`;
 
               return (
                 <div style={{
@@ -11819,12 +11844,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           Account Number
                         </span>
                         <div style={{ fontSize: '1rem', fontWeight: 800, color: '#0F172A', fontFamily: 'monospace', letterSpacing: '0.04em' }}>
-                          {targetAccount}
+                          {maskedAccount}
                         </div>
                       </div>
                       <button
                         type="button"
-                        onClick={() => copyToClipboard(targetAccount, 'modal_acc')}
+                        onClick={() => copyToClipboard(maskedAccount, 'modal_acc')}
                         style={{
                           background: '#FFFFFF',
                           border: '1px solid #CBD5E1',
