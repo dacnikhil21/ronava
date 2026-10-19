@@ -120,14 +120,14 @@ export async function getWalletBalances(clientOrPool, userId) {
   const reserveSetting = await getSetting('reserve_amount_paise', clientOrPool);
   const reserveRequiredPaise = BigInt(reserveSetting.value_numeric || 50000); // 50,000 paise = Rs 500
 
-  // 3. Available balance = balance_paise - held_paise
-  const availablePaise = balancePaise > heldPaise ? balancePaise - heldPaise : 0n;
+  // 3. Available balance = balance_paise - held_paise (Preserve negative values, never clamp)
+  const availablePaise = balancePaise - heldPaise;
 
   // 4. Reserve locked
-  const reserveLockedPaise = availablePaise >= reserveRequiredPaise ? reserveRequiredPaise : availablePaise;
+  const reserveLockedPaise = availablePaise >= reserveRequiredPaise ? reserveRequiredPaise : (availablePaise > 0n ? availablePaise : 0n);
 
   // 5. Withdrawable balance = max(0, available_balance - reserve_locked)
-  const withdrawablePaise = availablePaise > reserveLockedPaise ? availablePaise - reserveLockedPaise : 0n;
+  const withdrawablePaise = (availablePaise > reserveLockedPaise && availablePaise > 0n) ? availablePaise - reserveLockedPaise : 0n;
 
   return {
     user_id: userId,

@@ -200,6 +200,15 @@ export async function processWithdrawalRequest(client, {
 
   const totalBalancePaise = BigInt(walletLockRes.rows[0].balance_paise || 0);
 
+  if (totalBalancePaise < 0n || channelBalancePaise < 0n) {
+    const owedPaise = totalBalancePaise < 0n ? -totalBalancePaise : -channelBalancePaise;
+    const formattedOwed = (Number(owedPaise) / 100).toLocaleString('en-IN', {
+      minimumFractionDigits: (Number(owedPaise) % 100 === 0) ? 0 : 2,
+      maximumFractionDigits: 2
+    });
+    throw new Error(`Your account has a negative balance (Amount owed: Rs ${formattedOwed}). Withdrawals are blocked until this amount is cleared.`);
+  }
+
   const reserveSetting = await getSetting('reserve_amount_paise', client);
   const reserveRequiredPaise = BigInt(reserveSetting.value_numeric || 50000); // 50,000 paise = Rs 500
 

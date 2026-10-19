@@ -1038,7 +1038,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     return { all: list.length, t1: t1Count, instant: instantCount };
   }, [activeMachineWithdrawals]);
 
-  const dbAvailableBalance = (wallet?.available_balance !== undefined && wallet?.available_balance !== null && !walletError) ? Math.max(0, parseFloat(wallet.available_balance)) : null;
+  const dbAvailableBalance = (wallet?.available_balance !== undefined && wallet?.available_balance !== null && !walletError) ? parseFloat(wallet.available_balance) : null;
 
   // Authoritative machine-specific Wallet (100% Pure Single Source of Truth from Backend PostgreSQL)
   // Zero client-side subtraction or arithmetic. All channel balances and holds are calculated on the server.
@@ -1074,7 +1074,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     const activeHold = dbAvailableBalance > 0 ? 500.0 : 0.0;
     return {
       available_balance: dbAvailableBalance,
-      withdrawable_balance: Math.max(0, parseFloat((dbAvailableBalance - activeHold).toFixed(2))),
+      withdrawable_balance: dbAvailableBalance > activeHold ? parseFloat((dbAvailableBalance - activeHold).toFixed(2)) : 0.0,
       active_hold: activeHold,
       total_sales: parseFloat(wallet?.total_sales || 0),
       received_sales: parseFloat(wallet?.received_sales || 0),
@@ -1693,8 +1693,14 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       {/* Hero Amount Display */}
       <div style={{ margin: '0.25rem 0 0.875rem' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.375rem' }}>
-          <span style={{ fontSize: '1.75rem', fontWeight: 900, color: '#0F172A', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
-            ₹{activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined && !isNaN(Number(activeMachineWallet.available_balance)) ? Number(activeMachineWallet.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : 'Sync Error'}
+          <span style={{ fontSize: '1.75rem', fontWeight: 900, color: (activeMachineWallet.available_balance !== null && Number(activeMachineWallet.available_balance) < 0) ? '#DC2626' : '#0F172A', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+            {activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined && !isNaN(Number(activeMachineWallet.available_balance)) ? (
+              Number(activeMachineWallet.available_balance) < 0 ? (
+                `Amount owed: Rs ${Math.abs(Number(activeMachineWallet.available_balance)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+              ) : (
+                `₹${Number(activeMachineWallet.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+              )
+            ) : 'Sync Error'}
           </span>
         </div>
         <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 500, marginTop: '2px', display: 'block' }}>
@@ -2080,6 +2086,13 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   const handleWithdrawSubmit = async (e) => {
     e.preventDefault();
     console.log('[handleWithdrawSubmit] Called, withdrawAmount:', withdrawAmount, 'withdrawalQuote:', withdrawalQuote);
+
+    if (activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined && Number(activeMachineWallet.available_balance) < 0) {
+      const owed = Math.abs(Number(activeMachineWallet.available_balance)).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+      showToast(`⚠️ Your account has a negative balance (Amount owed: Rs ${owed}). Withdrawals are blocked until this amount is cleared.`);
+      return;
+    }
+
     const amountNum = parseFloat(withdrawAmount);
     if (!amountNum || amountNum <= 0) {
       console.log('[handleWithdrawSubmit] Aborted: invalid amount', amountNum);
@@ -2771,8 +2784,18 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                 {/* Main Amount & CTA Row */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.875rem' }}>
                   <div>
-                    <h2 style={{ fontSize: '1.65rem', fontWeight: 800, margin: 0, letterSpacing: '-0.02em', fontFeatureSettings: '"tnum"', lineHeight: 1.15, color: '#0F172A' }}>
-                      {showBalance ? (activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined ? `₹${activeMachineWallet.available_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : (walletError ? 'Sync Error' : 'Loading...')) : '••••••••'}
+                    <h2 style={{ fontSize: '1.65rem', fontWeight: 800, margin: 0, letterSpacing: '-0.02em', fontFeatureSettings: '"tnum"', lineHeight: 1.15, color: (activeMachineWallet.available_balance !== null && Number(activeMachineWallet.available_balance) < 0) ? '#DC2626' : '#0F172A' }}>
+                      {showBalance ? (
+                        activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined ? (
+                          Number(activeMachineWallet.available_balance) < 0 ? (
+                            <span style={{ color: '#DC2626' }}>
+                              Amount owed: Rs {Math.abs(Number(activeMachineWallet.available_balance)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </span>
+                          ) : (
+                            `₹${Number(activeMachineWallet.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                          )
+                        ) : (walletError ? 'Sync Error' : 'Loading...')
+                      ) : '••••••••'}
                     </h2>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
@@ -3418,8 +3441,14 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                               <span style={{ fontSize: '0.625rem', fontWeight: 700, color: 'rgba(255,255,255,0.75)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block' }}>
                                 {activeMachine.title} Available Balance
                               </span>
-                              <span style={{ fontSize: '1.35rem', fontWeight: 900, letterSpacing: '-0.01em', color: '#FFFFFF', lineHeight: 1.1 }}>
-                                ₹{activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined && !isNaN(Number(activeMachineWallet.available_balance)) ? Number(activeMachineWallet.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : 'Sync Error'}
+                              <span style={{ fontSize: '1.35rem', fontWeight: 900, letterSpacing: '-0.01em', color: (activeMachineWallet.available_balance !== null && Number(activeMachineWallet.available_balance) < 0) ? '#FCA5A5' : '#FFFFFF', lineHeight: 1.1 }}>
+                                {activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined && !isNaN(Number(activeMachineWallet.available_balance)) ? (
+                                  Number(activeMachineWallet.available_balance) < 0 ? (
+                                    `Amount owed: Rs ${Math.abs(Number(activeMachineWallet.available_balance)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                                  ) : (
+                                    `₹${Number(activeMachineWallet.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+                                  )
+                                ) : 'Sync Error'}
                               </span>
                             </div>
                           </div>
@@ -4147,11 +4176,17 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                                 {activeMachineWallet.active_hold > 0 ? '₹500 Active Hold Applied' : '₹0 Reserve (Commission Payout)'}
                               </span>
                             </div>
-                            <span style={{ fontSize: '1.35rem', fontWeight: 900, letterSpacing: '-0.01em', color: '#FFFFFF', lineHeight: 1.1 }}>
-                              ₹{(activeMachineWallet.withdrawable_balance !== null && activeMachineWallet.withdrawable_balance !== undefined ? activeMachineWallet.withdrawable_balance : 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                            </span>
+                            {activeMachineWallet.available_balance !== null && Number(activeMachineWallet.available_balance) < 0 ? (
+                              <span style={{ fontSize: '1.25rem', fontWeight: 900, color: '#FCA5A5', lineHeight: 1.1 }}>
+                                Amount owed: Rs {Math.abs(Number(activeMachineWallet.available_balance)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '1.35rem', fontWeight: 900, letterSpacing: '-0.01em', color: '#FFFFFF', lineHeight: 1.1 }}>
+                                ₹{(activeMachineWallet.withdrawable_balance !== null && activeMachineWallet.withdrawable_balance !== undefined ? activeMachineWallet.withdrawable_balance : 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </span>
+                            )}
                             <span style={{ fontSize: '0.625rem', color: 'rgba(255,255,255,0.75)', display: 'block', marginTop: '1px' }}>
-                              Total Balance: ₹{activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined && !isNaN(Number(activeMachineWallet.available_balance)) ? Number(activeMachineWallet.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : 'Sync Error'} • {activeMachineWallet.active_hold > 0 ? 'Active Reserve Hold: ₹500.00' : 'Reserve Hold: ₹0.00'}
+                              Total Balance: {activeMachineWallet.available_balance !== null && Number(activeMachineWallet.available_balance) < 0 ? <strong style={{ color: '#FCA5A5' }}>Amount owed: Rs {Math.abs(Number(activeMachineWallet.available_balance)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong> : (activeMachineWallet.available_balance !== null && activeMachineWallet.available_balance !== undefined && !isNaN(Number(activeMachineWallet.available_balance)) ? `₹${Number(activeMachineWallet.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Sync Error')} • {activeMachineWallet.active_hold > 0 ? 'Active Reserve Hold: ₹500.00' : 'Reserve Hold: ₹0.00'}
                             </span>
                           </div>
                         </div>
@@ -5258,7 +5293,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                     fontSize: '0.75rem',
                     fontWeight: 700
                   }}>
-                    Available: <strong style={{ fontWeight: 900, color: '#059669' }}>₹{wallet?.available_balance !== null && wallet?.available_balance !== undefined && !isNaN(Number(wallet.available_balance)) ? Number(wallet.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : 'Sync Error'}</strong>
+                    Available: <strong style={{ fontWeight: 900, color: (wallet?.available_balance !== null && Number(wallet?.available_balance) < 0) ? '#DC2626' : '#059669' }}>{(wallet?.available_balance !== null && Number(wallet?.available_balance) < 0) ? `Amount owed: Rs ${Math.abs(Number(wallet.available_balance)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : (wallet?.available_balance !== null && wallet?.available_balance !== undefined && !isNaN(Number(wallet.available_balance)) ? `₹${Number(wallet.available_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : 'Sync Error')}</strong>
                   </span>
                 </div>
               </div>
