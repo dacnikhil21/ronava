@@ -2201,6 +2201,12 @@ export async function handleApiRequest(req, res) {
         FROM withdrawals
       `))[0] || {};
 
+      let pendingSwipesVolPaise = 0n;
+      for (const pt of pendingTransactions) {
+        pendingSwipesVolPaise += BigInt(pt.amount_paise || Math.round(Number(pt.amount || 0) * 100));
+      }
+      const pendingSwipesVolume = Number(pendingSwipesVolPaise) / 100.0;
+
       const stats = {
         totalMerchants: parseInt(mCount),
         totalSuperDistributors: parseInt(sdCount),
@@ -2209,6 +2215,8 @@ export async function handleApiRequest(req, res) {
         pendingWithdrawalsCount: pendingWithdrawals.length,
         totalVolume: parseFloat(totalVol.toFixed(2)),
         pendingVolume: parseFloat(pendingVol),
+        pendingSwipesCount: pendingTransactions.length,
+        pendingSwipesVolume: parseFloat(pendingSwipesVolume.toFixed(2)),
         totalFeesCollected: parseFloat(totalFeesRes),
         partnerCommissions: Math.max(0, parseFloat(partnerCommRes)),
         adminNetProfit: Math.max(0, parseFloat(adminProfitRes)),

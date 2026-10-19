@@ -6280,18 +6280,12 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               // Tag records
               const allSwipes = dedupeById([
                 ...combinedPendingTxns.map(item => ({ ...item, _entityType: 'SWIPE', _subStatus: 'PENDING' })),
-                ...combinedLedger.filter(t => t.status === 'APPROVED').map(item => {
-                  const isAudited = Boolean(
-                    item.admin_remark && 
-                    (item.admin_remark.includes('[VERIFIED_BY_ADMIN]') || item.admin_remark.includes('[AUDIT_OK]') || item.admin_remark.includes('Verified and approved against POS'))
-                  );
-                  return {
-                    ...item,
-                    _entityType: 'SWIPE',
-                    _subStatus: isAudited ? 'APPROVED' : 'PENDING'
-                  };
-                }),
-                ...combinedLedger.filter(t => t.status === 'REJECTED' || t.status === 'INVALID' || t.status === 'REVERSED').map(item => ({ ...item, _entityType: 'SWIPE', _subStatus: 'INVALID' }))
+                ...combinedLedger.filter(t => t.status === 'COMPLETED' || t.status === 'APPROVED').map(item => ({
+                  ...item,
+                  _entityType: 'SWIPE',
+                  _subStatus: 'COMPLETED'
+                })),
+                ...combinedLedger.filter(t => t.status === 'REJECTED' || t.status === 'INVALID' || t.status === 'REVERSED').map(item => ({ ...item, _entityType: 'SWIPE', _subStatus: 'REJECTED' }))
               ]);
 
               const allWithdrawals = dedupeById([
@@ -6432,7 +6426,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               const totalPendingCommissionAmount = parseFloat(metrics.withdrawalTotals?.pending_commission_amount || 0);
 
               const pendingSwipesList = channelSwipes.filter(s => s._subStatus === 'PENDING');
-              const totalPendingSwipesAmount = parseFloat(metrics.pendingVolume || 0);
+              const totalPendingSwipesAmount = parseFloat(metrics.pendingSwipesVolume !== undefined ? metrics.pendingSwipesVolume : (metrics.pendingVolume || 0));
+              const totalPendingSwipesCount = metrics.pendingSwipesCount !== undefined ? metrics.pendingSwipesCount : pendingSwipesList.length;
 
               const submittedWithdrawalsList = channelWithdrawals.filter(w => w._subStatus === 'SUBMITTED_TO_BANK');
               const totalSubmittedAmount = parseFloat(metrics.withdrawalTotals?.submitted_amount || 0);
