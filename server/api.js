@@ -2011,13 +2011,8 @@ export async function handleApiRequest(req, res) {
                u.mobile as merchant_mobile,
                b.bank_name,
                b.account_number,
-               b.ifsc as ifsc_code,
                b.ifsc,
-               b.holder_name as beneficiary_name,
-               b.account_number as ben_account_number,
-               b.ifsc as ben_ifsc,
-               b.bank_name as ben_bank_name,
-               b.holder_name as ben_holder_name
+               b.holder_name
         FROM withdrawals w
         JOIN users u ON w.merchant_id = u.id
         LEFT JOIN beneficiaries b ON w.beneficiary_id = b.id
@@ -2031,13 +2026,8 @@ export async function handleApiRequest(req, res) {
                u.mobile as merchant_mobile,
                b.bank_name,
                b.account_number,
-               b.ifsc as ifsc_code,
                b.ifsc,
-               b.holder_name as beneficiary_name,
-               b.account_number as ben_account_number,
-               b.ifsc as ben_ifsc,
-               b.bank_name as ben_bank_name,
-               b.holder_name as ben_holder_name
+               b.holder_name
         FROM withdrawals w
         JOIN users u ON w.merchant_id = u.id
         LEFT JOIN beneficiaries b ON w.beneficiary_id = b.id
@@ -2456,9 +2446,8 @@ export async function handleApiRequest(req, res) {
                COALESCE(w.settlement_type, 'T1') as withdrawal_mode,
                b.bank_name,
                b.account_number,
-               b.ifsc as ifsc_code,
                b.ifsc,
-               b.holder_name as beneficiary_name
+               b.holder_name
         FROM withdrawals w 
         LEFT JOIN beneficiaries b ON w.beneficiary_id = b.id
         WHERE UPPER(w.merchant_id) = UPPER($1) 
@@ -2484,13 +2473,8 @@ export async function handleApiRequest(req, res) {
                u.mobile as merchant_mobile,
                b.bank_name,
                b.account_number,
-               b.ifsc as ifsc_code,
                b.ifsc,
-               b.holder_name as beneficiary_name,
-               b.bank_name as ben_bank_name,
-               b.account_number as ben_account_number,
-               b.ifsc as ben_ifsc,
-               b.holder_name as ben_holder_name,
+               b.holder_name,
                COALESCE(w.settlement_type, 'T1') as withdrawal_mode,
                (
                  SELECT t.settlement_mode 
@@ -2583,13 +2567,8 @@ export async function handleApiRequest(req, res) {
                      u.mobile as merchant_mobile,
                      b.bank_name,
                      b.account_number,
-                     b.ifsc as ifsc_code,
                      b.ifsc,
-                     b.holder_name as beneficiary_name,
-                     b.bank_name as ben_bank_name,
-                     b.account_number as ben_account_number,
-                     b.ifsc as ben_ifsc,
-                     b.holder_name as ben_holder_name,
+                     b.holder_name,
                      COALESCE(w.settlement_type, 'T1') as withdrawal_mode,
                      (
                        SELECT t.settlement_mode 
@@ -2614,13 +2593,8 @@ export async function handleApiRequest(req, res) {
                      u.mobile as merchant_mobile,
                      b.bank_name,
                      b.account_number,
-                     b.ifsc as ifsc_code,
                      b.ifsc,
-                     b.holder_name as beneficiary_name,
-                     b.bank_name as ben_bank_name,
-                     b.account_number as ben_account_number,
-                     b.ifsc as ben_ifsc,
-                     b.holder_name as ben_holder_name,
+                     b.holder_name,
                      COALESCE(w.settlement_type, 'T1') as withdrawal_mode,
                      (
                        SELECT t.settlement_mode 
@@ -2650,8 +2624,8 @@ export async function handleApiRequest(req, res) {
           }
 
           const missingBankRows = rows.filter(r => {
-            const acc = (r.account_number || r.ben_account_number || '').trim();
-            const ifsc = (r.ifsc_code || r.ifsc || r.ben_ifsc || '').trim();
+            const acc = (r.account_number || '').trim();
+            const ifsc = (r.ifsc || '').trim();
             return !acc || !ifsc;
           });
           if (missingBankRows.length > 0) {
@@ -2710,10 +2684,10 @@ export async function handleApiRequest(req, res) {
               `"${r.merchant_id || ''}"`,
               `"${(r.merchant_name || '').replace(/"/g, '""')}"`,
               `"${r.merchant_mobile || ''}"`,
-              `"${(r.beneficiary_name || r.ben_holder_name || '').replace(/"/g, '""')}"`,
-              `"${r.account_number || r.ben_account_number || ''}"`,
-              `"${r.ifsc_code || r.ifsc || r.ben_ifsc || ''}"`,
-              `"${(r.bank_name || r.ben_bank_name || '').replace(/"/g, '""')}"`,
+              `"${(r.holder_name || '').replace(/"/g, '""')}"`,
+              `"${r.account_number || ''}"`,
+              `"${r.ifsc || ''}"`,
+              `"${(r.bank_name || '').replace(/"/g, '""')}"`,
               grossRupees,
               feeRupees,
               netRupees,

@@ -6546,10 +6546,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 
                 return {
                   utr: utr || 'IMPS Cleared',
-                  recipient: recipient || p.merchant_name,
+                  recipient: recipient || p.holder_name || p.merchant_name,
                   bank: p.bank_name || 'Bank',
                   acc: p.account_number || '',
-                  ifsc: p.ifsc_code || '',
+                  ifsc: p.ifsc || '',
                   isCommission,
                   purpose: isCommission ? 'COMMISSION' : 'REGULAR',
                   remarks: merchantNote
