@@ -7,7 +7,8 @@ import { postLedgerEntry } from './ledger_engine.js';
 export async function reverseTransaction(client, {
   txnId,
   reason = 'Transaction reversed',
-  callerId
+  callerId,
+  confirmFraud = false
 }) {
   if (!client || typeof client.query !== 'function') {
     throw new Error('DATABASE_CLIENT_REQUIRED: reverseTransaction requires an active client.');
@@ -23,7 +24,7 @@ export async function reverseTransaction(client, {
   try {
     // 1. Lock and check transaction
     const txnRes = await client.query(`
-      SELECT id, merchant_id, amount_paise, status 
+      SELECT id, merchant_id, amount_paise, status, channel, created_at
       FROM transactions 
       WHERE id = $1 
       FOR UPDATE
@@ -36,6 +37,69 @@ export async function reverseTransaction(client, {
     const txn = txnRes.rows[0];
     if (txn.status === 'REVERSED') {
       throw new Error(`TRANSACTION_ALREADY_REVERSED: Transaction "${txnId}" has already been reversed.`);
+    }
+
+    // 1.1 Check related payouts for this merchant created on or after the swipe
+    const relatedPayoutsRes = await client.query(`
+      SELECT id, amount_paise, status, admin_remark
+      FROM withdrawals
+      WHERE UPPER(merchant_id) = UPPER($1)
+        AND status IN ('PENDING', 'SUBMITTED_TO_BANK', 'COMPLETED', 'APPROVED')
+        AND created_at >= ($2::timestamptz - INTERVAL '5 minutes')
+      FOR UPDATE
+    `, [txn.merchant_id, txn.created_at]);
+
+    const relatedPayouts = relatedPayoutsRes.rows;
+    const submittedOrCompleted = relatedPayouts.filter(p => p.status === 'SUBMITTED_TO_BANK' || p.status === 'COMPLETED' || p.status === 'APPROVED');
+
+    // Rule 5 & 6: If payout is SUBMITTED_TO_BANK or COMPLETED, do NOT reverse automatically.
+    // Raise alert on that payout in Admin Payouts asking Admin to reconfirm fraud.
+    if (submittedOrCompleted.length > 0 && !confirmFraud) {
+      const pIds = submittedOrCompleted.map(p => p.id);
+      await client.query(`
+        UPDATE withdrawals
+        SET admin_remark = CONCAT(COALESCE(admin_remark, ''), ' [FRAUD_ALERT: Reversal of swipe ', $1::text, ' requested. Requires Admin fraud reconfirmation.]')
+        WHERE id = ANY($2)
+      `, [txnId, pIds]);
+
+      await client.query('COMMIT');
+      const err = new Error(`REVERSAL_REQUIRES_FRAUD_CONFIRMATION: Payout(s) ${pIds.join(', ')} already in status ${submittedOrCompleted[0].status}. Please reconfirm fraud in Admin Payouts before proceeding.`);
+      err.code = 'REVERSAL_REQUIRES_FRAUD_CONFIRMATION';
+      err.statusCode = 409;
+      err.payoutIds = pIds;
+      throw err;
+    }
+
+    // Rule 4: If related payout is PENDING, reversing swipe must also reject held payout and return its hold in same TX
+    const pendingPayouts = relatedPayouts.filter(p => p.status === 'PENDING');
+    for (const p of pendingPayouts) {
+      const pAmtPaise = BigInt(p.amount_paise);
+      await postLedgerEntry(client, {
+        userId: txn.merchant_id,
+        type: 'withdrawal_reversal',
+        amountPaise: pAmtPaise,
+        referenceId: p.id,
+        referenceType: 'WITHDRAWAL',
+        channel: txn.channel,
+        metadata: {
+          reversal_reason: `Auto-rejected due to reversal of swipe ${txnId}`,
+          original_withdrawal_id: p.id
+        },
+        createdBy: callerId
+      });
+
+      await client.query(`
+        UPDATE wallets 
+        SET held_paise = GREATEST(0, held_paise - $1)
+        WHERE UPPER(user_id) = UPPER($2)
+      `, [pAmtPaise, txn.merchant_id]);
+
+      await client.query(`
+        UPDATE withdrawals
+        SET status = 'REJECTED',
+            admin_remark = CONCAT(COALESCE(admin_remark, ''), ' [AUTO_REJECTED_ON_SWIPE_REVERSAL: Swipe ', $1::text, ' reversed]')
+        WHERE id = $2
+      `, [txnId, p.id]);
     }
 
     // 2. Fetch all original credit and commission entries posted for this transaction

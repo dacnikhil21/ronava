@@ -3819,7 +3819,8 @@ export async function handleApiRequest(req, res) {
           return await reverseTransaction(client, {
             txnId: body.txn_id || body.transaction_id,
             reason: body.reason || 'Reversed by admin',
-            callerId
+            callerId,
+            confirmFraud: Boolean(body.confirm_fraud || body.confirmFraud)
           });
         });
 
