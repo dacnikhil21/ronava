@@ -1805,38 +1805,47 @@ export async function handleApiRequest(req, res) {
     }
 
     if (pathname === '/api/transactions/record' && method === 'POST') {
-      const body = await parseJsonBody(req);
-      req.body = body;
-      const idempotencyKey = req.headers['idempotency-key'] || body.idempotency_key || null;
-
-      const merchantId = body.merchant_id || body.merchantId;
-      const rawAmount = body.amount_paise !== undefined ? body.amount_paise : body.amount;
-
-      if (!merchantId || rawAmount === undefined || rawAmount === null) {
-        return sendJson(res, 400, { success: false, message: 'Merchant ID and Amount are required.' });
-      }
-
-      let amountPaise;
       try {
-        if (body.amount_paise !== undefined) {
-          amountPaise = BigInt(body.amount_paise);
-        } else {
-          const num = Number(body.amount);
-          if (isNaN(num) || num <= 0) {
-            return sendJson(res, 400, { success: false, message: 'Amount must be a positive number.' });
-          }
-          amountPaise = BigInt(Math.round(num * 100));
+        const caller = requireAuth(req);
+        if (caller.role === 'ADMIN') {
+          return sendJson(res, 403, { success: false, code: 'ADMIN_CANNOT_SWIPE', message: 'Administrators cannot record payment transactions.' });
         }
-      } catch (e) {
-        return sendJson(res, 400, { success: false, message: 'Invalid amount.' });
-      }
+        const body = await parseJsonBody(req);
+        req.body = body;
+        const idempotencyKey = req.headers['idempotency-key'] || body.idempotency_key || null;
 
-      if (amountPaise <= 0n) {
-        return sendJson(res, 400, { success: false, message: 'Amount must be a positive number.' });
-      }
+        let targetMerchantId = caller.id;
+        const reqMerchantId = (body.merchant_id || body.merchantId || '').toString().trim().toUpperCase();
+        if (reqMerchantId && reqMerchantId !== caller.id) {
+          await assertCanAccessUser(caller, reqMerchantId, { query: pgQuery });
+          targetMerchantId = reqMerchantId;
+        }
 
-      const caller = getCaller(req);
-      const createdBy = caller?.id || merchantId;
+        const rawAmount = body.amount_paise !== undefined ? body.amount_paise : body.amount;
+        if (rawAmount === undefined || rawAmount === null) {
+          return sendJson(res, 400, { success: false, message: 'Amount is required.' });
+        }
+
+        let amountPaise;
+        try {
+          if (body.amount_paise !== undefined) {
+            amountPaise = BigInt(body.amount_paise);
+          } else {
+            const num = Number(body.amount);
+            if (isNaN(num) || num <= 0) {
+              return sendJson(res, 400, { success: false, message: 'Amount must be a positive number.' });
+            }
+            amountPaise = BigInt(Math.round(num * 100));
+          }
+        } catch (e) {
+          return sendJson(res, 400, { success: false, message: 'Invalid amount.' });
+        }
+
+        if (amountPaise <= 0n) {
+          return sendJson(res, 400, { success: false, message: 'Amount must be a positive number.' });
+        }
+
+        const createdBy = caller.id;
 
       const rawMode = body.settlement_type || body.settlementType || body.settlement_mode || body.settlementMode || null;
       const rawChannel = body.channel || body.provider;
@@ -1864,7 +1873,7 @@ export async function handleApiRequest(req, res) {
       const client = await pool.connect();
       try {
         const result = await processSwipeTransaction(client, {
-          merchantId: merchantId.trim(),
+          merchantId: targetMerchantId,
           amountPaise,
           channel: cleanChannel,
           settlementMode,
@@ -1898,20 +1907,16 @@ export async function handleApiRequest(req, res) {
         if (err.message?.includes('USER_NOT_FOUND')) {
           return sendJson(res, 404, { success: false, message: err.message });
         }
-        if (
-          err.message?.includes('INVALID_RATE_HIERARCHY') || 
-          err.message?.includes('RATE_NOT_CONFIGURED') ||
-          err.message?.includes('INVALID_SETTLEMENT_MODE') ||
-          err.message?.includes('SETTLEMENT_MODE_REQUIRED') ||
-          err.message?.includes('ADMIN_CANNOT_SWIPE')
-        ) {
-          return sendJson(res, 400, { success: false, message: err.message });
-        }
-        return sendJson(res, 500, { success: false, message: err.message });
+        const status = err.statusCode || 400;
+        return sendJson(res, status, { success: false, error: err.code || 'BAD_REQUEST', message: err.message });
       } finally {
         client.release();
       }
+    } catch (err) {
+      const status = err.statusCode || 401;
+      return sendJson(res, status, { success: false, error: err.code || 'UNAUTHORIZED', message: err.message });
     }
+  }
 
     if (pathname.startsWith('/api/transactions/merchant/') && method === 'GET') {
       const merchantId = pathname.replace('/api/transactions/merchant/', '').trim();
@@ -1996,23 +2001,6 @@ export async function handleApiRequest(req, res) {
       `, [merchantId]);
 
       return sendJson(res, 200, { success: true, beneficiaries });
-    }
-
-    if (pathname === '/api/beneficiaries/add' && method === 'POST') {
-      const { merchant_id, bank_name, account_number, ifsc, holder_name, is_primary } = await parseJsonBody(req);
-
-      if (!merchant_id || !bank_name || !account_number || !account_number.trim() || !ifsc || !ifsc.trim()) {
-        return sendJson(res, 400, { success: false, message: 'Missing required bank details (merchant_id, bank_name, account_number, ifsc).' });
-      }
-
-      const benId = `BEN-${Date.now().toString().slice(-6)}`;
-      await pgQuery(`
-        INSERT INTO beneficiaries (id, merchant_id, bank_name, account_number, ifsc, holder_name, is_primary, is_verified)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, true)
-      `, [benId, merchant_id, bank_name, account_number.trim(), ifsc.trim().toUpperCase(), holder_name || 'Account Holder', Boolean(is_primary)]);
-
-      const created = await pgQuery(`SELECT * FROM beneficiaries WHERE id = $1`, [benId]);
-      return sendJson(res, 201, { success: true, message: 'Beneficiary account added successfully!', beneficiary: created[0] });
     }
 
     // ----------------------------------------------------
@@ -2266,17 +2254,15 @@ export async function handleApiRequest(req, res) {
     // ----------------------------------------------------
     if (pathname === '/api/withdrawals/request' && method === 'POST') {
       try {
+        const caller = requireAuth(req);
         const body = await parseJsonBody(req);
         req.body = body;
 
-        let merchantId = body.merchant_id || body.merchantId || body.userId;
-        if (!merchantId) {
-          try {
-            merchantId = getCaller(req).id;
-          } catch (_) {}
-        }
-        if (!merchantId) {
-          return sendJson(res, 400, { success: false, message: 'Merchant ID is required.' });
+        let targetMerchantId = caller.id;
+        const reqMerchantId = (body.merchant_id || body.merchantId || body.userId || '').toString().trim().toUpperCase();
+        if (reqMerchantId && reqMerchantId !== caller.id) {
+          await assertCanAccessUser(caller, reqMerchantId, { query: pgQuery });
+          targetMerchantId = reqMerchantId;
         }
 
         const rawAmount = body.amount_paise !== undefined ? body.amount_paise : body.amount;
@@ -2303,13 +2289,12 @@ export async function handleApiRequest(req, res) {
           return sendJson(res, 400, { success: false, message: 'Withdrawal amount must be a positive number.' });
         }
 
-        const caller = getCaller(req);
-        const createdBy = caller?.id || merchantId;
+        const createdBy = caller.id;
         const idempotencyKey = req.headers['idempotency-key'] || body.idempotency_key || null;
 
         const result = await withTransaction(async (client) => {
           return await processWithdrawalRequest(client, {
-            merchantId: merchantId.trim(),
+            merchantId: targetMerchantId,
             amountPaise,
             beneficiaryId: body.beneficiary_id || body.beneficiaryId,
             bankName: body.bank_name || body.bankName,
@@ -2326,8 +2311,8 @@ export async function handleApiRequest(req, res) {
 
         return sendJson(res, 200, { success: true, withdrawal: serializeMoneyFields(result) });
       } catch (err) {
-        const status = err.message?.includes('RESERVE_VIOLATION') ? 403 : 400;
-        return sendJson(res, status, { success: false, message: err.message });
+        const status = err.statusCode || (err.message?.includes('RESERVE_VIOLATION') ? 403 : 400);
+        return sendJson(res, status, { success: false, error: err.code || 'BAD_REQUEST', message: err.message });
       }
     }
 
@@ -3099,27 +3084,6 @@ export async function handleApiRequest(req, res) {
         error: 'ACCESS_DENIED',
         message: 'Bulk database purge endpoints are permanently disabled for production data safety.' 
       });
-    }
-
-    if (pathname === '/api/admin/users/delete' && method === 'POST') {
-      try {
-        const { userId } = await parseJsonBody(req);
-        if (!userId || userId === 'ADM001') {
-          return sendJson(res, 400, { success: false, message: 'Cannot delete Super Admin (ADM001).' });
-        }
-        await pgQuery(`
-          DELETE FROM transactions WHERE merchant_id = $1;
-          DELETE FROM wallets WHERE user_id = $1;
-          DELETE FROM merchant_pos WHERE merchant_id = $1;
-          DELETE FROM withdrawals WHERE merchant_id = $1;
-          DELETE FROM beneficiaries WHERE merchant_id = $1;
-          DELETE FROM users WHERE id = $1;
-        `, [userId]);
-
-        return sendJson(res, 200, { success: true, message: `Account ${userId} permanently deleted.` });
-      } catch (err) {
-        return sendJson(res, 500, { success: false, error: err.message });
-      }
     }
 
     // ====================================================
@@ -3908,86 +3872,6 @@ export async function handleApiRequest(req, res) {
       } catch (err) {
         const status = err.statusCode || 500;
         return sendJson(res, status, { success: false, error: err.code || 'INTERNAL_ERROR', message: err.message });
-      }
-    }
-
-    if ((pathname === '/api/withdrawals/execute' || pathname === '/api/withdrawals/request-authoritative') && method === 'POST') {
-      try {
-        const body = await parseJsonBody(req);
-        let merchantId = body.merchant_id || body.userId;
-        if (!merchantId) {
-          try {
-            merchantId = getCaller(req).id;
-          } catch (_) {}
-        }
-        if (!merchantId) {
-          return sendJson(res, 400, { success: false, message: 'Merchant ID is required.' });
-        }
-
-        const amountPaise = body.amount_paise 
-          ? BigInt(body.amount_paise) 
-          : BigInt(Math.round(parseFloat(body.amount) * 100));
-
-        const result = await withTransaction(async (client) => {
-          return await processWithdrawalRequest(client, {
-            merchantId,
-            amountPaise,
-            beneficiaryId: body.beneficiary_id,
-            bankName: body.bank_name || body.bankName,
-            accountNumber: body.account_number || body.accountNumber,
-            ifsc: body.ifsc || body.ifsc_code,
-            holderName: body.holder_name || body.beneficiary_name || body.customer_name,
-            channel: body.channel,
-            settlementType: body.settlement_type || 'T1',
-            idempotencyKey: req.headers['idempotency-key'] || body.idempotency_key || null,
-            createdBy: merchantId
-          });
-        });
-
-        return sendJson(res, 200, { success: true, withdrawal: serializeMoneyFields(result) });
-      } catch (err) {
-        const status = err.message.includes('RESERVE_VIOLATION') ? 403 : 400;
-        return sendJson(res, status, { success: false, message: err.message });
-      }
-    }
-
-    // 4. Authoritative Swipe / Payment Processing
-    if ((pathname === '/api/transactions/process-swipe' || pathname === '/api/transactions/record-authoritative') && method === 'POST') {
-      try {
-        const body = await parseJsonBody(req);
-        const amountPaise = body.amount_paise 
-          ? BigInt(body.amount_paise) 
-          : BigInt(Math.round(parseFloat(body.amount) * 100));
-
-        const result = await withTransaction(async (client) => {
-          return await processSwipeTransaction(client, {
-            merchantId: body.merchant_id,
-            amountPaise,
-            channel: body.channel,
-            refNumber: body.ref_number || body.utr_number || null,
-            slipNumber: body.slip_number || null,
-            notes: body.notes || null,
-            idempotencyKey: req.headers['idempotency-key'] || body.idempotency_key || null,
-            createdBy: body.merchant_id
-          });
-        });
-
-        return sendJson(res, 200, { 
-          success: true, 
-          transaction: serializeMoneyFields({
-            ...result,
-            amount_paise: result.amount_paise.toString(),
-            customer_charge_paise: result.customer_charge_paise.toString(),
-            net_amount_paise: result.net_amount_paise.toString(),
-            distributions: result.distributions.map(d => ({
-              ...d,
-              amount_paise: d.amount_paise.toString()
-            }))
-          })
-        });
-      } catch (err) {
-        const status = err.message.includes('DUPLICATE_SWIPE') ? 409 : 400;
-        return sendJson(res, status, { success: false, message: err.message });
       }
     }
 
