@@ -16,6 +16,7 @@ import {
   Check
 } from 'lucide-react';
 import { submitInquiry } from '../services/api';
+import { getPlainErrorMessage } from '../utils/errorMessages';
 
 export default function ServiceAtmPage({ onOpenLogin, onBack, onShowToast }) {
   // ATM Earnings calculator state
@@ -64,12 +65,12 @@ export default function ServiceAtmPage({ onOpenLogin, onBack, onShowToast }) {
         setSubmitted(true);
         if (onShowToast) onShowToast('✓ Franchise inquiry submitted to Admin for site assessment!');
       } else {
-        const msg = res?.message || 'Failed to submit franchise inquiry on server.';
+        const msg = getPlainErrorMessage(res?.message || 'Failed to submit franchise inquiry on server.');
         setSubmitError(msg);
         if (onShowToast) onShowToast('⚠️ ' + msg);
       }
     } catch (err) {
-      const msg = err.message || 'Network error submitting franchise inquiry.';
+      const msg = getPlainErrorMessage(err?.message || 'Network error submitting franchise inquiry.');
       setSubmitError(msg);
       if (onShowToast) onShowToast('⚠️ ' + msg);
     } finally {

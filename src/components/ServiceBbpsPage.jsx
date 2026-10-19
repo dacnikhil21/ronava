@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { submitInquiry } from '../services/api';
+import { getPlainErrorMessage } from '../utils/errorMessages';
 import { 
   Zap, 
   ShieldCheck, 
@@ -64,12 +65,12 @@ export default function ServiceBbpsPage({ onOpenLogin, onBack, onShowToast }) {
         setSubmitted(true);
         if (onShowToast) onShowToast('✓ BBPS activation inquiry submitted to Admin for onboarding!');
       } else {
-        const msg = res?.message || 'Failed to submit BBPS inquiry on server.';
+        const msg = getPlainErrorMessage(res?.message || 'Failed to submit BBPS inquiry on server.');
         setSubmitError(msg);
         if (onShowToast) onShowToast('⚠️ ' + msg);
       }
     } catch (err) {
-      const msg = err.message || 'Network error submitting BBPS inquiry.';
+      const msg = getPlainErrorMessage(err?.message || 'Network error submitting BBPS inquiry.');
       setSubmitError(msg);
       if (onShowToast) onShowToast('⚠️ ' + msg);
     } finally {

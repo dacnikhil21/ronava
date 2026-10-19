@@ -16,6 +16,7 @@ import {
   Clock
 } from 'lucide-react';
 import { submitInquiry } from '../services/api';
+import { getPlainErrorMessage } from '../utils/errorMessages';
 
 export default function ServiceLoansPage({ onOpenLogin, onBack, onShowToast }) {
   // Calculator state
@@ -68,12 +69,12 @@ export default function ServiceLoansPage({ onOpenLogin, onBack, onShowToast }) {
         setSubmitted(true);
         if (onShowToast) onShowToast('✓ Loan inquiry submitted to Admin for credential review!');
       } else {
-        const msg = res?.message || 'Failed to submit loan inquiry on server.';
+        const msg = getPlainErrorMessage(res?.message || 'Failed to submit loan inquiry on server.');
         setSubmitError(msg);
         if (onShowToast) onShowToast('⚠️ ' + msg);
       }
     } catch (err) {
-      const msg = err.message || 'Network error submitting loan inquiry.';
+      const msg = getPlainErrorMessage(err?.message || 'Network error submitting loan inquiry.');
       setSubmitError(msg);
       if (onShowToast) onShowToast('⚠️ ' + msg);
     } finally {

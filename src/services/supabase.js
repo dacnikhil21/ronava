@@ -17,6 +17,27 @@ export function getApiUrl(endpoint) {
   return `${base}${endpoint}`;
 }
 
+import { getPlainErrorMessage } from '../utils/errorMessages.js';
+
+function wrapResponseWithPlainErrors(res) {
+  if (res && res.json) {
+    const origJson = res.json.bind(res);
+    res.json = async () => {
+      const data = await origJson();
+      if (data && typeof data === 'object') {
+        if (data.success === false || data.error || res.status >= 400) {
+          const plain = getPlainErrorMessage(data);
+          data.rawError = data.error || data.rawError;
+          data.rawMessage = data.message || data.rawMessage;
+          data.message = plain;
+        }
+      }
+      return data;
+    };
+  }
+  return res;
+}
+
 export async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
   const mergedHeaders = { ...(options.headers || {}) };
 
@@ -42,7 +63,8 @@ export async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
   };
 
   if (typeof AbortController === 'undefined') {
-    return fetch(url, finalOptions);
+    const rawRes = await fetch(url, finalOptions);
+    return wrapResponseWithPlainErrors(rawRes);
   }
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
@@ -73,7 +95,7 @@ export async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
       localStorage.removeItem('ronav_token');
       window.dispatchEvent(new CustomEvent('ronav_auth_expired', { detail: { message: 'Your session ended. Please log in again.' } }));
     }
-    return res;
+    return wrapResponseWithPlainErrors(res);
   } catch (err) {
     clearTimeout(id);
     throw err;

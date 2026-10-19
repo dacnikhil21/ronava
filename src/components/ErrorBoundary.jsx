@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertTriangle, RefreshCw, Home, ShieldAlert } from 'lucide-react';
+import { getPlainErrorMessage } from '../utils/errorMessages';
 
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -70,20 +71,19 @@ export default class ErrorBoundary extends React.Component {
               The portal encountered an unexpected runtime exception. Your account data and wallet balance are safe.
             </p>
 
-            {this.state.error?.message && (
+            {this.state.error && (
               <div style={{
                 backgroundColor: '#F1F5F9',
                 border: '1px solid #CBD5E1',
                 borderRadius: '8px',
                 padding: '0.75rem',
-                fontSize: '0.8rem',
+                fontSize: '0.875rem',
                 color: '#334155',
                 textAlign: 'left',
-                fontFamily: 'monospace',
                 marginBottom: '1.5rem',
                 overflowX: 'auto'
               }}>
-                {this.state.error.message}
+                {getPlainErrorMessage(this.state.error)}
               </div>
             )}
 

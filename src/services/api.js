@@ -1,4 +1,6 @@
 import { supabase, getApiUrl, fetchWithTimeout } from './supabase.js';
+import { getPlainErrorMessage } from '../utils/errorMessages.js';
+export { getPlainErrorMessage };
 
 /**
  * RONAV TECHNOLOGIES — Master API & Hierarchy Engine

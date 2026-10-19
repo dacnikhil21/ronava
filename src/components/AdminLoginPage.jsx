@@ -20,6 +20,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { loginUser } from '../services/api';
+import { getPlainErrorMessage } from '../utils/errorMessages';
 
 export default function AdminLoginPage({ onLoginSuccess, onBackToHome }) {
   const [adminId, setAdminId] = useState('');
@@ -72,11 +73,11 @@ export default function AdminLoginPage({ onLoginSuccess, onBackToHome }) {
       if (res && res.success && (res.user?.role === 'ADMIN' || res.user?.id === 'ADM001')) {
         onLoginSuccess(res.user);
       } else {
-        setLoginError(res?.message || 'Access Denied: You do not have Administrator privileges. Please login through your designated partner portal.');
+        setLoginError(getPlainErrorMessage(res?.message || 'Access Denied: You do not have Administrator privileges. Please login through your designated partner portal.'));
       }
     } catch (err) {
       console.error(err);
-      setLoginError(err?.message || 'Authentication error. Please verify your connection.');
+      setLoginError(getPlainErrorMessage(err?.message || 'Authentication error. Please verify your connection.'));
     } finally {
       setIsLoading(false);
     }

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import RonavLogo from './RonavLogo';
 import { User, Lock, Eye, EyeOff, ShieldCheck, Headphones, Zap, TrendingUp, Phone, Mail, X, Menu, ArrowRight, ArrowLeft, Layers, CheckCircle2, Send, ChevronDown, ChevronUp, Check, CreditCard, Shield, Copy, AlertCircle, UserPlus } from 'lucide-react';
 import { loginUser, resetUserPassword } from '../services/api';
+import { getPlainErrorMessage } from '../utils/errorMessages';
 
 export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavigate }) {
   const [userId, setUserId] = useState('');
@@ -48,10 +49,10 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
       if (res && res.success && res.user) {
         setForgotResult(res);
       } else {
-        setForgotError(res?.message || 'No registered account found.');
+        setForgotError(getPlainErrorMessage(res?.message || 'No registered account found.'));
       }
     } catch (err) {
-      setForgotError(err?.message || 'Connection error verifying account.');
+      setForgotError(getPlainErrorMessage(err?.message || 'Connection error verifying account.'));
     } finally {
       setIsResetting(false);
     }
@@ -116,11 +117,11 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
           pos: res.pos || null
         });
       } else {
-        setLoginError(res?.message || 'Access Denied: Invalid User ID or credentials.');
+        setLoginError(getPlainErrorMessage(res?.message || 'Access Denied: Invalid User ID or credentials.'));
       }
     } catch (err) {
       console.error(err);
-      setLoginError(err?.message || 'Authentication error. Please verify your connection.');
+      setLoginError(getPlainErrorMessage(err?.message || 'Authentication error. Please verify your connection.'));
     } finally {
       setIsLoading(false);
     }

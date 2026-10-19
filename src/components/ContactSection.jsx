@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Phone, MessageSquare, Mail, MapPin, Send, CheckCircle2 } from 'lucide-react';
 import { submitInquiry } from '../services/api';
+import { getPlainErrorMessage } from '../utils/errorMessages';
 
 export default function ContactSection({ onOpenOfficeModal }) {
   const [formData, setFormData] = useState({
@@ -43,10 +44,10 @@ export default function ContactSection({ onOpenOfficeModal }) {
       if (res && res.success) {
         setSubmitted(true);
       } else {
-        setSubmitError(res?.message || 'Failed to submit inquiry to server.');
+        setSubmitError(getPlainErrorMessage(res?.message || 'Failed to submit inquiry to server.'));
       }
     } catch (err) {
-      setSubmitError(err.message || 'Network error submitting inquiry.');
+      setSubmitError(getPlainErrorMessage(err?.message || 'Network error submitting inquiry.'));
     } finally {
       setIsSubmitting(false);
     }

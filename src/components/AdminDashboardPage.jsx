@@ -47,6 +47,7 @@ import {
   getUserFinancialSummary
 } from '../services/api';
 import { subscribeToAdminFeed } from '../services/supabase';
+import { getPlainErrorMessage } from '../utils/errorMessages';
 import RonavLogo from './RonavLogo';
 
 // Universal Deduplication Helper ensuring zero doubled records across all scopes
@@ -296,7 +297,13 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
   // Toast Helper
   const triggerToast = (msg, type = 'success') => {
-    setToast({ msg, type });
+    let displayMsg = msg;
+    if (type === 'error' || (typeof msg === 'string' && (msg.includes(':') || msg.toLowerCase().includes('error')))) {
+      displayMsg = getPlainErrorMessage(msg);
+    } else if (typeof msg === 'object') {
+      displayMsg = getPlainErrorMessage(msg);
+    }
+    setToast({ msg: displayMsg, type });
     setTimeout(() => setToast(null), 3500);
   };
 
@@ -3621,7 +3628,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     <AlertCircle style={{ width: '22px', height: '22px', flexShrink: 0, color: '#DC2626' }} />
                     <div>
                       <strong style={{ fontSize: '0.9375rem', display: 'block' }}>Backend Connection Error</strong>
-                      <span style={{ fontSize: '0.8125rem' }}>{serverSyncError}. An error must never look like zero balance or zero sales.</span>
+                      <span style={{ fontSize: '0.8125rem' }}>{getPlainErrorMessage(serverSyncError)}. An error must never look like zero balance or zero sales.</span>
                     </div>
                   </div>
                 )}

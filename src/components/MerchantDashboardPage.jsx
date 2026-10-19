@@ -34,6 +34,7 @@ import { downloadRentalReportFile } from '../utils/bankExportUtils';
 import { formatPaiseToRupees, rupeesToPaise, generateIdempotencyKey } from '../utils/formatters';
 import { getRatesConfig, getSystemSettings, getUserFinancialSummary, fetchWithdrawalQuote } from '../services/api';
 import { subscribeToWallet, subscribeToTransactions, fetchWithTimeout, getApiUrl } from '../services/supabase';
+import { getPlainErrorMessage } from '../utils/errorMessages';
 import RonavLogo from './RonavLogo';
 
 // Comprehensive Indian Banks Database for Search & Selection
@@ -210,8 +211,16 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   });
   const [toastMessage, setToastMessage] = useState('');
 
-  const showToast = (msg) => {
-    setToastMessage(msg);
+  const showToast = (msg, isError = false) => {
+    let displayMsg = msg;
+    if (typeof msg === 'string') {
+      if (isError || msg.includes(':') || msg.toLowerCase().includes('error') || msg.toLowerCase().includes('failed') || msg.toLowerCase().includes('denied')) {
+        displayMsg = getPlainErrorMessage(msg);
+      }
+    } else if (typeof msg === 'object') {
+      displayMsg = getPlainErrorMessage(msg);
+    }
+    setToastMessage(displayMsg);
     setTimeout(() => setToastMessage(''), 3500);
   };
 
@@ -1636,7 +1645,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
             <strong style={{ fontSize: '0.875rem', color: '#991B1B' }}>Wallet Sync Error</strong>
           </div>
           <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.75rem', color: '#B91C1C' }}>
-            {walletError}. (An error must never look like zero balance).
+            {getPlainErrorMessage(walletError)}. (An error must never look like zero balance).
           </p>
           <button
             type="button"
@@ -2637,7 +2646,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                     <strong style={{ fontSize: '0.875rem', color: '#991B1B' }}>Unable to Load Wallet Balance</strong>
                   </div>
                   <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.75rem', color: '#B91C1C' }}>
-                    {walletError}. An error must never look like zero balance.
+                    {getPlainErrorMessage(walletError)}. An error must never look like zero balance.
                   </p>
                   <button
                     type="button"
@@ -4258,7 +4267,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                         {quoteError && (
                           <div style={{ padding: '0.6rem 0.8rem', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', fontSize: '0.75rem', color: '#DC2626', display: 'flex', alignItems: 'center', gap: '6px' }}>
                             <AlertCircle style={{ width: '14px', height: '14px', color: '#DC2626' }} />
-                            <span>{quoteError}</span>
+                            <span>{getPlainErrorMessage(quoteError)}</span>
                           </div>
                         )}
                         {withdrawalQuote && !isLoadingQuote && (

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { submitInquiry } from '../services/api';
+import { getPlainErrorMessage } from '../utils/errorMessages';
 import { 
   CreditCard, 
   ShieldCheck, 
@@ -77,12 +78,12 @@ export default function ServicePosPage({ onOpenLogin, onBack, onShowToast }) {
         setSubmitted(true);
         if (onShowToast) onShowToast('✓ POS inquiry submitted to Admin for credential dispatch!');
       } else {
-        const msg = res?.message || 'Failed to submit POS inquiry on server.';
+        const msg = getPlainErrorMessage(res?.message || 'Failed to submit POS inquiry on server.');
         setSubmitError(msg);
         if (onShowToast) onShowToast('⚠️ ' + msg);
       }
     } catch (err) {
-      const msg = err.message || 'Network error submitting POS inquiry.';
+      const msg = getPlainErrorMessage(err?.message || 'Network error submitting POS inquiry.');
       setSubmitError(msg);
       if (onShowToast) onShowToast('⚠️ ' + msg);
     } finally {

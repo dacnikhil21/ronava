@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { submitInquiry } from '../services/api';
+import { getPlainErrorMessage } from '../utils/errorMessages';
 import { 
   Phone, 
   Mail, 
@@ -57,12 +58,12 @@ export default function ContactPage({ onBack, onShowToast }) {
           onShowToast('✓ Inquiry submitted! Our enterprise team will call you within 2 hours.');
         }
       } else {
-        const msg = res?.message || 'Failed to submit inquiry to server.';
+        const msg = getPlainErrorMessage(res?.message || 'Failed to submit inquiry to server.');
         setSubmitError(msg);
         if (onShowToast) onShowToast('⚠️ ' + msg);
       }
     } catch (err) {
-      const msg = err.message || 'Network error submitting inquiry.';
+      const msg = getPlainErrorMessage(err?.message || 'Network error submitting inquiry.');
       setSubmitError(msg);
       if (onShowToast) onShowToast('⚠️ ' + msg);
     } finally {
