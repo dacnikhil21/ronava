@@ -85,11 +85,16 @@ export async function processWithdrawalRequest(client, {
   merchantId,
   amountPaise,
   beneficiaryId,
+  bankName,
+  accountNumber,
+  ifsc,
+  holderName,
   channel = 'pinelabs',
   settlementType = 'T1',
   idempotencyKey = null,
-  createdBy = null
-}) {
+  createdBy = null,
+  ...restParams
+} = {}) {
   if (!client || typeof client.query !== 'function') {
     throw new Error('DATABASE_CLIENT_REQUIRED: processWithdrawalRequest requires a transaction client.');
   }
@@ -114,26 +119,55 @@ export async function processWithdrawalRequest(client, {
     }
   }
 
-  // 2. Beneficiary Verification (MUST be an approved, existing beneficiary belonging to merchant)
-  if (!beneficiaryId) {
-    throw new Error('BENEFICIARY_REQUIRED: An approved beneficiary ID must be selected.');
-  }
-  const benRes = await client.query(`
-    SELECT id, merchant_id, bank_name, account_number, ifsc, holder_name, is_verified 
-    FROM beneficiaries 
-    WHERE id = $1 AND UPPER(merchant_id) = UPPER($2)
-  `, [beneficiaryId, merchantId]);
+  // 2. Beneficiary Resolution & Auto-Creation (Per Confirmed Business Rule 1: typed accounts usable immediately)
+  let beneficiary = null;
+  const typedAcc = (accountNumber || restParams.account_number || '').toString().trim();
+  const typedIfsc = (ifsc || restParams.ifsc_code || '').toString().trim().toUpperCase();
+  const typedBankName = (bankName || restParams.bank_name || 'Bank Account').toString().trim();
+  const typedHolder = (holderName || restParams.holder_name || restParams.beneficiary_name || merchantId).toString().trim();
 
-  if (benRes.rows.length === 0) {
-    throw new Error('INVALID_BENEFICIARY: Selected beneficiary is not registered or does not belong to this merchant.');
+  if (beneficiaryId) {
+    const benRes = await client.query(`
+      SELECT id, merchant_id, bank_name, account_number, ifsc, holder_name, is_verified 
+      FROM beneficiaries 
+      WHERE id = $1 AND UPPER(merchant_id) = UPPER($2)
+    `, [beneficiaryId, merchantId]);
+
+    if (benRes.rows.length === 0) {
+      throw new Error('INVALID_BENEFICIARY: Selected beneficiary is not registered or does not belong to this merchant.');
+    }
+    beneficiary = benRes.rows[0];
+  } else if (typedAcc && typedIfsc) {
+    // Check if an identical account already exists for this merchant
+    const existingBen = await client.query(`
+      SELECT id, merchant_id, bank_name, account_number, ifsc, holder_name, is_verified 
+      FROM beneficiaries 
+      WHERE UPPER(merchant_id) = UPPER($1) AND account_number = $2 AND UPPER(ifsc) = $3
+      LIMIT 1
+    `, [merchantId, typedAcc, typedIfsc]);
+
+    if (existingBen.rows.length > 0) {
+      beneficiary = existingBen.rows[0];
+    } else {
+      const newBenId = `BEN-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
+      const benCountRes = await client.query(`SELECT COUNT(*)::int as count FROM beneficiaries WHERE UPPER(merchant_id) = UPPER($1)`, [merchantId]);
+      const isFirst = (benCountRes.rows[0]?.count || 0) === 0;
+
+      const newBenRes = await client.query(`
+        INSERT INTO beneficiaries (id, merchant_id, bank_name, account_number, ifsc, holder_name, is_verified, is_primary)
+        VALUES ($1, $2, $3, $4, $5, $6, true, $7)
+        RETURNING id, merchant_id, bank_name, account_number, ifsc, holder_name, is_verified
+      `, [newBenId, merchantId, typedBankName, typedAcc, typedIfsc, typedHolder, isFirst]);
+      beneficiary = newBenRes.rows[0];
+    }
+  } else {
+    throw new Error('BENEFICIARY_REQUIRED: Please select a saved bank account or enter account number and IFSC.');
   }
-  const beneficiary = benRes.rows[0];
-  if (!beneficiary.is_verified) {
-    throw new Error('UNVERIFIED_BENEFICIARY: Beneficiary bank account is not verified for payouts.');
-  }
-  if (!beneficiary.account_number || !beneficiary.account_number.trim() || !beneficiary.ifsc || !beneficiary.ifsc.trim()) {
+
+  if (!beneficiary || !beneficiary.account_number || !beneficiary.account_number.trim() || !beneficiary.ifsc || !beneficiary.ifsc.trim()) {
     throw new Error('INVALID_BENEFICIARY_DETAILS: Beneficiary missing account number or IFSC.');
   }
+  beneficiaryId = beneficiary.id;
 
   // 3. Row-Level Locking on Wallet (SELECT ... FOR UPDATE prevents race conditions / double-spend)
   const walletLockRes = await client.query(`

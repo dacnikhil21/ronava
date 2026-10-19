@@ -2096,38 +2096,47 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     const isQrMode = selectedMachineKey === 'qr';
     const finalChannel = isQrMode ? 'qr' : (selectedMachineKey === 'payswiff' ? 'payswiff' : 'pinelabs');
 
-    let targetBank = null;
-    if (selectedBankId) {
-      targetBank = beneficiaries.find(b => b.id === selectedBankId);
-    }
-    if (!targetBank && beneficiaries.length > 0) {
-      targetBank = beneficiaries[0];
-    }
+    let targetBankId = null;
+    let bankName = null;
+    let accountNumber = null;
+    let ifsc = null;
+    let holderName = null;
 
-    console.log('[handleWithdrawSubmit] targetBank:', targetBank, 'beneficiaries count:', beneficiaries.length);
-
-    if (!targetBank || !targetBank.account_number || !targetBank.account_number.trim() || !targetBank.ifsc || !targetBank.ifsc.trim()) {
-      console.log('[handleWithdrawSubmit] Aborted: missing targetBank or bank details');
-      showToast('⚠️ Cannot proceed: No bank account on file (missing account number or IFSC).');
-      return;
-    }
-    if (!targetBank) {
-      if (!customerPayoutForm.bank_name || !customerPayoutForm.account_number) {
-        showToast('⚠️ Please select or link a bank account.');
+    if (bankInputMode === 'saved') {
+      let targetBank = selectedBankId ? beneficiaries.find(b => b.id === selectedBankId) : (beneficiaries[0] || null);
+      if (!targetBank || !targetBank.account_number || !targetBank.account_number.trim() || !targetBank.ifsc || !targetBank.ifsc.trim()) {
+        showToast('⚠️ Cannot proceed: No saved bank account selected (missing account number or IFSC).');
         return;
       }
-      const addRes = await addBeneficiary({
-        merchant_id: merchantId,
-        bank_name: customerPayoutForm.bank_name,
-        account_number: customerPayoutForm.account_number.trim(),
-        ifsc: customerPayoutForm.ifsc.trim().toUpperCase(),
-        holder_name: customerPayoutForm.customer_name.trim()
-      });
-      if (addRes && addRes.success && addRes.beneficiary) {
-        targetBank = addRes.beneficiary;
-      } else {
-        showToast('⚠️ Could not save/verify beneficiary account.');
+      targetBankId = targetBank.id;
+      bankName = targetBank.bank_name;
+      accountNumber = targetBank.account_number;
+      ifsc = targetBank.ifsc;
+      holderName = targetBank.holder_name;
+    } else {
+      // Manual input mode: user typed a new account
+      const rawBankName = (customerPayoutForm.bank_name || '').trim();
+      const rawAcc = (customerPayoutForm.account_number || '').trim();
+      const rawConfirmAcc = (customerPayoutForm.confirm_account || '').trim();
+      const rawIfsc = (customerPayoutForm.ifsc || '').trim().toUpperCase();
+      const rawHolder = (customerPayoutForm.customer_name || '').trim();
+
+      if (!rawBankName || !rawAcc || !rawIfsc) {
+        showToast('⚠️ Please enter complete bank details (Bank Name, Account Number, IFSC).');
         return;
+      }
+      if (rawConfirmAcc && rawAcc !== rawConfirmAcc) {
+        showToast('⚠️ Account numbers do not match!');
+        return;
+      }
+      bankName = rawBankName;
+      accountNumber = rawAcc;
+      ifsc = rawIfsc;
+      holderName = rawHolder || merchantName;
+
+      const matching = (beneficiaries || []).find(b => b.account_number === rawAcc && (b.ifsc || '').toUpperCase() === rawIfsc);
+      if (matching) {
+        targetBankId = matching.id;
       }
     }
 
@@ -2138,7 +2147,11 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         merchant_id: merchantId,
         amount: amountNum,
         amount_paise: Math.round(amountNum * 100),
-        beneficiary_id: targetBank.id,
+        beneficiary_id: targetBankId,
+        bank_name: bankName,
+        account_number: accountNumber,
+        ifsc: ifsc,
+        holder_name: holderName,
         channel: finalChannel,
         settlement_type: (customerPayoutForm.settlement_mode || 'T1').toUpperCase(),
         payout_type: payoutTargetType === 'MERCHANT' ? 'MERCHANT_OWN' : 'CUSTOMER_DISBURSAL',

@@ -1237,10 +1237,10 @@ export async function handleApiRequest(req, res) {
         const ifscClean = ifsc.trim().toUpperCase();
 
         const insertRes = await pgQuery(`
-          INSERT INTO beneficiaries (id, merchant_id, bank_name, account_number, ifsc, beneficiary_name, holder_name, is_primary)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          INSERT INTO beneficiaries (id, merchant_id, bank_name, account_number, ifsc, holder_name, is_verified, is_primary)
+          VALUES ($1, $2, $3, $4, $5, $6, true, $7)
           RETURNING *
-        `, [benId, merchant_id.trim(), bank_name.trim(), account_number.trim(), ifscClean, benName, benName, Boolean(is_primary)]);
+        `, [benId, merchant_id.trim(), bank_name.trim(), account_number.trim(), ifscClean, benName, Boolean(is_primary)]);
 
         return sendJson(res, 200, {
           success: true,
@@ -1983,9 +1983,9 @@ export async function handleApiRequest(req, res) {
 
       const benId = `BEN-${Date.now().toString().slice(-6)}`;
       await pgQuery(`
-        INSERT INTO beneficiaries (id, merchant_id, bank_name, account_number, ifsc, holder_name, is_primary)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `, [benId, merchant_id, bank_name, account_number.trim(), ifsc.trim().toUpperCase(), holder_name || 'Account Holder', is_primary ? 1 : 0]);
+        INSERT INTO beneficiaries (id, merchant_id, bank_name, account_number, ifsc, holder_name, is_primary, is_verified)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, true)
+      `, [benId, merchant_id, bank_name, account_number.trim(), ifsc.trim().toUpperCase(), holder_name || 'Account Holder', Boolean(is_primary)]);
 
       const created = await pgQuery(`SELECT * FROM beneficiaries WHERE id = $1`, [benId]);
       return sendJson(res, 201, { success: true, message: 'Beneficiary account added successfully!', beneficiary: created[0] });
@@ -2286,6 +2286,10 @@ export async function handleApiRequest(req, res) {
             merchantId: merchantId.trim(),
             amountPaise,
             beneficiaryId: body.beneficiary_id || body.beneficiaryId,
+            bankName: body.bank_name || body.bankName,
+            accountNumber: body.account_number || body.accountNumber,
+            ifsc: body.ifsc || body.ifsc_code,
+            holderName: body.holder_name || body.beneficiary_name || body.customer_name,
             channel: body.channel || body.provider,
             settlementType: (body.settlement_type || body.settlementType || 'T1').toUpperCase(),
             idempotencyKey,
@@ -3763,6 +3767,10 @@ export async function handleApiRequest(req, res) {
             merchantId,
             amountPaise,
             beneficiaryId: body.beneficiary_id,
+            bankName: body.bank_name || body.bankName,
+            accountNumber: body.account_number || body.accountNumber,
+            ifsc: body.ifsc || body.ifsc_code,
+            holderName: body.holder_name || body.beneficiary_name || body.customer_name,
             channel: body.channel,
             settlementType: body.settlement_type || 'T1',
             idempotencyKey: req.headers['idempotency-key'] || body.idempotency_key || null,
