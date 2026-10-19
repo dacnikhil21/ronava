@@ -2595,6 +2595,8 @@ export async function handleApiRequest(req, res) {
                      COALESCE(w.amount, (w.amount_paise / 100.0)) as amount,
                      u.name as merchant_name, 
                      u.mobile as merchant_mobile,
+                     u.channels as user_channels,
+                     p.terminal_id as pos_terminal_id,
                      b.bank_name,
                      b.account_number,
                      b.ifsc,
@@ -2611,6 +2613,7 @@ export async function handleApiRequest(req, res) {
                      ) as swipe_mode
               FROM withdrawals w
               LEFT JOIN users u ON w.merchant_id = u.id
+              LEFT JOIN merchant_pos p ON w.merchant_id = p.merchant_id
               LEFT JOIN beneficiaries b ON w.beneficiary_id = b.id
               WHERE w.id = ANY($1)
               FOR UPDATE OF w
@@ -2621,6 +2624,8 @@ export async function handleApiRequest(req, res) {
                      COALESCE(w.amount, (w.amount_paise / 100.0)) as amount,
                      u.name as merchant_name, 
                      u.mobile as merchant_mobile,
+                     u.channels as user_channels,
+                     p.terminal_id as pos_terminal_id,
                      b.bank_name,
                      b.account_number,
                      b.ifsc,
@@ -2637,6 +2642,7 @@ export async function handleApiRequest(req, res) {
                      ) as swipe_mode
               FROM withdrawals w
               LEFT JOIN users u ON w.merchant_id = u.id
+              LEFT JOIN merchant_pos p ON w.merchant_id = p.merchant_id
               LEFT JOIN beneficiaries b ON w.beneficiary_id = b.id
               WHERE w.status = 'PENDING'
               FOR UPDATE OF w
@@ -2684,57 +2690,107 @@ export async function handleApiRequest(req, res) {
 
           const csvHeaders = [
             'Sl No',
+            'Beneficiary Name',
+            'Account Number',
+            'IFSC Code',
+            'Bank Name',
+            'Net Amount (INR)',
             'Merchant ID',
             'Merchant Name',
             'Merchant Mobile',
-            'Beneficiary Name',
-            'Account Number',
-            'IFSC',
-            'Bank Name',
-            'Gross Amount',
-            'Fee',
-            'Net Payout',
             'Channel',
+            'Machine Name',
             'Withdrawal Mode',
             'Swipe Mode',
-            'Mode Mismatch Flag',
-            'Payout Ref ID',
-            'Date'
+            'UTR Number',
+            'Date & Time'
           ];
 
           let totalAmountPaise = 0n;
-          const csvLines = [csvHeaders.join(',')];
+          const csvLines = ['\uFEFF' + csvHeaders.join(',')];
 
           const enriched = rows.map((r, idx) => {
-            const wMode = (r.withdrawal_mode || r.settlement_type || 'T1').toUpperCase();
-            const sMode = r.swipe_mode ? r.swipe_mode.toUpperCase() : 'UNKNOWN';
-            const mismatch = Boolean(sMode && sMode !== 'UNKNOWN' && sMode !== 'NONE' && sMode !== wMode);
+            const wMode = (r.withdrawal_mode || r.settlement_type || 'T1').toUpperCase().replace('T1', 'T+1');
+            let sMode = (r.swipe_mode || 'T1').toUpperCase().replace('T1', 'T+1');
+            if (sMode === 'UNKNOWN' || sMode === 'NONE') sMode = wMode;
+
             const amtPaise = BigInt(r.amount_paise || Math.round(Number(r.amount) * 100));
             const feePaise = BigInt(r.fee_paise || 0);
             const netPaise = BigInt(r.net_payout_paise || (amtPaise - feePaise));
             totalAmountPaise += amtPaise;
-            const grossRupees = (Number(amtPaise) / 100).toFixed(2);
-            const feeRupees = (Number(feePaise) / 100).toFixed(2);
             const netRupees = (Number(netPaise) / 100).toFixed(2);
+
+            // 1. Merchant Mobile (Clean & formatted as formula so Excel never converts to 6.30E+09)
+            const rawMob = String(r.merchant_mobile || '').replace(/[^0-9]/g, '').trim();
+            const formattedMob = rawMob ? `="${rawMob}"` : '""';
+
+            // 2. Beneficiary Name
+            const benName = (r.holder_name || r.merchant_name || 'Beneficiary').trim();
+
+            // 3. Exact Account Number (Formatted as formula ="..." so Excel NEVER drops leading 0s or converts to scientific notation)
+            const rawAcc = String(r.account_number || '').trim();
+            const formattedAcc = rawAcc ? `="${rawAcc}"` : '""';
+
+            // 4. Exact IFSC Code (Capitalized & trimmed)
+            const cleanIfsc = String(r.ifsc || '').toUpperCase().trim();
+
+            // 5. Bank Name
+            const cleanBank = (r.bank_name || 'Bank').trim();
+
+            // 6. Machine Name / Terminal ID
+            const chKey = (r.channel || 'pinelabs').toLowerCase().replace(/[^a-z]/g, '');
+            let rawTerm = '';
+            if (r.user_channels && typeof r.user_channels === 'object') {
+              rawTerm = r.user_channels[chKey]?.terminal_id || r.user_channels[chKey]?.terminalId || '';
+            }
+            if (!rawTerm) rawTerm = r.pos_terminal_id || '';
+            let cleanTerminal = rawTerm ? String(rawTerm).trim() : '';
+            if (cleanTerminal.includes('[PORTFOLIO]')) {
+              try {
+                const parsed = JSON.parse(cleanTerminal.replace('[PORTFOLIO]', '').trim());
+                cleanTerminal = parsed.terminal_id || parsed.serial || parsed.terminal || cleanTerminal;
+              } catch (_) {}
+            }
+            if (!cleanTerminal || cleanTerminal === 'N/A') {
+              cleanTerminal = chKey === 'qr' ? 'Company QR' : 'Main Terminal';
+            }
+
+            // 7. Clean Channel Label
+            let formattedChannel = 'Pine Labs';
+            if (chKey === 'qr') formattedChannel = 'Company QR (UPI)';
+            else if (chKey === 'payswiff') formattedChannel = 'Payswiff';
+
+            // 8. UTR Number
+            const cleanUtr = String(r.utr || '').trim();
+            const formattedUtr = cleanUtr ? `="${cleanUtr}"` : '"Pending Bank Transfer"';
+
+            // 9. Date & Time (Indian Format: 20-Oct-2026, 12:22 AM)
+            const d = r.created_at ? new Date(r.created_at) : new Date();
+            const formattedDateTime = d.toLocaleString('en-IN', {
+              day: '2-digit',
+              month: 'short',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true
+            });
 
             const rowData = [
               idx + 1,
+              `"${benName.replace(/"/g, '""')}"`,
+              formattedAcc,
+              `"${cleanIfsc}"`,
+              `"${cleanBank.replace(/"/g, '""')}"`,
+              netRupees,
               `"${r.merchant_id || ''}"`,
               `"${(r.merchant_name || '').replace(/"/g, '""')}"`,
-              `"${r.merchant_mobile || ''}"`,
-              `"${(r.holder_name || '').replace(/"/g, '""')}"`,
-              `"${r.account_number || ''}"`,
-              `"${r.ifsc || ''}"`,
-              `"${(r.bank_name || '').replace(/"/g, '""')}"`,
-              grossRupees,
-              feeRupees,
-              netRupees,
-              r.channel || 'pinelabs',
-              wMode,
-              sMode,
-              mismatch ? 'MISMATCH' : 'MATCH',
-              r.id,
-              new Date().toISOString()
+              formattedMob,
+              `"${formattedChannel}"`,
+              `"${cleanTerminal.replace(/"/g, '""')}"`,
+              `"${wMode}"`,
+              `"${sMode}"`,
+              formattedUtr,
+              `"${formattedDateTime}"`
             ];
             csvLines.push(rowData.join(','));
 
@@ -2743,8 +2799,7 @@ export async function handleApiRequest(req, res) {
               status: 'SUBMITTED_TO_BANK',
               batch_id: batchId,
               withdrawal_mode: wMode,
-              swipe_mode: sMode,
-              mismatch_flag: mismatch
+              swipe_mode: sMode
             };
           });
 

@@ -11,27 +11,22 @@
  */
 
 export function generateBankBatchCSV(payoutsList, options = {}) {
-  // Comprehensive Payout Report with Merchant Identifiers, Bank Details, and Audit Trail
   const headers = [
     'Sl No',
-    'Merchant ID (User ID)',
-    'Merchant Name (Store / Owner)',
-    'Merchant Mobile',
-    'Beneficiary Name (Recipient)',
+    'Beneficiary Name',
     'Account Number',
     'IFSC Code',
     'Bank Name',
-    'Gross Amount (INR)',
-    'Fee (INR)',
-    'Net Payout (INR)',
-    'Slip UTR / Bank Reference',
-    'Channel / Provider',
-    'Swipe Mode',
+    'Net Amount (INR)',
+    'Merchant ID',
+    'Merchant Name',
+    'Merchant Mobile',
+    'Channel',
+    'Machine Name',
     'Withdrawal Mode',
-    'Mismatch Flag',
-    'Payout Reference ID',
-    'Request Date & Time',
-    'Status'
+    'Swipe Mode',
+    'UTR Number',
+    'Date & Time'
   ];
 
   const escapeCSV = (val) => {
@@ -41,119 +36,95 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
   };
 
   const rows = payoutsList.map((item, index) => {
-    // 1. Sl No (1 to N)
     const slNo = index + 1;
-
-    // 2. Merchant ID / User ID
     const merchantId = item.merchant_id || item.user_id || 'MID-UNKNOWN';
-
-    // 3. Merchant Name
     const merchantName = item.merchant_name || item.name || '';
-
-    // 4. Merchant Mobile (Formatted as text formula ="..." so Excel never shows 5.75E+09 scientific notation)
     const rawMob = String(item.merchant_mobile || item.mobile || '').replace(/[^0-9]/g, '').trim();
-    const formattedMob = rawMob ? `="${rawMob}"` : (item.merchant_mobile || item.mobile || '""');
+    const formattedMob = rawMob ? `="${rawMob}"` : '""';
 
-    // 5. Beneficiary Name (Whom they want to send money to)
-    let recipient = item.customer_name || item.holder_name || item.beneficiary_name || '';
+    let recipient = item.holder_name || item.beneficiary_name || item.customer_name || '';
     if (!recipient && item.admin_remark) {
       const nameMatch = item.admin_remark.match(/Name:\s*([^|•\r\n]+)/i);
       if (nameMatch) recipient = nameMatch[1].trim();
     }
-    if (!recipient) recipient = item.merchant_name || 'Beneficiary';
+    if (!recipient) recipient = merchantName || 'Beneficiary';
 
-    // 6. Account Number (Preserved as text formula ="..." so Excel never corrupts digits or uses scientific notation)
     const rawAcc = String(item.account_number || item.accountNumber || item.bank_account || '').replace(/[^0-9]/g, '').trim();
     const formattedAcc = rawAcc ? `="${rawAcc}"` : '""';
 
-    // 7. IFSC Code
     const ifsc = String(item.ifsc_code || item.ifsc || '').toUpperCase().trim();
-
-    // 8. Bank Name
     const bankName = item.bank_name || item.bankName || 'Bank';
 
-    // 9. Gross, Fee, Net Payout (Authoritative DB / Server fields)
     const grossAmt = parseFloat(item.amount || item.amount_rupees || 0);
     const feeAmt = parseFloat(item.fee !== undefined ? item.fee : (item.fee_paise !== undefined ? (Number(item.fee_paise) / 100) : 0));
     const netAmt = parseFloat(item.net_payout !== undefined ? item.net_payout : (item.net_payout_paise !== undefined ? (Number(item.net_payout_paise) / 100) : (grossAmt - feeAmt)));
 
-    // 10. Slip UTR / Bank Reference Number
-    let utrVal = item.utr_number || item.rrn_number || item.utr || item.ref_number || item.rrn || '';
+    // Machine Name / Terminal ID
+    let rawTerm = item.terminal_id || item.pos_terminal || item.pos_terminal_id || '';
+    if (!rawTerm && item.channels && typeof item.channels === 'object') {
+      const chKey = (item.channel || 'pinelabs').toLowerCase().replace(/[^a-z]/g, '');
+      rawTerm = item.channels[chKey]?.terminal_id || item.channels[chKey]?.terminalId || '';
+    }
+    let cleanTerminal = rawTerm ? String(rawTerm).trim() : '';
+    if (cleanTerminal.includes('[PORTFOLIO]')) {
+      try {
+        const parsed = JSON.parse(cleanTerminal.replace('[PORTFOLIO]', '').trim());
+        cleanTerminal = parsed.terminal_id || parsed.serial || parsed.terminal || cleanTerminal;
+      } catch (_) {}
+    }
+    if (!cleanTerminal || cleanTerminal === 'N/A') {
+      const chKey = (item.channel || 'pinelabs').toLowerCase();
+      cleanTerminal = chKey.includes('qr') ? 'Company QR' : 'Main Terminal';
+    }
+
+    // Channel
+    let channel = 'Pine Labs';
+    const rawProv = (item.channel || item.pos_provider || item.provider || '').toLowerCase();
+    if (rawProv.includes('qr')) channel = 'Company QR (UPI)';
+    else if (rawProv.includes('swiff')) channel = 'Payswiff';
+    else channel = 'Pine Labs';
+
+    // Modes
+    const withdrawalMode = (item.withdrawal_mode || item.settlement_mode || item.settlement_type || 'T1').toUpperCase().replace('T1', 'T+1');
+    let swipeMode = (item.swipe_mode || item.swipe_settlement_type || 'T1').toUpperCase().replace('T1', 'T+1');
+    if (swipeMode === 'UNKNOWN' || swipeMode === 'N/A') swipeMode = withdrawalMode;
+
+    // UTR Number
+    let utrVal = item.utr_number || item.rrn_number || item.utr || item.ref_number || item.bank_rrn || '';
     if (!utrVal && typeof item.admin_remark === 'string') {
       const utrMatch = item.admin_remark.match(/UTR:?\s*([A-Za-z0-9_-]+)/i);
       if (utrMatch) utrVal = utrMatch[1].trim();
     }
-    if (!utrVal && typeof item.notes === 'string') {
-      const notesMatch = item.notes.match(/UTR:?\s*([A-Za-z0-9_-]+)/i);
-      if (notesMatch) utrVal = notesMatch[1].trim();
-    }
     const cleanUtr = String(utrVal).trim();
-    const formattedUtr = cleanUtr && cleanUtr !== 'N/A' ? `="${cleanUtr}"` : '""';
+    const formattedUtr = cleanUtr && cleanUtr !== 'N/A' ? `="${cleanUtr}"` : '"Pending Bank Transfer"';
 
-    // 11. Channel / Provider (Accurate determination for QR, Payswiff, and Pine Labs)
-    let channel = 'Pine Labs';
-    const rawRemark = (item.admin_remark || item.notes || '').toLowerCase();
-    const rawProv = (item.channel || item.pos_provider || item.provider || '').toLowerCase();
-    const rawType = (item.type || '').toLowerCase();
-
-    if (rawProv.includes('qr') || rawType.includes('qr') || rawRemark.includes('channel: qr') || rawRemark.includes('pos: company qr') || rawRemark.includes('pos: qr') || rawRemark.includes('upi')) {
-      channel = 'Company QR (UPI)';
-    } else if (rawProv.includes('swiff') || rawRemark.includes('payswiff') || rawRemark.includes('channel: payswiff')) {
-      const isRp = rawRemark.includes('rp tech') || rawRemark.includes('r.p.') || rawRemark.includes('vendor: r.p.') || (item.pos_vendor || '').toLowerCase().includes('rp');
-      channel = isRp ? 'Payswiff (RP Tech)' : 'Payswiff (RONAV Tech)';
-    } else if (item.channel && item.channel !== 'default') {
-      channel = item.channel === 'pinelabs' ? 'Pine Labs' : item.channel;
-    } else if (item.pos_provider) {
-      channel = item.pos_provider;
-    } else {
-      channel = 'Pine Labs';
-    }
-
-    // 12. Swipe Mode, Withdrawal Mode, Mismatch Flag
-    const swipeMode = (item.swipe_mode || item.swipe_settlement_type || 'N/A').toUpperCase();
-    const withdrawalMode = (item.withdrawal_mode || item.settlement_mode || item.settlement_type || 'T1').toUpperCase();
-    const isMismatch = item.mismatch_flag !== undefined 
-      ? Boolean(item.mismatch_flag)
-      : (swipeMode !== 'N/A' && swipeMode !== withdrawalMode);
-    const mismatchStr = isMismatch ? 'YES' : 'NO';
-
-    // 13. Payout Ref ID
-    const refId = item.id || item.ref_number || item.payout_id || 'N/A';
-
-    // 14. Date & Time
-    const dateStr = item.created_at ? new Date(item.created_at).toLocaleString('en-IN') : 'N/A';
-
-    // 15. Normalized Status: Pending, Submitted to Bank, Completed, Rejected
-    let status = 'Pending';
-    const rawStatus = (item.status || item.sub_status || item._subStatus || '').toUpperCase();
-    if (rawStatus === 'SUBMITTED_TO_BANK' || rawStatus === 'SUBMITTED' || rawStatus === 'PROCESSING') {
-      status = 'Submitted to Bank';
-    } else if (rawStatus === 'COMPLETED' || rawStatus === 'APPROVED' || rawStatus === 'SETTLED') {
-      status = 'Completed';
-    } else if (rawStatus === 'REJECTED' || rawStatus === 'FAILED' || rawStatus === 'CANCELLED') {
-      status = 'Rejected';
-    }
+    // Date & Time
+    const d = item.created_at ? new Date(item.created_at) : new Date();
+    const formattedDateTime = d.toLocaleString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
 
     return [
       slNo,
-      escapeCSV(merchantId),
-      escapeCSV(merchantName),
-      formattedMob,
       escapeCSV(recipient),
       formattedAcc,
       escapeCSV(ifsc),
       escapeCSV(bankName),
-      grossAmt.toFixed(2),
-      feeAmt.toFixed(2),
       netAmt.toFixed(2),
-      formattedUtr,
+      escapeCSV(merchantId),
+      escapeCSV(merchantName),
+      formattedMob,
       escapeCSV(channel),
-      escapeCSV(swipeMode),
+      escapeCSV(cleanTerminal),
       escapeCSV(withdrawalMode),
-      escapeCSV(mismatchStr),
-      escapeCSV(refId),
-      escapeCSV(dateStr),
-      escapeCSV(status)
+      escapeCSV(swipeMode),
+      formattedUtr,
+      escapeCSV(formattedDateTime)
     ].join(',');
   });
 

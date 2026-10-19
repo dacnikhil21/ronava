@@ -416,26 +416,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       }
 
       if (pendingRes && pendingRes.success) {
-        setPendingTxns(prev => {
-          const next = pendingRes.pendingTransactions || [];
-          if (prev.length === next.length && prev[0]?.id === next[0]?.id) return prev;
-          return next;
-        });
-        setPendingPayouts(prev => {
-          const next = pendingRes.pendingWithdrawals || [];
-          if (prev.length === next.length && prev[0]?.id === next[0]?.id) return prev;
-          return next;
-        });
-        setAllPayouts(prev => {
-          const next = pendingRes.allWithdrawals || [];
-          if (prev.length === next.length && prev[0]?.id === next[0]?.id) return prev;
-          return next;
-        });
-        setTransactionsLedger(prev => {
-          const next = pendingRes.allTransactions || [];
-          if (prev.length === next.length && prev[0]?.id === next[0]?.id) return prev;
-          return next;
-        });
+        setPendingTxns(pendingRes.pendingTransactions || []);
+        setPendingPayouts(pendingRes.pendingWithdrawals || []);
+        setAllPayouts(pendingRes.allWithdrawals || []);
+        setTransactionsLedger(pendingRes.allTransactions || []);
         if (pendingRes.stats) {
           setMetrics(prev => {
             const keys = ['totalMerchants', 'totalSuperDistributors', 'totalDistributors', 'withdrawalsCount', 'pendingWithdrawalsCount', 'totalVolume', 'pendingVolume', 'totalFeesCollected', 'partnerCommissions', 'adminNetProfit', 'pineVolume', 'payswiffVolume', 'qrVolume', 'tierTotals'];
@@ -464,11 +448,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       }
 
       if (usersRes && usersRes.success) {
-        setNetworkUsers(prev => {
-          const next = usersRes.users || [];
-          if (prev.length === next.length && prev[0]?.id === next[0]?.id) return prev;
-          return next;
-        });
+        setNetworkUsers(usersRes.users || []);
       }
 
       if (treeRes && treeRes.success) {
@@ -6810,7 +6790,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 });
 
                 const arr = Array.from(batchesMap.values()).map(b => {
-                  const totalAmount = parseFloat(b.total_amount || b.items[0]?.batch_total || b.items[0]?.total_amount || 0);
+                  const totalAmount = b.items.reduce((sum, item) => sum + parseFloat(item.amount || (item.amount_paise ? Number(item.amount_paise) / 100 : 0) || 0), 0);
                   return { ...b, totalAmount };
                 });
 
