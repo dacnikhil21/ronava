@@ -2488,8 +2488,9 @@ export async function handleApiRequest(req, res) {
         FROM withdrawals w
         LEFT JOIN users u ON w.merchant_id = u.id
         LEFT JOIN beneficiaries b ON w.beneficiary_id = b.id
+        ${downlineWithdrawalFilter}
         ORDER BY w.created_at DESC
-      `);
+      `, downlineWithdrawalParams);
 
       const enriched = (withdrawals || []).map(w => {
         const wMode = (w.withdrawal_mode || w.settlement_type || 'T1').toUpperCase();
@@ -2510,7 +2511,7 @@ export async function handleApiRequest(req, res) {
           COALESCE(SUM(CASE WHEN status = 'PENDING' AND (settlement_type = 'T1' OR settlement_type IS NULL) THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_t1_amount,
           COALESCE(SUM(CASE WHEN status = 'PENDING' AND settlement_type = 'INSTANT' THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_instant_amount,
           COALESCE(SUM(CASE WHEN status = 'SUBMITTED_TO_BANK' THEN amount_paise ELSE 0 END), 0) / 100.0 as submitted_amount,
-          COALESCE(SUM(CASE WHEN status = 'APPROVED' THEN amount_paise ELSE 0 END), 0) / 100.0 as completed_amount
+          COALESCE(SUM(CASE WHEN status IN ('COMPLETED', 'APPROVED') THEN amount_paise ELSE 0 END), 0) / 100.0 as completed_amount
         FROM withdrawals
       `);
       const totalsRow = totalsRes[0] || {};
@@ -2773,8 +2774,8 @@ export async function handleApiRequest(req, res) {
           for (const wId of idList) {
             const current = (await pgQuery(`SELECT * FROM withdrawals WHERE UPPER(id) = UPPER($1)`, [wId]))[0];
             if (current) {
-              if (current.status !== 'PENDING') {
-                return sendJson(res, 400, { success: false, message: `Withdrawal ${wId} is already in status ${current.status}. Only PENDING can be submitted to bank.` });
+              if (current.status !== 'PENDING' && current.status !== 'SUBMITTED_TO_BANK') {
+                return sendJson(res, 400, { success: false, message: `Withdrawal ${wId} is already in status ${current.status}. Only PENDING or SUBMITTED_TO_BANK can be submitted to bank.` });
               }
               const tagStr = batchTag || (batchReference ? `[BATCH:${batchReference}]` : '');
               const nameTagStr = batchNameTag || (bankName ? `[BATCH_NAME:${bankName}]` : '');
