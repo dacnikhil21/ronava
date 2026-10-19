@@ -793,9 +793,9 @@ export function parseRemarkMetadata(remarkStr, fallbackPos = {}) {
   }
 
   return {
-    channel: extractedChannel || 'pinelabs',
-    pos_provider: extractedPos || 'Pine Labs',
-    pos_vendor: extractedVendor || 'Rose Navaneetham Enterprises',
+    channel: extractedChannel || null,
+    pos_provider: extractedPos || null,
+    pos_vendor: extractedVendor || null,
     pos_terminal: extractedTerminal
   };
 }
@@ -1024,9 +1024,16 @@ export async function recordMerchantSale(saleData) {
       return { success: false, message: 'Merchant ID and Amount are required.' };
     }
 
-    const cleanChannel = (channel || provider || 'pinelabs').toLowerCase().includes('swiff') 
+    const rawCh = (channel || provider || '').toLowerCase();
+    if (!rawCh) {
+      return { success: false, message: 'CHANNEL_REQUIRED: Payment channel (Pine Labs, Payswiff, or QR) is required.' };
+    }
+    const cleanChannel = rawCh.includes('swiff') 
       ? 'payswiff' 
-      : ((channel || provider || '').toLowerCase().includes('qr') ? 'qr' : 'pinelabs');
+      : (rawCh.includes('qr') ? 'qr' : (rawCh.includes('pine') ? 'pinelabs' : null));
+    if (!cleanChannel) {
+      return { success: false, message: 'INVALID_CHANNEL: Allowed channels are Pine Labs, Payswiff, and QR.' };
+    }
 
     // Rule: Pine Labs & Payswiff require T1 or INSTANT; QR must be NONE
     let mode = (settlement_type || 'T1').toUpperCase();

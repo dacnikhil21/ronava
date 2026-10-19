@@ -40,6 +40,28 @@ export async function postLedgerEntry(client, {
     throw new Error(`INVALID_LEDGER_TYPE: "${type}" is not a valid ledger entry type.`);
   }
 
+  // Task 3: Enforce channel NOT NULL with allowed values (pinelabs, payswiff, qr) for swipes, commissions, and withdrawals
+  const CHANNEL_REQUIRED_TYPES = new Set([
+    'swipe_credit',
+    'commission',
+    'withdrawal_hold',
+    'withdrawal_paid',
+    'withdrawal_reversal',
+    'adjustment',
+    'refund'
+  ]);
+  const ALLOWED_CHANNELS = new Set(['pinelabs', 'payswiff', 'qr']);
+
+  const cleanChannel = channel ? channel.trim().toLowerCase() : null;
+  if (CHANNEL_REQUIRED_TYPES.has(type)) {
+    if (!cleanChannel) {
+      throw new Error(`CHANNEL_REQUIRED: channel is strictly required for ledger entry of type "${type}".`);
+    }
+    if (!ALLOWED_CHANNELS.has(cleanChannel)) {
+      throw new Error(`INVALID_CHANNEL: "${channel}" is not allowed. Channel must be one of: pinelabs, payswiff, qr.`);
+    }
+  }
+
   // Ensure amount is handled as BigInt paise
   const amount = BigInt(amountPaise);
 
@@ -56,7 +78,7 @@ export async function postLedgerEntry(client, {
     amount.toString(),
     referenceId,
     referenceType,
-    channel,
+    cleanChannel,
     JSON.stringify(metadata),
     actor
   ]);

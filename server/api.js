@@ -130,43 +130,48 @@ export function resolveUserBuyRate(user, pos, isInstant = false, targetChannel =
  * Authoritative Server-Side Channel Balance Calculator (100% Single Source of Truth)
  * Evaluates real-time swipes and withdrawals strictly from financial_ledger in PostgreSQL.
  */
-export async function calculateUserChannelBalances(userId) {
+export async function calculateUserChannelBalances(userId, client = null) {
   try {
-    const pool = getDbPool();
-    const ledgerRows = await pgQuery(`
-      SELECT COALESCE(channel, 'pinelabs') as channel,
+    const queryFn = client ? (q, p) => client.query(q, p).then(res => res.rows) : pgQuery;
+    const ledgerRows = await queryFn(`
+      SELECT channel,
              SUM(CASE WHEN amount_paise > 0 THEN amount_paise ELSE 0 END) as credited_paise,
              SUM(CASE WHEN amount_paise < 0 THEN -amount_paise ELSE 0 END) as debited_paise,
              SUM(amount_paise) as net_paise,
              SUM(CASE WHEN type IN ('commission', 'adjustment') THEN amount_paise ELSE 0 END) as commission_paise
       FROM financial_ledger
       WHERE UPPER(user_id) = UPPER($1)
-      GROUP BY COALESCE(channel, 'pinelabs')
+        AND channel IS NOT NULL
+      GROUP BY channel
     `, [userId]);
 
-    const salesRows = await pgQuery(`
-      SELECT COALESCE(channel, provider, 'pinelabs') as channel,
+    const salesRows = await queryFn(`
+      SELECT channel,
              SUM(amount_paise) as sales_paise
       FROM transactions
       WHERE UPPER(merchant_id) = UPPER($1)
         AND UPPER(status) = 'APPROVED'
-      GROUP BY COALESCE(channel, provider, 'pinelabs')
+        AND channel IS NOT NULL
+      GROUP BY channel
     `, [userId]);
 
-    const wRows = await pgQuery(`
-      SELECT COALESCE(channel, 'pinelabs') as channel,
+    const wRows = await queryFn(`
+      SELECT channel,
              SUM(CASE WHEN UPPER(status) IN ('COMPLETED', 'PAID', 'SUCCESS') THEN amount_paise ELSE 0 END) as sent_paise,
              SUM(CASE WHEN UPPER(status) IN ('PENDING', 'SUBMITTED_TO_BANK', 'PROCESSING', 'APPROVED') THEN amount_paise ELSE 0 END) as transit_paise
       FROM withdrawals
       WHERE UPPER(merchant_id) = UPPER($1)
-      GROUP BY COALESCE(channel, 'pinelabs')
+        AND channel IS NOT NULL
+      GROUP BY channel
     `, [userId]);
 
     const normalizeCh = (raw) => {
-      const lower = (raw || 'pinelabs').toLowerCase();
+      if (!raw) return null;
+      const lower = raw.trim().toLowerCase();
       if (lower.includes('swiff')) return 'payswiff';
       if (lower.includes('qr')) return 'qr';
-      return 'pinelabs';
+      if (lower.includes('pine')) return 'pinelabs';
+      return null;
     };
 
     const channels = {
@@ -177,6 +182,7 @@ export async function calculateUserChannelBalances(userId) {
 
     for (const r of ledgerRows) {
       const ch = normalizeCh(r.channel);
+      if (!ch || !channels[ch]) continue;
       const cred = Number(r.credited_paise || 0) / 100;
       const deb = Number(r.debited_paise || 0) / 100;
       const net = Number(r.net_paise || 0) / 100;
@@ -190,6 +196,7 @@ export async function calculateUserChannelBalances(userId) {
 
     for (const s of salesRows) {
       const ch = normalizeCh(s.channel);
+      if (!ch || !channels[ch]) continue;
       const sales = Number(s.sales_paise || 0) / 100;
       channels[ch].sales = sales;
       channels[ch].volume = sales;
@@ -197,6 +204,7 @@ export async function calculateUserChannelBalances(userId) {
 
     for (const w of wRows) {
       const ch = normalizeCh(w.channel);
+      if (!ch || !channels[ch]) continue;
       channels[ch].sent_to_bank = Number(w.sent_paise || 0) / 100;
       channels[ch].in_transit = Number(w.transit_paise || 0) / 100;
       channels[ch].pending = Number(w.transit_paise || 0) / 100;
@@ -1748,7 +1756,11 @@ export async function handleApiRequest(req, res) {
       }
 
       const rawMode = body.settlement_type || body.settlementType || body.settlement_mode || body.settlementMode || 'T1';
-      const cleanChannel = (body.channel || body.provider || 'pinelabs').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const rawChannel = body.channel || body.provider;
+      if (!rawChannel || !rawChannel.trim()) {
+        return sendJson(res, 400, { success: false, message: 'CHANNEL_REQUIRED: Payment channel is strictly required (pinelabs, payswiff, qr).' });
+      }
+      const cleanChannel = rawChannel.toLowerCase().replace(/[^a-z0-9]/g, '');
       const settlementMode = String(rawMode).toUpperCase().trim();
 
       const pool = getDbPool();
@@ -1803,7 +1815,11 @@ export async function handleApiRequest(req, res) {
       const createdBy = caller?.id || merchantId;
 
       const rawMode = body.settlement_type || body.settlementType || body.settlement_mode || body.settlementMode || null;
-      const cleanChannel = (body.channel || body.provider || 'pinelabs').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const rawChannel = body.channel || body.provider;
+      if (!rawChannel || !rawChannel.trim()) {
+        return sendJson(res, 400, { success: false, message: 'CHANNEL_REQUIRED: Payment channel is strictly required (pinelabs, payswiff, qr).' });
+      }
+      const cleanChannel = rawChannel.toLowerCase().replace(/[^a-z0-9]/g, '');
       let settlementMode = rawMode ? String(rawMode).toUpperCase().trim() : null;
 
       if (cleanChannel === 'qr' || cleanChannel === 'companyqr') {
@@ -2078,10 +2094,11 @@ export async function handleApiRequest(req, res) {
       // Authoritative Ledger-derived sales volume by channel NET of reversals
       const channelVolRows = await pgQuery(`
         SELECT 
-          COALESCE(channel, 'pinelabs') as channel,
+          channel,
           COALESCE(SUM(amount_paise), 0)::numeric / 100.0 as vol
         FROM financial_ledger
         WHERE reference_type IN ('SWIPE', 'REVERSAL')
+          AND channel IS NOT NULL
           AND (
             type IN ('swipe_credit', 'refund', 'commission')
             OR (type = 'adjustment' AND (reference_type = 'REVERSAL' OR metadata->>'original_type' = 'commission'))
@@ -2245,7 +2262,7 @@ export async function handleApiRequest(req, res) {
             merchantId: merchantId.trim(),
             amountPaise,
             beneficiaryId: body.beneficiary_id || body.beneficiaryId,
-            channel: (body.channel || body.provider || 'pinelabs').toLowerCase(),
+            channel: body.channel || body.provider,
             settlementType: (body.settlement_type || body.settlementType || 'T1').toUpperCase(),
             idempotencyKey,
             createdBy
@@ -2322,7 +2339,7 @@ export async function handleApiRequest(req, res) {
               amountPaise: 0n,
               referenceId: targetWthId,
               referenceType: 'WITHDRAWAL',
-              channel: wth.channel || 'pinelabs',
+              channel: wth.channel,
               metadata: {
                 utr: cleanUtr,
                 disbursed_paise: amountPaise.toString()
@@ -2354,7 +2371,7 @@ export async function handleApiRequest(req, res) {
               amountPaise: amountPaise,
               referenceId: targetWthId,
               referenceType: 'WITHDRAWAL',
-              channel: wth.channel || 'pinelabs',
+              channel: wth.channel,
               metadata: {
                 reason: remark || 'Bank account details mismatch / rejected'
               },
@@ -3177,11 +3194,12 @@ export async function handleApiRequest(req, res) {
           const channelBalances = await calculateUserChannelBalances(targetUserId);
 
           const commRows = (await client.query(`
-            SELECT COALESCE(channel, 'pinelabs') as channel,
+            SELECT channel,
                    SUM(amount_paise) as total_comm_paise,
                    SUM(CASE WHEN created_at >= CURRENT_DATE THEN amount_paise ELSE 0 END) as today_comm_paise
             FROM financial_ledger
-            WHERE UPPER(user_id) = UPPER($1) 
+            WHERE UPPER(user_id) = UPPER($1)
+              AND channel IS NOT NULL
               AND (type = 'commission' OR (type = 'adjustment' AND (reference_type = 'REVERSAL' OR metadata->>'original_type' = 'commission')))
             GROUP BY channel
           `, [targetUserId])).rows;
@@ -3194,7 +3212,7 @@ export async function handleApiRequest(req, res) {
             const tcp = BigInt(cr.today_comm_paise || 0);
             totalCommPaise += cp;
             todayCommPaise += tcp;
-            const ch = (cr.channel || 'pinelabs').toLowerCase();
+            const ch = (cr.channel || '').toLowerCase();
             if (channelComms[ch] !== undefined) {
               channelComms[ch] = Number(cp) / 100;
             }
@@ -3295,17 +3313,15 @@ export async function handleApiRequest(req, res) {
           }
 
           let networkSalesPaise = 0n;
-          let networkCommPaise = 0n;
-
-          // Per-channel volumes for all downline transactions
+          let networkCommPaise = 0n;          // Per-channel volumes for all downline transactions
           const downlineChannelVolRes = userIds.length > 0 ? await client.query(`
             SELECT 
-              COALESCE(channel, provider, 'pinelabs') as channel,
+              channel,
               COALESCE(SUM(amount_paise), 0) as total_vol_paise,
               COALESCE(SUM(CASE WHEN transaction_date = CURRENT_DATE THEN amount_paise ELSE 0 END), 0) as today_vol_paise
             FROM transactions
-            WHERE status != 'REVERSED' AND UPPER(merchant_id) = ANY($1)
-            GROUP BY COALESCE(channel, provider, 'pinelabs')
+            WHERE status != 'REVERSED' AND UPPER(merchant_id) = ANY($1) AND channel IS NOT NULL
+            GROUP BY channel
           `, [userIds.map(id => id.toUpperCase())]) : { rows: [] };
 
           const channelVolumes = {
@@ -3320,8 +3336,9 @@ export async function handleApiRequest(req, res) {
           };
 
           for (const row of downlineChannelVolRes.rows) {
-            const rawCh = (row.channel || 'pinelabs').toLowerCase();
-            const ch = rawCh.includes('swiff') ? 'payswiff' : (rawCh.includes('qr') ? 'qr' : 'pinelabs');
+            const rawCh = (row.channel || '').toLowerCase();
+            const ch = rawCh.includes('swiff') ? 'payswiff' : (rawCh.includes('qr') ? 'qr' : (rawCh.includes('pine') ? 'pinelabs' : null));
+            if (!ch) continue;
             const totalRupees = Number(BigInt(row.total_vol_paise)) / 100;
             const todayRupees = Number(BigInt(row.today_vol_paise)) / 100;
             channelVolumes[ch] += totalRupees;
@@ -3333,13 +3350,14 @@ export async function handleApiRequest(req, res) {
           // Authoritative Creator Commission per channel from financial_ledger
           const creatorChannelCommRes = await client.query(`
             SELECT 
-              COALESCE(channel, 'pinelabs') as channel,
+              channel,
               COALESCE(SUM(amount_paise), 0) as total_comm_paise,
               COALESCE(SUM(CASE WHEN created_at >= CURRENT_DATE THEN amount_paise ELSE 0 END), 0) as today_comm_paise
             FROM financial_ledger
             WHERE (type = 'commission' OR (type = 'adjustment' AND (reference_type = 'REVERSAL' OR metadata->>'original_type' = 'commission')))
               AND UPPER(user_id) = UPPER($1)
-            GROUP BY COALESCE(channel, 'pinelabs')
+              AND channel IS NOT NULL
+            GROUP BY channel
           `, [creatorId]);
 
           const channelCommissions = {
@@ -3352,8 +3370,9 @@ export async function handleApiRequest(req, res) {
           };
 
           for (const row of creatorChannelCommRes.rows) {
-            const rawCh = (row.channel || 'pinelabs').toLowerCase();
-            const ch = rawCh.includes('swiff') ? 'payswiff' : (rawCh.includes('qr') ? 'qr' : 'pinelabs');
+            const rawCh = (row.channel || '').toLowerCase();
+            const ch = rawCh.includes('swiff') ? 'payswiff' : (rawCh.includes('qr') ? 'qr' : (rawCh.includes('pine') ? 'pinelabs' : null));
+            if (!ch) continue;
             const totalRupees = Number(BigInt(row.total_comm_paise)) / 100;
             const todayRupees = Number(BigInt(row.today_comm_paise)) / 100;
             channelCommissions[ch] += totalRupees;
@@ -3388,19 +3407,20 @@ export async function handleApiRequest(req, res) {
           const partnerChannelVolRes = userIds.length > 0 ? await client.query(`
             SELECT 
               merchant_id,
-              COALESCE(channel, provider, 'pinelabs') as channel,
+              channel,
               COALESCE(SUM(amount_paise), 0) as total_vol_paise
             FROM transactions
-            WHERE status != 'REVERSED' AND UPPER(merchant_id) = ANY($1)
-            GROUP BY merchant_id, COALESCE(channel, provider, 'pinelabs')
+            WHERE status != 'REVERSED' AND UPPER(merchant_id) = ANY($1) AND channel IS NOT NULL
+            GROUP BY merchant_id, channel
           `, [userIds.map(id => id.toUpperCase())]) : { rows: [] };
 
           const partnerVolMap = {};
           for (const row of partnerChannelVolRes.rows) {
             const mid = (row.merchant_id || '').toUpperCase();
             if (!partnerVolMap[mid]) partnerVolMap[mid] = { pinelabs: 0, payswiff: 0, qr: 0 };
-            const rawCh = (row.channel || 'pinelabs').toLowerCase();
-            const ch = rawCh.includes('swiff') ? 'payswiff' : (rawCh.includes('qr') ? 'qr' : 'pinelabs');
+            const rawCh = (row.channel || '').toLowerCase();
+            const ch = rawCh.includes('swiff') ? 'payswiff' : (rawCh.includes('qr') ? 'qr' : (rawCh.includes('pine') ? 'pinelabs' : null));
+            if (!ch) continue;
             partnerVolMap[mid][ch] += Number(BigInt(row.total_vol_paise)) / 100;
           }
 
@@ -3408,22 +3428,24 @@ export async function handleApiRequest(req, res) {
           const partnerCommRes = userIds.length > 0 ? await client.query(`
             SELECT 
               t.merchant_id,
-              COALESCE(fl.channel, 'pinelabs') as channel,
+              fl.channel,
               COALESCE(SUM(fl.amount_paise), 0) as total_comm_paise
             FROM financial_ledger fl
             INNER JOIN transactions t ON fl.reference_id = t.id
             WHERE (fl.type = 'commission' OR (fl.type = 'adjustment' AND (fl.reference_type = 'REVERSAL' OR fl.metadata->>'original_type' = 'commission')))
               AND UPPER(fl.user_id) = UPPER($1)
               AND UPPER(t.merchant_id) = ANY($2)
-            GROUP BY t.merchant_id, COALESCE(fl.channel, 'pinelabs')
+              AND fl.channel IS NOT NULL
+            GROUP BY t.merchant_id, fl.channel
           `, [creatorId, userIds.map(id => id.toUpperCase())]) : { rows: [] };
 
           const partnerCommMap = {};
           for (const row of partnerCommRes.rows) {
             const mid = (row.merchant_id || '').toUpperCase();
             if (!partnerCommMap[mid]) partnerCommMap[mid] = { pinelabs: 0, payswiff: 0, qr: 0 };
-            const rawCh = (row.channel || 'pinelabs').toLowerCase();
-            const ch = rawCh.includes('swiff') ? 'payswiff' : (rawCh.includes('qr') ? 'qr' : 'pinelabs');
+            const rawCh = (row.channel || '').toLowerCase();
+            const ch = rawCh.includes('swiff') ? 'payswiff' : (rawCh.includes('qr') ? 'qr' : (rawCh.includes('pine') ? 'pinelabs' : null));
+            if (!ch) continue;
             partnerCommMap[mid][ch] += Number(BigInt(row.total_comm_paise)) / 100;
           }
 
@@ -3688,7 +3710,7 @@ export async function handleApiRequest(req, res) {
             merchantId,
             amountPaise,
             beneficiaryId: body.beneficiary_id,
-            channel: body.channel || 'pinelabs',
+            channel: body.channel,
             settlementType: body.settlement_type || 'T1',
             idempotencyKey: req.headers['idempotency-key'] || body.idempotency_key || null,
             createdBy: merchantId
@@ -3714,7 +3736,7 @@ export async function handleApiRequest(req, res) {
           return await processSwipeTransaction(client, {
             merchantId: body.merchant_id,
             amountPaise,
-            channel: body.channel || 'pinelabs',
+            channel: body.channel,
             refNumber: body.ref_number || body.utr_number || null,
             slipNumber: body.slip_number || null,
             notes: body.notes || null,

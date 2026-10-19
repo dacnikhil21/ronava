@@ -20,10 +20,13 @@ export async function quoteWithdrawal(clientOrPool, {
     throw new Error('INVALID_WITHDRAWAL_AMOUNT: Amount must be greater than 0 paise.');
   }
 
-  const cleanChannel = (channel || 'pinelabs').trim().toLowerCase();
+  if (!channel || !channel.trim()) {
+    throw new Error('CHANNEL_REQUIRED: channel is strictly required for withdrawal.');
+  }
+  const cleanChannel = channel.trim().toLowerCase();
   const validChannels = ['pinelabs', 'payswiff', 'qr'];
   if (!validChannels.includes(cleanChannel)) {
-    throw new Error(`INVALID_CHANNEL: "${channel}" is not a valid channel.`);
+    throw new Error(`INVALID_CHANNEL: "${channel}" is not allowed. Channel must be one of: pinelabs, payswiff, qr.`);
   }
 
   // 1. Fetch live balance and reserve requirement
@@ -144,10 +147,13 @@ export async function processWithdrawalRequest(client, {
     throw new Error('WALLET_NOT_FOUND: Merchant wallet not found.');
   }
 
-  const cleanChannel = (channel || 'pinelabs').trim().toLowerCase();
+  if (!channel || !channel.trim()) {
+    throw new Error('CHANNEL_REQUIRED: channel is strictly required for withdrawal.');
+  }
+  const cleanChannel = channel.trim().toLowerCase();
   const validChannels = ['pinelabs', 'payswiff', 'qr'];
   if (!validChannels.includes(cleanChannel)) {
-    throw new Error(`INVALID_CHANNEL: "${channel}" is not a valid channel.`);
+    throw new Error(`INVALID_CHANNEL: "${channel}" is not allowed. Channel must be one of: pinelabs, payswiff, qr.`);
   }
 
   // 4. Per-channel balance & Shared Reserve validation inside the locked transaction

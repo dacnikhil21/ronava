@@ -41,7 +41,13 @@ export async function processSwipeTransaction(client, {
     throw new Error('ADMIN_CANNOT_SWIPE: Administrators cannot record payment transactions.');
   }
 
+  if (!channel || !channel.trim()) {
+    throw new Error('CHANNEL_REQUIRED: channel is strictly required for transaction.');
+  }
   const cleanChannel = channel.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!['pinelabs', 'payswiff', 'qr'].includes(cleanChannel)) {
+    throw new Error(`INVALID_CHANNEL: "${channel}" is not allowed. Channel must be one of: pinelabs, payswiff, qr.`);
+  }
   let mode = (settlementMode || '').toUpperCase().trim();
 
   if (cleanChannel === 'qr' || cleanChannel === 'companyqr') {
@@ -415,7 +421,13 @@ export async function quoteSwipeTransaction(client, {
     throw new Error('ADMIN_CANNOT_SWIPE: Administrators cannot record payment transactions.');
   }
 
-  const cleanChannel = (channel || 'pinelabs').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!channel || !channel.trim()) {
+    throw new Error('CHANNEL_REQUIRED: channel is strictly required for transaction.');
+  }
+  const cleanChannel = channel.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!['pinelabs', 'payswiff', 'qr'].includes(cleanChannel)) {
+    throw new Error(`INVALID_CHANNEL: "${channel}" is not allowed. Channel must be one of: pinelabs, payswiff, qr.`);
+  }
   let mode = (settlementMode || '').toUpperCase().trim();
 
   if (cleanChannel === 'qr' || cleanChannel === 'companyqr') {

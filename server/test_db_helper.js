@@ -194,7 +194,11 @@ export async function resetTestDatabase(targetUrl) {
         channel VARCHAR(50),
         metadata JSONB DEFAULT '{}'::jsonb,
         created_by TEXT,
-        created_at TIMESTAMPTZ DEFAULT NOW()
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        CONSTRAINT chk_financial_ledger_channel CHECK (
+          (type NOT IN ('swipe_credit', 'commission', 'withdrawal_hold', 'withdrawal_paid', 'withdrawal_reversal', 'adjustment', 'refund'))
+          OR (channel IS NOT NULL AND channel IN ('pinelabs', 'payswiff', 'qr'))
+        )
       );
       CREATE INDEX idx_ledger_user ON financial_ledger (user_id);
       CREATE INDEX idx_ledger_ref ON financial_ledger (reference_id);

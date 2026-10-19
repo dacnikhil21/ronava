@@ -121,16 +121,18 @@ async function runStep5Tests() {
   // 2c. For every user and channel, balance equals sum of that channel\'s ledger rows, and wallet total equals sum of all
   console.log('\nChecking balance === sum(channel ledger rows) for all users and channels...');
   const allLedgerRows = await pgQuery(`
-    SELECT user_id, COALESCE(channel, 'pinelabs') as channel, SUM(amount_paise) as sum_paise
+    SELECT user_id, channel, SUM(amount_paise) as sum_paise
     FROM financial_ledger
-    GROUP BY user_id, COALESCE(channel, 'pinelabs')
+    WHERE channel IS NOT NULL
+    GROUP BY user_id, channel
   `);
   const ledgerMap = {};
   for (const r of allLedgerRows) {
     const uid = r.user_id.toUpperCase();
     if (!ledgerMap[uid]) ledgerMap[uid] = {};
-    const rawCh = (r.channel || 'pinelabs').toLowerCase();
-    const ch = rawCh.includes('swiff') ? 'payswiff' : (rawCh.includes('qr') ? 'qr' : 'pinelabs');
+    const rawCh = (r.channel || '').toLowerCase();
+    const ch = rawCh.includes('swiff') ? 'payswiff' : (rawCh.includes('qr') ? 'qr' : (rawCh.includes('pine') ? 'pinelabs' : null));
+    if (!ch) continue;
     ledgerMap[uid][ch] = Number(r.sum_paise) / 100;
   }
 
