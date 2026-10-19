@@ -206,6 +206,20 @@ export async function processWithdrawalRequest(client, {
   }
 
   // 4. Per-channel balance & Shared Reserve validation inside the locked transaction
+  const ledgerTotalRes = await client.query(`
+    SELECT COALESCE(SUM(amount_paise), 0)::bigint AS ledger_total_balance_paise
+    FROM financial_ledger
+    WHERE UPPER(user_id) = UPPER($1)
+  `, [merchantId]);
+  const ledgerTotalBalancePaise = BigInt(ledgerTotalRes.rows[0]?.ledger_total_balance_paise || 0);
+  const walletCachedBalancePaise = BigInt(walletLockRes.rows[0].balance_paise || 0);
+
+  if (ledgerTotalBalancePaise !== walletCachedBalancePaise) {
+    throw new Error(
+      `LEDGER_WALLET_DISCREPANCY: Financial ledger total (${ledgerTotalBalancePaise} paise) does not match wallet cache (${walletCachedBalancePaise} paise) for user "${merchantId}". Reconciliation required.`
+    );
+  }
+
   const channelLedgerRes = await client.query(`
     SELECT COALESCE(SUM(amount_paise), 0)::bigint AS channel_balance_paise
     FROM financial_ledger
@@ -213,7 +227,7 @@ export async function processWithdrawalRequest(client, {
   `, [merchantId, cleanChannel]);
   const channelBalancePaise = BigInt(channelLedgerRes.rows[0]?.channel_balance_paise || 0);
 
-  const totalBalancePaise = BigInt(walletLockRes.rows[0].balance_paise || 0);
+  const totalBalancePaise = ledgerTotalBalancePaise;
 
   if (totalBalancePaise < 0n || channelBalancePaise < 0n) {
     const owedPaise = totalBalancePaise < 0n ? -totalBalancePaise : -channelBalancePaise;

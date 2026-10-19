@@ -107,14 +107,27 @@ export async function getWalletBalances(clientOrPool, userId) {
     throw new Error('INVALID_ARGUMENT: userId is required to fetch balance.');
   }
 
-  // 1. Get cached wallet row
+  // 1. Get financial ledger sum (single source of truth)
+  const sumRes = await clientOrPool.query(
+    `SELECT COALESCE(SUM(amount_paise), 0)::bigint as ledger_sum FROM financial_ledger WHERE UPPER(user_id) = UPPER($1)`,
+    [userId]
+  );
+  const ledgerSumPaise = BigInt(sumRes.rows[0]?.ledger_sum || 0);
+
+  // 2. Get cached wallet row
   const walletRes = await clientOrPool.query(
-    `SELECT balance_paise, held_paise, total_sales_paise, withdrawn_paise FROM wallets WHERE user_id = $1`,
+    `SELECT balance_paise, held_paise, total_sales_paise, withdrawn_paise FROM wallets WHERE UPPER(user_id) = UPPER($1)`,
     [userId]
   );
   const wallet = walletRes.rows[0] || { balance_paise: 0n, held_paise: 0n };
   const balancePaise = BigInt(wallet.balance_paise || 0);
   const heldPaise = BigInt(wallet.held_paise || 0);
+
+  if (ledgerSumPaise !== balancePaise) {
+    throw new Error(
+      `LEDGER_WALLET_DISCREPANCY: Financial ledger sum (${ledgerSumPaise} paise) does not match wallet cache (${balancePaise} paise) for user "${userId}". Single source of truth violation.`
+    );
+  }
 
   // 2. Fetch system reserve setting
   const reserveSetting = await getSetting('reserve_amount_paise', clientOrPool);
