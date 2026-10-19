@@ -2171,7 +2171,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         holder_name: holderName,
         channel: finalChannel,
         settlement_type: (customerPayoutForm.settlement_mode || 'T1').toUpperCase(),
-        payout_type: payoutTargetType === 'MERCHANT' ? 'MERCHANT_OWN' : 'CUSTOMER_DISBURSAL',
+        payout_type: customerPayoutForm.payout_purpose === 'COMMISSION' ? 'COMMISSION' : 'REGULAR',
         payout_purpose: customerPayoutForm.payout_purpose || 'REGULAR',
         remarks: (customerPayoutForm.remarks || '').trim(),
         utr_number: (customerPayoutForm.utr || '').trim().toUpperCase(),
@@ -2769,7 +2769,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                       <span style={{ color: '#DC2626', fontWeight: 800 }}>Could not load rates, try again</span>
                     ) : (
                       <>
-                        <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0F172A' }}>{activeMachine.terminal_id}</span>
+                        <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0F172A' }}>{getCleanTerminalId(activeMachine.terminal_id, selectedMachineKey)}</span>
                         <span style={{ color: '#CBD5E1' }}>•</span>
                         {selectedMachineKey === 'qr' ? (
                           <span style={{ color: '#059669', fontWeight: 800 }}>⚡ Instant ({activeMachine.rateStrInstant})</span>

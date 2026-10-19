@@ -286,10 +286,31 @@ export async function enrichUsersWithChannelRates(users) {
     const rateT1Pct = plT1Bps !== undefined ? (plT1Bps / 100) : (psT1Bps !== undefined ? psT1Bps / 100 : null);
     const rateInstantPct = plInstBps !== undefined ? (plInstBps / 100) : (psInstBps !== undefined ? psInstBps / 100 : (qrBps !== undefined ? qrBps / 100 : null));
 
+    let cleanPineTid = `PL-${u.id}`;
+    let cleanPayswiffTid = `SWIFF-${u.id}`;
+
+    if (u.pos_terminal && typeof u.pos_terminal === 'string') {
+      const trimmedTerm = u.pos_terminal.trim();
+      if (trimmedTerm.startsWith('[PORTFOLIO]')) {
+        try {
+          const jsonStr = trimmedTerm.replace('[PORTFOLIO]', '').trim();
+          const parsed = JSON.parse(jsonStr);
+          if (parsed.pine_labs?.terminal_id) cleanPineTid = String(parsed.pine_labs.terminal_id).trim();
+          if (parsed.payswiff?.terminal_id) cleanPayswiffTid = String(parsed.payswiff.terminal_id).trim();
+        } catch (_) {}
+      } else if (trimmedTerm.includes('|')) {
+        cleanPineTid = trimmedTerm.split('|')[0].trim();
+      } else if (!trimmedTerm.includes('{') && !trimmedTerm.includes('}')) {
+        cleanPineTid = trimmedTerm;
+      }
+    }
+    // Sanitize pos_terminal so raw JSON never leaks
+    u.pos_terminal = cleanPineTid;
+
     const channels = {
       pine_labs: {
         enabled: hasPineLabs,
-        terminal_id: u.pos_terminal || `PL-${u.id}`,
+        terminal_id: cleanPineTid,
         rate_t1: plT1Bps !== undefined ? (plT1Bps / 100) : null,
         rate_instant: plInstBps !== undefined ? (plInstBps / 100) : (plT1Bps !== undefined ? plT1Bps / 100 : null),
         vendor: 'Rose Navaneetham Enterprises',
@@ -298,7 +319,7 @@ export async function enrichUsersWithChannelRates(users) {
       },
       payswiff: {
         enabled: hasPayswiff,
-        terminal_id: `SWIFF-${u.id}`,
+        terminal_id: cleanPayswiffTid,
         rate_t1: psT1Bps !== undefined ? (psT1Bps / 100) : null,
         rate_instant: psInstBps !== undefined ? (psInstBps / 100) : (psT1Bps !== undefined ? psT1Bps / 100 : null),
         vendor: 'RONAV Technologies',
@@ -772,7 +793,8 @@ export async function handleApiRequest(req, res) {
           return await reverseTransaction(client, {
             txnId: targetTxnId,
             reason: remark || 'Transaction rejected by Admin',
-            callerId: caller.id
+            callerId: caller.id,
+            confirmFraud: true
           });
         });
 

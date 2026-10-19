@@ -104,9 +104,9 @@ export async function processWithdrawalRequest(client, {
     throw new Error('CALLER_IDENTIFICATION_REQUIRED: merchantId or createdBy is required for processWithdrawalRequest.');
   }
 
-  const cleanPayoutType = (payoutType || 'REGULAR').toString().trim().toUpperCase();
-  if (cleanPayoutType !== 'REGULAR' && cleanPayoutType !== 'COMMISSION') {
-    throw new Error(`INVALID_PAYOUT_TYPE: payoutType must be REGULAR or COMMISSION, received "${payoutType}".`);
+  let cleanPayoutType = (payoutType || 'REGULAR').toString().trim().toUpperCase();
+  if (cleanPayoutType !== 'COMMISSION') {
+    cleanPayoutType = 'REGULAR';
   }
 
   // Server-Enforced Commission Lock
