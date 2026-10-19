@@ -2197,7 +2197,7 @@ export async function handleApiRequest(req, res) {
           COALESCE(SUM(CASE WHEN status = 'PENDING' AND (settlement_type = 'T1' OR settlement_type IS NULL) THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_t1_amount,
           COALESCE(SUM(CASE WHEN status = 'PENDING' AND settlement_type = 'INSTANT' THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_instant_amount,
           COALESCE(SUM(CASE WHEN status = 'SUBMITTED_TO_BANK' THEN amount_paise ELSE 0 END), 0) / 100.0 as submitted_amount,
-          COALESCE(SUM(CASE WHEN status = 'APPROVED' THEN amount_paise ELSE 0 END), 0) / 100.0 as completed_amount
+          COALESCE(SUM(CASE WHEN status IN ('COMPLETED', 'APPROVED') THEN amount_paise ELSE 0 END), 0) / 100.0 as completed_amount
         FROM withdrawals
       `))[0] || {};
 

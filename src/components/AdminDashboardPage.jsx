@@ -6300,8 +6300,21 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   _entityType: 'WITHDRAWAL', 
                   _subStatus: (item.is_submitted_to_bank || (item.admin_remark && item.admin_remark.includes('[SUBMITTED_TO_BANK]'))) ? 'SUBMITTED_TO_BANK' : 'PENDING' 
                 })),
-                ...combinedPayouts.filter(p => p.status === 'APPROVED').map(item => ({ ...item, _entityType: 'WITHDRAWAL', _subStatus: 'APPROVED' })),
-                ...combinedPayouts.filter(p => p.status === 'REJECTED' || p.status === 'INVALID').map(item => ({ ...item, _entityType: 'WITHDRAWAL', _subStatus: 'INVALID' }))
+                ...combinedPayouts.filter(p => p.status === 'SUBMITTED_TO_BANK').map(item => ({ 
+                  ...item, 
+                  _entityType: 'WITHDRAWAL', 
+                  _subStatus: 'SUBMITTED_TO_BANK' 
+                })),
+                ...combinedPayouts.filter(p => p.status === 'COMPLETED' || p.status === 'APPROVED').map(item => ({ 
+                  ...item, 
+                  _entityType: 'WITHDRAWAL', 
+                  _subStatus: 'COMPLETED' 
+                })),
+                ...combinedPayouts.filter(p => p.status === 'REJECTED' || p.status === 'INVALID').map(item => ({ 
+                  ...item, 
+                  _entityType: 'WITHDRAWAL', 
+                  _subStatus: 'REJECTED' 
+                }))
               ]);
 
               // STEP 1: Strict Channel Filter (Genuine Database Items Only)
@@ -6383,18 +6396,18 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
               const statusCounts = {
                 all: categoryList.length,
-                completed: categoryList.filter(i => i._subStatus === 'APPROVED').length,
+                completed: categoryList.filter(i => i._subStatus === 'COMPLETED' || i._subStatus === 'APPROVED').length,
                 pending: categoryList.filter(i => i._subStatus === 'PENDING').length,
                 submitted: categoryList.filter(i => i._subStatus === 'SUBMITTED_TO_BANK').length,
-                invalid: categoryList.filter(i => i._subStatus === 'INVALID').length
+                invalid: categoryList.filter(i => i._subStatus === 'REJECTED' || i._subStatus === 'INVALID').length
               };
 
               // Filter by Status
               let statusFilteredList = categoryList;
-              if (payoutStatusFilter === 'APPROVED') statusFilteredList = categoryList.filter(i => i._subStatus === 'APPROVED');
+              if (payoutStatusFilter === 'COMPLETED' || payoutStatusFilter === 'APPROVED') statusFilteredList = categoryList.filter(i => i._subStatus === 'COMPLETED' || i._subStatus === 'APPROVED');
               else if (payoutStatusFilter === 'PENDING') statusFilteredList = categoryList.filter(i => i._subStatus === 'PENDING');
               else if (payoutStatusFilter === 'SUBMITTED_TO_BANK') statusFilteredList = categoryList.filter(i => i._subStatus === 'SUBMITTED_TO_BANK');
-              else if (payoutStatusFilter === 'INVALID') statusFilteredList = categoryList.filter(i => i._subStatus === 'INVALID');
+              else if (payoutStatusFilter === 'REJECTED' || payoutStatusFilter === 'INVALID') statusFilteredList = categoryList.filter(i => i._subStatus === 'REJECTED' || i._subStatus === 'INVALID');
 
               const settlementCounts = {
                 all: statusFilteredList.length,
@@ -6424,7 +6437,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               const submittedWithdrawalsList = channelWithdrawals.filter(w => w._subStatus === 'SUBMITTED_TO_BANK');
               const totalSubmittedAmount = parseFloat(metrics.withdrawalTotals?.submitted_amount || 0);
 
-              const completedWithdrawalsList = channelWithdrawals.filter(w => w._subStatus === 'APPROVED');
+              const completedWithdrawalsList = channelWithdrawals.filter(w => w._subStatus === 'COMPLETED' || w._subStatus === 'APPROVED');
               const totalCompletedWithdrawalAmount = parseFloat(metrics.withdrawalTotals?.completed_amount || 0);
 
               // Apply Search Query
