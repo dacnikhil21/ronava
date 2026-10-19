@@ -789,11 +789,15 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       })
       .then(json => {
         if (!json) return;
-        if (!json.success || (json.user && json.user.status === 'SUSPENDED')) {
-          showToast(json.message || '⚠️ Account suspended by Administrator. Logging out...');
+        if (json.user && json.user.status === 'SUSPENDED') {
+          showToast('⚠️ Account suspended by Administrator. Logging out...');
           setTimeout(() => {
             if (typeof onLogout === 'function') onLogout();
           }, 1500);
+          return;
+        }
+        if (!json.success) {
+          console.warn('[MerchantDashboardPage] Profile sync notice:', json.message);
           return;
         }
         const freshUser = json.user;
@@ -1512,7 +1516,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     }
   };
 
-  const fetchLiveData = async (isSilent = false) => {
+  const fetchLiveData = async (isSilent = true) => {
     try {
       const [walletRes, txnRes, wthRes, benRes, ratesRes, setRes, finRes] = await Promise.all([
         getWallet(merchantId).catch(err => ({ success: false, message: err.message })),
@@ -1563,7 +1567,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         const msg = walletRes?.message || 'Failed to sync wallet balance from server';
         setWalletError(msg);
         setWallet(null);
-        if (!isSilent) showToast('⚠️ Error: ' + msg);
+        console.warn('[MerchantDashboardPage] Wallet sync notice:', msg);
       }
 
       if (txnRes && txnRes.success && Array.isArray(txnRes.transactions)) {
@@ -1600,11 +1604,10 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         }
       }
     } catch (err) {
-      console.error('fetchLiveData error:', err);
-      setWalletError('Network connection error: ' + err.message);
-      if (!isSilent) showToast(err?.message || 'Network error syncing merchant operational data.');
+      console.warn('[MerchantDashboardPage] fetchLiveData background notice:', err?.message);
+      setWalletError('Network connection error: ' + (err?.message || ''));
     } finally {
-      if (!isSilent) setIsLoadingPos(false);
+      setIsLoadingPos(false);
     }
   };
 

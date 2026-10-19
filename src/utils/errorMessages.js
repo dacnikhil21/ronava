@@ -82,9 +82,31 @@ export const ERROR_CODE_MAP = {
  */
 const PHRASE_MATCHERS = [
   {
-    pattern: /reserve|at most rs/i,
+    pattern: /reserve|shortfall/i,
     code: 'INSUFFICIENT_CHANNEL_BALANCE',
     message: 'You do not have enough withdrawable balance in this wallet after keeping the ₹500 required reserve. Please enter a lower withdrawal amount.'
+  },
+  {
+    pattern: /at most rs/i,
+    code: 'INSUFFICIENT_CHANNEL_BALANCE',
+    formatter: (rawMsg) => {
+      const match = rawMsg.match(/at most (?:rs\.?|₹)?\s*([0-9,.]+)/i);
+      if (match) {
+        return `You can withdraw at most ₹${match[1]} after keeping the required ₹500 reserve.`;
+      }
+      return 'You do not have enough withdrawable balance in this wallet after keeping the ₹500 required reserve.';
+    },
+    message: 'You do not have enough withdrawable balance in this wallet after keeping the ₹500 required reserve. Please enter a lower withdrawal amount.'
+  },
+  {
+    pattern: /account numbers? do not match/i,
+    code: 'INVALID_BENEFICIARY_DETAILS',
+    message: 'Account numbers do not match! Please verify both account entries.'
+  },
+  {
+    pattern: /bank utr.*required|transfer reference number is required/i,
+    code: 'UTR_REQUIRED',
+    message: 'Bank UTR or transfer reference number is required to complete this payout. Please enter the reference number from the bank.'
   },
   {
     pattern: /rate.*lower than.*parent|lower rate than upline|rate hierarchy/i,
@@ -232,5 +254,11 @@ export function getPlainErrorMessage(errorInput) {
   }
 
   // 3. Fallback for unrecognized or unknown errors
+  if (rawMsg && typeof rawMsg === 'string' && rawMsg.length < 180 && !/[{}<>]|at\s|^\s*error\s*:/i.test(rawMsg)) {
+    const clean = rawMsg.replace(/^[⚠️✕✓❌\s]+/, '').trim();
+    if (clean && clean.length > 3) {
+      return rawMsg;
+    }
+  }
   return DEFAULT_UNKNOWN_ERROR_MESSAGE;
 }
