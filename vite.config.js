@@ -23,6 +23,10 @@ export default defineConfig({
   plugins: [react(), apiPlugin()],
   server: {
     port: 3000,
-    host: true
+    host: true,
+    hmr: {
+      clientPort: 3000,
+      overlay: false
+    }
   }
 });
