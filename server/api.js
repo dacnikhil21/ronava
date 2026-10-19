@@ -4004,7 +4004,8 @@ export async function handleApiRequest(req, res) {
             txnId: body.txn_id || body.transaction_id,
             reason: body.reason || 'Reversed by admin',
             callerId,
-            confirmFraud: Boolean(body.confirm_fraud || body.confirmFraud)
+            confirmFraud: Boolean(body.confirm_fraud || body.confirmFraud || body.record_shortfall_as_owed || body.recordShortfallAsOwed),
+            recordShortfallAsOwed: Boolean(body.record_shortfall_as_owed || body.recordShortfallAsOwed || body.confirm_fraud || body.confirmFraud)
           });
         });
 

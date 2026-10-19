@@ -45,19 +45,43 @@ async function testReversalVsPayouts() {
     });
     assert.equal(payoutA.status, 'PENDING');
 
+    // Rule FIX 1: Must refuse reversal when funds are locked in PENDING withdrawal, listing the withdrawal ID
+    let blockedErrA = null;
+    try {
+      await reverseTransaction(client, {
+        txnId: swipeA.id,
+        reason: 'Fraudulent card reported',
+        callerId: 'ADM001'
+      });
+    } catch (err) {
+      blockedErrA = err;
+    }
+    assert.ok(blockedErrA, 'Reversal must be refused if pending withdrawals hold needed funds');
+    assert.ok(blockedErrA.message.includes(payoutA.id), 'Refusal message must list the pending withdrawal id');
+
+    // Admin rejects the pending withdrawal first
+    await client.query(`UPDATE withdrawals SET status = 'REJECTED' WHERE id = $1`, [payoutA.id]);
+    await client.query(`UPDATE wallets SET held_paise = GREATEST(0, held_paise - 400000) WHERE user_id = $1`, [testMidA]);
+    // Post ledger refund hold
+    const { postLedgerEntry } = await import('./ledger_engine.js');
+    await postLedgerEntry(client, {
+      userId: testMidA,
+      type: 'withdrawal_reversal',
+      amountPaise: 400000n,
+      referenceId: payoutA.id,
+      referenceType: 'WITHDRAWAL',
+      channel: 'pinelabs',
+      createdBy: 'ADM001'
+    });
+
+    // Now reversal succeeds cleanly!
     const revResultA = await reverseTransaction(client, {
       txnId: swipeA.id,
       reason: 'Fraudulent card reported',
       callerId: 'ADM001'
     });
     assert.equal(revResultA.status, 'REVERSED');
-
-    const payoutCheckA = await client.query('SELECT status, admin_remark FROM withdrawals WHERE id = $1', [payoutA.id]);
-    assert.equal(payoutCheckA.rows[0].status, 'REJECTED', 'PENDING payout must be auto-rejected on swipe reversal');
-
-    const walletCheckA = await client.query('SELECT balance_paise, held_paise FROM wallets WHERE user_id = $1', [testMidA]);
-    assert.equal(BigInt(walletCheckA.rows[0].held_paise), 0n, 'Wallet held_paise must be 0 after auto-rejecting pending payout');
-    console.log('✓ TEST PASSED: Case A - PENDING payout auto-rejected on swipe reversal.');
+    console.log('✓ TEST PASSED: Case A - PENDING payout refused reversal until rejected by Admin.');
 
     // ----------------------------------------------------
     // CASE B: SUBMITTED_TO_BANK payout blocks reversal without confirmFraud, raises alert

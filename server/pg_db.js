@@ -238,6 +238,32 @@ export async function initPostgresSchema() {
         if (e.code === '42P07' || e.message?.includes('pg_class_relname_nsp_index')) return;
         console.error('[Migration Error uq_transactions_ref_number]:', e.message);
       });
+      await client.query(`
+        CREATE OR REPLACE FUNCTION trg_check_wallet_no_silent_negative()
+        RETURNS TRIGGER AS $$
+        BEGIN
+          IF NEW.balance_paise < 0 THEN
+            IF NOT EXISTS (
+              SELECT 1 FROM financial_ledger
+              WHERE UPPER(user_id) = UPPER(NEW.user_id)
+                AND (metadata->>'is_shortfall_owed' = 'true' OR metadata ? 'shortfall_owed_paise')
+              ORDER BY id DESC LIMIT 1
+            ) THEN
+              RAISE EXCEPTION 'SILENT_NEGATIVE_BALANCE_FORBIDDEN: Wallet balance cannot become negative without explicit Admin shortfall owed confirmation.';
+            END IF;
+          END IF;
+          IF NEW.held_paise < 0 THEN
+            RAISE EXCEPTION 'INVALID_HELD_BALANCE: held_paise cannot be negative.';
+          END IF;
+          RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+
+        DROP TRIGGER IF EXISTS trg_wallets_no_silent_negative ON wallets;
+        CREATE TRIGGER trg_wallets_no_silent_negative
+        AFTER INSERT OR UPDATE ON wallets
+        FOR EACH ROW EXECUTE FUNCTION trg_check_wallet_no_silent_negative();
+      `).catch(e => console.error('[Migration Error trg_wallets_no_silent_negative]:', e.message));
     } finally {
       client.release();
     }
