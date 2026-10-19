@@ -638,6 +638,28 @@ export function formatTerminalDisplay(terminalStr, defaultProvider = 'Pine Labs'
   return `${defaultProvider} (${terminalStr.split('|')[0]})`;
 }
 
+export function getCleanTerminalId(terminalStr, channel = 'pinelabs', fallbackId = 'PL-01') {
+  if (!terminalStr || typeof terminalStr !== 'string') return fallbackId;
+  const str = terminalStr.trim();
+  if (str.startsWith('[PORTFOLIO]')) {
+    try {
+      const jsonStr = str.replace('[PORTFOLIO]', '').trim();
+      const obj = JSON.parse(jsonStr);
+      const chKey = channel.toLowerCase().includes('swiff') ? 'payswiff' : (channel.toLowerCase().includes('qr') ? 'qr' : 'pine_labs');
+      const target = obj[chKey] || obj.pine_labs || obj.payswiff;
+      if (target?.terminal_id) return target.terminal_id.trim();
+    } catch (_) {}
+    return fallbackId;
+  }
+  if (str.includes('{') || str.includes('}') || str.includes('"')) {
+    return fallbackId;
+  }
+  if (str.includes('|')) {
+    return str.split('|')[0].trim();
+  }
+  return str;
+}
+
 export function parsePosTerminalRates(terminalStr, baseRate = 0.0) {
   const str = terminalStr || '';
   let cleanId = str;

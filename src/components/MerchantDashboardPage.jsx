@@ -28,7 +28,8 @@ import {
   getMonthlyRentalReport,
   updatePosRentalStatus,
   updateUserDetails,
-  formatTerminalDisplay
+  formatTerminalDisplay,
+  getCleanTerminalId
 } from '../services/api';
 import { downloadRentalReportFile } from '../utils/bankExportUtils';
 import { formatPaiseToRupees, rupeesToPaise, generateIdempotencyKey } from '../utils/formatters';
@@ -559,7 +560,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       return {
         ...base,
         provider: userPos.provider || base.provider,
-        terminal_id: userPosRates.terminal_id || userPos.terminal_id || base.terminal_id,
+        terminal_id: getCleanTerminalId(userPosRates.terminal_id || userPos.terminal_id || base.terminal_id, effectiveKey, base.terminal_id),
         rateT1,
         rateInstant,
         rateStrT1: `${rateT1.toFixed(2)}%`,
@@ -1707,7 +1708,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           </span>
         </div>
         <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 500, marginTop: '2px', display: 'block' }}>
-          Verified liquid funds on Terminal {activeMachine.terminal_id}
+          Verified liquid funds on Terminal {getCleanTerminalId(activeMachine.terminal_id, selectedMachineKey)}
         </span>
       </div>
 
@@ -3457,7 +3458,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
                             <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.85)' }}>
-                              Terminal {activeMachine.terminal_id}
+                              Terminal {getCleanTerminalId(activeMachine.terminal_id, selectedMachineKey)}
                             </span>
                             <span style={{
                               display: 'inline-flex',
@@ -4195,7 +4196,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                           <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.75)' }}>
-                            Terminal {activeMachine.terminal_id}
+                            Terminal {getCleanTerminalId(activeMachine.terminal_id, selectedMachineKey)}
                           </span>
                           <button
                             type="button"
