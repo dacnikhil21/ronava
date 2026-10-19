@@ -133,3 +133,7 @@ vite.config.js.timestamp*
 
 # Local scratch and debug files
 scratch/
+
+# Database backups
+ronav_backup.sql
+*.sql
