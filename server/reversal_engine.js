@@ -20,8 +20,6 @@ export async function reverseTransaction(client, {
     throw new Error('INVALID_ARGUMENT: txnId is required for reversal.');
   }
 
-  await client.query('BEGIN');
-  try {
     // 1. Lock and check transaction
     const txnRes = await client.query(`
       SELECT id, merchant_id, amount_paise, status, channel, created_at
@@ -61,8 +59,6 @@ export async function reverseTransaction(client, {
         SET admin_remark = CONCAT(COALESCE(admin_remark, ''), ' [FRAUD_ALERT: Reversal of swipe ', $1::text, ' requested. Requires Admin fraud reconfirmation.]')
         WHERE id = ANY($2)
       `, [txnId, pIds]);
-
-      await client.query('COMMIT');
       const err = new Error(`REVERSAL_REQUIRES_FRAUD_CONFIRMATION: Payout(s) ${pIds.join(', ')} already in status ${submittedOrCompleted[0].status}. Please reconfirm fraud in Admin Payouts before proceeding.`);
       err.code = 'REVERSAL_REQUIRES_FRAUD_CONFIRMATION';
       err.statusCode = 409;
@@ -145,15 +141,9 @@ export async function reverseTransaction(client, {
       WHERE id = $1
     `, [txnId, reason]);
 
-    await client.query('COMMIT');
-
     return {
       id: txnId,
       status: 'REVERSED',
       reversing_entries_count: originalEntries.length
     };
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  }
 }

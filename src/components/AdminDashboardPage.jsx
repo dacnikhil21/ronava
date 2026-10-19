@@ -644,11 +644,6 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         downloadBankBatchFile(itemsToBatch, { fileName: modalMeta.fileName });
       }
 
-      await markWithdrawalsSubmittedToBank(downloadedIds, {
-        batchId: modalMeta.batchId,
-        batchName: modalMeta.batchName,
-        submittedAt: now.toISOString()
-      });
       setSelectedPendingIds(new Set());
       setDownloadConfirmModal(null);
       await fetchAdminData();
@@ -6361,12 +6356,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
               const isCommItem = (item) => {
                 if (!item) return false;
-                if (item.payout_purpose === 'COMMISSION' || item.is_commission_payout) return true;
-                if (item.payout_type === 'MERCHANT_OWN') return true;
+                if (item.payout_type === 'COMMISSION' || item.payout_purpose === 'COMMISSION' || item.is_commission_payout) return true;
+                if (item.payout_type === 'REGULAR') return false;
                 const remark = (item.admin_remark || item.notes || '').toString();
                 if (remark.includes('[COMMISSION_PAYOUT]') || remark.includes('"payout_purpose":"COMMISSION"')) return true;
-                const mId = (item.merchant_id || item.user_id || '').toUpperCase();
-                if (mId.startsWith('SD') || mId.startsWith('MST') || mId.startsWith('DD') || mId.startsWith('DIST')) return true;
                 return false;
               };
 
@@ -6420,7 +6413,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
               // Executive Financial Totals directly from server
               const pendingWithdrawalsList = channelRegularWithdrawals.filter(w => w._subStatus === 'PENDING');
-              const totalPendingWithdrawalAmount = parseFloat(metrics.withdrawalTotals?.pending_amount || 0);
+              const totalPendingWithdrawalAmount = parseFloat(metrics.withdrawalTotals?.pending_regular_amount !== undefined ? metrics.withdrawalTotals.pending_regular_amount : (metrics.withdrawalTotals?.pending_amount || 0));
 
               const pendingCommissionList = channelCommissionWithdrawals.filter(w => w._subStatus === 'PENDING');
               const totalPendingCommissionAmount = parseFloat(metrics.withdrawalTotals?.pending_commission_amount || 0);
@@ -7621,11 +7614,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       if (pendingWithdrawals.length === 0) return null;
 
                       const isAllSelected = selectedPendingIds.size > 0 && selectedPendingIds.size === pendingWithdrawals.length;
-                      const selectedList = pendingWithdrawals.filter(w => selectedPendingIds.has(w.id));
-                      const allPendingTotal = parseFloat(metrics.withdrawalTotals?.pending_amount || 0);
-                      const selectedTotal = selectedPendingIds.size === pendingWithdrawals.length
-                        ? allPendingTotal
-                        : (selectedPendingIds.size === 0 ? 0 : parseFloat(metrics.withdrawalTotals?.pending_amount || 0));
+                      const allPendingTotal = totalPendingWithdrawalAmount;
 
                       const handleToggleSelectAll = () => {
                         if (isAllSelected) {
@@ -7670,7 +7659,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                             <div>
                               <strong style={{ fontSize: '0.8125rem', color: '#0F172A', display: 'block' }}>
                                 {selectedPendingIds.size > 0 
-                                  ? `${selectedPendingIds.size} of ${pendingWithdrawals.length} Selected (₹${selectedTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })})`
+                                  ? `${selectedPendingIds.size} of ${pendingWithdrawals.length} Selected ${isAllSelected ? `(₹${allPendingTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })})` : ''}`
                                   : `Select All (${pendingWithdrawals.length} Pending · ₹${allPendingTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })})`}
                               </strong>
                               <span style={{ fontSize: '0.6875rem', color: '#64748B' }}>

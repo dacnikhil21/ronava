@@ -91,6 +91,7 @@ export async function processWithdrawalRequest(client, {
   holderName,
   channel = 'pinelabs',
   settlementType = 'T1',
+  payoutType = 'REGULAR',
   idempotencyKey = null,
   createdBy = null,
   ...restParams
@@ -101,6 +102,20 @@ export async function processWithdrawalRequest(client, {
   const actor = createdBy || merchantId;
   if (!actor) {
     throw new Error('CALLER_IDENTIFICATION_REQUIRED: merchantId or createdBy is required for processWithdrawalRequest.');
+  }
+
+  const cleanPayoutType = (payoutType || 'REGULAR').toString().trim().toUpperCase();
+  if (cleanPayoutType !== 'REGULAR' && cleanPayoutType !== 'COMMISSION') {
+    throw new Error(`INVALID_PAYOUT_TYPE: payoutType must be REGULAR or COMMISSION, received "${payoutType}".`);
+  }
+
+  // Server-Enforced Commission Lock
+  if (cleanPayoutType === 'COMMISSION') {
+    const lockRes = await client.query(`SELECT value_numeric FROM system_settings WHERE key = 'commission_payouts_locked'`);
+    const isLocked = Number(lockRes.rows[0]?.value_numeric || 0) === 1;
+    if (isLocked) {
+      throw new Error('COMMISSION_PAYOUTS_LOCKED: Downline commission withdrawals are currently frozen by the administrator.');
+    }
   }
 
   const reqPaise = BigInt(amountPaise);
@@ -261,8 +276,8 @@ export async function processWithdrawalRequest(client, {
   await client.query(`
     INSERT INTO withdrawals (
       id, merchant_id, amount_paise, amount, fee_paise, net_payout_paise,
-      beneficiary_id, channel, settlement_type, status, created_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'PENDING', NOW())
+      beneficiary_id, channel, settlement_type, payout_type, status, created_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', NOW())
   `, [
     withdrawalId,
     merchantId,
@@ -272,7 +287,8 @@ export async function processWithdrawalRequest(client, {
     quote.net_payout_paise.toString(),
     beneficiary.id,
     channel,
-    quote.settlement_type
+    quote.settlement_type,
+    cleanPayoutType
   ]);
 
   const result = {
@@ -286,6 +302,7 @@ export async function processWithdrawalRequest(client, {
     channel,
     settlement_type: quote.settlement_type,
     withdrawal_mode: quote.settlement_type,
+    payout_type: cleanPayoutType,
     status: 'PENDING'
   };
 

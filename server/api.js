@@ -745,11 +745,13 @@ export async function handleApiRequest(req, res) {
 
         const finalRemark = utr ? `[VERIFIED_BY_ADMIN] UTR: ${utr}` : (remark ? `[VERIFIED_BY_ADMIN] ${remark}` : '[VERIFIED_BY_ADMIN] Audited & verified against POS settlement report');
 
-        await pgQuery(`
-          UPDATE transactions 
-          SET status = 'APPROVED', admin_remark = $1, verified_at = CURRENT_TIMESTAMP 
-          WHERE id = $2
-        `, [finalRemark, targetTxnId]);
+        await withTransaction(async (client) => {
+          await client.query(`
+            UPDATE transactions 
+            SET status = 'APPROVED', admin_remark = $1, verified_at = CURRENT_TIMESTAMP 
+            WHERE id = $2
+          `, [finalRemark, targetTxnId]);
+        });
 
         const updatedTxn = (await pgQuery(`SELECT * FROM transactions WHERE id = $1`, [targetTxnId]))[0];
         const balances = await getWalletBalances(getDbPool(), txn.merchant_id);
@@ -2001,7 +2003,7 @@ export async function handleApiRequest(req, res) {
         FROM transactions t
         JOIN users u ON t.merchant_id = u.id
         LEFT JOIN merchant_pos p ON t.merchant_id = p.merchant_id
-        WHERE t.status = 'PENDING'
+        WHERE t.status != 'REVERSED' AND (t.verified_at IS NULL OR t.status = 'PENDING')
         ORDER BY t.created_at DESC
       `);
 
@@ -2183,11 +2185,13 @@ export async function handleApiRequest(req, res) {
 
       const wTotalsRes = (await pgQuery(`
         SELECT 
+          COALESCE(SUM(CASE WHEN status = 'PENDING' AND (payout_type = 'REGULAR' OR payout_type IS NULL) THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_regular_amount,
+          COALESCE(SUM(CASE WHEN status = 'PENDING' AND payout_type = 'COMMISSION' THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_commission_amount,
           COALESCE(SUM(CASE WHEN status = 'PENDING' THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_amount,
           COALESCE(SUM(CASE WHEN status = 'PENDING' AND (settlement_type = 'T1' OR settlement_type IS NULL) THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_t1_amount,
           COALESCE(SUM(CASE WHEN status = 'PENDING' AND settlement_type = 'INSTANT' THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_instant_amount,
           COALESCE(SUM(CASE WHEN status = 'SUBMITTED_TO_BANK' THEN amount_paise ELSE 0 END), 0) / 100.0 as submitted_amount,
-          COALESCE(SUM(CASE WHEN status IN ('COMPLETED', 'APPROVED') THEN amount_paise ELSE 0 END), 0) / 100.0 as completed_amount
+          COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN amount_paise ELSE 0 END), 0) / 100.0 as completed_amount
         FROM withdrawals
       `))[0] || {};
 
@@ -2215,6 +2219,8 @@ export async function handleApiRequest(req, res) {
         payswiffVolume: parseFloat(payswiffVol.toFixed(2)),
         qrVolume: parseFloat(qrVol.toFixed(2)),
         withdrawalTotals: {
+          pending_regular_amount: parseFloat(wTotalsRes.pending_regular_amount || 0),
+          pending_commission_amount: parseFloat(wTotalsRes.pending_commission_amount || 0),
           pending_amount: parseFloat(wTotalsRes.pending_amount || 0),
           pending_t1_amount: parseFloat(wTotalsRes.pending_t1_amount || 0),
           pending_instant_amount: parseFloat(wTotalsRes.pending_instant_amount || 0),
@@ -2290,6 +2296,7 @@ export async function handleApiRequest(req, res) {
             holderName: body.holder_name || body.beneficiary_name || body.customer_name,
             channel: body.channel || body.provider,
             settlementType: (body.settlement_type || body.settlementType || 'T1').toUpperCase(),
+            payoutType: body.payout_type || body.payoutType || 'REGULAR',
             idempotencyKey,
             createdBy
           });
@@ -2637,13 +2644,21 @@ export async function handleApiRequest(req, res) {
           const batchId = `BATCH-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
           const selectedIds = rows.map(r => r.id);
 
+          const tagStr = batchTag ? `[BATCH:${batchTag}]` : `[BATCH:${batchId}]`;
+          const nameTagStr = (body.batchName || body.batch_name || bankName) ? `[BATCH_NAME:${body.batchName || body.batch_name || bankName}]` : '';
+          const remarkSuffix = `${tagStr} ${nameTagStr}`.trim();
+
           await client.query(`
             UPDATE withdrawals
             SET status = 'SUBMITTED_TO_BANK',
                 batch_id = $1,
-                submitted_to_bank_at = NOW()
+                submitted_to_bank_at = NOW(),
+                admin_remark = CASE 
+                  WHEN admin_remark IS NULL OR admin_remark = '' THEN $3::text 
+                  ELSE CONCAT(admin_remark, ' • ', $3::text) 
+                END
             WHERE id = ANY($2)
-          `, [batchId, selectedIds]);
+          `, [batchId, selectedIds, remarkSuffix]);
 
           const csvHeaders = [
             'Sl No',
@@ -2771,37 +2786,43 @@ export async function handleApiRequest(req, res) {
 
         const normalizedAction = (action || status || '').toUpperCase();
         if (normalizedAction === 'SUBMITTED_TO_BANK' || normalizedAction === 'SUBMIT_TO_BANK') {
-          for (const wId of idList) {
-            const current = (await pgQuery(`SELECT * FROM withdrawals WHERE UPPER(id) = UPPER($1)`, [wId]))[0];
-            if (current) {
-              if (current.status !== 'PENDING' && current.status !== 'SUBMITTED_TO_BANK') {
-                return sendJson(res, 400, { success: false, message: `Withdrawal ${wId} is already in status ${current.status}. Only PENDING or SUBMITTED_TO_BANK can be submitted to bank.` });
+          await withTransaction(async (client) => {
+            for (const wId of idList) {
+              const currentRes = await client.query(`SELECT * FROM withdrawals WHERE UPPER(id) = UPPER($1) FOR UPDATE`, [wId]);
+              const current = currentRes.rows[0];
+              if (current) {
+                if (current.status !== 'PENDING' && current.status !== 'SUBMITTED_TO_BANK') {
+                  throw new Error(`Withdrawal ${wId} is already in status ${current.status}. Only PENDING or SUBMITTED_TO_BANK can be submitted to bank.`);
+                }
+                const tagStr = batchTag || (batchReference ? `[BATCH:${batchReference}]` : '');
+                const nameTagStr = batchNameTag || (bankName ? `[BATCH_NAME:${bankName}]` : '');
+                const newRemark = `${tagStr} ${nameTagStr} ${current.admin_remark || ''}`.trim();
+                await client.query(`
+                  UPDATE withdrawals 
+                  SET status = 'SUBMITTED_TO_BANK', admin_remark = $1, submitted_to_bank_at = $2
+                  WHERE UPPER(id) = UPPER($3)
+                `, [newRemark || null, timestamp, wId]);
               }
-              const tagStr = batchTag || (batchReference ? `[BATCH:${batchReference}]` : '');
-              const nameTagStr = batchNameTag || (bankName ? `[BATCH_NAME:${bankName}]` : '');
-              const newRemark = `${tagStr} ${nameTagStr} ${current.admin_remark || ''}`.trim();
-              await pgQuery(`
-                UPDATE withdrawals 
-                SET status = 'SUBMITTED_TO_BANK', admin_remark = $1, submitted_to_bank_at = $2
-                WHERE UPPER(id) = UPPER($3)
-              `, [newRemark || null, timestamp, wId]);
             }
-          }
+          });
           return sendJson(res, 200, { success: true, message: `Successfully marked ${idList.length} payout(s) as Submitted to Bank!` });
         } else if (normalizedAction === 'REVERT_PENDING') {
-          for (const wId of idList) {
-            const current = (await pgQuery(`SELECT * FROM withdrawals WHERE UPPER(id) = UPPER($1)`, [wId]))[0];
-            if (current) {
-              if (current.status !== 'SUBMITTED_TO_BANK') {
-                return sendJson(res, 400, { success: false, message: `Cannot revert withdrawal ${wId} from status ${current.status} to PENDING.` });
+          await withTransaction(async (client) => {
+            for (const wId of idList) {
+              const currentRes = await client.query(`SELECT * FROM withdrawals WHERE UPPER(id) = UPPER($1) FOR UPDATE`, [wId]);
+              const current = currentRes.rows[0];
+              if (current) {
+                if (current.status !== 'SUBMITTED_TO_BANK') {
+                  throw new Error(`Cannot revert withdrawal ${wId} from status ${current.status} to PENDING.`);
+                }
+                await client.query(`
+                  UPDATE withdrawals 
+                  SET status = 'PENDING', submitted_to_bank_at = NULL
+                  WHERE UPPER(id) = UPPER($2)
+                `, [wId]);
               }
-              await pgQuery(`
-                UPDATE withdrawals 
-                SET status = 'PENDING', submitted_to_bank_at = NULL
-                WHERE UPPER(id) = UPPER($2)
-              `, [wId]);
             }
-          }
+          });
           return sendJson(res, 200, { success: true, message: `Successfully reverted ${idList.length} payout(s) to Pending.` });
         } else {
           return sendJson(res, 400, { success: false, message: 'Invalid action. Allowed: SUBMITTED_TO_BANK, REVERT_PENDING.' });
