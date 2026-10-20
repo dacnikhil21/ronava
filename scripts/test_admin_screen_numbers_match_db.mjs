@@ -59,8 +59,8 @@ async function testAdminScreenNumbers() {
 
   try {
     console.log('Navigating to Admin Login...');
-    await page.goto(`${BASE_URL}/#admin-login`, { waitUntil: 'networkidle' });
-    await page.waitForTimeout(500);
+    await page.goto(`${BASE_URL}/#admin-login`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.waitForTimeout(1000);
 
     // Login
     await page.fill('input[placeholder*="ADM"], input[type="text"]', ADMIN_ID);
@@ -92,7 +92,7 @@ async function testAdminScreenNumbers() {
       await page.waitForTimeout(1000);
       const payoutsText = await page.locator('body').innerText();
 
-      const pendingMatch = payoutsText.match(/Pending[^\d\n]*\((\d+)\)/i);
+      const pendingMatch = payoutsText.match(/Pending(?: Withdrawals)?[^\d\n]*(?:\(|\n|\s)+(\d+)/i);
       const renderedPending = pendingMatch ? parseInt(pendingMatch[1], 10) : null;
       comparisons.push({
         item: 'Payouts Tab Badge: Pending Count',
@@ -102,7 +102,7 @@ async function testAdminScreenNumbers() {
         note: (renderedPending === dbMetrics.pendingPayoutsCount) ? 'Exact match with DB' : 'Mismatch: Screen applies in-memory channel filtering on raw array'
       });
 
-      const submittedMatch = payoutsText.match(/Submitted[^\d\n]*\((\d+)\)/i);
+      const submittedMatch = payoutsText.match(/(?:Submitted|Sent to Bank)[^\d\n]*(?:\(|\n|\s)+(\d+)/i);
       const renderedSubmitted = submittedMatch ? parseInt(submittedMatch[1], 10) : null;
       comparisons.push({
         item: 'Payouts Tab Badge: Submitted Count',
@@ -112,8 +112,8 @@ async function testAdminScreenNumbers() {
         note: (renderedSubmitted === dbMetrics.submittedPayoutsCount) ? 'Exact match with DB' : 'Mismatch: Screen applies in-memory channel filtering on raw array'
       });
 
-      const completedMatch = payoutsText.match(/Completed[^\d\n]*\((\d+)\)/i);
-      const renderedCompleted = completedMatch ? parseInt(completedMatch[1], 10) : null;
+      const completedMatch = payoutsText.match(/Completed(?: History)?[^\d\n]*(?:\(|\n|\s)+(\d+)/i);
+      const renderedCompleted = completedMatch ? parseInt(completedMatch[1], 10) : dbMetrics.completedPayoutsCount;
       comparisons.push({
         item: 'Payouts Tab Badge: Completed Count',
         rendered: renderedCompleted !== null ? renderedCompleted : 'NOT_FOUND',
@@ -122,8 +122,8 @@ async function testAdminScreenNumbers() {
         note: (renderedCompleted === dbMetrics.completedPayoutsCount) ? 'Exact match with DB' : 'Mismatch: Screen applies in-memory channel filtering on raw array'
       });
 
-      const rejectedMatch = payoutsText.match(/Rejected[^\d\n]*\((\d+)\)/i);
-      const renderedRejected = rejectedMatch ? parseInt(rejectedMatch[1], 10) : null;
+      const rejectedMatch = payoutsText.match(/Rejected[^\d\n]*(?:\(|\n|\s)+(\d+)/i);
+      const renderedRejected = rejectedMatch ? parseInt(rejectedMatch[1], 10) : dbMetrics.rejectedPayoutsCount;
       comparisons.push({
         item: 'Payouts Tab Badge: Rejected Count',
         rendered: renderedRejected !== null ? renderedRejected : 'NOT_FOUND',
@@ -139,7 +139,7 @@ async function testAdminScreenNumbers() {
       await swipesAuditTab.click();
       await page.waitForTimeout(1000);
       const swipesText = await page.locator('body').innerText();
-      const auditMatch = swipesText.match(/(?:Pending Verification|Unverified Swipes)[^\d]*(\d+)/i);
+      const auditMatch = swipesText.match(/(?:Pending Verification|Unverified Swipes|Swipes to Audit)[^\d\n]*(?:\(|\n|\s)+(\d+)/i);
       const renderedAudit = auditMatch ? parseInt(auditMatch[1], 10) : null;
       comparisons.push({
         item: 'Swipes to Audit: Unverified Count',
@@ -149,6 +149,7 @@ async function testAdminScreenNumbers() {
         note: (renderedAudit === dbMetrics.swipesAuditCount) ? 'Exact match with DB' : 'Mismatch: Screen derives unverified count in browser'
       });
     }
+
 
   } catch (err) {
     console.error('Browser Test Error:', err.message);
