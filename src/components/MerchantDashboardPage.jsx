@@ -721,31 +721,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [isSubmittingWithdraw, setIsSubmittingWithdraw] = useState(false);
   const [saveAsBeneficiaryOnTransfer, setSaveAsBeneficiaryOnTransfer] = useState(true);
-  const [isCommissionPayoutEnabled, setIsCommissionPayoutEnabled] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('ronav_commission_payout_active');
-      return saved !== null ? saved === 'true' : true;
-    }
-    return true;
-  });
-
-  useEffect(() => {
-    const checkCommissionConfig = () => {
-      getCommissionPayoutConfig().then(res => {
-        if (res && res.success) {
-          setIsCommissionPayoutEnabled(res.enabled);
-        }
-      }).catch(err => console.warn('[MerchantDashboardPage] Failed to poll commission payout config:', err));
-    };
-
-    checkCommissionConfig();
-    window.addEventListener('storage', checkCommissionConfig);
-    const interval = setInterval(checkCommissionConfig, 30000);
-    return () => {
-      window.removeEventListener('storage', checkCommissionConfig);
-      clearInterval(interval);
-    };
-  }, []);
+  const isCommissionPayoutEnabled = true;
   
   // Transaction & Payout Detail Modal State
   const [selectedTxnForDetails, setSelectedTxnForDetails] = useState(null);
