@@ -149,12 +149,12 @@ async function testReversalLifecycleAllAges() {
       holderName: 'Merchant 2D'
     });
 
-    // Mark COMPLETED with UTR and timestamp 2 days later
+    const dynamicUtr = `UTR-PAID-2D-${Date.now()}`;
     await client.query(`
       UPDATE withdrawals 
-      SET status = 'COMPLETED', utr = 'UTR-PAID-2D-123', created_at = NOW() + INTERVAL '2 days' 
+      SET status = 'COMPLETED', utr = $2, created_at = NOW() + INTERVAL '2 days' 
       WHERE id = $1
-    `, [wth3.id]);
+    `, [wth3.id, dynamicUtr]);
     await client.query(`UPDATE wallets SET held_paise = GREATEST(0, held_paise - 700000) WHERE user_id = $1`, [mid3]);
 
     const rev3 = await reverseTransaction(client, {

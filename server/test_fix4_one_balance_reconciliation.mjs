@@ -83,6 +83,9 @@ async function testOneBalanceReconciliation() {
       `Withdrawal error must indicate LEDGER_WALLET_DISCREPANCY. Got: ${wthDriftError.message}`
     );
 
+    // Restore wallet cache so the test leaves the database 100% reconciled
+    await client.query('UPDATE wallets SET balance_paise = balance_paise - 50000 WHERE user_id = $1', [mid]);
+
     console.log('✓ PASS: Reconciliation check fails loudly when ledger and wallet cache disagree.');
 
   } finally {
