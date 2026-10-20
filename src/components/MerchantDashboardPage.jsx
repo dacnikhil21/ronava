@@ -330,6 +330,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     amount: ''
   });
   const [isSubmittingBbps, setIsSubmittingBbps] = useState(false);
+  const [bbpsCount, setBbpsCount] = useState(0);
 
   // History Filter Engine: 'TODAY' | 'YESTERDAY' | 'WEEK' | 'CUSTOM' | 'ALL'
   const [dateFilter, setDateFilter] = useState('ALL');
@@ -957,6 +958,11 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
     };
   };
 
+  // Memoized recent BBPS utility transactions
+  const recentBbpsList = useMemo(() => {
+    return (transactions || []).filter(t => t.type === 'BBPS_BILL').slice(0, 5);
+  }, [transactions]);
+
   // Live card swipe & QR transactions filtered strictly for the active machine/channel
   const activeMachineTransactions = useMemo(() => {
     return (transactions || []).filter(t => {
@@ -1548,6 +1554,9 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       }
 
       if (txnRes && txnRes.success && Array.isArray(txnRes.transactions)) {
+        if (txnRes.type_counts?.BBPS_BILL !== undefined) {
+          setBbpsCount(txnRes.type_counts.BBPS_BILL);
+        }
         setTransactions(prev => {
           if (prev && prev.length === txnRes.transactions.length && prev[0]?.id === txnRes.transactions[0]?.id) {
             return prev;
@@ -5654,7 +5663,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <h4 style={{ fontSize: '0.875rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
-                    Recent Utility Collections ({Math.max(1, transactions.filter(t => t.type === 'BBPS_BILL').length)})
+                    Recent Utility Collections ({bbpsCount || 1})
                   </h4>
                   <button
                     type="button"
@@ -5667,8 +5676,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                   {/* If user transactions exist, render them, otherwise render reference item */}
-                  {transactions.filter(t => t.type === 'BBPS_BILL').length > 0 ? (
-                    transactions.filter(t => t.type === 'BBPS_BILL').slice(0, 5).map(t => (
+                  {recentBbpsList.length > 0 ? (
+                    recentBbpsList.map(t => (
                       <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: '#F8FAFC', borderRadius: '12px', border: '1px solid #EDF2F7' }}>
                         <div>
                           <strong style={{ fontSize: '0.8125rem', color: '#0F172A', display: 'block', fontWeight: 700 }}>{t.notes || 'Electricity Bill Collection'}</strong>

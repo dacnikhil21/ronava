@@ -2460,9 +2460,19 @@ export async function handleApiRequest(req, res) {
         LIMIT $2 OFFSET $3
       `, [merchantId, limit, offset]);
 
+      const typeCountsRes = await pgQuery(`
+        SELECT type, COUNT(*)::int as count 
+        FROM transactions 
+        WHERE UPPER(merchant_id) = UPPER($1) 
+        GROUP BY type
+      `, [merchantId]);
+      const typeCounts = {};
+      typeCountsRes.forEach(r => { typeCounts[r.type] = r.count; });
+
       return sendJson(res, 200, {
         success: true,
         transactions: serializeMoneyFields(transactions),
+        type_counts: typeCounts,
         pagination: {
           limit,
           offset,
