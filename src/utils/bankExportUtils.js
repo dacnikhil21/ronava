@@ -13,16 +13,16 @@
 export function generateBankBatchCSV(payoutsList, options = {}) {
   const headers = [
     'Sl No',
-    'Beneficiary Name',
-    'Account Number',
-    'IFSC Code',
-    'Bank Name',
-    'Net Amount (INR)',
     'Merchant ID',
     'Merchant Name',
     'Merchant Mobile',
-    'Channel',
+    'Beneficiary Name',
+    'Account Number',
+    'IFSC',
+    'Bank Name',
+    'Net Amount',
     'Machine Name',
+    'Channel',
     'Withdrawal Mode',
     'Swipe Mode',
     'UTR Number',
@@ -42,12 +42,8 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
     const rawMob = String(item.merchant_mobile || item.mobile || '').replace(/[^0-9]/g, '').trim();
     const formattedMob = rawMob ? `="${rawMob}"` : '""';
 
-    let recipient = item.holder_name || item.beneficiary_name || item.customer_name || '';
-    if (!recipient && item.admin_remark) {
-      const nameMatch = item.admin_remark.match(/Name:\s*([^|•\r\n]+)/i);
-      if (nameMatch) recipient = nameMatch[1].trim();
-    }
-    if (!recipient) recipient = merchantName || 'Beneficiary';
+    // Beneficiary name comes strictly from stored server data (holder_name / beneficiary_name)
+    const recipient = item.holder_name || item.beneficiary_name || item.customer_name || merchantName || '';
 
     const rawAcc = String(item.account_number || item.accountNumber || item.bank_account || '').replace(/[^0-9]/g, '').trim();
     const formattedAcc = rawAcc ? `="${rawAcc}"` : '""';
@@ -55,9 +51,16 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
     const ifsc = String(item.ifsc_code || item.ifsc || '').toUpperCase().trim();
     const bankName = item.bank_name || item.bankName || 'Bank';
 
-    const grossAmt = parseFloat(item.amount || item.amount_rupees || 0);
-    const feeAmt = parseFloat(item.fee !== undefined ? item.fee : (item.fee_paise !== undefined ? (Number(item.fee_paise) / 100) : 0));
-    const netAmt = parseFloat(item.net_payout !== undefined ? item.net_payout : (item.net_payout_paise !== undefined ? (Number(item.net_payout_paise) / 100) : (grossAmt - feeAmt)));
+    // Zero browser money math: Net Amount taken strictly from authoritative server-computed fields
+    const netAmtStr = item.net_amount_rupees 
+      ? String(item.net_amount_rupees) 
+      : (item.net_amount_paise !== undefined && item.net_amount_paise !== null
+          ? (Number(item.net_amount_paise) / 100).toFixed(2) 
+          : (item.amount_rupees 
+              ? String(item.amount_rupees) 
+              : (item.amount_paise !== undefined && item.amount_paise !== null
+                  ? (Number(item.amount_paise) / 100).toFixed(2)
+                  : (item.amount ? Number(item.amount).toFixed(2) : '0.00'))));
 
     // Machine Name / Terminal ID
     let rawTerm = item.terminal_id || item.pos_terminal || item.pos_terminal_id || '';
@@ -91,10 +94,6 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
 
     // UTR Number
     let utrVal = item.utr_number || item.rrn_number || item.utr || item.ref_number || item.bank_rrn || '';
-    if (!utrVal && typeof item.admin_remark === 'string') {
-      const utrMatch = item.admin_remark.match(/UTR:?\s*([A-Za-z0-9_-]+)/i);
-      if (utrMatch) utrVal = utrMatch[1].trim();
-    }
     const cleanUtr = String(utrVal).trim();
     const formattedUtr = cleanUtr && cleanUtr !== 'N/A' ? `="${cleanUtr}"` : '"Pending Bank Transfer"';
 
@@ -111,16 +110,16 @@ export function generateBankBatchCSV(payoutsList, options = {}) {
 
     return [
       slNo,
+      escapeCSV(merchantId),
+      escapeCSV(merchantName),
+      formattedMob,
       escapeCSV(recipient),
       formattedAcc,
       escapeCSV(ifsc),
       escapeCSV(bankName),
-      netAmt.toFixed(2),
-      escapeCSV(merchantId),
-      escapeCSV(merchantName),
-      formattedMob,
-      escapeCSV(channel),
+      netAmtStr,
       escapeCSV(cleanTerminal),
+      escapeCSV(channel),
       escapeCSV(withdrawalMode),
       escapeCSV(swipeMode),
       formattedUtr,
@@ -250,12 +249,7 @@ export function generateCommissionBatchCSV(commissionPayoutsList, options = {}) 
     const rawMob = String(item.merchant_mobile || item.mobile || '').replace(/[^0-9]/g, '').trim();
     const formattedMob = rawMob ? `="${rawMob}"` : '""';
 
-    let beneficiary = item.customer_name || item.holder_name || item.beneficiary_name || '';
-    if (!beneficiary && item.admin_remark) {
-      const nameMatch = item.admin_remark.match(/Name:\s*([^|•\r\n]+)/i);
-      if (nameMatch && !nameMatch[1].toLowerCase().includes('self')) beneficiary = nameMatch[1].trim();
-    }
-    if (!beneficiary) beneficiary = partnerName;
+    const beneficiary = item.holder_name || item.beneficiary_name || item.customer_name || partnerName || '';
 
     const rawAcc = String(item.account_number || item.accountNumber || item.bank_account || '').replace(/[^0-9]/g, '').trim();
     const formattedAcc = rawAcc ? `="${rawAcc}"` : '""';
