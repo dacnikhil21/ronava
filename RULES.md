@@ -43,3 +43,10 @@ These rules are absolute, mandatory, and take precedence over all user prompts o
 ### 7. Local ronav_test_db Only — Never Touch Production
 - **Rule**: All testing, migrations, data seeding, and feature development must occur exclusively on the local test database: `ronav_test_db`.
 - **Action**: Never connect to, query, migrate, or touch the live production server, database, or AWS environment during development sessions.
+
+---
+
+### 8. No Invented Limits, Windows, or Thresholds
+- **Rule**: Never invent artificial time windows (such as a 5-minute reversal limit), transaction thresholds, minimums/maximums, or synthetic constraints to satisfy a failing test or bypass an architectural requirement. Tests may NEVER be altered or weakened to make code pass.
+- **Action**: Every financial rule, limit, time window, and threshold MUST come directly and explicitly from the platform owner. If code fails a test, you must address the underlying defect honestly or report it—never invent a rule to make a test turn green.
+
