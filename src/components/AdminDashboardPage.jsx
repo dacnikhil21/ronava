@@ -422,7 +422,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         setTransactionsLedger(pendingRes.allTransactions || []);
         if (pendingRes.stats) {
           setMetrics(prev => {
-            const keys = ['totalMerchants', 'totalSuperDistributors', 'totalDistributors', 'withdrawalsCount', 'pendingWithdrawalsCount', 'totalVolume', 'pendingVolume', 'totalFeesCollected', 'partnerCommissions', 'adminNetProfit', 'pineVolume', 'payswiffVolume', 'qrVolume', 'tierTotals'];
+            const keys = ['totalMasterDistributors', 'totalSuperDistributors', 'totalDistrictDistributors', 'totalDistributors', 'totalMerchants', 'withdrawalsCount', 'pendingWithdrawalsCount', 'totalVolume', 'pendingVolume', 'totalFeesCollected', 'partnerCommissions', 'adminNetProfit', 'pineVolume', 'payswiffVolume', 'qrVolume', 'tierTotals'];
             let changed = false;
             for (const k of keys) {
               if (prev[k] !== pendingRes.stats[k]) {
@@ -3931,7 +3931,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           </div>
                         </div>
                         <strong style={{ fontSize: '1.375rem', fontWeight: 900, color: '#7C3AED' }}>
-                          {masterDistributorsList.length}
+                          {metrics.totalMasterDistributors ?? masterDistributorsList.length}
                         </strong>
                       </div>
                     </button>
@@ -3943,7 +3943,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: '1.25rem' }}>⚡</span>
-                        <strong style={{ fontSize: '1.125rem', color: '#7C3AED' }}>{superDistributorsList.length}</strong>
+                        <strong style={{ fontSize: '1.125rem', color: '#7C3AED' }}>{metrics.totalSuperDistributors ?? superDistributorsList.length}</strong>
                       </div>
                       <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#0A192F', marginTop: '4px' }}>Super Distributors</span>
                       <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Regional Hubs →</span>
@@ -3956,7 +3956,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: '1.25rem' }}>🏛️</span>
-                        <strong style={{ fontSize: '1.125rem', color: '#D97706' }}>{districtDistributorsList.length}</strong>
+                        <strong style={{ fontSize: '1.125rem', color: '#D97706' }}>{metrics.totalDistrictDistributors ?? districtDistributorsList.length}</strong>
                       </div>
                       <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#0A192F', marginTop: '4px' }}>District Distributors</span>
                       <span style={{ fontSize: '0.625rem', color: '#64748B' }}>DIST Franchises →</span>
@@ -3969,7 +3969,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: '1.25rem' }}>📦</span>
-                        <strong style={{ fontSize: '1.125rem', color: '#0F52BA' }}>{distributorsList.length}</strong>
+                        <strong style={{ fontSize: '1.125rem', color: '#0F52BA' }}>{metrics.totalDistributors ?? distributorsList.length}</strong>
                       </div>
                       <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#0A192F', marginTop: '4px' }}>Distributors</span>
                       <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Area Managers →</span>
@@ -3982,7 +3982,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontSize: '1.25rem' }}>🏪</span>
-                        <strong style={{ fontSize: '1.125rem', color: '#059669' }}>{merchantsList.length}</strong>
+                        <strong style={{ fontSize: '1.125rem', color: '#059669' }}>{metrics.totalMerchants ?? merchantsList.length}</strong>
                       </div>
                       <span style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#0A192F', marginTop: '4px' }}>Retail Merchants</span>
                       <span style={{ fontSize: '0.625rem', color: '#64748B' }}>Stores & POS →</span>

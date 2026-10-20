@@ -292,6 +292,20 @@ export async function adminResetUserPassword(userId, newPassword, adminId = 'ADM
 // ----------------------------------------------------
 export async function getAllUsers() {
   try {
+    const res = await fetchWithTimeout(getApiUrl('/api/users?limit=500'));
+    const data = await res.json();
+    if (data && data.success) {
+      return { success: true, users: data.users || [] };
+    }
+    return { success: false, message: data?.message || 'Failed to load users from database.', users: [] };
+  } catch (err) {
+    console.error('getAllUsers error:', err);
+    return { success: false, message: err.message, users: [] };
+  }
+}
+
+export async function getAllUsersLegacy() {
+  try {
     const [usersRes, walletsRes, posRes, statusRes] = await Promise.all([
       supabase.from('users').select('*').order('created_at', { ascending: false }),
       supabase.from('wallets').select('*'),

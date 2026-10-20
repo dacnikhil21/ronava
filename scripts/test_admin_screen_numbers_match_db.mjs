@@ -39,7 +39,7 @@ async function testAdminScreenNumbers() {
   dbMetrics.rejectedPayoutsCount = parseInt(rejectedPayoutsRes.rows[0].count, 10);
   dbMetrics.rejectedPayoutsAmount = parseFloat(rejectedPayoutsRes.rows[0].total);
 
-  const auditSwipesRes = await pool.query("SELECT COUNT(*) AS count, COALESCE(SUM(amount_paise)/100.0, 0) AS total FROM transactions WHERE verified_at IS NULL AND type = 'SALE'");
+  const auditSwipesRes = await pool.query("SELECT COUNT(*) AS count, COALESCE(SUM(amount_paise)/100.0, 0) AS total FROM transactions WHERE status = 'PENDING' AND type = 'SALE'");
   dbMetrics.swipesAuditCount = parseInt(auditSwipesRes.rows[0].count, 10);
   dbMetrics.swipesAuditAmount = parseFloat(auditSwipesRes.rows[0].total);
 
@@ -70,12 +70,13 @@ async function testAdminScreenNumbers() {
 
     console.log('Current URL after login:', page.url());
 
-    // Check page text
-    const fullText = await page.locator('body').innerText();
-    
-    // Check Total Merchants
-    const merchantMatch = fullText.match(/(?:Total Merchants|Merchants)[\s\S]*?(\d[\d,]*)/i);
-    let renderedMerchants = merchantMatch ? parseInt(merchantMatch[1].replace(/,/g, ''), 10) : null;
+    // Check Total Merchants from Retail Merchants card
+    const merchantEl = page.locator('button:has-text("Retail Merchants") strong').first();
+    let renderedMerchants = null;
+    if (await merchantEl.isVisible().catch(() => false)) {
+      const txt = (await merchantEl.innerText()).trim();
+      renderedMerchants = parseInt(txt, 10);
+    }
     comparisons.push({
       item: 'Overview Card: Total Merchants',
       rendered: renderedMerchants !== null ? renderedMerchants : 'NOT_FOUND',

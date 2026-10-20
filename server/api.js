@@ -1959,7 +1959,7 @@ export async function handleApiRequest(req, res) {
         FROM transactions t
         JOIN users u ON t.merchant_id = u.id
         LEFT JOIN merchant_pos p ON t.merchant_id = p.merchant_id
-        WHERE t.status != 'REVERSED' AND (t.verified_at IS NULL OR t.status = 'PENDING')
+        WHERE t.status != 'REVERSED' AND t.status = 'PENDING'
         ORDER BY t.created_at DESC
       `);
 
@@ -2092,9 +2092,11 @@ export async function handleApiRequest(req, res) {
         else pineVol += v;
       });
 
+      const mstCount = (await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role IN ('MASTER', 'MASTER_DISTRIBUTOR')`))[0]?.c || 0;
       const mCount = (await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role = 'MERCHANT'`))[0]?.c || 0;
       const sdCount = (await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role = 'SUPER_DISTRIBUTOR'`))[0]?.c || 0;
-      const dCount = (await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role IN ('DISTRIBUTOR', 'DISTRICT_DISTRIBUTOR', 'DIST_FRANCHISE')`))[0]?.c || 0;
+      const ddCount = (await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role = 'DISTRICT_DISTRIBUTOR'`))[0]?.c || 0;
+      const dCount = (await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role IN ('DISTRIBUTOR', 'DIST_FRANCHISE')`))[0]?.c || 0;
       const pendingVol = (await pgQuery(`SELECT COALESCE(SUM(amount_paise), 0)::numeric / 100.0 as s FROM transactions WHERE status = 'PENDING'`))[0]?.s || 0;
 
       // Authoritative Ledger-derived commission and fee figures NET of reversals
@@ -2141,8 +2143,8 @@ export async function handleApiRequest(req, res) {
 
       const wTotalsRes = (await pgQuery(`
         SELECT 
-          COALESCE(SUM(CASE WHEN status = 'PENDING' AND (payout_type = 'REGULAR' OR payout_type IS NULL) THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_regular_amount,
-          COALESCE(SUM(CASE WHEN status = 'PENDING' AND payout_type = 'COMMISSION' THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_commission_amount,
+          COALESCE(SUM(CASE WHEN status = 'PENDING' THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_regular_amount,
+          0 as pending_commission_amount,
           COALESCE(SUM(CASE WHEN status = 'PENDING' THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_amount,
           COALESCE(SUM(CASE WHEN status = 'PENDING' AND (settlement_type = 'T1' OR settlement_type IS NULL) THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_t1_amount,
           COALESCE(SUM(CASE WHEN status = 'PENDING' AND settlement_type = 'INSTANT' THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_instant_amount,
@@ -2158,9 +2160,11 @@ export async function handleApiRequest(req, res) {
       const pendingSwipesVolume = Number(pendingSwipesVolPaise) / 100.0;
 
       const stats = {
-        totalMerchants: parseInt(mCount),
+        totalMasterDistributors: parseInt(mstCount),
         totalSuperDistributors: parseInt(sdCount),
+        totalDistrictDistributors: parseInt(ddCount),
         totalDistributors: parseInt(dCount),
+        totalMerchants: parseInt(mCount),
         withdrawalsCount: pendingWithdrawals.length,
         pendingWithdrawalsCount: pendingWithdrawals.length,
         totalVolume: parseFloat(totalVol.toFixed(2)),
