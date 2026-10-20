@@ -337,7 +337,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   const [customToDate, setCustomToDate] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [txnCategoryFilter, setTxnCategoryFilter] = useState('ALL'); // 'ALL' | 'SWIPES' | 'QR' | 'COMMISSIONS' | 'WITHDRAWALS'
-  const [txnStatusFilter, setTxnStatusFilter] = useState('ALL'); // 'ALL' | 'APPROVED' | 'PENDING' | 'INVALID'
+  const [txnStatusFilter, setTxnStatusFilter] = useState('ALL'); // 'ALL' | 'COMPLETED' | 'PENDING' | 'INVALID'
 
   // Monthly POS Rental Tracking State for Downlines (Items #22 & #23)
   const [hierarchyRentalData, setHierarchyRentalData] = useState({ list: [], summary: {} });
@@ -1797,7 +1797,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       const st = (item.status || '').toUpperCase();
       if (st === 'PENDING') {
         pending++;
-      } else if (st === 'APPROVED' || st === 'SUCCESS' || st === 'COMPLETED' || st === 'SETTLED') {
+      } else if (st === 'COMPLETED' || st === 'SUCCESS' || st === 'COMPLETED' || st === 'SETTLED') {
         completed++;
       } else if (st === 'REJECTED' || st === 'INVALID' || st === 'FAILED') {
         invalid++;
@@ -1882,12 +1882,12 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       yesterday.setDate(yesterday.getDate() - 1);
       const yesterdayStr = yesterday.toISOString().slice(0, 10);
 
-      // Status Filter Buttons: 'ALL' | 'PENDING' | 'APPROVED' | 'INVALID'
+      // Status Filter Buttons: 'ALL' | 'PENDING' | 'COMPLETED' | 'INVALID'
       const st = (item.status || '').toUpperCase();
       if (txnStatusFilter === 'PENDING') {
         if (st !== 'PENDING') return false;
-      } else if (txnStatusFilter === 'APPROVED') {
-        if (st !== 'APPROVED' && st !== 'SUCCESS' && st !== 'COMPLETED' && st !== 'SETTLED') return false;
+      } else if (txnStatusFilter === 'COMPLETED') {
+        if (st !== 'COMPLETED' && st !== 'SUCCESS' && st !== 'COMPLETED' && st !== 'SETTLED') return false;
       } else if (txnStatusFilter === 'INVALID') {
         if (st !== 'REJECTED' && st !== 'INVALID' && st !== 'FAILED') return false;
       }
@@ -3257,8 +3257,8 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                       </div>
                     ) : (
                       activeMachineTransactions.slice(0, 5).map((t, idx, arr) => {
-                        const st = (t.status || 'APPROVED').toUpperCase();
-                        const isApproved = st === 'APPROVED' || st === 'SUCCESS' || st === 'COMPLETED';
+                        const st = (t.status || 'COMPLETED').toUpperCase();
+                        const isApproved = st === 'COMPLETED' || st === 'SUCCESS' || st === 'COMPLETED';
                         const isPending = st === 'PENDING';
                         const statusBadge = isApproved
                           ? { label: selectedMachineKey === 'qr' ? '✓ Instant Credited' : 'Completed', color: '#059669', bg: '#ECFDF5' }
@@ -3979,7 +3979,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                       ) : (
                         activeMachineTransactions.slice(0, 6).map((t, idx) => {
                           const st = (t.status || '').toUpperCase();
-                          const isApproved = st === 'APPROVED' || st === 'SUCCESS' || st === 'COMPLETED';
+                          const isApproved = st === 'COMPLETED' || st === 'SUCCESS' || st === 'COMPLETED';
                           const isPending = st === 'PENDING';
                           const { title, rrn, customerMobile } = parseTxnDisplay(t);
 
@@ -5780,10 +5780,10 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                 {/* 1. Completed */}
                 <button
                   type="button"
-                  onClick={() => setTxnStatusFilter('APPROVED')}
+                  onClick={() => setTxnStatusFilter('COMPLETED')}
                   style={{
-                    background: txnStatusFilter === 'APPROVED' ? '#FFFFFF' : 'transparent',
-                    color: txnStatusFilter === 'APPROVED' ? '#059669' : '#64748B',
+                    background: txnStatusFilter === 'COMPLETED' ? '#FFFFFF' : 'transparent',
+                    color: txnStatusFilter === 'COMPLETED' ? '#059669' : '#64748B',
                     border: 'none',
                     borderRadius: '6px',
                     padding: '0.32rem 0.2rem',
@@ -5793,7 +5793,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                     alignItems: 'center',
                     justifyContent: 'center',
                     cursor: 'pointer',
-                    boxShadow: txnStatusFilter === 'APPROVED' ? '0 1px 3px rgba(0,0,0,0.05)' : 'none',
+                    boxShadow: txnStatusFilter === 'COMPLETED' ? '0 1px 3px rgba(0,0,0,0.05)' : 'none',
                     transition: 'all 0.15s ease'
                   }}
                 >
@@ -5991,7 +5991,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                   <div style={{ textAlign: 'center', padding: '3rem 1.5rem', background: '#FFFFFF', borderRadius: '16px', border: '1px dashed #CBD5E1' }}>
                     <History style={{ width: '36px', height: '36px', color: '#94A3B8', margin: '0 auto 0.75rem' }} />
                     <h4 style={{ fontSize: '0.9375rem', fontWeight: 800, color: '#0F172A', margin: 0 }}>
-                      No {txnStatusFilter === 'APPROVED' ? 'completed' : (txnStatusFilter === 'PENDING' ? 'pending' : 'invalid')} {txnCategoryFilter === 'WITHDRAWALS' ? 'withdrawals' : (txnCategoryFilter === 'SWIPES' ? 'card swipes' : 'records')} found
+                      No {txnStatusFilter === 'COMPLETED' ? 'completed' : (txnStatusFilter === 'PENDING' ? 'pending' : 'invalid')} {txnCategoryFilter === 'WITHDRAWALS' ? 'withdrawals' : (txnCategoryFilter === 'SWIPES' ? 'card swipes' : 'records')} found
                     </h4>
                     <p style={{ fontSize: '0.75rem', color: '#64748B', margin: '0.35rem 0 1rem', lineHeight: 1.4 }}>
                       {txnStatusFilter === 'INVALID' 
@@ -6002,7 +6002,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                     </p>
                     <button 
                       type="button" 
-                      onClick={() => { setTxnCategoryFilter('ALL'); setTxnStatusFilter('APPROVED'); setDateFilter('ALL'); setSearchQuery(''); setCustomFromDate(''); setCustomToDate(''); }} 
+                      onClick={() => { setTxnCategoryFilter('ALL'); setTxnStatusFilter('COMPLETED'); setDateFilter('ALL'); setSearchQuery(''); setCustomFromDate(''); setCustomToDate(''); }} 
                       className="btn btn-secondary btn-sm" 
                       style={{ fontSize: '0.75rem', padding: '0.4rem 0.875rem', borderRadius: '8px' }}
                     >
@@ -6012,7 +6012,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                 ) : (
                   filteredTransactions.map(item => {
                     const st = (item.status || '').toUpperCase();
-                    const isApproved = st === 'APPROVED' || st === 'SUCCESS' || st === 'COMPLETED' || st === 'SETTLED';
+                    const isApproved = st === 'COMPLETED' || st === 'SUCCESS' || st === 'COMPLETED' || st === 'SETTLED';
                     const isPending = st === 'PENDING';
                     const isInvalid = st === 'REJECTED' || st === 'INVALID' || st === 'FAILED';
                     const isCommissionEarning = item.is_commission === true || item.activityType === 'COMMISSION_EARNED' || item.type === 'COMMISSION_EARNED';
@@ -9624,7 +9624,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         const isCommission = txnDetailType === 'COMMISSION' || item.is_commission === true || item.activityType === 'COMMISSION_EARNED' || item.type === 'COMMISSION_EARNED';
         const isWithdrawal = (txnDetailType === 'WITHDRAWAL' || item.payout_type || item.bank_name) && !isCommission;
         const st = (item.status || '').toUpperCase();
-        const isApproved = st === 'APPROVED' || st === 'SUCCESS' || st === 'COMPLETED' || st === 'SETTLED';
+        const isApproved = st === 'COMPLETED' || st === 'SUCCESS' || st === 'COMPLETED' || st === 'SETTLED';
         const isPending = st === 'PENDING';
 
         // Parse swipe meta if it's a swipe

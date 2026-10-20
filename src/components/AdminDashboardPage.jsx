@@ -129,7 +129,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
   // Record Sale Portal Verification Modal State & Sub-filter
   const [verifyingSwipe, setVerifyingSwipe] = useState(null); // { txn, action: 'APPROVE', remark: '', reason: '' }
-  const [swipeSubTab, setSwipeSubTab] = useState('PENDING'); // 'PENDING' | 'APPROVED' | 'REJECTED'
+  const [swipeSubTab, setSwipeSubTab] = useState('PENDING'); // 'PENDING' | 'COMPLETED' | 'REJECTED'
 
   // Dynamic Data Stores
   const [networkUsers, setNetworkUsers] = useState([]);
@@ -138,7 +138,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   const [pendingPayouts, setPendingPayouts] = useState([]);
   const [allPayouts, setAllPayouts] = useState([]);
   const [payoutCategoryFilter, setPayoutCategoryFilter] = useState('ALL'); // 'ALL' | 'SWIPES' | 'WITHDRAWALS'
-  const [payoutStatusFilter, setPayoutStatusFilter] = useState('PENDING'); // 'APPROVED' | 'PENDING' | 'INVALID'
+  const [payoutStatusFilter, setPayoutStatusFilter] = useState('PENDING'); // 'COMPLETED' | 'PENDING' | 'INVALID'
   const [payoutSearchQuery, setPayoutSearchQuery] = useState('');
   const [payoutDateFilter, setPayoutDateFilter] = useState('ALL'); // 'ALL' | 'TODAY' | 'YESTERDAY' | 'WEEK' | 'MONTH' | 'CUSTOM'
   const [payoutCustomDate, setPayoutCustomDate] = useState('');
@@ -301,7 +301,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         (item.fee_deducted || 0).toFixed(2),
         (item.paid_uplines || 0).toFixed(2),
         (item.commission_amount || 0).toFixed(2),
-        `"${item.status || 'APPROVED'}"`
+        `"${item.status || 'COMPLETED'}"`
       ]);
       const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
       const encodedUri = encodeURI(csvContent);
@@ -1047,7 +1047,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
   // Stage 3: Settled / Approved Payouts
   const settledPayouts = useMemo(() => {
-    return allPayouts.filter(p => p.status === 'APPROVED');
+    return allPayouts.filter(p => p.status === 'COMPLETED');
   }, [allPayouts]);
 
   // Channel & Vendor Pending Items Counter (strictly actionable PENDING items: swipes + withdrawals)
@@ -1207,7 +1207,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     let total = 0;
     let hasError = false;
     (transactionsLedger || []).forEach(t => {
-      if ((t.status || '').toUpperCase() === 'APPROVED' && t.notes && typeof t.notes === 'string') {
+      if ((t.status || '').toUpperCase() === 'COMPLETED' && t.notes && typeof t.notes === 'string') {
         try {
           if (t.notes.includes('commission_splits')) {
             const jsonPart = t.notes.slice(t.notes.indexOf('{'));
@@ -1485,7 +1485,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
     txns.forEach(t => {
       const amt = parseFloat(t.amount) || 0;
-      if (t.status === 'APPROVED' || t.status === 'Success') {
+      if (t.status === 'COMPLETED' || t.status === 'Success') {
         allVol += amt;
         allProfit += getTxnAdminProfit(t);
       }
@@ -1510,7 +1510,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     let filteredHasFeeError = false;
     filteredTxns.forEach(t => {
       const amt = parseFloat(t.amount) || 0;
-      if (t.status === 'APPROVED' || t.status === 'Success') {
+      if (t.status === 'COMPLETED' || t.status === 'Success') {
         volume += amt;
         const fee = getTxnAdminProfit(t);
         adminProfit += fee;
@@ -1550,7 +1550,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     (networkUsers || []).forEach(u => { if (u?.id) userMap[u.id] = u; });
 
     // Filter transactions (Approved / Success only)
-    let txns = (transactionsLedger || []).filter(t => t.status === 'APPROVED' || t.status === 'Success');
+    let txns = (transactionsLedger || []).filter(t => t.status === 'COMPLETED' || t.status === 'Success');
 
     if (profitDateFilter === 'TODAY') {
       txns = txns.filter(t => new Date(t.created_at || Date.now()).getTime() >= startOfToday);
@@ -1652,7 +1652,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         paid_uplines: 0,
         admin_cut: 0,
         ref_number: t.ref_number || t.rrn || '',
-        status: t.status || 'APPROVED',
+        status: t.status || 'COMPLETED',
         created_at: t.created_at || new Date().toISOString(),
         role: 'MERCHANT'
       });
@@ -1698,7 +1698,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           paid_uplines: cut,
           admin_cut: 0,
           ref_number: t.ref_number || t.rrn || '',
-          status: t.status || 'APPROVED',
+          status: t.status || 'COMPLETED',
           created_at: t.created_at || new Date().toISOString(),
           role: 'MASTER_DISTRIBUTOR'
         });
@@ -1726,7 +1726,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           paid_uplines: cut,
           admin_cut: 0,
           ref_number: t.ref_number || t.rrn || '',
-          status: t.status || 'APPROVED',
+          status: t.status || 'COMPLETED',
           created_at: t.created_at || new Date().toISOString(),
           role: 'SUPER_DISTRIBUTOR'
         });
@@ -1754,7 +1754,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           paid_uplines: cut,
           admin_cut: 0,
           ref_number: t.ref_number || t.rrn || '',
-          status: t.status || 'APPROVED',
+          status: t.status || 'COMPLETED',
           created_at: t.created_at || new Date().toISOString(),
           role: 'DISTRICT_DISTRIBUTOR'
         });
@@ -1781,7 +1781,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           paid_uplines: cut,
           admin_cut: 0,
           ref_number: t.ref_number || t.rrn || '',
-          status: t.status || 'APPROVED',
+          status: t.status || 'COMPLETED',
           created_at: t.created_at || new Date().toISOString(),
           role: 'DISTRIBUTOR'
         });
@@ -1816,7 +1816,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         paid_uplines: paidUplines,
         admin_cut: companyEarned,
         ref_number: t.ref_number || t.rrn || '',
-        status: t.status || 'APPROVED',
+        status: t.status || 'COMPLETED',
         created_at: t.created_at || new Date().toISOString(),
         role: 'ADMIN'
       });
@@ -2818,7 +2818,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 });
 
                 const totalVol = parseFloat(viewingUserDossier.total_sales || viewingUserDossier.total_txn_volume || 0);
-                const approvedTxns = filteredTxns.filter(t => (t.status || '').toUpperCase() === 'APPROVED');
+                const approvedTxns = filteredTxns.filter(t => (t.status || '').toUpperCase() === 'COMPLETED');
                 
                 let grossMdr = 0;
                 let netAdmin = 0;
@@ -3068,10 +3068,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                       fontWeight: 800,
                                       padding: '1px 6px',
                                       borderRadius: '4px',
-                                      background: t.status === 'APPROVED' ? '#DCFCE7' : '#FEF3C7',
-                                      color: t.status === 'APPROVED' ? '#15803D' : '#B45309'
+                                      background: t.status === 'COMPLETED' ? '#DCFCE7' : '#FEF3C7',
+                                      color: t.status === 'COMPLETED' ? '#15803D' : '#B45309'
                                     }}>
-                                      ● {t.status || 'APPROVED'}
+                                      ● {t.status || 'COMPLETED'}
                                     </span>
                                   </div>
                                 </div>
@@ -3138,8 +3138,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                 fontWeight: 800,
                                 padding: '2px 8px',
                                 borderRadius: '4px',
-                                background: w.status === 'APPROVED' ? '#DCFCE7' : '#FEF3C7',
-                                color: w.status === 'APPROVED' ? '#15803D' : '#B45309'
+                                background: w.status === 'COMPLETED' ? '#DCFCE7' : '#FEF3C7',
+                                color: w.status === 'COMPLETED' ? '#15803D' : '#B45309'
                               }}>
                                 {w.status}
                               </span>
@@ -3532,8 +3532,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                               fontWeight: 800,
                               padding: '1px 5px',
                               borderRadius: '3px',
-                              background: t.status === 'APPROVED' || t.status === 'Success' ? '#D1FAE5' : '#FEE2E2',
-                              color: t.status === 'APPROVED' || t.status === 'Success' ? '#059669' : '#DC2626'
+                              background: t.status === 'COMPLETED' || t.status === 'Success' ? '#D1FAE5' : '#FEE2E2',
+                              color: t.status === 'COMPLETED' || t.status === 'Success' ? '#059669' : '#DC2626'
                             }}>
                               {t.status}
                             </span>
@@ -4499,7 +4499,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         ₹{authoritativeSales.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h3>
                       <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 600 }}>
-                        {isAllTime ? (transactionsLedger?.filter(t => t.status === 'APPROVED' || t.status === 'Success').length || 0) : (profitDistributionData.txnsCount || 0)} transactions swiped
+                        {isAllTime ? (transactionsLedger?.filter(t => t.status === 'COMPLETED' || t.status === 'Success').length || 0) : (profitDistributionData.txnsCount || 0)} transactions swiped
                       </span>
                     </div>
 
@@ -6118,7 +6118,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               // Tag records
               const allSwipes = dedupeById([
                 ...combinedPendingTxns.map(item => ({ ...item, _entityType: 'SWIPE', _subStatus: 'PENDING' })),
-                ...combinedLedger.filter(t => t.status === 'COMPLETED' || t.status === 'APPROVED').map(item => ({
+                ...combinedLedger.filter(t => t.status === 'COMPLETED' || t.status === 'COMPLETED').map(item => ({
                   ...item,
                   _entityType: 'SWIPE',
                   _subStatus: 'COMPLETED'
@@ -6137,7 +6137,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   _entityType: 'WITHDRAWAL', 
                   _subStatus: 'SUBMITTED_TO_BANK' 
                 })),
-                ...combinedPayouts.filter(p => p.status === 'COMPLETED' || p.status === 'APPROVED').map(item => ({ 
+                ...combinedPayouts.filter(p => p.status === 'COMPLETED' || p.status === 'COMPLETED').map(item => ({ 
                   ...item, 
                   _entityType: 'WITHDRAWAL', 
                   _subStatus: 'COMPLETED' 
@@ -6226,7 +6226,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
               const statusCounts = {
                 all: categoryList.length,
-                completed: categoryList.filter(i => i._subStatus === 'COMPLETED' || i._subStatus === 'APPROVED').length,
+                completed: categoryList.filter(i => i._subStatus === 'COMPLETED' || i._subStatus === 'COMPLETED').length,
                 pending: categoryList.filter(i => i._subStatus === 'PENDING').length,
                 submitted: categoryList.filter(i => i._subStatus === 'SUBMITTED_TO_BANK').length,
                 invalid: categoryList.filter(i => i._subStatus === 'REJECTED' || i._subStatus === 'INVALID').length
@@ -6234,7 +6234,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
               // Filter by Status
               let statusFilteredList = categoryList;
-              if (payoutStatusFilter === 'COMPLETED' || payoutStatusFilter === 'APPROVED') statusFilteredList = categoryList.filter(i => i._subStatus === 'COMPLETED' || i._subStatus === 'APPROVED');
+              if (payoutStatusFilter === 'COMPLETED' || payoutStatusFilter === 'COMPLETED') statusFilteredList = categoryList.filter(i => i._subStatus === 'COMPLETED' || i._subStatus === 'COMPLETED');
               else if (payoutStatusFilter === 'PENDING') statusFilteredList = categoryList.filter(i => i._subStatus === 'PENDING');
               else if (payoutStatusFilter === 'SUBMITTED_TO_BANK') statusFilteredList = categoryList.filter(i => i._subStatus === 'SUBMITTED_TO_BANK');
               else if (payoutStatusFilter === 'REJECTED' || payoutStatusFilter === 'INVALID') statusFilteredList = categoryList.filter(i => i._subStatus === 'REJECTED' || i._subStatus === 'INVALID');
@@ -6268,7 +6268,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               const submittedWithdrawalsList = channelWithdrawals.filter(w => w._subStatus === 'SUBMITTED_TO_BANK');
               const totalSubmittedAmount = parseFloat(metrics.withdrawalTotals?.submitted_amount || 0);
 
-              const completedWithdrawalsList = channelWithdrawals.filter(w => w._subStatus === 'COMPLETED' || w._subStatus === 'APPROVED');
+              const completedWithdrawalsList = channelWithdrawals.filter(w => w._subStatus === 'COMPLETED' || w._subStatus === 'COMPLETED');
               const totalCompletedWithdrawalAmount = parseFloat(metrics.withdrawalTotals?.completed_amount || 0);
 
               // Apply Search Query
@@ -6528,7 +6528,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 const allChannelItems = [...channelSwipes, ...channelWithdrawals];
 
                 // Export completed/approved sales ledger showing gross, fee, and net
-                const completedItems = allChannelItems.filter(item => item._subStatus === 'APPROVED');
+                const completedItems = allChannelItems.filter(item => item._subStatus === 'COMPLETED');
 
                 const channelName = selectedChannel === 'all'
                   ? 'All Channels'
@@ -7344,13 +7344,13 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         type="button"
                         onClick={() => {
                           setPayoutCategoryFilter('ALL');
-                          setPayoutStatusFilter('APPROVED');
+                          setPayoutStatusFilter('COMPLETED');
                           setPayoutPage(1);
                         }}
                         style={{
-                          background: payoutStatusFilter === 'APPROVED' ? '#F0FDF4' : 'transparent',
-                          color: payoutStatusFilter === 'APPROVED' ? '#15803D' : '#334155',
-                          border: payoutStatusFilter === 'APPROVED' ? '1.5px solid #22C55E' : '1px solid transparent',
+                          background: payoutStatusFilter === 'COMPLETED' ? '#F0FDF4' : 'transparent',
+                          color: payoutStatusFilter === 'COMPLETED' ? '#15803D' : '#334155',
+                          border: payoutStatusFilter === 'COMPLETED' ? '1.5px solid #22C55E' : '1px solid transparent',
                           borderRadius: '8px',
                           padding: '0.42rem 0.75rem',
                           fontSize: '0.78125rem',
@@ -8050,7 +8050,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       {currentItems.map((item, idx) => {
                         const isSwipe = item._entityType === 'SWIPE';
                         const isPending = item._subStatus === 'PENDING';
-                        const isApproved = item._subStatus === 'APPROVED';
+                        const isApproved = item._subStatus === 'COMPLETED';
                         const cardId = isSwipe ? `swipe_${item.id}` : `payout_${item.id}`;
                         const isExpanded = expandedPayoutId === cardId;
                         const displayDate = formatPayoutDateTime(item.created_at || item.verified_at);
