@@ -6790,8 +6790,11 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 });
 
                 const arr = Array.from(batchesMap.values()).map(b => {
-                  const totalAmount = b.items.reduce((sum, item) => sum + parseFloat(item.amount || (item.amount_paise ? Number(item.amount_paise) / 100 : 0) || 0), 0);
-                  return { ...b, totalAmount };
+                  let bPaise = 0n;
+                  for (const it of b.items) {
+                    bPaise += BigInt(it.amount_paise || Math.round(Number(it.amount || 0) * 100));
+                  }
+                  return { ...b, totalAmount: Number(bPaise) / 100 };
                 });
 
                 arr.sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());

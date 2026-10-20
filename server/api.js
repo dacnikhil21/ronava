@@ -1548,6 +1548,12 @@ export async function handleApiRequest(req, res) {
           queryParams = [Array.from(downline)];
         }
 
+        const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10)));
+        const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10));
+
+        const countRes = await pgQuery(`SELECT COUNT(*)::int as total FROM users u ${downlineFilter}`, queryParams);
+        const total = countRes[0]?.total || 0;
+
         const users = await pgQuery(`
           SELECT u.*, 
                  p.provider AS pos_provider, 
@@ -1573,10 +1579,20 @@ export async function handleApiRequest(req, res) {
           LEFT JOIN wallets w ON u.id = w.user_id
           ${downlineFilter}
           ORDER BY u.created_at DESC
-        `, queryParams);
+          LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}
+        `, [...queryParams, limit, offset]);
 
         const enrichedUsers = await enrichUsersWithChannelRates(users);
-        return sendJson(res, 200, { success: true, users: sanitizeUser(enrichedUsers) });
+        return sendJson(res, 200, {
+          success: true,
+          users: sanitizeUser(enrichedUsers),
+          pagination: {
+            limit,
+            offset,
+            total,
+            has_more: offset + enrichedUsers.length < total
+          }
+        });
       } catch (err) {
         return sendJson(res, err.statusCode || 500, { success: false, message: err.message });
       }
@@ -1918,76 +1934,6 @@ export async function handleApiRequest(req, res) {
     }
   }
 
-    if (pathname.startsWith('/api/transactions/merchant/') && method === 'GET') {
-      const merchantId = pathname.replace('/api/transactions/merchant/', '').trim();
-
-      // 1. Direct transactions for this merchant ID
-      const directTxns = await pgQuery(`
-        SELECT t.*, u.name as originating_merchant_name, u.id as originating_merchant_id
-        FROM transactions t
-        LEFT JOIN users u ON UPPER(u.id) = UPPER(t.merchant_id)
-        WHERE UPPER(t.merchant_id) = UPPER($1)
-        ORDER BY t.created_at DESC
-      `, [merchantId]);
-
-      // 2. Card swipe transactions with commission splits for this distributor / upline
-      const uplineRows = await pgQuery(`
-        SELECT t.*, u.name as originating_merchant_name, u.id as originating_merchant_id
-        FROM transactions t
-        LEFT JOIN users u ON UPPER(u.id) = UPPER(t.merchant_id)
-        WHERE t.notes ILIKE '%commission_splits%' 
-          AND t.notes ILIKE '%' || $1 || '%'
-          AND UPPER(t.merchant_id) != UPPER($1)
-        ORDER BY t.created_at DESC
-      `, [merchantId]);
-
-      const commissionEntries = [];
-      for (const row of uplineRows) {
-        try {
-          const notesStr = row.notes || '';
-          const metaJsonStr = notesStr.replace(/^\[CARD_SWIPE_ENTRY\]\s*/, '');
-          const meta = JSON.parse(metaJsonStr);
-          if (Array.isArray(meta.commission_splits)) {
-            const split = meta.commission_splits.find(s => (s.user_id || '').toUpperCase() === merchantId.toUpperCase());
-            if (split) {
-              const commEarned = parseFloat(split.amount || split.commission || (Number(split.amount_paise || 0) / 100) || 0);
-              const saleAmt = parseFloat(row.amount || (Number(row.amount_paise || 0) / 100) || 0);
-              let commPct = 0;
-              if (split.margin_diff !== undefined && split.margin_diff !== null) {
-                commPct = parseFloat(split.margin_diff);
-              } else if (split.rate !== undefined && split.rate !== null) {
-                commPct = parseFloat(split.rate);
-              } else if (saleAmt > 0 && commEarned > 0) {
-                commPct = parseFloat(((commEarned / saleAmt) * 100).toFixed(2));
-              }
-
-              commissionEntries.push({
-                id: `COMM-${row.id}-${merchantId}`,
-                original_txn_id: row.id,
-                activityType: 'COMMISSION_EARNED',
-                is_commission: true,
-                type: 'COMMISSION_EARNED',
-                originating_merchant_name: row.originating_merchant_name || 'Retail Merchant Store',
-                originating_merchant_id: row.originating_merchant_id || row.merchant_id || 'MID1001',
-                sale_amount: saleAmt,
-                amount: commEarned,
-                commission_earned: commEarned,
-                commission_percentage: commPct,
-                created_at: row.created_at,
-                status: 'APPROVED',
-                notes: row.notes
-              });
-            }
-          }
-        } catch (_) {}
-      }
-
-      const allTxns = serializeMoneyFields([...directTxns, ...commissionEntries]).sort((a, b) => {
-        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
-      });
-
-      return sendJson(res, 200, { success: true, transactions: allTxns });
-    }
 
     // ----------------------------------------------------
     // BENEFICIARY BANK ACCOUNTS
@@ -2454,6 +2400,13 @@ export async function handleApiRequest(req, res) {
       const merchantId = decodeURIComponent(pathname.replace('/api/withdrawals/merchant/', '')).trim();
       const caller = requireAuth(req);
       await assertCanAccessUser(caller, merchantId, { query: pgQuery });
+
+      const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10)));
+      const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10));
+
+      const countRes = await pgQuery(`SELECT COUNT(*)::int as total FROM withdrawals w WHERE UPPER(w.merchant_id) = UPPER($1)`, [merchantId]);
+      const total = countRes[0]?.total || 0;
+
       const withdrawals = await pgQuery(`
         SELECT w.*, 
                COALESCE(w.amount, (w.amount_paise / 100.0)) as amount,
@@ -2466,8 +2419,53 @@ export async function handleApiRequest(req, res) {
         LEFT JOIN beneficiaries b ON w.beneficiary_id = b.id
         WHERE UPPER(w.merchant_id) = UPPER($1) 
         ORDER BY w.created_at DESC
-      `, [merchantId]);
-      return sendJson(res, 200, { success: true, withdrawals: serializeMoneyFields(withdrawals) });
+        LIMIT $2 OFFSET $3
+      `, [merchantId, limit, offset]);
+
+      return sendJson(res, 200, {
+        success: true,
+        withdrawals: serializeMoneyFields(withdrawals),
+        pagination: {
+          limit,
+          offset,
+          total,
+          has_more: offset + (withdrawals || []).length < total
+        }
+      });
+    }
+
+    if (pathname.startsWith('/api/transactions/merchant/') && method === 'GET') {
+      const merchantId = decodeURIComponent(pathname.replace('/api/transactions/merchant/', '')).trim();
+      const caller = requireAuth(req);
+      await assertCanAccessUser(caller, merchantId, { query: pgQuery });
+
+      const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10)));
+      const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10));
+
+      const countRes = await pgQuery(`SELECT COUNT(*)::int as total FROM transactions t WHERE UPPER(t.merchant_id) = UPPER($1)`, [merchantId]);
+      const total = countRes[0]?.total || 0;
+
+      const transactions = await pgQuery(`
+        SELECT t.*, u.name as merchant_name, u.mobile as merchant_mobile,
+               COALESCE(t.provider, p.provider, CASE WHEN t.type = 'QR_SCAN' THEN 'Company QR (UPI)' WHEN t.type = 'BBPS_BILL' THEN 'BBPS' ELSE 'Pine Labs' END) as pos_provider
+        FROM transactions t
+        LEFT JOIN users u ON t.merchant_id = u.id
+        LEFT JOIN merchant_pos p ON t.merchant_id = p.merchant_id
+        WHERE UPPER(t.merchant_id) = UPPER($1)
+        ORDER BY t.created_at DESC
+        LIMIT $2 OFFSET $3
+      `, [merchantId, limit, offset]);
+
+      return sendJson(res, 200, {
+        success: true,
+        transactions: serializeMoneyFields(transactions),
+        pagination: {
+          limit,
+          offset,
+          total,
+          has_more: offset + (transactions || []).length < total
+        }
+      });
     }
 
     if ((pathname === '/api/admin/withdrawals' || pathname === '/api/withdrawals') && method === 'GET') {
@@ -2480,6 +2478,12 @@ export async function handleApiRequest(req, res) {
         downlineWithdrawalFilter = 'WHERE UPPER(w.merchant_id) = ANY($1)';
         downlineWithdrawalParams = [Array.from(downline)];
       }
+      const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10)));
+      const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10));
+
+      const countRes = await pgQuery(`SELECT COUNT(*)::int as total FROM withdrawals w ${downlineWithdrawalFilter}`, downlineWithdrawalParams);
+      const total = countRes[0]?.total || 0;
+
       const withdrawals = await pgQuery(`
         SELECT w.*, 
                COALESCE(w.amount, (w.amount_paise / 100.0)) as amount,
@@ -2504,7 +2508,8 @@ export async function handleApiRequest(req, res) {
         LEFT JOIN beneficiaries b ON w.beneficiary_id = b.id
         ${downlineWithdrawalFilter}
         ORDER BY w.created_at DESC
-      `, downlineWithdrawalParams);
+        LIMIT $${downlineWithdrawalParams.length + 1} OFFSET $${downlineWithdrawalParams.length + 2}
+      `, [...downlineWithdrawalParams, limit, offset]);
 
       const enriched = (withdrawals || []).map(w => {
         const wMode = (w.withdrawal_mode || w.settlement_type || 'T1').toUpperCase();
@@ -2539,6 +2544,12 @@ export async function handleApiRequest(req, res) {
           pending_instant_amount: parseFloat(totalsRow.pending_instant_amount || 0),
           submitted_amount: parseFloat(totalsRow.submitted_amount || 0),
           completed_amount: parseFloat(totalsRow.completed_amount || 0)
+        },
+        pagination: {
+          limit,
+          offset,
+          total,
+          has_more: offset + enriched.length < total
         }
       });
     }
@@ -2908,6 +2919,13 @@ export async function handleApiRequest(req, res) {
         downlineTxnFilter = 'WHERE UPPER(t.merchant_id) = ANY($1)';
         downlineTxnParams = [Array.from(downline)];
       }
+
+      const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10)));
+      const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10));
+
+      const countRes = await pgQuery(`SELECT COUNT(*)::int as total FROM transactions t ${downlineTxnFilter}`, downlineTxnParams);
+      const total = countRes[0]?.total || 0;
+
       const transactions = await pgQuery(`
         SELECT t.*, u.name as merchant_name, u.mobile as merchant_mobile,
                COALESCE(t.provider, p.provider, CASE WHEN t.type = 'QR_SCAN' THEN 'Company QR (UPI)' WHEN t.type = 'BBPS_BILL' THEN 'BBPS' ELSE 'Pine Labs' END) as pos_provider
@@ -2916,8 +2934,19 @@ export async function handleApiRequest(req, res) {
         LEFT JOIN merchant_pos p ON t.merchant_id = p.merchant_id
         ${downlineTxnFilter}
         ORDER BY t.created_at DESC
-      `, downlineTxnParams);
-      return sendJson(res, 200, { success: true, transactions: serializeMoneyFields(transactions) });
+        LIMIT $${downlineTxnParams.length + 1} OFFSET $${downlineTxnParams.length + 2}
+      `, [...downlineTxnParams, limit, offset]);
+
+      return sendJson(res, 200, {
+        success: true,
+        transactions: serializeMoneyFields(transactions),
+        pagination: {
+          limit,
+          offset,
+          total,
+          has_more: offset + transactions.length < total
+        }
+      });
     }
 
     if ((pathname === '/api/pos/all' || pathname === '/api/pos') && method === 'GET') {
@@ -2944,8 +2973,70 @@ export async function handleApiRequest(req, res) {
         downlineWalletFilter = 'WHERE UPPER(user_id) = ANY($1)';
         downlineWalletParams = [Array.from(downline)];
       }
-      const wallets = await pgQuery(`SELECT * FROM wallets ${downlineWalletFilter} ORDER BY updated_at DESC`, downlineWalletParams);
-      return sendJson(res, 200, { success: true, wallets: serializeMoneyFields(wallets) });
+
+      const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10)));
+      const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10));
+
+      const countRes = await pgQuery(`SELECT COUNT(*)::int as total FROM wallets ${downlineWalletFilter}`, downlineWalletParams);
+      const total = countRes[0]?.total || 0;
+
+      const wallets = await pgQuery(`
+        SELECT * FROM wallets 
+        ${downlineWalletFilter} 
+        ORDER BY updated_at DESC
+        LIMIT $${downlineWalletParams.length + 1} OFFSET $${downlineWalletParams.length + 2}
+      `, [...downlineWalletParams, limit, offset]);
+
+      return sendJson(res, 200, {
+        success: true,
+        wallets: serializeMoneyFields(wallets),
+        pagination: {
+          limit,
+          offset,
+          total,
+          has_more: offset + (wallets || []).length < total
+        }
+      });
+    }
+
+    // Authoritative Financial Ledger Endpoint (Single Source of Truth per Channel)
+    if ((pathname === '/api/admin/ledger' || pathname === '/api/financial-ledger' || pathname === '/api/ledger') && method === 'GET') {
+      const caller = requireAuth(req);
+      let downlineFilter = '';
+      let queryParams = [];
+      if (caller.role !== 'ADMIN' && caller.id !== 'ADM001') {
+        const downline = await getDownlineUserIds({ query: pgQuery }, caller.id);
+        downline.add(caller.id);
+        downlineFilter = 'WHERE UPPER(user_id) = ANY($1)';
+        queryParams = [Array.from(downline)];
+      }
+
+      const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10)));
+      const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10));
+
+      const countRes = await pgQuery(`SELECT COUNT(*)::int as total FROM financial_ledger ${downlineFilter}`, queryParams);
+      const total = countRes[0]?.total || 0;
+
+      const ledgerRows = await pgQuery(`
+        SELECT id, user_id, type, amount_paise, 
+               (amount_paise / 100.0) as amount_rupees,
+               channel, reference_id, reference_type, created_by, metadata, created_at
+        FROM financial_ledger
+        ${downlineFilter}
+        ORDER BY id DESC
+        LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}
+      `, [...queryParams, limit, offset]);
+
+      return sendJson(res, 200, {
+        success: true,
+        ledger: serializeMoneyFields(ledgerRows),
+        pagination: {
+          limit,
+          offset,
+          total,
+          has_more: offset + (ledgerRows || []).length < total
+        }
+      });
     }
 
     // ----------------------------------------------------
@@ -2953,8 +3044,23 @@ export async function handleApiRequest(req, res) {
     // ----------------------------------------------------
     if (pathname === '/api/inquiries' && method === 'GET') {
       requireAdmin(req);
-      const inquiries = await pgQuery(`SELECT * FROM inquiries ORDER BY created_at DESC`);
-      return sendJson(res, 200, { success: true, inquiries });
+      const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10)));
+      const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10));
+
+      const countRes = await pgQuery(`SELECT COUNT(*)::int as total FROM inquiries`);
+      const total = countRes[0]?.total || 0;
+
+      const inquiries = await pgQuery(`SELECT * FROM inquiries ORDER BY created_at DESC LIMIT $1 OFFSET $2`, [limit, offset]);
+      return sendJson(res, 200, {
+        success: true,
+        inquiries,
+        pagination: {
+          limit,
+          offset,
+          total,
+          has_more: offset + (inquiries || []).length < total
+        }
+      });
     }
 
     if (pathname.startsWith('/api/settings/config') && method === 'GET') {

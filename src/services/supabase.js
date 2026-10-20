@@ -150,6 +150,12 @@ class TableQueryBuilder {
     return this;
   }
 
+  range(from, to) {
+    this._options.offset = from;
+    this._options.limit = Math.max(1, (to - from) + 1);
+    return this;
+  }
+
   single() {
     this._single = true;
     return this;
@@ -178,22 +184,31 @@ class TableQueryBuilder {
 
   async execute() {
     // Route legacy select queries to explicit API endpoints where available
+    const qParams = new URLSearchParams();
+    if (this._options.limit !== undefined && this._options.limit !== null) {
+      qParams.set('limit', this._options.limit);
+    }
+    if (this._options.offset !== undefined && this._options.offset !== null) {
+      qParams.set('offset', this._options.offset);
+    }
+    const qs = qParams.toString() ? `?${qParams.toString()}` : '';
+
     try {
       if (this.table === 'users') {
         if (this._filters.id) {
           const res = await fetchWithTimeout(getApiUrl(`/api/users/${encodeURIComponent(this._filters.id)}`));
           const json = await res.json();
           if (json.success && json.user) {
-            return { data: this._single || this._maybeSingle ? json.user : [json.user], error: null };
+            return { data: this._single || this._maybeSingle ? json.user : [json.user], count: 1, error: null };
           }
-          return { data: this._single || this._maybeSingle ? null : [], error: new Error(json.message || 'User not found') };
+          return { data: this._single || this._maybeSingle ? null : [], count: 0, error: new Error(json.message || 'User not found') };
         } else {
-          const res = await fetchWithTimeout(getApiUrl('/api/users'));
+          const res = await fetchWithTimeout(getApiUrl(`/api/users${qs}`));
           const json = await res.json();
           if (json.success && Array.isArray(json.users)) {
-            return { data: json.users, error: null };
+            return { data: json.users, count: json.pagination?.total ?? json.users.length, pagination: json.pagination, error: null };
           }
-          return { data: [], error: new Error(json.message || 'Failed to fetch users') };
+          return { data: [], count: 0, error: new Error(json.message || 'Failed to fetch users') };
         }
       }
 
@@ -202,52 +217,52 @@ class TableQueryBuilder {
           const res = await fetchWithTimeout(getApiUrl(`/api/wallet/${encodeURIComponent(this._filters.user_id)}`));
           const json = await res.json();
           if (json.success && json.wallet) {
-            return { data: this._single || this._maybeSingle ? json.wallet : [json.wallet], error: null };
+            return { data: this._single || this._maybeSingle ? json.wallet : [json.wallet], count: 1, error: null };
           }
-          return { data: this._single || this._maybeSingle ? null : [], error: new Error(json.message || 'Wallet not found') };
+          return { data: this._single || this._maybeSingle ? null : [], count: 0, error: new Error(json.message || 'Wallet not found') };
         } else {
-          const res = await fetchWithTimeout(getApiUrl('/api/wallets'));
+          const res = await fetchWithTimeout(getApiUrl(`/api/wallets${qs}`));
           const json = await res.json();
           if (json.success && Array.isArray(json.wallets)) {
-            return { data: json.wallets, error: null };
+            return { data: json.wallets, count: json.pagination?.total ?? json.wallets.length, pagination: json.pagination, error: null };
           }
-          return { data: [], error: new Error(json.message || 'Failed to fetch wallets') };
+          return { data: [], count: 0, error: new Error(json.message || 'Failed to fetch wallets') };
         }
       }
 
       if (this.table === 'transactions') {
         if (this._filters.merchant_id) {
-          const res = await fetchWithTimeout(getApiUrl(`/api/transactions/merchant/${encodeURIComponent(this._filters.merchant_id)}`));
+          const res = await fetchWithTimeout(getApiUrl(`/api/transactions/merchant/${encodeURIComponent(this._filters.merchant_id)}${qs}`));
           const json = await res.json();
           if (json.success && json.transactions) {
-            return { data: json.transactions, error: null };
+            return { data: json.transactions, count: json.pagination?.total ?? json.transactions.length, pagination: json.pagination, error: null };
           }
-          return { data: [], error: new Error(json.message || 'Transactions failed') };
+          return { data: [], count: 0, error: new Error(json.message || 'Transactions failed') };
         } else {
-          const res = await fetchWithTimeout(getApiUrl('/api/admin/transactions'));
+          const res = await fetchWithTimeout(getApiUrl(`/api/admin/transactions${qs}`));
           const json = await res.json();
           if (json.success && Array.isArray(json.transactions)) {
-            return { data: json.transactions, error: null };
+            return { data: json.transactions, count: json.pagination?.total ?? json.transactions.length, pagination: json.pagination, error: null };
           }
-          return { data: [], error: new Error(json.message || 'Failed to fetch transactions') };
+          return { data: [], count: 0, error: new Error(json.message || 'Failed to fetch transactions') };
         }
       }
 
       if (this.table === 'withdrawals') {
         if (this._filters.merchant_id) {
-          const res = await fetchWithTimeout(getApiUrl(`/api/withdrawals/merchant/${encodeURIComponent(this._filters.merchant_id)}`));
+          const res = await fetchWithTimeout(getApiUrl(`/api/withdrawals/merchant/${encodeURIComponent(this._filters.merchant_id)}${qs}`));
           const json = await res.json();
           if (json.success && json.withdrawals) {
-            return { data: json.withdrawals, error: null };
+            return { data: json.withdrawals, count: json.pagination?.total ?? json.withdrawals.length, pagination: json.pagination, error: null };
           }
-          return { data: [], error: new Error(json.message || 'Withdrawals failed') };
+          return { data: [], count: 0, error: new Error(json.message || 'Withdrawals failed') };
         } else {
-          const res = await fetchWithTimeout(getApiUrl('/api/admin/withdrawals'));
+          const res = await fetchWithTimeout(getApiUrl(`/api/admin/withdrawals${qs}`));
           const json = await res.json();
           if (json.success && Array.isArray(json.withdrawals)) {
-            return { data: json.withdrawals, error: null };
+            return { data: json.withdrawals, count: json.pagination?.total ?? json.withdrawals.length, pagination: json.pagination, error: null };
           }
-          return { data: [], error: new Error(json.message || 'Failed to fetch withdrawals') };
+          return { data: [], count: 0, error: new Error(json.message || 'Failed to fetch withdrawals') };
         }
       }
 
