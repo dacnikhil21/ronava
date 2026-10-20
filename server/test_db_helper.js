@@ -3,14 +3,18 @@ import pg from 'pg';
 const { Pool } = pg;
 
 export function getTestPool(targetUrl) {
-  const connectionString = targetUrl || process.env.TEST_DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ronav_scenario_db';
+  const connectionString = targetUrl || process.env.TEST_DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ronav_scratch_db';
   return new Pool({ connectionString, ssl: false });
 }
 
 export const testPool = getTestPool();
 
 export async function resetTestDatabase(targetUrl) {
-  const pool = getTestPool(targetUrl);
+  const connectionString = targetUrl || process.env.TEST_DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ronav_scratch_db';
+  if (connectionString.includes('ronav_test_db')) {
+    throw new Error('SAFETY_VIOLATION: Destructive operation resetTestDatabase() strictly refused on ronav_test_db! Must use ronav_scratch_db.');
+  }
+  const pool = getTestPool(connectionString);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -230,6 +234,7 @@ export async function resetTestDatabase(targetUrl) {
         beneficiary_id TEXT NOT NULL REFERENCES beneficiaries(id),
         channel VARCHAR(50) NOT NULL,
         settlement_type VARCHAR(50) NOT NULL DEFAULT 'T1',
+        payout_type VARCHAR(50) NOT NULL DEFAULT 'REGULAR',
         status VARCHAR(50) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'SUBMITTED_TO_BANK', 'COMPLETED', 'APPROVED', 'REJECTED')),
         utr TEXT,
         batch_id TEXT,

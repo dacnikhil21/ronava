@@ -1,7 +1,11 @@
 // server/test_phase_d3_chain_shapes.mjs
 // Phase D3 Test Suite: Arbitrary Chain Shapes, Non-Merchant Swipes, and Admin Restrictions
 
-process.env.TEST_DATABASE_URL = process.env.TEST_DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ronav_test_db';
+process.env.TEST_DATABASE_URL = process.env.TEST_DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ronav_scratch_db';
+
+if (process.env.TEST_DATABASE_URL.includes('ronav_test_db')) {
+  throw new Error('SAFETY_VIOLATION: Refusing to run destructive test_phase_d3_chain_shapes on ronav_test_db! Must use ronav_scratch_db.');
+}
 
 import assert from 'assert';
 import http from 'node:http';
@@ -10,8 +14,16 @@ import { handleApiRequest } from './api.js';
 import { setUserRate } from './rate_engine.js';
 import { getWalletBalances } from './ledger_engine.js';
 import { resetTestDatabase } from './test_db_helper.js';
+import { generateToken } from './security.js';
 
 const PORT = 5991;
+
+function getAuthHeaders(user) {
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${generateToken(user)}`
+  };
+}
 
 async function assertReconciled(pool, userId) {
   const b = await getWalletBalances(pool, userId);
@@ -80,7 +92,7 @@ async function runTests() {
 
     const t1Res = await fetch(`http://127.0.0.1:${PORT}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ id: 'D3_MID1', role: 'MERCHANT' }),
       body: JSON.stringify({
         merchant_id: 'D3_MID1',
         amount: 10000,
@@ -138,7 +150,7 @@ async function runTests() {
 
     const t2Res = await fetch(`http://127.0.0.1:${PORT}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ id: 'D3_MID2', role: 'MERCHANT' }),
       body: JSON.stringify({
         merchant_id: 'D3_MID2',
         amount: 10000,
@@ -188,7 +200,7 @@ async function runTests() {
     const admBefore3a = (await getWalletBalances(pool, 'ADM001')).balance_paise;
     const t3aRes = await fetch(`http://127.0.0.1:${PORT}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ id: 'D3_MID3', role: 'MERCHANT' }),
       body: JSON.stringify({
         merchant_id: 'D3_MID3',
         amount: 10000,
@@ -211,7 +223,7 @@ async function runTests() {
     const admBefore3b = (await getWalletBalances(pool, 'ADM001')).balance_paise;
     const t3bRes = await fetch(`http://127.0.0.1:${PORT}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ id: 'D3_MID3', role: 'MERCHANT' }),
       body: JSON.stringify({
         merchant_id: 'D3_MID3',
         amount: 10000,
@@ -249,7 +261,7 @@ async function runTests() {
 
     const t4Res = await fetch(`http://127.0.0.1:${PORT}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ id: 'D3_NIKHIL', role: 'DISTRICT_DISTRIBUTOR' }),
       body: JSON.stringify({
         merchant_id: 'D3_NIKHIL',
         amount: 10000,
@@ -293,7 +305,7 @@ async function runTests() {
     const admBefore5 = (await getWalletBalances(pool, 'ADM001')).balance_paise;
     const t5Res = await fetch(`http://127.0.0.1:${PORT}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ id: 'D3_DIRECT_MID', role: 'MERCHANT' }),
       body: JSON.stringify({
         merchant_id: 'D3_DIRECT_MID',
         amount: 10000,
@@ -340,7 +352,7 @@ async function runTests() {
     const admBefore6 = (await getWalletBalances(pool, 'ADM001')).balance_paise;
     const t6Res = await fetch(`http://127.0.0.1:${PORT}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ id: 'D3_SKIP_MID', role: 'MERCHANT' }),
       body: JSON.stringify({
         merchant_id: 'D3_SKIP_MID',
         amount: 10000,
@@ -389,7 +401,7 @@ async function runTests() {
     const admBefore7 = (await getWalletBalances(pool, 'ADM001')).balance_paise;
     const t7Res = await fetch(`http://127.0.0.1:${PORT}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ id: 'D3_EQ_MID', role: 'MERCHANT' }),
       body: JSON.stringify({
         merchant_id: 'D3_EQ_MID',
         amount: 10000,
@@ -420,7 +432,7 @@ async function runTests() {
     // 8a: Rs 1,234.57 = 123457 paise
     const t8aRes = await fetch(`http://127.0.0.1:${PORT}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ id: 'D3_MID2', role: 'MERCHANT' }),
       body: JSON.stringify({
         merchant_id: 'D3_MID2',
         amount_paise: 123457,
@@ -441,7 +453,7 @@ async function runTests() {
     // 8b: Rs 0.01 = 1 paisa
     const t8bRes = await fetch(`http://127.0.0.1:${PORT}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ id: 'D3_MID2', role: 'MERCHANT' }),
       body: JSON.stringify({
         merchant_id: 'D3_MID2',
         amount_paise: 1,
@@ -467,7 +479,7 @@ async function runTests() {
     console.log('\n--- TEST 9: Admin Attempting to Record a Swipe is Blocked on Server ---');
     const t9Res = await fetch(`http://127.0.0.1:${PORT}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ id: 'ADM001', role: 'ADMIN' }),
       body: JSON.stringify({
         merchant_id: 'ADM001',
         amount: 10000,
@@ -508,7 +520,7 @@ async function runTests() {
     const admBefore10 = (await getWalletBalances(pool, 'ADM001')).balance_paise;
     const t10Res = await fetch(`http://127.0.0.1:${PORT}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders({ id: 'D3_QR_MID', role: 'MERCHANT' }),
       body: JSON.stringify({
         merchant_id: 'D3_QR_MID',
         amount: 10000,

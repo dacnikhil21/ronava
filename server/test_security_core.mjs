@@ -1,7 +1,11 @@
 // server/test_security_core.mjs
 // COMPREHENSIVE SECURITY CORE VERIFICATION & GUARDRAIL SUITE
 
-process.env.TEST_DATABASE_URL = process.env.TEST_DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ronav_test_db';
+process.env.TEST_DATABASE_URL = process.env.TEST_DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ronav_scratch_db';
+
+if (process.env.TEST_DATABASE_URL.includes('ronav_test_db')) {
+  throw new Error('SAFETY_VIOLATION: Refusing to run destructive test_security_core on ronav_test_db! Must use ronav_scratch_db.');
+}
 
 import http from 'node:http';
 import assert from 'node:assert/strict';
@@ -353,8 +357,9 @@ async function runSecurityTests() {
     console.log('    ✓ Silent renewal over HTTP verified: X-Renewed-Token returned and active session extended.');
 
     console.log('✅ TEST 5 PASSED: All real HTTP security behaviors strictly verified.');
-  } finally {
+  } catch (err) {
     server.close();
+    throw err;
   }
 
   // ---------------------------------------------------------------------------
@@ -363,6 +368,15 @@ async function runSecurityTests() {
   console.log('\n--- TEST 6: Real Browser Playwright Verification (Login, Swipe, Withdraw & Lifecycle) ---');
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  
+  // Route all browser /api/** requests directly to scratch backend test server (isolated from ronav_test_db)
+  await context.route('**/api/**', async (route) => {
+    const request = route.request();
+    const proxyUrl = request.url().replace('http://localhost:3000', BASE_URL);
+    const response = await route.fetch({ url: proxyUrl });
+    await route.fulfill({ response });
+  });
+
   const page = await context.newPage();
 
   try {
@@ -453,6 +467,7 @@ async function runSecurityTests() {
     console.log('✅ TEST 6 PASSED: Real browser end-to-end swipe, withdraw, and friendly 401 lifecycle verified.');
   } finally {
     await browser.close();
+    server.close();
   }
 
   console.log('\n================================================================');

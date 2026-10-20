@@ -2,7 +2,7 @@
 // Clean all transactions, withdrawals, ledger rows, and extra test users.
 // Re-seeds only the 6 reference users with clean wallets (0 balance).
 
-process.env.TEST_DATABASE_URL = process.env.TEST_DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ronav_test_db';
+process.env.TEST_DATABASE_URL = process.env.TEST_DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ronav_scratch_db';
 
 import pg from 'pg';
 import { resetTestDatabase } from './test_db_helper.js';
@@ -12,9 +12,9 @@ import { hashPassword } from './security.js';
 const { Pool } = pg;
 
 export async function cleanAndReseed(targetUrl) {
-  const dbUrl = targetUrl || process.env.TEST_DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ronav_scenario_db';
-  if (dbUrl.includes('ronav_test_db') && process.env.ALLOW_RESEED_TEST_DB !== 'true') {
-    throw new Error('SAFETY_VIOLATION: cleanAndReseed() cannot be executed on ronav_test_db with hand-made accounts! Use ronav_scenario_db.');
+  const dbUrl = targetUrl || process.env.TEST_DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ronav_scratch_db';
+  if (dbUrl.includes('ronav_test_db')) {
+    throw new Error('SAFETY_VIOLATION: cleanAndReseed() cannot be executed on ronav_test_db with hand-made accounts! Must use ronav_scratch_db.');
   }
   process.env.TEST_DATABASE_URL = dbUrl;
   console.log(`[Clean & Reseed] Initializing clean database schema in ${dbUrl}...`);

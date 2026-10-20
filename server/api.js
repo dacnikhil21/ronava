@@ -1824,7 +1824,7 @@ export async function handleApiRequest(req, res) {
       try {
         const caller = requireAuth(req);
         if (caller.role === 'ADMIN') {
-          return sendJson(res, 403, { success: false, code: 'ADMIN_CANNOT_SWIPE', message: 'Administrators cannot record payment transactions.' });
+          return sendJson(res, 400, { success: false, code: 'ADMIN_CANNOT_SWIPE', message: 'ADMIN_CANNOT_SWIPE: Administrators cannot record payment transactions.' });
         }
         const body = await parseJsonBody(req);
         req.body = body;
