@@ -1644,10 +1644,10 @@ export async function handleApiRequest(req, res) {
         total_txn_volume: txMap[u.id]?.total_txn_volume || 0
       }));
 
-      const masterDistributors = enriched.filter(u => u.role === 'MASTER' || u.role === 'MASTER_DISTRIBUTOR' || (u.id && u.id.startsWith('MST')));
-      const superDistributors = enriched.filter(u => (u.role === 'SUPER_DISTRIBUTOR') && !(u.id && u.id.startsWith('MST')) && u.role !== 'MASTER');
-      const districtDistributors = enriched.filter(u => u.role === 'DISTRICT_DISTRIBUTOR' || u.role === 'DIST_FRANCHISE' || (u.id && (u.id.startsWith('DD') || u.id.startsWith('DF'))));
-      const distributors = enriched.filter(u => u.role === 'DISTRIBUTOR' && !(u.id && (u.id.startsWith('DD') || u.id.startsWith('DF'))));
+      const masterDistributors = enriched.filter(u => u.role === 'MASTER' || u.role === 'MASTER_DISTRIBUTOR');
+      const superDistributors = enriched.filter(u => u.role === 'SUPER_DISTRIBUTOR');
+      const districtDistributors = enriched.filter(u => u.role === 'DISTRICT_DISTRIBUTOR' || u.role === 'DIST_FRANCHISE');
+      const distributors = enriched.filter(u => u.role === 'DISTRIBUTOR');
       const merchants = enriched.filter(u => u.role === 'MERCHANT');
 
       const merchantsByParent = {};
