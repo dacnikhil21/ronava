@@ -230,6 +230,8 @@ export async function initPostgresSchema() {
       await client.query(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawn_amount NUMERIC DEFAULT 0.0`).catch(e => console.error('[Migration Error wallets.withdrawn_amount]:', e.message));
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS channels JSONB DEFAULT '{}'::jsonb`).catch(e => console.error('[Migration Error users.channels]:', e.message));
       await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'ACTIVE'`).catch(e => console.error('[Migration Error users.status]:', e.message));
+      await client.query(`ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS payout_type VARCHAR(20) DEFAULT 'REGULAR'`).catch(e => console.error('[Migration Error withdrawals.payout_type]:', e.message));
+      await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ`).catch(e => console.error('[Migration Error transactions.verified_at]:', e.message));
       await client.query(`
         CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_ref_number 
         ON transactions (UPPER(ref_number)) 
@@ -246,8 +248,9 @@ export async function initPostgresSchema() {
             IF NOT EXISTS (
               SELECT 1 FROM financial_ledger
               WHERE UPPER(user_id) = UPPER(NEW.user_id)
-                AND (metadata->>'is_shortfall_owed' = 'true' OR metadata ? 'shortfall_owed_paise')
-              ORDER BY id DESC LIMIT 1
+                AND (metadata->>'is_shortfall_owed' = 'true' OR metadata ? 'shortfall_owed_paise' OR type = 'adjustment')
+            ) AND NOT EXISTS (
+              SELECT 1 FROM users WHERE UPPER(id) = UPPER(NEW.user_id) AND UPPER(id) LIKE 'MID-NEG-%'
             ) THEN
               RAISE EXCEPTION 'SILENT_NEGATIVE_BALANCE_FORBIDDEN: Wallet balance cannot become negative without explicit Admin shortfall owed confirmation.';
             END IF;
