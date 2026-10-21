@@ -674,7 +674,7 @@ export default function MerchantLoginPage({ onLoginSuccess, onBackToHome, onNavi
             ) : (
               <form onSubmit={handleForgotSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <p style={{ fontSize: '0.8125rem', color: '#475569', margin: 0 }}>
-                  Enter your registered <strong>User ID</strong> (e.g. <code>MID3001</code>, <code>DIST2001</code>, <code>SD1001</code>) or your <strong>10-digit registered mobile number</strong>:
+                  Enter your registered <strong>User ID</strong> or your <strong>10-digit registered mobile number</strong>:
                 </p>
 
                 <div className="form-group" style={{ margin: 0 }}>

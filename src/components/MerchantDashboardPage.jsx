@@ -722,7 +722,17 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [isSubmittingWithdraw, setIsSubmittingWithdraw] = useState(false);
   const [saveAsBeneficiaryOnTransfer, setSaveAsBeneficiaryOnTransfer] = useState(true);
-  const isCommissionPayoutEnabled = true;
+  const isCommissionPayoutEnabled = useMemo(() => {
+    if (!systemSettings) return true;
+    const lockVal = systemSettings.commission_payouts_locked;
+    if (lockVal && typeof lockVal === 'object' && lockVal.value_numeric !== undefined) {
+      return Number(lockVal.value_numeric) !== 1;
+    }
+    if (lockVal !== undefined && lockVal !== null) {
+      return Number(lockVal) !== 1;
+    }
+    return true;
+  }, [systemSettings]);
   
   // Transaction & Payout Detail Modal State
   const [selectedTxnForDetails, setSelectedTxnForDetails] = useState(null);
@@ -1695,6 +1705,14 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         <span style={{ fontSize: '0.6875rem', color: '#64748B', fontWeight: 500, marginTop: '2px', display: 'block' }}>
           Verified liquid funds on Terminal {getCleanTerminalId(activeMachine.terminal_id, selectedMachineKey)}
         </span>
+        {activeMachineWallet.pending_balance > 0 && (
+          <div style={{ marginTop: '0.5rem', background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: '8px', padding: '0.35rem 0.6rem', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#0284C7', display: 'inline-block' }} />
+            <span style={{ fontSize: '0.7rem', color: '#0369A1', fontWeight: 600 }}>
+              Withdrawal of ₹{Number(activeMachineWallet.pending_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })} is being processed.
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Modern Sleek Breakdown Strip (Matching Today's Sales Overview in Image 2) */}
@@ -2142,6 +2160,11 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
       }
     }
 
+    if (customerPayoutForm.payout_purpose === 'COMMISSION' && !isCommissionPayoutEnabled) {
+      showToast('🔒 Commission withdrawals are currently locked by Admin. Regular payouts remain available.');
+      return;
+    }
+
     setIsSubmittingWithdraw(true);
     try {
       const idemKey = generateIdempotencyKey('wth');
@@ -2159,6 +2182,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
         payout_type: customerPayoutForm.payout_purpose === 'COMMISSION' ? 'COMMISSION' : 'REGULAR',
         payout_purpose: customerPayoutForm.payout_purpose || 'REGULAR',
         remarks: (customerPayoutForm.remarks || '').trim(),
+        utr: (customerPayoutForm.utr || '').trim().toUpperCase(),
         utr_number: (customerPayoutForm.utr || '').trim().toUpperCase(),
         idempotency_key: idemKey
       };
@@ -5697,23 +5721,9 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                       </div>
                     ))
                   ) : (
-                    /* Default Reference Item matching user's screenshot */
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: '#F8FAFC', borderRadius: '12px', border: '1px solid #EDF2F7' }}>
-                      <div>
-                        <strong style={{ fontSize: '0.8125rem', color: '#0F172A', display: 'block', fontWeight: 700 }}>Electricity Bill Collection</strong>
-                        <span style={{ fontSize: '0.6875rem', color: '#94A3B8' }}>
-                          TXN ID: TXN-BBPS-102 • 21:23
-                        </span>
-                      </div>
-
-                      <div style={{ textAlign: 'right' }}>
-                        <p style={{ fontSize: '0.95rem', fontWeight: 900, color: '#059669', margin: 0 }}>
-                          ₹1,250.00
-                        </p>
-                        <span style={{ fontSize: '0.5625rem', fontWeight: 800, color: '#059669', background: '#DCFCE7', padding: '2px 8px', borderRadius: '6px' }}>
-                          Success
-                        </span>
-                      </div>
+                    <div style={{ textAlign: 'center', padding: '1.5rem', background: '#F8FAFC', borderRadius: '12px', border: '1px solid #EDF2F7', color: '#64748B' }}>
+                      <p style={{ margin: 0, fontSize: '0.8125rem', fontWeight: 600 }}>No recent bill payments</p>
+                      <span style={{ fontSize: '0.75rem', color: '#94A3B8' }}>Transactions will appear here once processed</span>
                     </div>
                   )}
                 </div>
@@ -6044,7 +6054,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                       const commEarned = parseFloat(item.commission_earned || item.amount || 0);
                       const saleAmt = parseFloat(item.sale_amount || 0);
                       const merchantName = item.originating_merchant_name || 'Retail Merchant Store';
-                      const merchantMid = item.originating_merchant_id || item.merchant_id || 'MID1001';
+                      const merchantMid = item.originating_merchant_id || item.merchant_id || 'N/A';
                       const commPct = item.commission_percentage !== undefined ? item.commission_percentage : 0;
                       const displayDate = item.created_at ? new Date(item.created_at).toLocaleString('en-IN', {
                         day: '2-digit',
@@ -9642,7 +9652,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
           parsed = parseTxnDisplay(item);
         }
 
-        const utr = item.utr_number || item.ref_number || item.rrn || item.id;
+        const utr = item.utr || item.utr_number || (isWithdrawal ? null : (item.ref_number || item.rrn));
         const amountNum = parseFloat(item.amount || 0);
 
         return (
@@ -9757,7 +9767,7 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid #F1F5F9', fontSize: '0.75rem' }}>
                       <span style={{ color: '#64748B', fontWeight: 600 }}>Merchant ID</span>
-                      <span style={{ fontWeight: 800, color: '#0F172A', background: '#F1F5F9', padding: '1px 6px', borderRadius: '4px' }}>{item.originating_merchant_id || item.merchant_id || 'MID1001'}</span>
+                      <span style={{ fontWeight: 800, color: '#0F172A', background: '#F1F5F9', padding: '1px 6px', borderRadius: '4px' }}>{item.originating_merchant_id || item.merchant_id || 'N/A'}</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid #F1F5F9', fontSize: '0.75rem' }}>
                       <span style={{ color: '#64748B', fontWeight: 600 }}>Sale Amount</span>
@@ -9778,20 +9788,45 @@ export default function MerchantDashboardPage({ user, onLogout, onNavigate }) {
                   <>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid #F1F5F9', fontSize: '0.75rem' }}>
                       <span style={{ color: '#64748B', fontWeight: 600 }}>{isWithdrawal ? 'Bank Reference (UTR)' : 'Slip UTR Number'}</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#0F172A' }}>{utr}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(utr);
-                        showToast(`✓ Copied UTR: ${utr}`);
-                      }}
-                      style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#0F52BA', borderRadius: '4px', padding: '2px 6px', fontSize: '0.625rem', fontWeight: 700, cursor: 'pointer' }}
-                    >
-                      Copy
-                    </button>
-                  </div>
-                </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {utr ? (
+                          <>
+                            <span style={{ fontFamily: 'monospace', fontWeight: 800, color: '#0F172A' }}>{utr}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(utr);
+                                showToast(`✓ Copied UTR: ${utr}`);
+                              }}
+                              style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#0F52BA', borderRadius: '4px', padding: '2px 6px', fontSize: '0.625rem', fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              Copy
+                            </button>
+                          </>
+                        ) : (
+                          <span style={{ color: '#D97706', fontWeight: 700, fontSize: '0.75rem' }}>
+                            {isPending ? '⏳ In Verification / Pending' : 'Awaiting Bank Clearance'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0', borderBottom: '1px solid #F1F5F9', fontSize: '0.75rem' }}>
+                      <span style={{ color: '#64748B', fontWeight: 600 }}>{isWithdrawal ? 'Withdrawal Request ID' : 'Transaction ID'}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#64748B' }}>{item.id}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(item.id);
+                            showToast(`✓ Copied ID: ${item.id}`);
+                          }}
+                          style={{ background: '#F1F5F9', border: '1px solid #CBD5E1', color: '#475569', borderRadius: '4px', padding: '2px 6px', fontSize: '0.625rem', fontWeight: 700, cursor: 'pointer' }}
+                        >
+                          Copy
+                        </button>
+                      </div>
+                    </div>
 
                 {isWithdrawal ? (
                   <>

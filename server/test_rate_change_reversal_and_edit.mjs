@@ -3,9 +3,18 @@ import assert from 'assert/strict';
 import pg from 'pg';
 import { handleApiRequest } from './api.js';
 import { cleanAndReseed } from './clean_and_reseed.mjs';
+import { generateToken } from './security.js';
+
+function getAuthHeaders(userId, role = 'MERCHANT') {
+  const token = generateToken({ id: userId, role: role || (userId.startsWith('ADM') ? 'ADMIN' : 'MERCHANT') });
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`
+  };
+}
 
 const { Pool } = pg;
-const connectionString = process.env.TEST_DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ronav_test_db';
+const connectionString = process.env.TEST_DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/ronav_scratch_db';
 const pool = new Pool({ connectionString });
 
 const TEST_PORT = 5993;
@@ -48,11 +57,7 @@ async function runTest() {
     console.log('3. Recording Rs 10,000 swipe as MID4001...');
     const swipe1Res = await fetch(`${BASE_URL}/api/transactions/record`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-user-id': 'MID4001',
-        'x-user-role': 'MERCHANT'
-      },
+      headers: getAuthHeaders('MID4001', 'MERCHANT'),
       body: JSON.stringify({
         merchant_id: 'MID4001',
         amount_paise: 1000000,
@@ -92,7 +97,7 @@ async function runTest() {
     console.log('\n4. Changing AREA3001 rate (to 1.30%) and MID4001 rate (to 1.80%) via /api/channels/update...');
     const areaRateUpdateRes = await fetch(`${BASE_URL}/api/channels/update`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         merchantId: 'AREA3001',
         channels: {
@@ -105,7 +110,7 @@ async function runTest() {
 
     const midRateUpdateRes = await fetch(`${BASE_URL}/api/channels/update`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         merchantId: 'MID4001',
         channels: {
@@ -121,7 +126,7 @@ async function runTest() {
     console.log(`\n5. Rejecting original swipe ${txn1Id} AFTER rate changes...`);
     const rejectRes = await fetch(`${BASE_URL}/api/admin/verify-transaction`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         transaction_id: txn1Id,
         action: 'REJECT',
@@ -201,7 +206,7 @@ async function runTest() {
     console.log('8. Recording a new Rs 10,000 swipe under current rates...');
     const swipe2Res = await fetch(`${BASE_URL}/api/transactions/record`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'MID4001', 'x-user-role': 'MERCHANT' },
+      headers: getAuthHeaders('MID4001', 'MERCHANT'),
       body: JSON.stringify({
         merchant_id: 'MID4001',
         amount_paise: 1000000,
@@ -227,7 +232,7 @@ async function runTest() {
     console.log('9. Updating rates again prior to editing swipe amount (Area to 1.40%, MID to 2.00%)...');
     await fetch(`${BASE_URL}/api/channels/update`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         merchantId: 'AREA3001',
         channels: { pine_labs: { enabled: true, rate_t1: 1.40, rate_instant: 1.40 } }
@@ -235,29 +240,44 @@ async function runTest() {
     });
     await fetch(`${BASE_URL}/api/channels/update`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         merchantId: 'MID4001',
         channels: { pine_labs: { enabled: true, rate_t1: 2.00, rate_instant: 2.00 } }
       })
     });
 
-    // 3. Edit swipe amount to Rs 8,000 (800,000 paise) via real endpoint POST /api/transactions/edit
-    console.log(`10. Calling real endpoint POST /api/transactions/edit to correct amount from Rs 10,000 to Rs 8,000...`);
-    const editRes = await fetch(`${BASE_URL}/api/transactions/edit`, {
+    // 3. Workflow: Admin reverses the ₹10,000 swipe, and merchant records the new ₹8,000 swipe
+    console.log(`10. Admin reverses swipe ${txn2Id} and merchant records corrected swipe of Rs 8,000...`);
+    const revRes = await fetch(`${BASE_URL}/api/transactions/reverse`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': 'ADM001', 'x-user-role': 'ADMIN' },
+      headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
-        old_txn_id: txn2Id,
-        amount_paise: 800000, // Rs 8,000
+        txn_id: txn2Id,
         reason: 'Customer requested amount correction to Rs 8,000'
       })
     });
-    const editData = await editRes.json();
-    assert.equal(editRes.status, 200, `Expected 200, got ${editRes.status}: ${JSON.stringify(editData)}`);
-    assert.equal(editData.success, true);
-    assert.equal(editData.old_status, 'REVERSED');
-    const newTxnId = editData.new_transaction.id;
+    const revData = await revRes.json();
+    assert.equal(revRes.status, 200, `Expected 200, got ${revRes.status}: ${JSON.stringify(revData)}`);
+    assert.equal(revData.success, true);
+
+    const newSwipeRes = await fetch(`${BASE_URL}/api/transactions/record`, {
+      method: 'POST',
+      headers: getAuthHeaders('MID4001', 'MERCHANT'),
+      body: JSON.stringify({
+        merchant_id: 'MID4001',
+        amount_paise: 800000,
+        channel: 'pinelabs',
+        mode: 'T1',
+        settlement_type: 'T1',
+        notes: `Correction for ${txn2Id}: Rs 8,000`,
+        ref_number: 'REF-EDIT-10K-CORRECTED'
+      })
+    });
+    const newSwipeData = await newSwipeRes.json();
+    assert.equal(newSwipeRes.status, 200, `Expected 200, got ${newSwipeRes.status}: ${JSON.stringify(newSwipeData)}`);
+    assert.equal(newSwipeData.success, true);
+    const newTxnId = newSwipeData.transaction.id;
     console.log(`   ✓ Old swipe ${txn2Id} reversed; New corrected swipe created: ${newTxnId}`);
 
     // 4. Verify old swipe entries were reversed cleanly with opposite signs

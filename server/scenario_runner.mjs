@@ -401,19 +401,33 @@ async function runScenarioSuite() {
     const editBaseData = await editBaseRes.json();
     const editSrcId = editBaseData.transaction.id;
 
-    // Now edit to 8,000 INR
-    const editRes = await fetch(`${BASE_URL}/api/transactions/edit`, {
+    // Reject original swipe and record corrected swipe of 8,000 INR
+    const rejectRes = await fetch(`${BASE_URL}/api/admin/verify-transaction`, {
       method: 'POST',
       headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         transaction_id: editSrcId,
-        new_amount: 8000,
+        action: 'REJECT',
         reason: 'Customer requested amount modification'
       })
     });
-    assert.equal(editRes.status, 200);
+    assert.equal(rejectRes.status, 200);
+
+    const newSwipeRes = await fetch(`${BASE_URL}/api/transactions/record`, {
+      method: 'POST',
+      headers: getAuthHeaders('MID4001', 'MERCHANT'),
+      body: JSON.stringify({
+        merchant_id: 'MID4001',
+        amount_paise: 800000,
+        channel: 'pinelabs',
+        mode: 'T1',
+        settlement_type: 'T1',
+        ref_number: 'REF-SCENARIO-EDIT-CORRECTED'
+      })
+    });
+    assert.equal(newSwipeRes.status, 200);
     await page.reload({ waitUntil: 'networkidle' });
-    await logAndCapture('Edit a Swipe Amount', '18_edit_swipe_amount', page, pool, 'MID4001', 'MERCHANT');
+    await logAndCapture('Reject and Record Corrected Swipe', '18_edit_swipe_amount', page, pool, 'MID4001', 'MERCHANT');
 
     // -------------------------------------------------------------------------
     // SCENARIO 19: Rate Changed After Swipe, Then Reject
@@ -483,19 +497,33 @@ async function runScenarioSuite() {
       r20Client.release();
     }
 
-    // Edit amount to 7,500 INR
-    const r20EditRes = await fetch(`${BASE_URL}/api/transactions/edit`, {
+    // Reject original swipe and record corrected swipe of 7,500 INR under new rates
+    const r20RejRes = await fetch(`${BASE_URL}/api/admin/verify-transaction`, {
       method: 'POST',
       headers: getAuthHeaders('ADM001', 'ADMIN'),
       body: JSON.stringify({
         transaction_id: r20TxnId,
-        new_amount: 7500,
+        action: 'REJECT',
         reason: 'Amount revised post rate change'
       })
     });
-    assert.equal(r20EditRes.status, 200);
+    assert.equal(r20RejRes.status, 200);
+
+    const r20NewRes = await fetch(`${BASE_URL}/api/transactions/record`, {
+      method: 'POST',
+      headers: getAuthHeaders('MID4001', 'MERCHANT'),
+      body: JSON.stringify({
+        merchant_id: 'MID4001',
+        amount_paise: 750000,
+        channel: 'pinelabs',
+        mode: 'T1',
+        settlement_type: 'T1',
+        ref_number: 'REF-SCENARIO-RATE-CHG-CORRECTED'
+      })
+    });
+    assert.equal(r20NewRes.status, 200);
     await page.reload({ waitUntil: 'networkidle' });
-    await logAndCapture('Rate Changed After Swipe, Then Edit', '20_rate_changed_then_edit', page, pool, 'MID4001', 'MERCHANT');
+    await logAndCapture('Rate Changed After Swipe, Then Replaced', '20_rate_changed_then_edit', page, pool, 'MID4001', 'MERCHANT');
 
     // -------------------------------------------------------------------------
     // SCENARIO 21: Missing Bank Details Blocked From Withdrawal

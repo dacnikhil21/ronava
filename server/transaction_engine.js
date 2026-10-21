@@ -1,7 +1,6 @@
 import { getActiveRate } from './rate_engine.js';
 import { postLedgerEntry } from './ledger_engine.js';
 import { getSetting } from './settings.js';
-import { reverseTransaction } from './reversal_engine.js';
 
 /**
  * Process a Swipe / QR payment transaction with atomic ledger posting,
@@ -17,7 +16,8 @@ export async function processSwipeTransaction(client, {
   notes = null,
   idempotencyKey = null,
   createdBy = null,
-  simulatedFailure = false
+  simulatedFailure = false,
+  manageTransaction = true
 }) {
   if (!client || typeof client.query !== 'function') {
     throw new Error('DATABASE_CLIENT_REQUIRED: processSwipeTransaction requires an active client.');
@@ -220,7 +220,9 @@ export async function processSwipeTransaction(client, {
   // 7. Atomic Database Execution
   const txnId = `TXN-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-  await client.query('BEGIN');
+  if (manageTransaction) {
+    await client.query('BEGIN');
+  }
   try {
     // 7.1 Insert transaction
     await client.query(`
@@ -295,6 +297,8 @@ export async function processSwipeTransaction(client, {
       net_amount_paise: merchantNetPaise,
       channel: cleanChannel,
       settlement_mode: mode,
+      ref_number: refNumber,
+      slip_number: slipNumber,
       distributions
     };
 
@@ -307,6 +311,8 @@ export async function processSwipeTransaction(client, {
         customer_charge_paise: merchantFeePaise.toString(),
         net_amount_paise: merchantNetPaise.toString(),
         channel: cleanChannel,
+        ref_number: refNumber,
+        slip_number: slipNumber,
         distributions: distributions.map(d => ({
           ...d,
           amount_paise: d.amount_paise.toString()
@@ -320,72 +326,18 @@ export async function processSwipeTransaction(client, {
       `, [idempotencyKey, '/api/transactions/record', JSON.stringify(serializableResult)]);
     }
 
-    await client.query('COMMIT');
+    if (manageTransaction) {
+      await client.query('COMMIT');
+    }
     return result;
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (manageTransaction) {
+      await client.query('ROLLBACK');
+    }
     throw err;
   }
 }
 
-/**
- * Edit a swipe transaction after commission credit:
- * Posts signed reversing entries for merchant and every upline, then posts corrected transaction.
- * Never silently modifies or deletes historical records.
- */
-export async function editSwipeTransaction(client, {
-  oldTxnId,
-  correctedAmountPaise,
-  channel = null,
-  refNumber = null,
-  slipNumber = null,
-  notes = null,
-  reason = 'Transaction edited',
-  callerId
-}) {
-  if (!client || typeof client.query !== 'function') {
-    throw new Error('DATABASE_CLIENT_REQUIRED: editSwipeTransaction requires an active client.');
-  }
-  if (!callerId) {
-    throw new Error('CALLER_IDENTIFICATION_REQUIRED: callerId is required for editing a transaction.');
-  }
-
-  // 1. Fetch old transaction
-  const oldRes = await client.query(`
-    SELECT * FROM transactions WHERE id = $1
-  `, [oldTxnId]);
-
-  if (oldRes.rows.length === 0) {
-    throw new Error(`TRANSACTION_NOT_FOUND: Transaction "${oldTxnId}" not found.`);
-  }
-  const oldTxn = oldRes.rows[0];
-
-  // 2. Reverse old transaction (reverses merchant + all upline commissions)
-  const rev = await reverseTransaction(client, {
-    txnId: oldTxnId,
-    reason: `EDITED: ${reason}`,
-    callerId
-  });
-
-  // 3. Post corrected transaction
-  const newTxn = await processSwipeTransaction(client, {
-    merchantId: oldTxn.merchant_id,
-    amountPaise: BigInt(correctedAmountPaise),
-    channel: channel || oldTxn.channel,
-    settlementMode: oldTxn.settlement_mode || 'T1',
-    refNumber: refNumber || (oldTxn.ref_number ? `${oldTxn.ref_number}-REV1` : null),
-    slipNumber: slipNumber || oldTxn.slip_number,
-    notes: notes || `Correction of ${oldTxnId}: ${reason}`,
-    createdBy: callerId
-  });
-
-  return {
-    old_transaction_id: oldTxnId,
-    old_status: 'REVERSED',
-    new_transaction: newTxn,
-    reversal_details: rev
-  };
-}
 
 /**
  * Server-authoritative quote for card swipe / QR collection

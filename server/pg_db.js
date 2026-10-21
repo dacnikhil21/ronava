@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import pg from 'pg';
 
 const { Pool } = pg;
@@ -5,7 +6,10 @@ const { Pool } = pg;
 let pool = null;
 
 export function getDbPool() {
-  const connectionString = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL || process.env.POSTGRES_URL || 'postgres://postgres:postgres@localhost:5432/ronav_test_db';
+  const connectionString = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL || process.env.POSTGRES_URL;
+  if (!connectionString) {
+    throw new Error('DATABASE_URL_REQUIRED: No database connection string configured in environment (DATABASE_URL or POSTGRES_URL).');
+  }
   if (!pool || pool.__connectionString !== connectionString) {
     if (pool) {
       try { pool.end(); } catch (_) {}
@@ -224,20 +228,45 @@ export async function withTransaction(callback) {
 export async function initPostgresSchema() {
   const dbPool = getDbPool();
   if (!dbPool) return true;
+  let hasErrors = false;
   try {
     const client = await dbPool.connect();
     try {
-      await client.query(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawn_amount NUMERIC DEFAULT 0.0`).catch(e => console.error('[Migration Error wallets.withdrawn_amount]:', e.message));
-      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS channels JSONB DEFAULT '{}'::jsonb`).catch(e => console.error('[Migration Error users.channels]:', e.message));
-      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'ACTIVE'`).catch(e => console.error('[Migration Error users.status]:', e.message));
-      await client.query(`ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS payout_type VARCHAR(20) DEFAULT 'REGULAR'`).catch(e => console.error('[Migration Error withdrawals.payout_type]:', e.message));
-      await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ`).catch(e => console.error('[Migration Error transactions.verified_at]:', e.message));
+      await client.query(`ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawn_amount NUMERIC DEFAULT 0.0`).catch(e => {
+        hasErrors = true;
+        console.error('[Migration Error wallets.withdrawn_amount]:', e.message);
+      });
+      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS channels JSONB DEFAULT '{}'::jsonb`).catch(e => {
+        hasErrors = true;
+        console.error('[Migration Error users.channels]:', e.message);
+      });
+      await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'ACTIVE'`).catch(e => {
+        hasErrors = true;
+        console.error('[Migration Error users.status]:', e.message);
+      });
+      await client.query(`ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS payout_type VARCHAR(20) DEFAULT 'REGULAR'`).catch(e => {
+        hasErrors = true;
+        console.error('[Migration Error withdrawals.payout_type]:', e.message);
+      });
+      await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ`).catch(e => {
+        hasErrors = true;
+        console.error('[Migration Error transactions.verified_at]:', e.message);
+      });
+      await client.query(`
+        INSERT INTO system_settings (key, value_numeric, value_text, description, updated_at)
+        VALUES ('commission_payouts_locked', 0, '0', 'Commission payouts lock (1 = LOCKED, 0 = UNLOCKED)', NOW())
+        ON CONFLICT (key) DO NOTHING;
+      `).catch(e => {
+        hasErrors = true;
+        console.error('[Migration Error system_settings.commission_payouts_locked]:', e.message);
+      });
       await client.query(`
         CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_ref_number 
         ON transactions (UPPER(ref_number)) 
         WHERE ref_number IS NOT NULL AND ref_number != '' AND status != 'REJECTED';
       `).catch(e => {
         if (e.code === '42P07' || e.message?.includes('pg_class_relname_nsp_index')) return;
+        hasErrors = true;
         console.error('[Migration Error uq_transactions_ref_number]:', e.message);
       });
       await client.query(`
@@ -266,11 +295,14 @@ export async function initPostgresSchema() {
         CREATE TRIGGER trg_wallets_no_silent_negative
         AFTER INSERT OR UPDATE ON wallets
         FOR EACH ROW EXECUTE FUNCTION trg_check_wallet_no_silent_negative();
-      `).catch(e => console.error('[Migration Error trg_wallets_no_silent_negative]:', e.message));
+      `).catch(e => {
+        hasErrors = true;
+        console.error('[Migration Error trg_wallets_no_silent_negative]:', e.message);
+      });
     } finally {
       client.release();
     }
-    return true;
+    return !hasErrors;
   } catch (err) {
     console.error('[PostgreSQL] Database pool connection error during schema check:', err.message);
     return false;

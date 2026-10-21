@@ -12,7 +12,7 @@ import {
 import { getCaller } from './caller.js';
 import { getSetting, getAllSettings, updateSetting } from './settings.js';
 import { postLedgerEntry, getWalletBalances, verifyWalletReconciliation } from './ledger_engine.js';
-import { processSwipeTransaction, editSwipeTransaction, quoteSwipeTransaction } from './transaction_engine.js';
+import { processSwipeTransaction, quoteSwipeTransaction } from './transaction_engine.js';
 import { quoteWithdrawal, processWithdrawalRequest } from './withdrawal_engine.js';
 import { reverseTransaction } from './reversal_engine.js';
 import { validateChildParentRates, setUserRate, getActiveRate } from './rate_engine.js';
@@ -57,7 +57,189 @@ export function getClientIp(req) {
 export { getCaller };
 
 // Auto-initialize PostgreSQL schema if DATABASE_URL is configured
-initPostgresSchema().catch(() => {});
+initPostgresSchema()
+  .then((success) => {
+    if (success === false) {
+      const msg = '[PostgreSQL] Schema initialization completed with errors. Check migration logs.';
+      if (process.env.NODE_ENV === 'production') {
+        console.error('FATAL:', msg);
+        process.exit(1);
+      } else {
+        console.warn('WARNING:', msg);
+      }
+    }
+  })
+  .catch((err) => {
+    console.error('[PostgreSQL] Unexpected error during schema initialization:', err);
+    if (process.env.NODE_ENV === 'production') {
+      process.exit(1);
+    }
+  });
+
+/**
+ * Authoritative Server-Side Ledger Statistics Engine
+ * Directly aggregates financial_ledger rows with full ACID precision.
+ * Guarantees zero arbitrary LIMIT 100 truncation and zero client-side floating point math.
+ */
+export async function calculateAuthoritativeLedgerStats(dateFilter = 'ALL', startDate = null, endDate = null) {
+  let dateClause = '';
+  const params = [];
+
+  const filter = (dateFilter || 'ALL').toUpperCase();
+  if (filter === 'TODAY') {
+    dateClause = 'AND l.created_at >= CURRENT_DATE';
+  } else if (filter === 'YESTERDAY') {
+    dateClause = "AND l.created_at >= CURRENT_DATE - INTERVAL '1 day' AND l.created_at < CURRENT_DATE";
+  } else if (filter === 'WEEK') {
+    dateClause = "AND l.created_at >= NOW() - INTERVAL '7 days'";
+  } else if (filter === 'MONTH') {
+    dateClause = "AND l.created_at >= date_trunc('month', CURRENT_DATE)";
+  } else if (filter === 'CUSTOM') {
+    if (startDate && endDate) {
+      params.push(startDate, endDate + ' 23:59:59');
+      dateClause = `AND l.created_at >= $${params.length - 1}::timestamptz AND l.created_at <= $${params.length}::timestamptz`;
+    } else if (startDate) {
+      params.push(startDate);
+      dateClause = `AND l.created_at >= $${params.length}::timestamptz`;
+    } else if (endDate) {
+      params.push(endDate + ' 23:59:59');
+      dateClause = `AND l.created_at <= $${params.length}::timestamptz`;
+    }
+  }
+
+  // 1. Channel Volumes & Total Swipes Count
+  const channelVolRows = await pgQuery(`
+    SELECT 
+      l.channel,
+      COALESCE(SUM(l.amount_paise), 0)::numeric / 100.0 as vol,
+      COUNT(DISTINCT l.reference_id) as txn_count
+    FROM financial_ledger l
+    WHERE l.reference_type IN ('SWIPE', 'REVERSAL')
+      AND l.channel IS NOT NULL
+      AND (
+        l.type IN ('swipe_credit', 'refund', 'commission')
+        OR (l.type = 'adjustment' AND (l.reference_type = 'REVERSAL' OR metadata->>'original_type' = 'commission'))
+      )
+      ${dateClause}
+    GROUP BY l.channel
+  `, params);
+
+  let pineVol = 0;
+  let payswiffVol = 0;
+  let qrVol = 0;
+  let totalVol = 0;
+  let totalSwipesCount = 0;
+
+  channelVolRows.forEach(r => {
+    const v = Math.max(0, parseFloat(r.vol) || 0);
+    totalVol += v;
+    totalSwipesCount += parseInt(r.txn_count || '0', 10);
+    const ch = (r.channel || '').toLowerCase();
+    if (ch.includes('swiff')) payswiffVol += v;
+    else if (ch.includes('qr') || ch.includes('upi')) qrVol += v;
+    else pineVol += v;
+  });
+
+  // 2. Partner Commissions (Uplines)
+  const partnerCommRes = (await pgQuery(`
+    SELECT COALESCE(SUM(l.amount_paise), 0)::numeric / 100.0 as s 
+    FROM financial_ledger l
+    WHERE (l.type = 'commission' OR (l.type = 'adjustment' AND (l.reference_type = 'REVERSAL' OR metadata->>'original_type' = 'commission')))
+      AND l.user_id != 'ADM001'
+      ${dateClause}
+  `, params))[0]?.s || 0;
+
+  // 3. Admin Profit (Company Margin)
+  const adminProfitRes = (await pgQuery(`
+    SELECT COALESCE(SUM(l.amount_paise), 0)::numeric / 100.0 as s 
+    FROM financial_ledger l
+    WHERE (l.type = 'commission' OR (l.type = 'adjustment' AND (l.reference_type = 'REVERSAL' OR metadata->>'original_type' = 'commission')))
+      AND l.user_id = 'ADM001'
+      ${dateClause}
+  `, params))[0]?.s || 0;
+
+  const totalFeesRes = (Math.max(0, parseFloat(partnerCommRes)) + Math.max(0, parseFloat(adminProfitRes))).toFixed(2);
+
+  // 4. Tier Totals
+  const tierRows = await pgQuery(`
+    SELECT u.role, COALESCE(SUM(l.amount_paise), 0)::numeric / 100.0 as total
+    FROM financial_ledger l
+    JOIN users u ON l.user_id = u.id
+    WHERE (l.type = 'commission' OR (l.type = 'adjustment' AND (l.reference_type = 'REVERSAL' OR l.metadata->>'original_type' = 'commission')))
+      ${dateClause}
+    GROUP BY u.role
+  `, params);
+
+  const tierTotals = {
+    master: 0,
+    super: 0,
+    district: 0,
+    distributor: 0,
+    merchant: 0,
+    companyNet: Math.max(0, parseFloat(adminProfitRes))
+  };
+
+  tierRows.forEach(r => {
+    const val = Math.max(0, parseFloat(r.total) || 0);
+    if (r.role === 'MASTER' || r.role === 'MASTER_DISTRIBUTOR') tierTotals.master += val;
+    else if (r.role === 'SUPER_DISTRIBUTOR') tierTotals.super += val;
+    else if (r.role === 'DISTRICT_DISTRIBUTOR' || r.role === 'DIST_FRANCHISE') tierTotals.district += val;
+    else if (r.role === 'DISTRIBUTOR') tierTotals.distributor += val;
+    else if (r.role === 'MERCHANT') tierTotals.merchant += val;
+  });
+
+  // 5. Channel Stats (Volume & Admin Profit by Channel)
+  const channelProfitRows = await pgQuery(`
+    SELECT 
+      l.channel,
+      COALESCE(SUM(l.amount_paise), 0)::numeric / 100.0 as profit,
+      COUNT(DISTINCT l.reference_id) as count
+    FROM financial_ledger l
+    WHERE (l.type = 'commission' OR (l.type = 'adjustment' AND (l.reference_type = 'REVERSAL' OR metadata->>'original_type' = 'commission')))
+      AND l.user_id = 'ADM001'
+      AND l.channel IS NOT NULL
+      ${dateClause}
+    GROUP BY l.channel
+  `, params);
+
+  const channelProfits = { ALL: Math.max(0, parseFloat(adminProfitRes)), QR: 0, PINELABS: 0, PAYSWIFF: 0 };
+  const channelCounts = { ALL: totalSwipesCount, QR: 0, PINELABS: 0, PAYSWIFF: 0 };
+  channelProfitRows.forEach(r => {
+    const p = Math.max(0, parseFloat(r.profit) || 0);
+    const cnt = parseInt(r.count || '0', 10);
+    const ch = (r.channel || '').toLowerCase();
+    if (ch.includes('swiff')) {
+      channelProfits.PAYSWIFF += p;
+      channelCounts.PAYSWIFF += cnt;
+    } else if (ch.includes('qr') || ch.includes('upi')) {
+      channelProfits.QR += p;
+      channelCounts.QR += cnt;
+    } else {
+      channelProfits.PINELABS += p;
+      channelCounts.PINELABS += cnt;
+    }
+  });
+
+  const channelStats = {
+    ALL: { count: channelCounts.ALL, volume: parseFloat(totalVol.toFixed(2)), profit: channelProfits.ALL },
+    QR: { count: channelCounts.QR, volume: parseFloat(qrVol.toFixed(2)), profit: channelProfits.QR },
+    PINELABS: { count: channelCounts.PINELABS, volume: parseFloat(pineVol.toFixed(2)), profit: channelProfits.PINELABS },
+    PAYSWIFF: { count: channelCounts.PAYSWIFF, volume: parseFloat(payswiffVol.toFixed(2)), profit: channelProfits.PAYSWIFF }
+  };
+
+  return {
+    totalVolume: parseFloat(totalVol.toFixed(2)),
+    pineVolume: parseFloat(pineVol.toFixed(2)),
+    payswiffVolume: parseFloat(payswiffVol.toFixed(2)),
+    qrVolume: parseFloat(qrVol.toFixed(2)),
+    totalFeesCollected: parseFloat(totalFeesRes),
+    partnerCommissions: Math.max(0, parseFloat(partnerCommRes)),
+    adminNetProfit: Math.max(0, parseFloat(adminProfitRes)),
+    tierTotals,
+    channelStats,
+    totalSwipesCount
+  };
+}
 
 // Helper to parse JSON body from incoming Node HTTP request
 export async function parseJsonBody(req) {
@@ -158,7 +340,7 @@ export async function calculateUserChannelBalances(userId, client = null) {
     const wRows = await queryFn(`
       SELECT channel,
              SUM(CASE WHEN UPPER(status) IN ('COMPLETED', 'PAID', 'SUCCESS') THEN amount_paise ELSE 0 END) as sent_paise,
-             SUM(CASE WHEN UPPER(status) IN ('PENDING', 'SUBMITTED_TO_BANK', 'PROCESSING', 'APPROVED') THEN amount_paise ELSE 0 END) as transit_paise
+             SUM(CASE WHEN UPPER(status) IN ('PENDING', 'SUBMITTED_TO_BANK') THEN amount_paise ELSE 0 END) as transit_paise
       FROM withdrawals
       WHERE UPPER(merchant_id) = UPPER($1)
         AND channel IS NOT NULL
@@ -211,9 +393,12 @@ export async function calculateUserChannelBalances(userId, client = null) {
     }
 
     // Shared Reserve Rule:
-    // Max withdrawable from channel C = max(0, min(balance of C, total of all channels - 500))
+    // Max withdrawable from channel C = max(0, min(balance of C, total of all channels - reserve))
     const totalBalance = Object.values(channels).reduce((sum, c) => sum + c.balance, 0);
-    const overallAvailable = Math.max(0, totalBalance - 500);
+    const reserveSetting = await getSetting('reserve_amount_paise', client).catch(() => null);
+    const reservePaise = reserveSetting?.value_numeric ? BigInt(reserveSetting.value_numeric) : 50000n;
+    const reserveRupees = Number(reservePaise) / 100;
+    const overallAvailable = Math.max(0, totalBalance - reserveRupees);
 
     for (const ch of Object.keys(channels)) {
       const withdr = Math.max(0, Math.min(channels[ch].balance, overallAvailable));
@@ -611,9 +796,36 @@ export async function handleApiRequest(req, res) {
     if (pathname === '/api/users/update-profile' && method === 'POST') {
       try {
         const caller = requireAuth(req);
-        const { userId, name, mobile, email, aadhaar, pan, address, creator_id, commission_rate_t1, commission_rate_instant, margin_rate } = await parseJsonBody(req);
+        const body = await parseJsonBody(req);
+        const { userId, name, mobile, email, aadhaar, pan, address, creator_id, commission_rate_t1, commission_rate_instant, margin_rate } = body;
         const targetUserId = (userId || caller.id).trim();
         await assertCanAccessUser(caller, targetUserId, { query: pgQuery });
+
+        const isAdmin = caller.role === 'ADMIN' || caller.id === 'ADM001';
+
+        // Strict Authorization: Only Administrators can modify hierarchy relationships, permissions, or financial rates
+        if (!isAdmin) {
+          const hasRestrictedField = 
+            creator_id !== undefined ||
+            commission_rate_t1 !== undefined ||
+            commission_rate_instant !== undefined ||
+            margin_rate !== undefined ||
+            body.role !== undefined ||
+            body.status !== undefined;
+
+          if (hasRestrictedField) {
+            return sendJson(res, 403, { 
+              success: false, 
+              code: 'ACCESS_FORBIDDEN',
+              message: 'ACCESS_FORBIDDEN: Only Administrators can modify hierarchy relationships, permissions, or financial rates.' 
+            });
+          }
+        }
+
+        const updateCreatorId = isAdmin && creator_id ? creator_id.trim() : null;
+        const updateRateT1 = isAdmin && commission_rate_t1 !== undefined && commission_rate_t1 !== null ? parseFloat(commission_rate_t1) : null;
+        const updateRateInstant = isAdmin && commission_rate_instant !== undefined && commission_rate_instant !== null ? parseFloat(commission_rate_instant) : null;
+        const updateMarginRate = isAdmin && margin_rate !== undefined && margin_rate !== null ? parseFloat(margin_rate) : null;
 
         const updateRes = await pgQuery(`
           UPDATE users 
@@ -637,10 +849,10 @@ export async function handleApiRequest(req, res) {
           aadhaar ? aadhaar.trim() : null,
           pan ? pan.trim() : null,
           address ? address.trim() : null,
-          creator_id ? creator_id.trim() : null,
-          commission_rate_t1 !== undefined && commission_rate_t1 !== null ? parseFloat(commission_rate_t1) : null,
-          commission_rate_instant !== undefined && commission_rate_instant !== null ? parseFloat(commission_rate_instant) : null,
-          margin_rate !== undefined && margin_rate !== null ? parseFloat(margin_rate) : null,
+          updateCreatorId,
+          updateRateT1,
+          updateRateInstant,
+          updateMarginRate,
           targetUserId
         ]);
 
@@ -854,12 +1066,19 @@ export async function handleApiRequest(req, res) {
                  COALESCE(w.held_paise / 100.0, 0) as pending_balance,
                  COALESCE(w.balance_paise / 100.0, 0) as received_sales,
                  COALESCE(w.withdrawn_paise / 100.0, 0) as withdrawn_amount,
+                 COALESCE(comm.total_commission, 0) as total_commission,
                  w.balance_paise,
                  w.held_paise
           FROM users u
           LEFT JOIN merchant_pos p ON u.id = p.merchant_id
           LEFT JOIN users c ON u.creator_id = c.id
           LEFT JOIN wallets w ON u.id = w.user_id
+          LEFT JOIN (
+            SELECT user_id, COALESCE(SUM(amount_paise), 0)::numeric / 100.0 as total_commission
+            FROM financial_ledger
+            WHERE (type = 'commission' OR (type = 'adjustment' AND (reference_type = 'REVERSAL' OR metadata->>'original_type' = 'commission')))
+            GROUP BY user_id
+          ) comm ON u.id = comm.user_id
           WHERE UPPER(u.id) = UPPER($1)
         `, [userId]);
 
@@ -1571,12 +1790,19 @@ export async function handleApiRequest(req, res) {
                  COALESCE(w.held_paise / 100.0, 0) as pending_balance,
                  COALESCE(w.balance_paise / 100.0, 0) as received_sales,
                  COALESCE(w.withdrawn_paise / 100.0, 0) as withdrawn_amount,
+                 COALESCE(comm.total_commission, 0) as total_commission,
                  w.balance_paise,
                  w.held_paise
           FROM users u
           LEFT JOIN merchant_pos p ON u.id = p.merchant_id
           LEFT JOIN users c ON u.creator_id = c.id
           LEFT JOIN wallets w ON u.id = w.user_id
+          LEFT JOIN (
+            SELECT user_id, COALESCE(SUM(amount_paise), 0)::numeric / 100.0 as total_commission
+            FROM financial_ledger
+            WHERE (type = 'commission' OR (type = 'adjustment' AND (reference_type = 'REVERSAL' OR metadata->>'original_type' = 'commission')))
+            GROUP BY user_id
+          ) comm ON u.id = comm.user_id
           ${downlineFilter}
           ORDER BY u.created_at DESC
           LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}
@@ -1617,12 +1843,19 @@ export async function handleApiRequest(req, res) {
                COALESCE(w.held_paise / 100.0, 0) as pending_balance,
                COALESCE(w.balance_paise / 100.0, 0) as received_sales,
                COALESCE(w.withdrawn_paise / 100.0, 0) as withdrawn_amount,
+               COALESCE(comm.total_commission, 0) as total_commission,
                w.balance_paise,
                w.held_paise
         FROM users u
         LEFT JOIN merchant_pos p ON u.id = p.merchant_id
         LEFT JOIN users c ON u.creator_id = c.id
         LEFT JOIN wallets w ON u.id = w.user_id
+        LEFT JOIN (
+          SELECT user_id, COALESCE(SUM(amount_paise), 0)::numeric / 100.0 as total_commission
+          FROM financial_ledger
+          WHERE (type = 'commission' OR (type = 'adjustment' AND (reference_type = 'REVERSAL' OR metadata->>'original_type' = 'commission')))
+          GROUP BY user_id
+        ) comm ON u.id = comm.user_id
         ORDER BY u.created_at ASC
       `);
 
@@ -1902,6 +2135,8 @@ export async function handleApiRequest(req, res) {
 
         const serializable = {
           ...result,
+          ref_number: result.ref_number || body.ref_number || body.refNumber || null,
+          slip_number: result.slip_number || body.slip_number || body.slipNumber || null,
           amount_paise: result.amount_paise?.toString(),
           customer_charge_paise: result.customer_charge_paise?.toString(),
           net_amount_paise: result.net_amount_paise?.toString(),
@@ -1974,7 +2209,7 @@ export async function handleApiRequest(req, res) {
         FROM withdrawals w
         JOIN users u ON w.merchant_id = u.id
         LEFT JOIN beneficiaries b ON w.beneficiary_id = b.id
-        WHERE w.status = 'PENDING'
+        WHERE w.status IN ('PENDING', 'SUBMITTED_TO_BANK')
         ORDER BY w.created_at DESC
       `);
 
@@ -2063,34 +2298,24 @@ export async function handleApiRequest(req, res) {
         });
       });
 
-      // Authoritative Ledger-derived sales volume by channel NET of reversals
-      const channelVolRows = await pgQuery(`
-        SELECT 
-          channel,
-          COALESCE(SUM(amount_paise), 0)::numeric / 100.0 as vol
-        FROM financial_ledger
-        WHERE reference_type IN ('SWIPE', 'REVERSAL')
-          AND channel IS NOT NULL
-          AND (
-            type IN ('swipe_credit', 'refund', 'commission')
-            OR (type = 'adjustment' AND (reference_type = 'REVERSAL' OR metadata->>'original_type' = 'commission'))
-          )
-        GROUP BY channel
-      `);
+      // 4.1 Authoritative Server Ledger-Derived Stats Engine
+      const reqDateFilter = url.searchParams.get('dateFilter') || url.searchParams.get('profitDateFilter') || 'ALL';
+      const reqStartDate = url.searchParams.get('startDate') || url.searchParams.get('customStartDate');
+      const reqEndDate = url.searchParams.get('endDate') || url.searchParams.get('customEndDate');
 
-      let pineVol = 0;
-      let payswiffVol = 0;
-      let qrVol = 0;
-      let totalVol = 0;
+      const allTimeStats = await calculateAuthoritativeLedgerStats('ALL');
+      const statsByRange = {
+        ALL: allTimeStats,
+        TODAY: await calculateAuthoritativeLedgerStats('TODAY'),
+        YESTERDAY: await calculateAuthoritativeLedgerStats('YESTERDAY'),
+        WEEK: await calculateAuthoritativeLedgerStats('WEEK'),
+        MONTH: await calculateAuthoritativeLedgerStats('MONTH')
+      };
 
-      channelVolRows.forEach(r => {
-        const v = Math.max(0, parseFloat(r.vol) || 0);
-        totalVol += v;
-        const ch = (r.channel || '').toLowerCase();
-        if (ch.includes('swiff')) payswiffVol += v;
-        else if (ch.includes('qr') || ch.includes('upi')) qrVol += v;
-        else pineVol += v;
-      });
+      let filteredStats = allTimeStats;
+      if (reqDateFilter && reqDateFilter !== 'ALL') {
+        filteredStats = statsByRange[reqDateFilter.toUpperCase()] || await calculateAuthoritativeLedgerStats(reqDateFilter, reqStartDate, reqEndDate);
+      }
 
       const mstCount = (await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role IN ('MASTER', 'MASTER_DISTRIBUTOR')`))[0]?.c || 0;
       const mCount = (await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role = 'MERCHANT'`))[0]?.c || 0;
@@ -2099,57 +2324,22 @@ export async function handleApiRequest(req, res) {
       const dCount = (await pgQuery(`SELECT COUNT(*) as c FROM users WHERE role IN ('DISTRIBUTOR', 'DIST_FRANCHISE')`))[0]?.c || 0;
       const pendingVol = (await pgQuery(`SELECT COALESCE(SUM(amount_paise), 0)::numeric / 100.0 as s FROM transactions WHERE status = 'PENDING'`))[0]?.s || 0;
 
-      // Authoritative Ledger-derived commission and fee figures NET of reversals
-      const partnerCommRes = (await pgQuery(`
-        SELECT COALESCE(SUM(amount_paise), 0)::numeric / 100.0 as s 
-        FROM financial_ledger 
-        WHERE (type = 'commission' OR (type = 'adjustment' AND (reference_type = 'REVERSAL' OR metadata->>'original_type' = 'commission')))
-          AND user_id != 'ADM001'
-      `))[0]?.s || 0;
-
-      const adminProfitRes = (await pgQuery(`
-        SELECT COALESCE(SUM(amount_paise), 0)::numeric / 100.0 as s 
-        FROM financial_ledger 
-        WHERE (type = 'commission' OR (type = 'adjustment' AND (reference_type = 'REVERSAL' OR metadata->>'original_type' = 'commission')))
-          AND user_id = 'ADM001'
-      `))[0]?.s || 0;
-
-      const totalFeesRes = (Math.max(0, parseFloat(partnerCommRes)) + Math.max(0, parseFloat(adminProfitRes))).toFixed(2);
-
-      // Authoritative Tier Totals from financial_ledger grouped by role NET of reversals
-      const tierRows = await pgQuery(`
-        SELECT u.role, COALESCE(SUM(l.amount_paise), 0)::numeric / 100.0 as total
-        FROM financial_ledger l
-        JOIN users u ON l.user_id = u.id
-        WHERE l.type = 'commission' OR (l.type = 'adjustment' AND (l.reference_type = 'REVERSAL' OR l.metadata->>'original_type' = 'commission'))
-        GROUP BY u.role
-      `);
-      const tierTotals = {
-        master: 0,
-        super: 0,
-        district: 0,
-        distributor: 0,
-        merchant: 0,
-        companyNet: Math.max(0, parseFloat(adminProfitRes))
-      };
-      tierRows.forEach(r => {
-        const val = Math.max(0, parseFloat(r.total) || 0);
-        if (r.role === 'MASTER' || r.role === 'MASTER_DISTRIBUTOR') tierTotals.master += val;
-        else if (r.role === 'SUPER_DISTRIBUTOR') tierTotals.super += val;
-        else if (r.role === 'DISTRICT_DISTRIBUTOR' || r.role === 'DIST_FRANCHISE') tierTotals.district += val;
-        else if (r.role === 'DISTRIBUTOR') tierTotals.distributor += val;
-        else if (r.role === 'MERCHANT') tierTotals.merchant += val;
-      });
-
       const wTotalsRes = (await pgQuery(`
         SELECT 
-          COALESCE(SUM(CASE WHEN status = 'PENDING' THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_regular_amount,
-          0 as pending_commission_amount,
+          COALESCE(SUM(CASE WHEN status = 'PENDING' AND (payout_type != 'COMMISSION' OR payout_type IS NULL) THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_regular_amount,
+          COALESCE(SUM(CASE WHEN status = 'PENDING' AND payout_type = 'COMMISSION' THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_commission_amount,
           COALESCE(SUM(CASE WHEN status = 'PENDING' THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_amount,
           COALESCE(SUM(CASE WHEN status = 'PENDING' AND (settlement_type = 'T1' OR settlement_type IS NULL) THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_t1_amount,
           COALESCE(SUM(CASE WHEN status = 'PENDING' AND settlement_type = 'INSTANT' THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_instant_amount,
           COALESCE(SUM(CASE WHEN status = 'SUBMITTED_TO_BANK' THEN amount_paise ELSE 0 END), 0) / 100.0 as submitted_amount,
-          COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN amount_paise ELSE 0 END), 0) / 100.0 as completed_amount
+          COALESCE(SUM(CASE WHEN status IN ('COMPLETED', 'APPROVED') THEN amount_paise ELSE 0 END), 0) / 100.0 as completed_amount,
+          COUNT(CASE WHEN status = 'PENDING' AND (payout_type != 'COMMISSION' OR payout_type IS NULL) THEN 1 END)::int as pending_regular_count,
+          COUNT(CASE WHEN status = 'PENDING' AND payout_type = 'COMMISSION' THEN 1 END)::int as pending_commission_count,
+          COUNT(CASE WHEN status = 'PENDING' THEN 1 END)::int as pending_count,
+          COUNT(CASE WHEN status = 'SUBMITTED_TO_BANK' THEN 1 END)::int as submitted_count,
+          COUNT(CASE WHEN status IN ('COMPLETED', 'APPROVED') THEN 1 END)::int as completed_count,
+          COUNT(CASE WHEN status = 'REJECTED' THEN 1 END)::int as rejected_count,
+          COUNT(*)::int as total_count
         FROM withdrawals
       `))[0] || {};
 
@@ -2165,19 +2355,20 @@ export async function handleApiRequest(req, res) {
         totalDistrictDistributors: parseInt(ddCount),
         totalDistributors: parseInt(dCount),
         totalMerchants: parseInt(mCount),
-        withdrawalsCount: pendingWithdrawals.length,
-        pendingWithdrawalsCount: pendingWithdrawals.length,
-        totalVolume: parseFloat(totalVol.toFixed(2)),
+        withdrawalsCount: parseInt(wTotalsRes.pending_count || 0, 10),
+        pendingWithdrawalsCount: parseInt(wTotalsRes.pending_count || 0, 10),
+        totalVolume: allTimeStats.totalVolume,
         pendingVolume: parseFloat(pendingVol),
         pendingSwipesCount: pendingTransactions.length,
         pendingSwipesVolume: parseFloat(pendingSwipesVolume.toFixed(2)),
-        totalFeesCollected: parseFloat(totalFeesRes),
-        partnerCommissions: Math.max(0, parseFloat(partnerCommRes)),
-        adminNetProfit: Math.max(0, parseFloat(adminProfitRes)),
-        tierTotals,
-        pineVolume: parseFloat(pineVol.toFixed(2)),
-        payswiffVolume: parseFloat(payswiffVol.toFixed(2)),
-        qrVolume: parseFloat(qrVol.toFixed(2)),
+        totalFeesCollected: allTimeStats.totalFeesCollected,
+        partnerCommissions: allTimeStats.partnerCommissions,
+        adminNetProfit: allTimeStats.adminNetProfit,
+        tierTotals: allTimeStats.tierTotals,
+        pineVolume: allTimeStats.pineVolume,
+        payswiffVolume: allTimeStats.payswiffVolume,
+        qrVolume: allTimeStats.qrVolume,
+        channelStats: allTimeStats.channelStats,
         withdrawalTotals: {
           pending_regular_amount: parseFloat(wTotalsRes.pending_regular_amount || 0),
           pending_commission_amount: parseFloat(wTotalsRes.pending_commission_amount || 0),
@@ -2185,8 +2376,17 @@ export async function handleApiRequest(req, res) {
           pending_t1_amount: parseFloat(wTotalsRes.pending_t1_amount || 0),
           pending_instant_amount: parseFloat(wTotalsRes.pending_instant_amount || 0),
           submitted_amount: parseFloat(wTotalsRes.submitted_amount || 0),
-          completed_amount: parseFloat(wTotalsRes.completed_amount || 0)
-        }
+          completed_amount: parseFloat(wTotalsRes.completed_amount || 0),
+          pending_regular_count: parseInt(wTotalsRes.pending_regular_count || 0, 10),
+          pending_commission_count: parseInt(wTotalsRes.pending_commission_count || 0, 10),
+          pending_count: parseInt(wTotalsRes.pending_count || 0, 10),
+          submitted_count: parseInt(wTotalsRes.submitted_count || 0, 10),
+          completed_count: parseInt(wTotalsRes.completed_count || 0, 10),
+          rejected_count: parseInt(wTotalsRes.rejected_count || 0, 10),
+          total_count: parseInt(wTotalsRes.total_count || 0, 10)
+        },
+        statsByRange,
+        filteredStats
       };
 
       return sendJson(res, 200, {
@@ -2197,6 +2397,15 @@ export async function handleApiRequest(req, res) {
         allTransactions: serializeMoneyFields(allTransactions),
         stats
       });
+    }
+
+    if (pathname === '/api/admin/profit-stats' && method === 'GET') {
+      requireAdmin(req);
+      const filter = url.searchParams.get('dateFilter') || url.searchParams.get('profitDateFilter') || 'ALL';
+      const start = url.searchParams.get('startDate') || url.searchParams.get('customStartDate') || null;
+      const end = url.searchParams.get('endDate') || url.searchParams.get('customEndDate') || null;
+      const profitStats = await calculateAuthoritativeLedgerStats(filter, start, end);
+      return sendJson(res, 200, { success: true, stats: profitStats });
     }
 
     // ----------------------------------------------------
@@ -2242,6 +2451,8 @@ export async function handleApiRequest(req, res) {
         const createdBy = caller.id;
         const idempotencyKey = req.headers['idempotency-key'] || body.idempotency_key || null;
 
+        const userUtr = (body.utr || body.utr_number || body.ref_number || '').toString().trim().toUpperCase() || null;
+
         const result = await withTransaction(async (client) => {
           return await processWithdrawalRequest(client, {
             merchantId: targetMerchantId,
@@ -2254,6 +2465,7 @@ export async function handleApiRequest(req, res) {
             channel: body.channel || body.provider,
             settlementType: (body.settlement_type || body.settlementType || 'T1').toUpperCase(),
             payoutType: body.payout_type || body.payoutType || 'REGULAR',
+            utr: userUtr,
             idempotencyKey,
             createdBy
           });
@@ -2355,6 +2567,30 @@ export async function handleApiRequest(req, res) {
             `, [cleanUtr, finalRemark, targetWthId]);
             updatedWth = wRes.rows[0];
           } else if (action === 'REJECT') {
+            if (wth.status === 'SUBMITTED_TO_BANK') {
+              const confirmedFailure = Boolean(
+                body.confirmBankDidNotPay ||
+                body.confirm_bank_did_not_pay ||
+                body.confirmedBankFailure ||
+                body.confirm_bank_failure
+              );
+              if (!confirmedFailure) {
+                const err = new Error('This withdrawal was already submitted to the bank. Confirm that the bank transfer failed or was cancelled before refunding the wallet.');
+                err.statusCode = 409;
+                err.code = 'BANK_FAILURE_CONFIRMATION_REQUIRED';
+                throw err;
+              }
+              const cleanReason = (remark || '').trim();
+              if (!cleanReason) {
+                const err = new Error('A rejection reason is required to reject a withdrawal that was submitted to the bank.');
+                err.statusCode = 400;
+                err.code = 'REJECTION_REASON_REQUIRED';
+                throw err;
+              }
+            }
+
+            const finalRejectionRemark = (remark || '').trim() || (wth.status === 'SUBMITTED_TO_BANK' ? 'Bank payout failed / returned' : 'Bank account details mismatch / rejected');
+
             await postLedgerEntry(client, {
               userId: wth.merchant_id,
               type: 'withdrawal_reversal',
@@ -2363,7 +2599,10 @@ export async function handleApiRequest(req, res) {
               referenceType: 'WITHDRAWAL',
               channel: wth.channel,
               metadata: {
-                reason: remark || 'Bank account details mismatch / rejected'
+                previous_status: wth.status,
+                confirmed_bank_did_not_pay: wth.status === 'SUBMITTED_TO_BANK',
+                batch_id: wth.batch_id || null,
+                reason: finalRejectionRemark
               },
               createdBy: caller.id
             });
@@ -2375,7 +2614,7 @@ export async function handleApiRequest(req, res) {
                   verified_at = CURRENT_TIMESTAMP 
               WHERE id = $2
               RETURNING *
-            `, [remark || 'Bank account details mismatch / rejected', targetWthId]);
+            `, [finalRejectionRemark, targetWthId]);
             updatedWth = wRes.rows[0];
           } else {
             throw new Error('Invalid action. Allowed: APPROVE, COMPLETE, REJECT.');
@@ -2484,18 +2723,128 @@ export async function handleApiRequest(req, res) {
 
     if ((pathname === '/api/admin/withdrawals' || pathname === '/api/withdrawals') && method === 'GET') {
       const caller = pathname === '/api/admin/withdrawals' ? requireAdmin(req) : requireAuth(req);
-      let downlineWithdrawalFilter = '';
-      let downlineWithdrawalParams = [];
+      const whereClauses = [];
+      const queryParams = [];
+
       if (caller.role !== 'ADMIN' && caller.id !== 'ADM001') {
         const downline = await getDownlineUserIds({ query: pgQuery }, caller.id);
         downline.add(caller.id);
-        downlineWithdrawalFilter = 'WHERE UPPER(w.merchant_id) = ANY($1)';
-        downlineWithdrawalParams = [Array.from(downline)];
+        queryParams.push(Array.from(downline));
+        whereClauses.push(`UPPER(w.merchant_id) = ANY($${queryParams.length})`);
       }
-      const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10)));
-      const offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10));
 
-      const countRes = await pgQuery(`SELECT COUNT(*)::int as total FROM withdrawals w ${downlineWithdrawalFilter}`, downlineWithdrawalParams);
+      const reqMerchantId = (url.searchParams.get('merchant_id') || url.searchParams.get('merchantId') || '').trim();
+      if (reqMerchantId) {
+        queryParams.push(reqMerchantId.toUpperCase());
+        whereClauses.push(`UPPER(w.merchant_id) = $${queryParams.length}`);
+      }
+
+      // Status filter
+      const reqStatus = (url.searchParams.get('status') || '').trim().toUpperCase();
+      if (reqStatus && reqStatus !== 'ALL') {
+        if (reqStatus === 'COMPLETED' || reqStatus === 'APPROVED') {
+          whereClauses.push(`w.status IN ('COMPLETED', 'APPROVED')`);
+        } else if (reqStatus === 'PENDING') {
+          whereClauses.push(`w.status = 'PENDING'`);
+        } else if (reqStatus === 'SUBMITTED_TO_BANK') {
+          whereClauses.push(`w.status = 'SUBMITTED_TO_BANK'`);
+        } else if (reqStatus === 'REJECTED' || reqStatus === 'INVALID') {
+          whereClauses.push(`w.status = 'REJECTED'`);
+        } else {
+          queryParams.push(reqStatus);
+          whereClauses.push(`w.status = $${queryParams.length}`);
+        }
+      }
+
+      // Category / Payout Type filter
+      const reqCategory = (url.searchParams.get('category') || url.searchParams.get('payout_type') || '').trim().toUpperCase();
+      if (reqCategory === 'COMMISSION') {
+        whereClauses.push(`w.payout_type = 'COMMISSION'`);
+      } else if (reqCategory === 'WITHDRAWALS' || reqCategory === 'REGULAR') {
+        whereClauses.push(`(w.payout_type != 'COMMISSION' OR w.payout_type IS NULL)`);
+      }
+
+      // Channel filter
+      const reqChannel = (url.searchParams.get('channel') || '').trim().toLowerCase();
+      if (reqChannel && reqChannel !== 'all') {
+        if (reqChannel.includes('swiff')) {
+          whereClauses.push(`LOWER(w.channel) LIKE '%swiff%'`);
+        } else if (reqChannel.includes('qr') || reqChannel.includes('upi')) {
+          whereClauses.push(`(LOWER(w.channel) LIKE '%qr%' OR LOWER(w.channel) LIKE '%upi%')`);
+        } else if (reqChannel.includes('pine')) {
+          whereClauses.push(`LOWER(w.channel) LIKE '%pine%'`);
+        }
+      }
+
+      // Settlement speed filter
+      const reqSettlement = (url.searchParams.get('settlement_type') || url.searchParams.get('speed') || '').trim().toUpperCase();
+      if (reqSettlement === 'T1') {
+        whereClauses.push(`(w.settlement_type = 'T1' OR w.settlement_type IS NULL)`);
+      } else if (reqSettlement === 'INSTANT') {
+        whereClauses.push(`w.settlement_type = 'INSTANT'`);
+      }
+
+      // Date filter
+      const reqDateFilter = (url.searchParams.get('dateFilter') || 'ALL').toUpperCase();
+      const reqStartDate = url.searchParams.get('startDate');
+      const reqEndDate = url.searchParams.get('endDate');
+      if (reqDateFilter === 'TODAY') {
+        whereClauses.push(`w.created_at >= CURRENT_DATE`);
+      } else if (reqDateFilter === 'YESTERDAY') {
+        whereClauses.push(`w.created_at >= CURRENT_DATE - INTERVAL '1 day' AND w.created_at < CURRENT_DATE`);
+      } else if (reqDateFilter === 'WEEK') {
+        whereClauses.push(`w.created_at >= NOW() - INTERVAL '7 days'`);
+      } else if (reqDateFilter === 'MONTH') {
+        whereClauses.push(`w.created_at >= date_trunc('month', CURRENT_DATE)`);
+      } else if (reqDateFilter === 'CUSTOM') {
+        if (reqStartDate && reqEndDate) {
+          queryParams.push(reqStartDate, reqEndDate + ' 23:59:59');
+          whereClauses.push(`w.created_at >= $${queryParams.length - 1}::timestamptz AND w.created_at <= $${queryParams.length}::timestamptz`);
+        } else if (reqStartDate) {
+          queryParams.push(reqStartDate);
+          whereClauses.push(`w.created_at >= $${queryParams.length}::timestamptz`);
+        } else if (reqEndDate) {
+          queryParams.push(reqEndDate + ' 23:59:59');
+          whereClauses.push(`w.created_at <= $${queryParams.length}::timestamptz`);
+        }
+      }
+
+      // Search Query
+      const q = (url.searchParams.get('search') || url.searchParams.get('q') || '').trim();
+      if (q) {
+        queryParams.push(`%${q}%`);
+        const pIdx = queryParams.length;
+        whereClauses.push(`(
+          u.name ILIKE $${pIdx} OR 
+          u.mobile ILIKE $${pIdx} OR 
+          w.merchant_id ILIKE $${pIdx} OR 
+          w.id ILIKE $${pIdx} OR 
+          b.account_number ILIKE $${pIdx} OR 
+          b.ifsc ILIKE $${pIdx} OR 
+          b.holder_name ILIKE $${pIdx} OR 
+          b.bank_name ILIKE $${pIdx} OR 
+          w.utr ILIKE $${pIdx} OR 
+          w.admin_remark ILIKE $${pIdx} OR
+          w.amount::text ILIKE $${pIdx}
+        )`);
+      }
+
+      const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+      const reqPage = parseInt(url.searchParams.get('page') || '0', 10);
+      const limit = Math.min(200, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10)));
+      let offset = Math.max(0, parseInt(url.searchParams.get('offset') || '0', 10));
+      if (reqPage > 0 && !url.searchParams.has('offset')) {
+        offset = (reqPage - 1) * limit;
+      }
+
+      const countRes = await pgQuery(`
+        SELECT COUNT(*)::int as total 
+        FROM withdrawals w 
+        LEFT JOIN users u ON w.merchant_id = u.id 
+        LEFT JOIN beneficiaries b ON w.beneficiary_id = b.id 
+        ${whereSql}
+      `, queryParams);
       const total = countRes[0]?.total || 0;
 
       const withdrawals = await pgQuery(`
@@ -2520,10 +2869,10 @@ export async function handleApiRequest(req, res) {
         FROM withdrawals w
         LEFT JOIN users u ON w.merchant_id = u.id
         LEFT JOIN beneficiaries b ON w.beneficiary_id = b.id
-        ${downlineWithdrawalFilter}
+        ${whereSql}
         ORDER BY w.created_at DESC
-        LIMIT $${downlineWithdrawalParams.length + 1} OFFSET $${downlineWithdrawalParams.length + 2}
-      `, [...downlineWithdrawalParams, limit, offset]);
+        LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}
+      `, [...queryParams, limit, offset]);
 
       const enriched = (withdrawals || []).map(w => {
         const wMode = (w.withdrawal_mode || w.settlement_type || 'T1').toUpperCase();
@@ -2540,11 +2889,20 @@ export async function handleApiRequest(req, res) {
 
       const totalsRes = await pgQuery(`
         SELECT 
+          COALESCE(SUM(CASE WHEN status = 'PENDING' AND (payout_type != 'COMMISSION' OR payout_type IS NULL) THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_regular_amount,
+          COALESCE(SUM(CASE WHEN status = 'PENDING' AND payout_type = 'COMMISSION' THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_commission_amount,
           COALESCE(SUM(CASE WHEN status = 'PENDING' THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_amount,
           COALESCE(SUM(CASE WHEN status = 'PENDING' AND (settlement_type = 'T1' OR settlement_type IS NULL) THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_t1_amount,
           COALESCE(SUM(CASE WHEN status = 'PENDING' AND settlement_type = 'INSTANT' THEN amount_paise ELSE 0 END), 0) / 100.0 as pending_instant_amount,
           COALESCE(SUM(CASE WHEN status = 'SUBMITTED_TO_BANK' THEN amount_paise ELSE 0 END), 0) / 100.0 as submitted_amount,
-          COALESCE(SUM(CASE WHEN status IN ('COMPLETED', 'APPROVED') THEN amount_paise ELSE 0 END), 0) / 100.0 as completed_amount
+          COALESCE(SUM(CASE WHEN status IN ('COMPLETED', 'APPROVED') THEN amount_paise ELSE 0 END), 0) / 100.0 as completed_amount,
+          COUNT(CASE WHEN status = 'PENDING' AND (payout_type != 'COMMISSION' OR payout_type IS NULL) THEN 1 END)::int as pending_regular_count,
+          COUNT(CASE WHEN status = 'PENDING' AND payout_type = 'COMMISSION' THEN 1 END)::int as pending_commission_count,
+          COUNT(CASE WHEN status = 'PENDING' THEN 1 END)::int as pending_count,
+          COUNT(CASE WHEN status = 'SUBMITTED_TO_BANK' THEN 1 END)::int as submitted_count,
+          COUNT(CASE WHEN status IN ('COMPLETED', 'APPROVED') THEN 1 END)::int as completed_count,
+          COUNT(CASE WHEN status = 'REJECTED' THEN 1 END)::int as rejected_count,
+          COUNT(*)::int as total_count
         FROM withdrawals
       `);
       const totalsRow = totalsRes[0] || {};
@@ -2554,15 +2912,28 @@ export async function handleApiRequest(req, res) {
         withdrawals: serializeMoneyFields(enriched),
         totals: {
           pending_amount: parseFloat(totalsRow.pending_amount || 0),
+          pending_regular_amount: parseFloat(totalsRow.pending_regular_amount || 0),
+          pending_commission_amount: parseFloat(totalsRow.pending_commission_amount || 0),
           pending_t1_amount: parseFloat(totalsRow.pending_t1_amount || 0),
           pending_instant_amount: parseFloat(totalsRow.pending_instant_amount || 0),
           submitted_amount: parseFloat(totalsRow.submitted_amount || 0),
           completed_amount: parseFloat(totalsRow.completed_amount || 0)
         },
+        counts: {
+          pending_regular_count: parseInt(totalsRow.pending_regular_count || 0, 10),
+          pending_commission_count: parseInt(totalsRow.pending_commission_count || 0, 10),
+          pending_count: parseInt(totalsRow.pending_count || 0, 10),
+          submitted_count: parseInt(totalsRow.submitted_count || 0, 10),
+          completed_count: parseInt(totalsRow.completed_count || 0, 10),
+          rejected_count: parseInt(totalsRow.rejected_count || 0, 10),
+          total_count: parseInt(totalsRow.total_count || 0, 10)
+        },
         pagination: {
           limit,
           offset,
+          page: Math.floor(offset / limit) + 1,
           total,
+          total_pages: Math.max(1, Math.ceil(total / limit)),
           has_more: offset + enriched.length < total
         }
       });
@@ -2905,7 +3276,7 @@ export async function handleApiRequest(req, res) {
                 await client.query(`
                   UPDATE withdrawals 
                   SET status = 'PENDING', submitted_to_bank_at = NULL
-                  WHERE UPPER(id) = UPPER($2)
+                  WHERE UPPER(id) = UPPER($1)
                 `, [wId]);
               }
             }
@@ -3322,6 +3693,62 @@ export async function handleApiRequest(req, res) {
       }
     }
 
+    // 2.1b Dynamic Master Commission Payout Lock Status & Controls
+    if ((pathname === '/api/admin/commission-lock' || pathname === '/api/settings/commission-lock') && method === 'GET') {
+      requireAuth(req);
+      try {
+        const pool = getDbPool();
+        const resRows = await pool.query(`SELECT value_numeric FROM system_settings WHERE key = 'commission_payouts_locked'`);
+        const isLocked = Number(resRows.rows[0]?.value_numeric || 0) === 1;
+        return sendJson(res, 200, {
+          success: true,
+          locked: isLocked,
+          active: !isLocked,
+          commission_payouts_locked: isLocked ? 1 : 0
+        });
+      } catch (err) {
+        return sendJson(res, 500, { success: false, error: 'FETCH_ERROR', message: err.message });
+      }
+    }
+
+    if ((pathname === '/api/admin/commission-lock' || pathname === '/api/settings/commission-lock') && method === 'POST') {
+      const adminCaller = requireAdmin(req);
+      try {
+        const body = await parseJsonBody(req);
+        let shouldLock = false;
+        if (body.locked !== undefined) {
+          shouldLock = Boolean(body.locked);
+        } else if (body.active !== undefined) {
+          shouldLock = !Boolean(body.active);
+        } else if (body.commission_payouts_locked !== undefined) {
+          shouldLock = Number(body.commission_payouts_locked) === 1;
+        }
+
+        const pool = getDbPool();
+        await pool.query(`
+          INSERT INTO system_settings (key, value_numeric, value_text, description, updated_by, updated_at)
+          VALUES ('commission_payouts_locked', $1, $2, 'Commission payouts lock (1 = LOCKED, 0 = UNLOCKED)', $3, NOW())
+          ON CONFLICT (key) DO UPDATE SET 
+            value_numeric = EXCLUDED.value_numeric,
+            value_text = EXCLUDED.value_text,
+            updated_by = EXCLUDED.updated_by,
+            updated_at = NOW();
+        `, [shouldLock ? 1 : 0, shouldLock ? '1' : '0', adminCaller.id]);
+
+        return sendJson(res, 200, {
+          success: true,
+          locked: shouldLock,
+          active: !shouldLock,
+          message: shouldLock 
+            ? 'Commission withdrawals locked platform-wide for all downlines.' 
+            : 'Commission withdrawals unlocked platform-wide.'
+        });
+      } catch (err) {
+        const status = err.statusCode || 500;
+        return sendJson(res, status, { success: false, error: err.code || 'UPDATE_ERROR', message: err.message });
+      }
+    }
+
     // 2.2 Authoritative Downstream Rates Configuration & Creator Minimums
     if (pathname === '/api/rates/config' && method === 'GET') {
       requireAuth(req);
@@ -3447,6 +3874,13 @@ export async function handleApiRequest(req, res) {
             WHERE UPPER(merchant_id) = UPPER($1) AND status != 'REVERSED'
           `, [targetUserId])).rows[0];
 
+          const mdrRow = (await client.query(`
+            SELECT COALESCE(SUM(customer_charge_paise), 0) as gross_mdr_paise,
+                   COALESCE(SUM(customer_charge_paise - net_amount_paise), 0) as admin_cut_paise
+            FROM transactions
+            WHERE UPPER(merchant_id) = UPPER($1) AND status != 'REVERSED'
+          `, [targetUserId])).rows[0];
+
           return sendJson(res, 200, {
             success: true,
             user_id: targetUserId,
@@ -3460,7 +3894,9 @@ export async function handleApiRequest(req, res) {
             total_sales_paise: salesRow ? salesRow.total_sales_paise.toString() : '0',
             today_sales_paise: salesRow ? salesRow.today_sales_paise.toString() : '0',
             total_sales_rupees: salesRow ? (Number(salesRow.total_sales_paise) / 100).toFixed(2) : '0.00',
-            today_sales_rupees: salesRow ? (Number(salesRow.today_sales_paise) / 100).toFixed(2) : '0.00'
+            today_sales_rupees: salesRow ? (Number(salesRow.today_sales_paise) / 100).toFixed(2) : '0.00',
+            gross_mdr_rupees: mdrRow ? (Number(mdrRow.gross_mdr_paise) / 100).toFixed(2) : '0.00',
+            admin_cut_rupees: mdrRow ? (Number(mdrRow.admin_cut_paise) / 100).toFixed(2) : '0.00'
           });
         } finally {
           client.release();
@@ -4020,51 +4456,6 @@ export async function handleApiRequest(req, res) {
       }
     }
 
-    // 5.1 Authoritative Transaction Edit
-    if (pathname === '/api/transactions/edit' && method === 'POST') {
-      try {
-        requireAdmin(req);
-        const body = await parseJsonBody(req);
-        const caller = getCaller(req);
-        const callerId = caller.id;
-
-        const amountPaise = body.amount_paise 
-          ? BigInt(body.amount_paise) 
-          : BigInt(Math.round(parseFloat(body.amount || body.corrected_amount || body.new_amount) * 100));
-
-        const result = await withTransaction(async (client) => {
-          return await editSwipeTransaction(client, {
-            oldTxnId: body.old_txn_id || body.transaction_id || body.txn_id,
-            correctedAmountPaise: amountPaise,
-            channel: body.channel || null,
-            refNumber: body.ref_number || null,
-            slipNumber: body.slip_number || null,
-            notes: body.notes || null,
-            reason: body.reason || 'Transaction amount edited by admin',
-            callerId
-          });
-        });
-
-        return sendJson(res, 200, { 
-          success: true, 
-          old_transaction_id: result.old_transaction_id,
-          old_status: result.old_status,
-          new_transaction: serializeMoneyFields({
-            ...result.new_transaction,
-            amount_paise: result.new_transaction.amount_paise.toString(),
-            customer_charge_paise: result.new_transaction.customer_charge_paise.toString(),
-            net_amount_paise: result.new_transaction.net_amount_paise.toString(),
-            distributions: result.new_transaction.distributions.map(d => ({
-              ...d,
-              amount_paise: d.amount_paise.toString()
-            }))
-          })
-        });
-      } catch (err) {
-        const status = err.statusCode || 400;
-        return sendJson(res, status, { success: false, error: err.code || 'BAD_REQUEST', message: err.message });
-      }
-    }
 
     // 6. System Settings Read & Update (No hardcoded values)
     if (pathname === '/api/admin/settings' && method === 'GET') {

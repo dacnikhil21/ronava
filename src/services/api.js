@@ -417,16 +417,12 @@ export async function getAllUsersLegacy() {
         parent_dist_id: meta.parent_dist_id,
         upline_chain: meta.upline_chain,
         upline_path_str: meta.upline_path_str,
-        channel_balances: w.channel_balances || {
-          pinelabs: { balance: 0, available_balance: 0 },
-          payswiff: { balance: 0, available_balance: 0 },
-          qr: { balance: 0, available_balance: 0 }
-        },
-        available_balance: w.available_balance !== undefined ? w.available_balance : (u.available_balance || 0),
-        total_sales: w.total_sales || u.total_sales || 0,
-        pending_balance: w.pending_balance || u.pending_balance || 0,
-        received_sales: w.received_sales || u.received_sales || 0,
-        withdrawn_amount: w.withdrawn_amount || u.withdrawn_amount || 0
+        channel_balances: w.channel_balances || null,
+        available_balance: w.available_balance !== undefined ? w.available_balance : (u.available_balance !== undefined ? u.available_balance : null),
+        total_sales: w.total_sales !== undefined ? w.total_sales : (u.total_sales !== undefined ? u.total_sales : null),
+        pending_balance: w.pending_balance !== undefined ? w.pending_balance : (u.pending_balance !== undefined ? u.pending_balance : null),
+        received_sales: w.received_sales !== undefined ? w.received_sales : (u.received_sales !== undefined ? u.received_sales : null),
+        withdrawn_amount: w.withdrawn_amount !== undefined ? w.withdrawn_amount : (u.withdrawn_amount !== undefined ? u.withdrawn_amount : null)
       };
     });
 
@@ -1230,9 +1226,14 @@ export async function addBeneficiary(data) {
 // ----------------------------------------------------
 // 7. ADMIN VERIFICATION & APPROVAL ENGINE
 // ----------------------------------------------------
-export async function getAdminPending() {
+export async function getAdminPending(params = {}) {
   try {
-    const apiRes = await fetchWithTimeout(getApiUrl('/api/admin/pending'));
+    const searchParams = new URLSearchParams();
+    if (params.dateFilter) searchParams.set('dateFilter', params.dateFilter);
+    if (params.startDate) searchParams.set('startDate', params.startDate);
+    if (params.endDate) searchParams.set('endDate', params.endDate);
+    const queryString = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    const apiRes = await fetchWithTimeout(getApiUrl(`/api/admin/pending${queryString}`));
     const apiData = await apiRes.json();
     if (apiData && apiData.success) {
       return apiData;
@@ -1241,6 +1242,23 @@ export async function getAdminPending() {
   } catch (apiErr) {
     console.error('[getAdminPending] Error:', apiErr);
     return { success: false, message: apiErr.message || 'Failed to load admin pending data' };
+  }
+}
+
+export async function getAdminProfitStats(params = {}) {
+  try {
+    const searchParams = new URLSearchParams();
+    if (params.dateFilter) searchParams.set('dateFilter', params.dateFilter);
+    if (params.profitDateFilter) searchParams.set('profitDateFilter', params.profitDateFilter);
+    if (params.startDate) searchParams.set('startDate', params.startDate);
+    if (params.endDate) searchParams.set('endDate', params.endDate);
+    const queryString = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    const apiRes = await fetchWithTimeout(getApiUrl(`/api/admin/profit-stats${queryString}`));
+    const apiData = await apiRes.json();
+    return apiData;
+  } catch (apiErr) {
+    console.error('[getAdminProfitStats] Error:', apiErr);
+    return { success: false, message: apiErr.message || 'Failed to fetch profit statistics' };
   }
 }
 
@@ -1289,12 +1307,19 @@ export async function requestWithdrawal(withdrawalData) {
   }
 }
 
-export async function verifyWithdrawal(withdrawalId, action, remark = '', utrNumber = '') {
+export async function verifyWithdrawal(withdrawalId, action, remark = '', utrNumber = '', options = {}) {
   try {
+    const payload = {
+      withdrawal_id: withdrawalId,
+      action,
+      remark,
+      utr: utrNumber,
+      confirmBankDidNotPay: Boolean(options.confirmBankDidNotPay || options.confirm_bank_did_not_pay)
+    };
     const res = await fetchWithTimeout(getApiUrl('/api/admin/verify-withdrawal'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ withdrawal_id: withdrawalId, action, remark, utr: utrNumber })
+      body: JSON.stringify(payload)
     });
     const data = await res.json();
     return data;
@@ -1348,6 +1373,33 @@ export async function revertWithdrawalsToPending(withdrawalIds) {
   }
 }
 
+export async function getAdminWithdrawals(params = {}) {
+  try {
+    const searchParams = new URLSearchParams();
+    if (params.status) searchParams.set('status', params.status);
+    if (params.category) searchParams.set('category', params.category);
+    if (params.payout_type) searchParams.set('payout_type', params.payout_type);
+    if (params.channel) searchParams.set('channel', params.channel);
+    if (params.settlement_type) searchParams.set('settlement_type', params.settlement_type);
+    if (params.speed) searchParams.set('speed', params.speed);
+    if (params.dateFilter) searchParams.set('dateFilter', params.dateFilter);
+    if (params.startDate) searchParams.set('startDate', params.startDate);
+    if (params.endDate) searchParams.set('endDate', params.endDate);
+    if (params.search || params.q) searchParams.set('search', params.search || params.q);
+    if (params.limit !== undefined) searchParams.set('limit', params.limit);
+    if (params.offset !== undefined) searchParams.set('offset', params.offset);
+    if (params.page !== undefined) searchParams.set('page', params.page);
+
+    const queryString = searchParams.toString() ? `?${searchParams.toString()}` : '';
+    const res = await fetchWithTimeout(getApiUrl(`/api/admin/withdrawals${queryString}`));
+    const data = await res.json();
+    return data;
+  } catch (err) {
+    console.error('getAdminWithdrawals error:', err);
+    return { success: false, message: err.message, withdrawals: [], pagination: { total: 0, total_pages: 1 } };
+  }
+}
+
 export async function getMerchantWithdrawals(merchantId) {
   try {
     const res = await fetchWithTimeout(getApiUrl(`/api/withdrawals/merchant/${encodeURIComponent(merchantId)}`));
@@ -1358,7 +1410,7 @@ export async function getMerchantWithdrawals(merchantId) {
     const withdrawals = data.withdrawals || [];
     
     const enriched = (withdrawals || []).map(w => {
-      let utrNumber = '';
+      let utrNumber = (w.utr || w.utr_number || '').trim();
       let isCustomerDisbursal = false;
       let isCommission = (w.admin_remark || '').includes('[COMMISSION_PAYOUT]') || (w.admin_remark || '').includes('"payout_purpose":"COMMISSION"');
       let customerName = '';
@@ -1370,9 +1422,11 @@ export async function getMerchantWithdrawals(merchantId) {
       const isSubmittedToBank = (w.admin_remark || '').includes('[SUBMITTED_TO_BANK]') || Boolean(w.submitted_to_bank_at);
 
       if (w.admin_remark) {
-        const utrMatch = w.admin_remark.match(/UTR:\s*([A-Z0-9_-]+)/i);
-        if (utrMatch) {
-          utrNumber = utrMatch[1].trim();
+        if (!utrNumber) {
+          const utrMatch = w.admin_remark.match(/UTR:\s*([A-Z0-9_-]+)/i);
+          if (utrMatch) {
+            utrNumber = utrMatch[1].trim();
+          }
         }
 
         const matchNote = w.admin_remark.match(/Note:\s*([^|•\r\n]+)/i);
@@ -1393,7 +1447,8 @@ export async function getMerchantWithdrawals(merchantId) {
 
       return {
         ...w,
-        utr_number: utrNumber,
+        utr: utrNumber || w.utr || null,
+        utr_number: utrNumber || w.utr || null,
         is_customer_disbursal: isCustomerDisbursal,
         is_commission_payout: isCommission,
         payout_purpose: isCommission ? 'COMMISSION' : 'REGULAR',
@@ -1907,5 +1962,29 @@ export async function getBatchDownload(batchId) {
   } catch (err) {
     console.error('getBatchDownload error:', err);
     return { success: false, message: err.message || 'Failed to download batch.' };
+  }
+}
+
+export async function getCommissionPayoutLockStatus() {
+  try {
+    const res = await fetchWithTimeout(getApiUrl('/api/admin/commission-lock'));
+    return await res.json();
+  } catch (err) {
+    console.error('getCommissionPayoutLockStatus error:', err);
+    return { success: false, active: true, locked: false, message: err.message };
+  }
+}
+
+export async function setCommissionPayoutLockStatus(active) {
+  try {
+    const res = await fetchWithTimeout(getApiUrl('/api/admin/commission-lock'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: Boolean(active) })
+    });
+    return await res.json();
+  } catch (err) {
+    console.error('setCommissionPayoutLockStatus error:', err);
+    return { success: false, message: err.message || 'Failed to update commission lock setting.' };
   }
 }

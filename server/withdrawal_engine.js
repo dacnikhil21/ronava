@@ -109,6 +109,9 @@ export async function processWithdrawalRequest(client, {
     cleanPayoutType = 'REGULAR';
   }
 
+  const rawUtr = restParams.utr || restParams.utr_number || restParams.ref_number || null;
+  const cleanUtr = rawUtr ? String(rawUtr).trim().toUpperCase() : null;
+
   // Server-Enforced Commission Lock
   if (cleanPayoutType === 'COMMISSION') {
     const lockRes = await client.query(`SELECT value_numeric FROM system_settings WHERE key = 'commission_payouts_locked'`);
@@ -290,8 +293,8 @@ export async function processWithdrawalRequest(client, {
   await client.query(`
     INSERT INTO withdrawals (
       id, merchant_id, amount_paise, amount, fee_paise, net_payout_paise,
-      beneficiary_id, channel, settlement_type, payout_type, status, created_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', NOW())
+      beneficiary_id, channel, settlement_type, payout_type, status, utr, created_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', $11, NOW())
   `, [
     withdrawalId,
     merchantId,
@@ -302,7 +305,8 @@ export async function processWithdrawalRequest(client, {
     beneficiary.id,
     channel,
     quote.settlement_type,
-    cleanPayoutType
+    cleanPayoutType,
+    cleanUtr
   ]);
 
   const result = {
@@ -317,7 +321,8 @@ export async function processWithdrawalRequest(client, {
     settlement_type: quote.settlement_type,
     withdrawal_mode: quote.settlement_type,
     payout_type: cleanPayoutType,
-    status: 'PENDING'
+    status: 'PENDING',
+    utr: cleanUtr
   };
 
   // 8. Store Idempotency Key

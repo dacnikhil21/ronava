@@ -12,9 +12,11 @@ import {
 import { formatPaiseToRupees } from '../utils/formatters.js';
 import { downloadBankBatchFile, downloadCommissionBatchFile, downloadGstAuditFile, downloadRentalReportFile } from '../utils/bankExportUtils.js';
 import { 
-  getCommissionPayoutConfig,
-  saveCommissionPayoutConfig,
+  getCommissionPayoutLockStatus,
+  setCommissionPayoutLockStatus,
   getAdminPending, 
+  getAdminProfitStats,
+  getAdminWithdrawals,
   verifyTransaction, 
   getAllUsers, 
   createDownstreamUser, 
@@ -145,6 +147,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   const [payoutFromDate, setPayoutFromDate] = useState('');
   const [payoutToDate, setPayoutToDate] = useState('');
   const [payoutPage, setPayoutPage] = useState(1);
+  const [serverWithdrawals, setServerWithdrawals] = useState([]);
+  const [serverPagination, setServerPagination] = useState({ total: 0, total_pages: 1 });
+  const [isServerWithdrawalsLoading, setIsServerWithdrawalsLoading] = useState(false);
   const [payoutSettlementFilter, setPayoutSettlementFilter] = useState('ALL'); // 'ALL' | 'T1' | 'INSTANT'
   const [batchDisbursalModal, setBatchDisbursalModal] = useState(null);
   const [downloadConfirmModal, setDownloadConfirmModal] = useState(null); // Pre-download Scope Intimation Modal
@@ -163,6 +168,38 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     return 'RONAV TECHNOLOGIES';
   });
   const [showAdminQrPreview, setShowAdminQrPreview] = useState(false);
+  const [commissionPayoutActive, setCommissionPayoutActive] = useState(true);
+  const [isUpdatingCommissionToggle, setIsUpdatingCommissionToggle] = useState(false);
+
+  useEffect(() => {
+    getCommissionPayoutLockStatus().then(res => {
+      if (res && res.success) {
+        setCommissionPayoutActive(Boolean(res.active));
+      }
+    }).catch(() => {});
+  }, []);
+
+  const handleToggleCommissionPayout = async () => {
+    const nextVal = !commissionPayoutActive;
+    setIsUpdatingCommissionToggle(true);
+    try {
+      const res = await setCommissionPayoutLockStatus(nextVal);
+      if (res && res.success) {
+        setCommissionPayoutActive(nextVal);
+        triggerToast(nextVal 
+          ? '🟢 Commission Withdrawals UNLOCKED across all partner & merchant tiers!' 
+          : '🔴 Commission Withdrawals LOCKED across the platform.',
+          nextVal ? 'success' : 'info'
+        );
+      } else {
+        triggerToast(res?.message || 'Failed to update commission setting on server.', 'error');
+      }
+    } catch (err) {
+      triggerToast(err.message || 'Error updating commission setting', 'error');
+    } finally {
+      setIsUpdatingCommissionToggle(false);
+    }
+  };
   const [expandedPayoutId, setExpandedPayoutId] = useState(null);
   const [transactionsLedger, setTransactionsLedger] = useState([]);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
@@ -240,6 +277,24 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
   const [profitDateFilter, setProfitDateFilter] = useState('ALL'); // 'ALL' | 'TODAY' | 'YESTERDAY' | 'WEEK' | 'MONTH' | 'CUSTOM'
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
+  const [customProfitStats, setCustomProfitStats] = useState(null);
+
+  useEffect(() => {
+    if (profitDateFilter === 'CUSTOM' && customStartDate) {
+      getAdminProfitStats({
+        dateFilter: 'CUSTOM',
+        startDate: customStartDate,
+        endDate: customEndDate || customStartDate
+      }).then(res => {
+        if (res && res.success && res.stats) {
+          setCustomProfitStats(res.stats);
+        }
+      }).catch(err => console.warn('[AdminDashboardPage] Failed to fetch custom profit stats:', err));
+    } else if (profitDateFilter !== 'CUSTOM') {
+      setCustomProfitStats(null);
+    }
+  }, [profitDateFilter, customStartDate, customEndDate]);
+
   const [selectedProfitTier, setSelectedProfitTier] = useState('COMPANY'); // 'COMPANY' | 'MASTER' | 'SUPER' | 'DISTRICT' | 'DISTRIBUTOR' | 'MERCHANT'
   const [selectedProfitChannel, setSelectedProfitChannel] = useState('ALL'); // 'ALL' | 'QR' | 'PINELABS' | 'PAYSWIFF'
   const [profitSearchQuery, setProfitSearchQuery] = useState('');
@@ -385,7 +440,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
         setTransactionsLedger(pendingRes.allTransactions || []);
         if (pendingRes.stats) {
           setMetrics(prev => {
-            const keys = ['totalMasterDistributors', 'totalSuperDistributors', 'totalDistrictDistributors', 'totalDistributors', 'totalMerchants', 'withdrawalsCount', 'pendingWithdrawalsCount', 'totalVolume', 'pendingVolume', 'totalFeesCollected', 'partnerCommissions', 'adminNetProfit', 'pineVolume', 'payswiffVolume', 'qrVolume', 'tierTotals'];
+            const keys = ['totalMasterDistributors', 'totalSuperDistributors', 'totalDistrictDistributors', 'totalDistributors', 'totalMerchants', 'withdrawalsCount', 'pendingWithdrawalsCount', 'totalVolume', 'pendingVolume', 'totalFeesCollected', 'partnerCommissions', 'adminNetProfit', 'pineVolume', 'payswiffVolume', 'qrVolume', 'tierTotals', 'statsByRange', 'channelStats'];
             let changed = false;
             for (const k of keys) {
               if (prev[k] !== pendingRes.stats[k]) {
@@ -607,6 +662,66 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       if (unsubscribe) unsubscribe();
     };
   }, []);
+
+  // Server-side paginated/filtered withdrawals engine for complete historical access & search
+  useEffect(() => {
+    if (activeTab !== 'payouts') return;
+    if (payoutCategoryFilter === 'SWIPES') return;
+
+    let isMounted = true;
+    setIsServerWithdrawalsLoading(true);
+
+    const params = {
+      limit: 12,
+      page: payoutPage,
+      status: payoutStatusFilter,
+      category: payoutCategoryFilter,
+      channel: selectedChannel,
+      settlement_type: payoutSettlementFilter,
+      dateFilter: payoutDateFilter,
+      startDate: payoutFromDate || payoutCustomDate,
+      endDate: payoutToDate || payoutCustomDate,
+      search: payoutSearchQuery
+    };
+
+    getAdminWithdrawals(params)
+      .then(res => {
+        if (!isMounted) return;
+        if (res && res.success) {
+          setServerWithdrawals(res.withdrawals || []);
+          if (res.pagination) {
+            setServerPagination(res.pagination);
+          }
+          if (res.counts) {
+            setMetrics(prev => ({
+              ...prev,
+              withdrawalTotals: {
+                ...(prev.withdrawalTotals || {}),
+                ...res.counts
+              }
+            }));
+          }
+        }
+      })
+      .catch(err => console.error('Failed to load admin withdrawals:', err))
+      .finally(() => {
+        if (isMounted) setIsServerWithdrawalsLoading(false);
+      });
+
+    return () => { isMounted = false; };
+  }, [
+    activeTab,
+    payoutPage,
+    payoutStatusFilter,
+    payoutCategoryFilter,
+    selectedChannel,
+    payoutSettlementFilter,
+    payoutDateFilter,
+    payoutFromDate,
+    payoutToDate,
+    payoutCustomDate,
+    payoutSearchQuery
+  ]);
 
   // View Switcher
   const handleTabSwitch = (tab) => {
@@ -889,7 +1004,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
           mobile: res.user?.mobile,
           role: res.user?.role,
           parent_name: res.parent?.name || res.user?.parent_name || 'Direct',
-          password: 'Ronav@123'
+          password: res.password || ''
         });
         triggerToast(`✓ Successfully created ${onboardForm.role}!`, 'success');
         fetchAdminData();
@@ -908,7 +1023,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
 
   // Approve / Reject / Dispatch Payout Action
-  const handlePayoutAction = async (id, action, merchantName, amount, utr = '', remark = '') => {
+  const handlePayoutAction = async (id, action, merchantName, amount, utr = '', remark = '', options = {}) => {
     if (action === 'APPROVE' && (!utr || !utr.trim())) {
       const promptUtr = window.prompt(`Enter Bank UTR / Reference number for ${merchantName} (${amount}):`);
       if (!promptUtr || !promptUtr.trim()) {
@@ -921,7 +1036,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     setActionProcessingMap(prev => ({ ...prev, [`payout_${id}`]: true }));
     try {
       const finalRemark = remark || (action === 'DISPATCH' ? 'T+1 Standard Bank Transfer' : 'Disbursed via IMPS');
-      const res = await verifyWithdrawal(id, action, finalRemark, utr);
+      const res = await verifyWithdrawal(id, action, finalRemark, utr, options);
       if (res && res.success) {
         let msg = '';
         if (action === 'DISPATCH') {
@@ -1037,13 +1152,15 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
   // Stage 1: Withdrawal Requests (New requests from merchants / card swipe payouts)
   const withdrawalRequests = useMemo(() => {
-    return allPayouts.filter(p => p.status === 'PENDING' && !(p.admin_remark || '').includes('[PENDING_TO_DISBURSE]'));
-  }, [allPayouts]);
+    const combined = dedupeById([...(pendingPayouts || []), ...(allPayouts || [])]);
+    return combined.filter(p => p.status === 'PENDING' && !(p.admin_remark || '').includes('[PENDING_TO_DISBURSE]'));
+  }, [pendingPayouts, allPayouts]);
 
   // Stage 2: Pending to Disburse (Initiated / T+1 Bank Clearance in Progress)
   const pendingToDisburse = useMemo(() => {
-    return allPayouts.filter(p => p.status === 'PENDING' && (p.admin_remark || '').includes('[PENDING_TO_DISBURSE]'));
-  }, [allPayouts]);
+    const combined = dedupeById([...(pendingPayouts || []), ...(allPayouts || [])]);
+    return combined.filter(p => p.status === 'PENDING' && (p.admin_remark || '').includes('[PENDING_TO_DISBURSE]'));
+  }, [pendingPayouts, allPayouts]);
 
   // Stage 3: Settled / Approved Payouts
   const settledPayouts = useMemo(() => {
@@ -1071,7 +1188,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     };
     const todayStr = toLocalDateStr(now);
 
-    const pendingPayouts = (allPayouts || []).filter(w => {
+    const activePendingPayouts = dedupeById([...(pendingPayouts || []), ...(allPayouts || [])]).filter(w => {
       if (w.status !== 'PENDING') return false;
       if (payoutDateFilter === 'TODAY') {
         const itemDateStr = toLocalDateStr(w.created_at || w.verified_at);
@@ -1089,7 +1206,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       return true;
     });
 
-    const pendingItems = dedupeById([...pendingPayouts, ...pendingSwipesList]);
+    const pendingItems = dedupeById([...activePendingPayouts, ...pendingSwipesList]);
 
     let pine = 0;
     let swiffRonav = 0;
@@ -1200,33 +1317,18 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     return networkUsers.filter(u => u.role === 'MERCHANT');
   }, [networkUsers]);
 
-  // Dynamic Real-Time Commission Audit Resolver per User from verified transactions
+  // Dynamic Real-Time Commission Audit Resolver per User from authoritative server ledger
   const getUserTotalCommissionEarned = (userId) => {
     if (!userId) return 0;
     const uid = String(userId).toUpperCase();
-    let total = 0;
-    let hasError = false;
-    (transactionsLedger || []).forEach(t => {
-      if ((t.status || '').toUpperCase() === 'COMPLETED' && t.notes && typeof t.notes === 'string') {
-        try {
-          if (t.notes.includes('commission_splits')) {
-            const jsonPart = t.notes.slice(t.notes.indexOf('{'));
-            const meta = JSON.parse(jsonPart);
-            if (Array.isArray(meta.commission_splits)) {
-              const split = meta.commission_splits.find(s => (s.user_id || '').toUpperCase() === uid);
-              if (split) {
-                total += parseFloat(split.amount) || 0;
-              }
-            }
-          }
-        } catch (err) {
-          console.warn('[AdminDashboardPage] Commission split calculation parsing failed:', err);
-          hasError = true;
-        }
-      }
-    });
-    if (hasError) return { error: true, message: 'Could not load rates, try again' };
-    return total;
+    const user = (networkUsers || []).find(u => (u.id || '').toUpperCase() === uid);
+    if (user && user.total_commission !== undefined && user.total_commission !== null) {
+      return parseFloat(user.total_commission) || 0;
+    }
+    if (user && user.commission_earned !== undefined && user.commission_earned !== null) {
+      return parseFloat(user.commission_earned) || 0;
+    }
+    return 0;
   };
 
   // Open Dossier for Any Member (Full Dedicated Page)
@@ -1328,11 +1430,13 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     const actualWalletEarned = parseFloat(user.available_balance || 0) + parseFloat(user.withdrawn_amount || 0);
 
     // Phase D2: Authoritative Financial Summary directly from PostgreSQL ledger (zero fabricated 0.20%)
+    let finSummary = null;
     try {
       const fin = await getUserFinancialSummary(user.id);
       if (fin && fin.success) {
+        finSummary = fin;
         profitEarned = parseFloat(fin.total_commission_rupees || 0);
-        totalVol = parseFloat(fin.total_volume_rupees || 0);
+        totalVol = parseFloat(fin.total_sales_rupees || fin.total_volume_rupees || 0);
       } else {
         profitEarned = actualWalletEarned > 0 ? actualWalletEarned : parseFloat(user.commission_earned || 0);
         totalVol = parseFloat(user.network_volume || user.downline_volume || user.total_sales || 0);
@@ -1348,6 +1452,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       dossierType: type,
       totalVol,
       profitEarned,
+      financialSummary: finSummary,
       downlineCount,
       uplineChain,
       super_distributors: childSDs,
@@ -1450,7 +1555,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     });
   }, [franchisesList, searchQuery, inquiryStatusFilter]);
 
-  // Date Range Filter Engine
+  // Date Range Filter Engine (Visual table row filter only)
   const filteredData = useMemo(() => {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -1459,38 +1564,6 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
 
     let txns = transactionsLedger || [];
-    let allVol = 0;
-    let allProfit = 0;
-
-    let hasFeeError = false;
-    const getTxnAdminProfit = (t) => {
-      if (t.admin_profit !== undefined && t.admin_profit !== null) {
-        return parseFloat(t.admin_profit) || 0;
-      }
-      let compFee = parseFloat(t.company_fee || t.fee_deducted || t.customer_charge || t.fee);
-      if (isNaN(compFee) || compFee <= 0) {
-        if (t.notes && typeof t.notes === 'string' && t.notes.includes('{')) {
-          try {
-            const jsonPart = t.notes.slice(t.notes.indexOf('{'));
-            const parsed = JSON.parse(jsonPart);
-            if (parsed.company_fee) compFee = parseFloat(parsed.company_fee);
-          } catch (err) {
-            console.warn('[AdminDashboardPage] Failed to parse transaction fee metadata:', err);
-            hasFeeError = true;
-          }
-        }
-      }
-      return !isNaN(compFee) && compFee > 0 ? compFee : 0;
-    };
-
-    txns.forEach(t => {
-      const amt = parseFloat(t.amount) || 0;
-      if (t.status === 'COMPLETED' || t.status === 'Success') {
-        allVol += amt;
-        allProfit += getTxnAdminProfit(t);
-      }
-    });
-
     let filteredTxns = txns;
     if (dateRangeFilter === 'TODAY') {
       filteredTxns = txns.filter(t => new Date(t.created_at || Date.now()).getTime() >= startOfToday);
@@ -1505,36 +1578,16 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       filteredTxns = txns.filter(t => new Date(t.created_at || Date.now()).getTime() >= startOfMonth);
     }
 
-    let volume = 0;
-    let adminProfit = 0;
-    let filteredHasFeeError = false;
-    filteredTxns.forEach(t => {
-      const amt = parseFloat(t.amount) || 0;
-      if (t.status === 'COMPLETED' || t.status === 'Success') {
-        volume += amt;
-        const fee = getTxnAdminProfit(t);
-        adminProfit += fee;
-      }
-    });
-
     return {
       transactions: filteredTxns,
-      volume,
-      adminProfit,
-      allVolume: allVol,
-      allAdminProfit: allProfit,
-      count: filteredTxns.length,
-      hasFeeError: filteredHasFeeError || hasFeeError
+      count: filteredTxns.length
     };
   }, [transactionsLedger, dateRangeFilter]);
 
-  // Combined Totals for Metrics (Dynamically respecting Date Filter)
-  const displayVolume = dateRangeFilter === 'ALL'
-    ? parseFloat(metrics.totalVolume || filteredData.allVolume || 0)
-    : filteredData.volume;
-  const displayAdminProfit = dateRangeFilter === 'ALL'
-    ? parseFloat(metrics.adminNetProfit || filteredData.allAdminProfit || 0)
-    : filteredData.adminProfit;
+  // Authoritative Server-Derived Totals for Overview Tab (Respecting Date Range Filter without client-side summing)
+  const activeRangeStats = metrics.statsByRange?.[dateRangeFilter] || metrics.statsByRange?.ALL || metrics;
+  const displayVolume = parseFloat(activeRangeStats.totalVolume ?? metrics.totalVolume ?? 0);
+  const displayAdminProfit = parseFloat(activeRangeStats.adminNetProfit ?? metrics.adminNetProfit ?? 0);
 
   const totalVolumeDisplay = serverSyncError ? 'Sync Error' : (displayVolume || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
   const adminProfitDisplay = serverSyncError ? 'Sync Error' : (displayAdminProfit || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
@@ -1822,19 +1875,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
       });
     });
 
-    const totalUplinesDistributed = masterTotal + superTotal + districtTotal + distributorTotal;
-
     return {
-      totalSalesVolume,
-      totalFeesCollected,
-      totalUplinesDistributed,
-      companyNet,
-      masterTotal,
-      superTotal,
-      districtTotal,
-      distributorTotal,
-      merchantTotal,
-      channelStats,
       breakdowns,
       txnsCount: txns.length,
       counts: {
@@ -2825,30 +2866,27 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 let channelNetCredited = 0;
                 let hasDossierFeeError = false;
 
-                approvedTxns.forEach(t => {
-                  let fee = parseFloat(t.company_fee) || 0;
-                  let adminCut = 0;
-                  if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
-                    try {
-                      const meta = JSON.parse(t.notes.slice(t.notes.indexOf('{')));
-                      if (meta.company_fee) fee = parseFloat(meta.company_fee);
-                      if (meta.admin_net_margin !== undefined) adminCut = parseFloat(meta.admin_net_margin);
-                    } catch (err) {
-                      console.warn('[AdminDashboardPage] Failed to parse ledger transaction fee metadata:', err);
-                      hasDossierFeeError = true;
+                if (dossierMachineFilter === 'ALL' && viewingUserDossier.financialSummary) {
+                  grossMdr = parseFloat(viewingUserDossier.financialSummary.gross_mdr_rupees || 0);
+                  netAdmin = parseFloat(viewingUserDossier.financialSummary.admin_cut_rupees || 0);
+                } else {
+                  approvedTxns.forEach(t => {
+                    let fee = parseFloat(t.company_fee) || 0;
+                    let adminCut = 0;
+                    if (t.notes && typeof t.notes === 'string' && t.notes.includes('[CARD_SWIPE_ENTRY]')) {
+                      try {
+                        const meta = JSON.parse(t.notes.slice(t.notes.indexOf('{')));
+                        if (meta.company_fee) fee = parseFloat(meta.company_fee);
+                        if (meta.admin_net_margin !== undefined) adminCut = parseFloat(meta.admin_net_margin);
+                      } catch (err) {
+                        console.warn('[AdminDashboardPage] Failed to parse ledger transaction fee metadata:', err);
+                        hasDossierFeeError = true;
+                      }
                     }
-                  }
-                  grossMdr += fee;
-                  netAdmin += (adminCut || parseFloat(t.admin_net_margin || 0));
-
-                  const gross = parseFloat(t.amount) || 0;
-                  const isComm = t.is_commission === true || t.activityType === 'COMMISSION_EARNED' || t.type === 'COMMISSION_EARNED';
-                  if (isComm) {
-                    channelNetCredited += gross;
-                  } else {
-                    channelNetCredited += (parseFloat(t.net_amount) || (t.net_amount_paise ? t.net_amount_paise / 100 : gross));
-                  }
-                });
+                    grossMdr += fee;
+                    netAdmin += (adminCut || parseFloat(t.admin_net_margin || 0));
+                  });
+                }
 
                 const channelWithdrawn = parseFloat(viewingUserDossier.withdrawn_amount || 0);
 
@@ -3728,6 +3766,111 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
 
                 </div>
 
+                {/* Dynamic Commission Withdrawal Master Sliding Switch (Below Total Sales & KPI Cards) */}
+                <div style={{
+                  background: '#FFFFFF',
+                  border: commissionPayoutActive ? '1.5px solid #86EFAC' : '1.5px solid #FECACA',
+                  borderRadius: '12px',
+                  padding: '0.75rem 1rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '0.75rem',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+                  flexWrap: 'wrap',
+                  transition: 'all 0.2s ease',
+                  marginBottom: '1.25rem'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '8px',
+                      background: commissionPayoutActive ? '#ECFDF5' : '#FEF2F2',
+                      color: commissionPayoutActive ? '#059669' : '#DC2626',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '1.15rem',
+                      flexShrink: 0
+                    }}>
+                      💎
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: '#0F172A' }}>
+                          Commission Payouts Master Switch
+                        </span>
+                        <span style={{
+                          fontSize: '0.5625rem',
+                          fontWeight: 900,
+                          padding: '1px 6px',
+                          borderRadius: '4px',
+                          textTransform: 'uppercase',
+                          background: commissionPayoutActive ? '#DCFCE7' : '#FEE2E2',
+                          color: commissionPayoutActive ? '#15803D' : '#DC2626'
+                        }}>
+                          {commissionPayoutActive ? 'Payouts Active' : 'Payouts Frozen'}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: '0.6875rem', color: '#64748B', display: 'block', marginTop: '2px' }}>
+                        {commissionPayoutActive 
+                          ? 'All Super Distributors, Distributors, and Merchants can withdraw commission.' 
+                          : 'Commission payouts are currently locked across all hierarchy levels.'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Modern iOS-Style Sliding Toggle Switch */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: commissionPayoutActive ? '#059669' : '#64748B' }}>
+                      {commissionPayoutActive ? 'Active' : 'Locked'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleToggleCommissionPayout}
+                      disabled={isUpdatingCommissionToggle}
+                      role="switch"
+                      aria-checked={commissionPayoutActive}
+                      title={commissionPayoutActive ? 'Click to Lock Commission Withdrawals' : 'Click to Unlock Commission Withdrawals'}
+                      style={{
+                        width: '52px',
+                        height: '28px',
+                        borderRadius: '9999px',
+                        background: commissionPayoutActive ? '#059669' : '#CBD5E1',
+                        border: 'none',
+                        padding: '3px',
+                        cursor: isUpdatingCommissionToggle ? 'wait' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        position: 'relative',
+                        transition: 'background-color 0.25s ease',
+                        boxShadow: commissionPayoutActive ? '0 2px 6px rgba(5,150,105,0.35)' : 'none',
+                        outline: 'none',
+                        flexShrink: 0
+                      }}
+                    >
+                      <div style={{
+                        width: '22px',
+                        height: '22px',
+                        borderRadius: '50%',
+                        background: '#FFFFFF',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+                        transform: commissionPayoutActive ? 'translateX(24px)' : 'translateX(0px)',
+                        transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '0.625rem',
+                        fontWeight: 900,
+                        color: commissionPayoutActive ? '#059669' : '#94A3B8'
+                      }}>
+                        {commissionPayoutActive ? '✓' : '✕'}
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
 
 
                 {/* 1. NETWORK DIRECTORY (5 TIERS) + QUICK ONBOARD BUTTON */}
@@ -4197,7 +4340,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
             {activeTab === 'profits' && (() => {
               const currentTierKey = selectedProfitTier || 'COMPANY';
               const rawItems = profitDistributionData.breakdowns[currentTierKey] || [];
-              const channelStats = profitDistributionData.channelStats || { ALL: { count: 0 }, QR: { count: 0 }, PINELABS: { count: 0 }, PAYSWIFF: { count: 0 } };
+              const currentProfitStats = (profitDateFilter === 'CUSTOM' ? customProfitStats : metrics.statsByRange?.[profitDateFilter]) || metrics.statsByRange?.ALL || metrics;
+              const channelStats = currentProfitStats.channelStats || { ALL: { count: 0, volume: 0, profit: 0 }, QR: { count: 0, volume: 0, profit: 0 }, PINELABS: { count: 0, volume: 0, profit: 0 }, PAYSWIFF: { count: 0, volume: 0, profit: 0 } };
 
               // Apply Channel Filter
               let filteredItems = rawItems;
@@ -4220,10 +4364,10 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               }
 
               const isAllTime = profitDateFilter === 'ALL';
-              const authoritativeSales = (isAllTime && metrics.totalVolume !== undefined && metrics.totalVolume !== null) ? Number(metrics.totalVolume) : profitDistributionData.totalSalesVolume;
-              const authoritativeFees = (isAllTime && metrics.totalFeesCollected !== undefined && metrics.totalFeesCollected !== null) ? Number(metrics.totalFeesCollected) : profitDistributionData.totalFeesCollected;
-              const authoritativeUplines = (isAllTime && metrics.partnerCommissions !== undefined && metrics.partnerCommissions !== null) ? Number(metrics.partnerCommissions) : profitDistributionData.totalUplinesDistributed;
-              const authoritativeAdminProfit = (isAllTime && metrics.adminNetProfit !== undefined && metrics.adminNetProfit !== null) ? Number(metrics.adminNetProfit) : profitDistributionData.companyNet;
+              const authoritativeSales = Number(currentProfitStats.totalVolume || 0);
+              const authoritativeFees = Number(currentProfitStats.totalFeesCollected || 0);
+              const authoritativeUplines = Number(currentProfitStats.partnerCommissions || 0);
+              const authoritativeAdminProfit = Number(currentProfitStats.adminNetProfit || 0);
 
               const tierMetaMap = {
                 COMPANY: {
@@ -4239,7 +4383,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   icon: '👑',
                   accentColor: '#7C3AED',
                   tabId: 'master_distributors',
-                  total: isAllTime && metrics.tierTotals?.master !== undefined ? Number(metrics.tierTotals.master) : (profitDistributionData.masterTotal || 0),
+                  total: Number(currentProfitStats.tierTotals?.master || 0),
                   subtitle: `${profitDistributionData.counts.master} Active Partners`
                 },
                 SUPER: {
@@ -4247,7 +4391,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   icon: '⚡',
                   accentColor: '#4F46E5',
                   tabId: 'super_distributors',
-                  total: isAllTime && metrics.tierTotals?.super !== undefined ? Number(metrics.tierTotals.super) : (profitDistributionData.superTotal || 0),
+                  total: Number(currentProfitStats.tierTotals?.super || 0),
                   subtitle: `${profitDistributionData.counts.super} Active Partners`
                 },
                 DISTRICT: {
@@ -4255,7 +4399,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   icon: '🏛️',
                   accentColor: '#D97706',
                   tabId: 'district_distributors',
-                  total: isAllTime && metrics.tierTotals?.district !== undefined ? Number(metrics.tierTotals.district) : (profitDistributionData.districtTotal || 0),
+                  total: Number(currentProfitStats.tierTotals?.district || 0),
                   subtitle: `${profitDistributionData.counts.district} Active Partners`
                 },
                 DISTRIBUTOR: {
@@ -4263,7 +4407,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   icon: '📦',
                   accentColor: '#0F52BA',
                   tabId: 'distributors',
-                  total: isAllTime && metrics.tierTotals?.distributor !== undefined ? Number(metrics.tierTotals.distributor) : (profitDistributionData.distributorTotal || 0),
+                  total: Number(currentProfitStats.tierTotals?.distributor || 0),
                   subtitle: `${profitDistributionData.counts.distributor} Active Partners`
                 },
                 MERCHANT: {
@@ -4271,7 +4415,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   icon: '🏪',
                   accentColor: '#0284C7',
                   tabId: 'merchants',
-                  total: isAllTime && metrics.tierTotals?.merchant !== undefined ? Number(metrics.tierTotals.merchant) : (profitDistributionData.merchantTotal || 0),
+                  total: Number(currentProfitStats.tierTotals?.merchant || 0),
                   subtitle: `${profitDistributionData.counts.merchant} Active Merchants`
                 }
               };
@@ -4499,7 +4643,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         ₹{authoritativeSales.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h3>
                       <span style={{ fontSize: '0.625rem', color: '#64748B', fontWeight: 600 }}>
-                        {isAllTime ? (transactionsLedger?.filter(t => t.status === 'COMPLETED' || t.status === 'Success').length || 0) : (profitDistributionData.txnsCount || 0)} transactions swiped
+                        {currentProfitStats.channelStats?.ALL?.count ?? currentProfitStats.totalSwipesCount ?? (isAllTime ? (transactionsLedger?.filter(t => t.status === 'COMPLETED' || t.status === 'Success').length || 0) : 0)} transactions swiped
                       </span>
                     </div>
 
@@ -5852,10 +5996,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   <div className="admin-roster-grid">
                     {filteredMerchants.map(m => {
                       const sales = parseFloat(m.total_sales || 0);
-                      const isPine = (m.pos_provider || '').includes('Pine');
-                      const isInstant = (m.pos_settlement || '').includes('INSTANT');
-                      const rate = isPine ? (isInstant ? 0.0025 : 0.0015) : 0.0005;
-                      const adminProfit = sales * rate;
+                      const adminProfit = parseFloat(m.admin_profit_earned || m.commission_earned || 0);
 
                       return (
                         <div
@@ -6065,7 +6206,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               // Genuine live Supabase transactions only (NO dummy or seed data)
               const combinedPendingTxns = dedupeById(pendingTxns);
               const combinedLedger = dedupeById(transactionsLedger);
-              const combinedPayouts = dedupeById(allPayouts);
+              const combinedPayouts = dedupeById([...(pendingPayouts || []), ...(allPayouts || [])]);
 
               // Date filter helper (accurate local calendar day)
               const toLocalDateStr = (d) => {
@@ -6293,6 +6434,21 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               const totalPages = Math.max(1, Math.ceil(activeList.length / PAGE_SIZE));
               const currentItems = activeList.slice((payoutPage - 1) * PAGE_SIZE, payoutPage * PAGE_SIZE);
 
+              const isUsingServerWithdrawals = payoutCategoryFilter !== 'SWIPES' && Boolean(serverPagination && Array.isArray(serverWithdrawals));
+
+              const enrichedServerWithdrawals = isUsingServerWithdrawals
+                ? (serverWithdrawals || []).map(w => ({
+                    ...w,
+                    _entityType: 'WITHDRAWAL',
+                    _subStatus: w.status === 'SUBMITTED_TO_BANK' ? 'SUBMITTED_TO_BANK' : (w.status === 'COMPLETED' ? 'COMPLETED' : (w.status === 'REJECTED' ? 'REJECTED' : 'PENDING'))
+                  }))
+                : [];
+
+              const itemsToRender = isUsingServerWithdrawals ? enrichedServerWithdrawals : currentItems;
+              const effectiveTotalPages = isUsingServerWithdrawals ? (serverPagination?.total_pages || 1) : totalPages;
+              const effectiveTotalCount = isUsingServerWithdrawals ? (serverPagination?.total !== undefined ? serverPagination.total : activeList.length) : activeList.length;
+              const hasNoItems = isUsingServerWithdrawals ? effectiveTotalCount === 0 : activeList.length === 0;
+
               const renderPayoutPagination = (pages, count) => {
                 if (count <= PAGE_SIZE) return null;
                 const startItem = (payoutPage - 1) * PAGE_SIZE + 1;
@@ -6367,12 +6523,14 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               };
 
               const parsePayoutDetails = (p) => {
-                let utr = p.bank_rrn || '';
+                let utr = p.utr || p.bank_rrn || '';
                 let recipient = '';
                 const remark = p.admin_remark || '';
-                const utrMatch = remark.match(/(?:UTR:?\s*)+([A-Za-z0-9]+)/i) || (p.bank_rrn ? p.bank_rrn.match(/(?:UTR:?\s*)+([A-Za-z0-9]+)/i) : null);
-                if (utrMatch) utr = utrMatch[1];
-                else if (!utr && remark && !remark.includes('[')) utr = remark.replace('[PENDING_TO_DISBURSE]', '').trim();
+                if (!utr) {
+                  const utrMatch = remark.match(/(?:UTR:?\s*)+([A-Za-z0-9_-]+)/i) || (p.bank_rrn ? p.bank_rrn.match(/(?:UTR:?\s*)+([A-Za-z0-9_-]+)/i) : null);
+                  if (utrMatch) utr = utrMatch[1];
+                  else if (!utr && remark && !remark.includes('[')) utr = remark.replace('[PENDING_TO_DISBURSE]', '').trim();
+                }
                 const nameMatch = remark.match(/Name:\s*([^|•\r\n]+)/i);
                 if (nameMatch) recipient = nameMatch[1].trim();
 
@@ -6381,7 +6539,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                 const merchantNote = matchNote ? matchNote[1].trim() : (p.merchant_remarks || '');
                 
                 return {
-                  utr: utr || 'IMPS Cleared',
+                  utr: utr || '',
                   recipient: recipient || p.holder_name || p.merchant_name,
                   bank: p.bank_name || 'Bank',
                   acc: p.account_number || '',
@@ -6603,9 +6761,13 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
               };
 
               const handleRevertSingleToPending = async (itemId) => {
-                await revertWithdrawalsToPending([itemId]);
-                await fetchAdminData();
-                triggerToast('↺ Moved withdrawal back to Pending in database.', 'info');
+                const res = await revertWithdrawalsToPending([itemId]);
+                if (res && res.success) {
+                  await fetchAdminData();
+                  triggerToast('↺ Moved withdrawal back to Pending in database.', 'info');
+                } else {
+                  triggerToast(`⚠️ Failed: ${res?.message || 'Error moving to pending'}`, 'error');
+                }
               };
 
               // Group submitted withdrawals into Batches with date, day, time, count, amount
@@ -6773,8 +6935,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         setPayoutPage(1);
                       }}
                       style={{
-                        background: (payoutCategoryFilter === 'COMMISSION' && payoutStatusFilter === 'PENDING') ? '#F5F3FF' : '#F0FDF4',
-                        border: (payoutCategoryFilter === 'COMMISSION' && payoutStatusFilter === 'PENDING') ? '2px solid #8B5CF6' : '1px solid #BBF7D0',
+                        background: (payoutCategoryFilter === 'COMMISSION' && payoutStatusFilter === 'PENDING') ? '#F5F3FF' : (!commissionPayoutActive ? '#FEF2F2' : '#F0FDF4'),
+                        border: (payoutCategoryFilter === 'COMMISSION' && payoutStatusFilter === 'PENDING') ? '2px solid #8B5CF6' : (!commissionPayoutActive ? '1.5px solid #FCA5A5' : '1px solid #BBF7D0'),
                         borderRadius: '10px',
                         padding: '0.875rem 1rem',
                         cursor: 'pointer',
@@ -6782,20 +6944,45 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: (payoutCategoryFilter === 'COMMISSION') ? '#7C3AED' : '#15803D', textTransform: 'uppercase' }}>
+                        <span style={{ fontSize: '0.6875rem', fontWeight: 800, color: (payoutCategoryFilter === 'COMMISSION') ? '#7C3AED' : (!commissionPayoutActive ? '#DC2626' : '#15803D'), textTransform: 'uppercase' }}>
                           👑 Commission Payouts
                         </span>
-                        <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#DDD6FE', color: '#6B21A8', padding: '1px 6px', borderRadius: '10px' }}>
-                          {pendingCommissionList.length} Due
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span style={{ fontSize: '0.625rem', fontWeight: 800, background: '#DDD6FE', color: '#6B21A8', padding: '1px 6px', borderRadius: '10px' }}>
+                            {metrics.withdrawalTotals?.pending_commission_count !== undefined ? metrics.withdrawalTotals.pending_commission_count : pendingCommissionList.length} Due
+                          </span>
+                          <span style={{ fontSize: '0.625rem', fontWeight: 800, background: !commissionPayoutActive ? '#DC2626' : '#15803D', color: '#FFFFFF', padding: '1px 6px', borderRadius: '10px' }}>
+                            {!commissionPayoutActive ? 'LOCKED' : 'ACTIVE'}
+                          </span>
+                        </div>
                       </div>
                       <h4 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0A192F', margin: '6px 0 2px' }}>
                         ₹{totalPendingCommissionAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </h4>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
                         <span style={{ fontSize: '0.6rem', color: '#64748B' }}>
-                          🟢 Click to view requests
+                          {!commissionPayoutActive ? '🔒 Downlines Frozen' : '🟢 Click to view requests'}
                         </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleCommissionPayout();
+                          }}
+                          disabled={isUpdatingCommissionToggle}
+                          style={{
+                            background: !commissionPayoutActive ? '#DC2626' : '#15803D',
+                            color: '#FFFFFF',
+                            border: 'none',
+                            borderRadius: '4px',
+                            padding: '2px 6px',
+                            fontSize: '0.6rem',
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {!commissionPayoutActive ? 'Unlock' : 'Freeze'}
+                        </button>
                       </div>
                     </div>
 
@@ -7261,7 +7448,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           padding: '1px 6px',
                           borderRadius: '10px'
                         }}>
-                          {pendingWithdrawalsList.length}
+                          {metrics.withdrawalTotals?.pending_regular_count !== undefined ? metrics.withdrawalTotals.pending_regular_count : pendingWithdrawalsList.length}
                         </span>
                       </button>
 
@@ -7298,7 +7485,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           padding: '1px 6px',
                           borderRadius: '10px'
                         }}>
-                          {pendingCommissionList.length}
+                          {metrics.withdrawalTotals?.pending_commission_count !== undefined ? metrics.withdrawalTotals.pending_commission_count : pendingCommissionList.length}
                         </span>
                       </button>
 
@@ -7335,7 +7522,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                           padding: '1px 6px',
                           borderRadius: '10px'
                         }}>
-                          {submittedWithdrawalsList.length}
+                          {metrics.withdrawalTotals?.submitted_count !== undefined ? metrics.withdrawalTotals.submitted_count : submittedWithdrawalsList.length}
                         </span>
                       </button>
 
@@ -7364,6 +7551,18 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       >
                         <CheckCircle2 style={{ width: '13px', height: '13px', color: '#16A34A' }} />
                         <span>Completed History</span>
+                        {metrics.withdrawalTotals?.completed_count !== undefined && (
+                          <span style={{
+                            fontSize: '0.625rem',
+                            fontWeight: 800,
+                            background: payoutStatusFilter === 'COMPLETED' ? '#22C55E' : '#F1F5F9',
+                            color: payoutStatusFilter === 'COMPLETED' ? '#FFFFFF' : '#475569',
+                            padding: '1px 6px',
+                            borderRadius: '10px'
+                          }}>
+                            {metrics.withdrawalTotals.completed_count}
+                          </span>
+                        )}
                       </button>
 
                       {/* 5. All Records */}
@@ -7387,6 +7586,19 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         }}
                       >
                         <span>All</span>
+                        {metrics.withdrawalTotals?.total_count !== undefined && (
+                          <span style={{
+                            fontSize: '0.625rem',
+                            fontWeight: 800,
+                            background: (payoutCategoryFilter === 'ALL' && payoutStatusFilter === 'ALL') ? '#64748B' : '#F1F5F9',
+                            color: (payoutCategoryFilter === 'ALL' && payoutStatusFilter === 'ALL') ? '#FFFFFF' : '#475569',
+                            padding: '1px 6px',
+                            borderRadius: '10px',
+                            marginLeft: '4px'
+                          }}>
+                            {metrics.withdrawalTotals.total_count}
+                          </span>
+                        )}
                       </button>
                     </div>
 
@@ -7435,7 +7647,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       if (pendingWithdrawals.length === 0) return null;
 
                       const isAllSelected = selectedPendingIds.size > 0 && selectedPendingIds.size === pendingWithdrawals.length;
-                      const allPendingTotal = totalPendingWithdrawalAmount;
+                      const allPendingTotal = payoutCategoryFilter === 'COMMISSION' ? totalPendingCommissionAmount : totalPendingWithdrawalAmount;
 
                       const handleToggleSelectAll = () => {
                         if (isAllSelected) {
@@ -7857,8 +8069,27 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                               {/* 3. Reject */}
                                               <button
                                                 type="button"
-                                                onClick={() => handlePayoutAction(item.id, 'REJECT', item.merchant_name, item.amount, '', 'Bank Transfer Failed')}
-                                                title="Reject payout and refund wallet balance"
+                                                onClick={async () => {
+                                                  const confirmed = window.confirm(
+                                                    `⚠️ WARNING: This withdrawal (₹${item.amount} for ${item.merchant_name}) was already submitted to the bank in a batch.\n\nDid the bank transfer definitely FAIL, return, or get cancelled?\n\nIf confirmed, held funds will be released back to the merchant's wallet balance.`
+                                                  );
+                                                  if (!confirmed) return;
+                                                  const reason = window.prompt('Enter confirmed bank failure / cancellation reason:');
+                                                  if (!reason || !reason.trim()) {
+                                                    triggerToast('⚠️ A rejection reason is required to reject a submitted withdrawal.', 'error');
+                                                    return;
+                                                  }
+                                                  await handlePayoutAction(
+                                                    item.id,
+                                                    'REJECT',
+                                                    item.merchant_name,
+                                                    item.amount,
+                                                    '',
+                                                    reason.trim(),
+                                                    { confirmBankDidNotPay: true }
+                                                  );
+                                                }}
+                                                title="Confirm bank failure and refund wallet balance"
                                                 style={{
                                                   background: '#FEF2F2',
                                                   color: '#DC2626',
@@ -7885,7 +8116,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         })}
                       </div>
                     )
-                  ) : activeList.length === 0 ? (
+                  ) : hasNoItems ? (
                     <div style={{
                       padding: '2.5rem 1.25rem',
                       textAlign: 'center',
@@ -8047,7 +8278,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       boxShadow: '0 1px 3px rgba(15,23,42,0.03)',
                       overflow: 'hidden'
                     }}>
-                      {currentItems.map((item, idx) => {
+                      {itemsToRender.map((item, idx) => {
                         const isSwipe = item._entityType === 'SWIPE';
                         const isPending = item._subStatus === 'PENDING';
                         const isApproved = item._subStatus === 'COMPLETED';
@@ -8081,14 +8312,14 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                         if (isSwipe) {
                           amountStr = `+₹${parseFloat(item.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
                           merchantTitle = item.merchant_name || '';
-                          rrnOrUtr = item.rrn_number || item.ref_number || item.id || 'N/A';
+                          rrnOrUtr = item.ref_number || item.rrn_number || item.rrn || '';
                           channelTag = sourceChannelLabel;
                         } else {
                           // Withdrawal
                           details = parsePayoutDetails(item);
                           amountStr = `-₹${parseFloat(item.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
                           merchantTitle = item.merchant_name || details.recipient || 'Balaji Super Bazaar';
-                          rrnOrUtr = details.utr && details.utr !== 'IMPS Cleared' ? details.utr : (item.bank_rrn || item.id);
+                          rrnOrUtr = (details.utr && details.utr !== 'IMPS Cleared') ? details.utr : (item.utr || item.bank_rrn || '');
                           channelTag = item.bank_name 
                             ? `${item.bank_name}${item.account_number ? ` XXXXXXX${item.account_number.slice(-4)}` : ''}` 
                             : 'Bank Transfer';
@@ -8307,9 +8538,9 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    copyToClipboard(rrnOrUtr, `utr_${item.id}`);
+                                    copyToClipboard(rrnOrUtr || item.id, `utr_${item.id}`);
                                   }}
-                                  title="Click to copy UTR number"
+                                  title={rrnOrUtr ? "Click to copy UTR number" : "Click to copy Reference ID"}
                                   style={{
                                     display: 'inline-flex',
                                     alignItems: 'center',
@@ -8327,7 +8558,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                     whiteSpace: 'nowrap'
                                   }}
                                 >
-                                  <span>UTR: {rrnOrUtr}</span>
+                                  <span>{rrnOrUtr ? `UTR: ${rrnOrUtr}` : (isSwipe ? `TXN: ${item.id}` : `ID: ${item.id} • UTR: Pending`)}</span>
                                   {copiedId[`utr_${item.id}`] ? (
                                     <span style={{ fontSize: '0.65625rem', color: '#059669', fontWeight: 800 }}>✓ Copied</span>
                                   ) : (
@@ -9001,8 +9232,25 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                                       </button>
                                       <button
                                         type="button"
-                                        onClick={() => {
-                                          handlePayoutAction(item.id, 'REJECT', item.merchant_name, item.amount, '', 'Bank Transfer Failed');
+                                        onClick={async () => {
+                                          const confirmed = window.confirm(
+                                            `⚠️ WARNING: This withdrawal (₹${item.amount} for ${item.merchant_name}) was already submitted to the bank in a batch.\n\nDid the bank transfer definitely FAIL, return, or get cancelled?\n\nIf confirmed, held funds will be released back to the merchant's wallet balance.`
+                                          );
+                                          if (!confirmed) return;
+                                          const reason = window.prompt('Enter confirmed bank failure / cancellation reason:');
+                                          if (!reason || !reason.trim()) {
+                                            triggerToast('⚠️ A rejection reason is required to reject a submitted withdrawal.', 'error');
+                                            return;
+                                          }
+                                          await handlePayoutAction(
+                                            item.id,
+                                            'REJECT',
+                                            item.merchant_name,
+                                            item.amount,
+                                            '',
+                                            reason.trim(),
+                                            { confirmBankDidNotPay: true }
+                                          );
                                           setExpandedPayoutId(null);
                                         }}
                                         style={{
@@ -9034,7 +9282,7 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                     </div>
                   )}
 
-                  {renderPayoutPagination(totalPages, activeList.length)}
+                  {renderPayoutPagination(effectiveTotalPages, effectiveTotalCount)}
                 </div>
               );
             })()}
@@ -11841,8 +12089,28 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                   disabled={disbursingPayout.isSubmitting}
                   onClick={async () => {
                     const p = disbursingPayout.payout;
-                    const confirmed = window.confirm(`Reject withdrawal payout of ₹${parseFloat(p.amount).toLocaleString('en-IN')} for ${p.merchant_name}? Funds will be refunded to merchant wallet.`);
-                    if (!confirmed) return;
+                    const isSubmitted = p.status === 'SUBMITTED_TO_BANK' || p._subStatus === 'SUBMITTED_TO_BANK';
+                    let confirmBankDidNotPay = false;
+                    let failureReason = disbursingPayout.remark || '';
+                    if (isSubmitted) {
+                      const confirmed = window.confirm(
+                        `⚠️ WARNING: This withdrawal (₹${parseFloat(p.amount).toLocaleString('en-IN')} for ${p.merchant_name}) was already submitted to the bank.\n\nDid the bank transfer definitely FAIL, return, or get cancelled?\n\nIf confirmed, held funds will be released back to the merchant's wallet balance.`
+                      );
+                      if (!confirmed) return;
+                      confirmBankDidNotPay = true;
+                      if (!failureReason.trim()) {
+                        const prompted = window.prompt('Enter confirmed bank failure / cancellation reason:');
+                        if (!prompted || !prompted.trim()) {
+                          triggerToast('⚠️ A rejection reason is required to reject a submitted withdrawal.', 'error');
+                          return;
+                        }
+                        failureReason = prompted.trim();
+                      }
+                    } else {
+                      const confirmed = window.confirm(`Reject withdrawal payout of ₹${parseFloat(p.amount).toLocaleString('en-IN')} for ${p.merchant_name}? Funds will be refunded to merchant wallet.`);
+                      if (!confirmed) return;
+                      if (!failureReason.trim()) failureReason = 'Payout Request Declined by Admin';
+                    }
                     setDisbursingPayout(prev => ({ ...prev, isSubmitting: true }));
                     await handlePayoutAction(
                       p.id,
@@ -11850,7 +12118,8 @@ export default function AdminDashboardPage({ onLogout, onNavigate }) {
                       p.merchant_name,
                       p.amount,
                       '',
-                      disbursingPayout.remark || 'Payout Request Declined by Admin'
+                      failureReason,
+                      { confirmBankDidNotPay }
                     );
                   }}
                   title="Reject payout and refund wallet balance"
