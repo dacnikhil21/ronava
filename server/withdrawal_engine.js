@@ -104,15 +104,39 @@ export async function processWithdrawalRequest(client, {
     throw new Error('CALLER_IDENTIFICATION_REQUIRED: merchantId or createdBy is required for processWithdrawalRequest.');
   }
 
-  let cleanPayoutType = (payoutType || 'REGULAR').toString().trim().toUpperCase();
-  if (cleanPayoutType !== 'COMMISSION') {
-    cleanPayoutType = 'REGULAR';
+  // 0. Emergency Pause Switch Enforcement (Task 8)
+  const pauseRes = await client.query(`SELECT value_numeric FROM system_settings WHERE key = 'payouts_paused'`);
+  const isPayoutsPaused = Number(pauseRes.rows[0]?.value_numeric || 0) === 1;
+  if (isPayoutsPaused) {
+    throw new Error('PAYOUTS_PAUSED: Withdrawals are temporarily paused by the administrator.');
   }
 
-  const rawUtr = restParams.utr || restParams.utr_number || restParams.ref_number || null;
-  const cleanUtr = rawUtr ? String(rawUtr).trim().toUpperCase() : null;
+  // 1. Payout Type Enforcement (Task 2)
+  let cleanPayoutType = (payoutType || 'REGULAR').toString().trim().toUpperCase();
+  if (payoutType && !['REGULAR', 'COMMISSION'].includes(cleanPayoutType)) {
+    throw new Error('PAYOUT_TYPE_REQUIRED: Payout type must be either REGULAR or COMMISSION.');
+  }
 
-  // Server-Enforced Commission Lock
+  // 2. Role Guards: Merchant cannot request COMMISSION; Admin cannot withdraw
+  const userRow = await client.query(`SELECT id, role FROM users WHERE UPPER(id) = UPPER($1)`, [merchantId]);
+  const userRole = (userRow.rows[0]?.role || '').toUpperCase();
+  if (userRole === 'MERCHANT' && cleanPayoutType === 'COMMISSION') {
+    throw new Error('MERCHANT_COMMISSION_DISALLOWED: Merchants cannot request commission payouts. Only regular sales settlements are permitted.');
+  }
+  if (userRole === 'ADMIN' || merchantId.toUpperCase() === 'ADM001') {
+    throw new Error('ADMIN_WITHDRAWAL_DISALLOWED: Administrator accounts cannot request withdrawals.');
+  }
+
+  // 3. UTR Rules: REGULAR requires non-empty UTR; COMMISSION does not require UTR
+  const rawUtr = restParams.utr !== undefined ? restParams.utr : (restParams.utr_number !== undefined ? restParams.utr_number : restParams.ref_number);
+  const cleanUtr = (rawUtr !== null && rawUtr !== undefined && String(rawUtr).trim() !== '') ? String(rawUtr).trim() : null;
+
+  const enforceUtr = restParams.enforceUtr === true || restParams.requireUtr === true;
+  if (enforceUtr && cleanPayoutType === 'REGULAR' && !cleanUtr) {
+    throw new Error('UTR_REQUIRED_FOR_REGULAR: Slip UTR or reference number is required for regular settlements.');
+  }
+
+  // 4. Server-Enforced Commission Lock
   if (cleanPayoutType === 'COMMISSION') {
     const lockRes = await client.query(`SELECT value_numeric FROM system_settings WHERE key = 'commission_payouts_locked'`);
     const isLocked = Number(lockRes.rows[0]?.value_numeric || 0) === 1;
@@ -124,6 +148,27 @@ export async function processWithdrawalRequest(client, {
   const reqPaise = BigInt(amountPaise);
   if (reqPaise <= 0n) {
     throw new Error('INVALID_WITHDRAWAL_AMOUNT: Withdrawal amount must be greater than 0 paise.');
+  }
+
+  // 5. Informational Flag on COMMISSION exceeding earned commission (Task 7)
+  let informationalFlag = null;
+  if (cleanPayoutType === 'COMMISSION') {
+    const earnedCommRes = await client.query(`
+      SELECT COALESCE(SUM(amount_paise), 0)::bigint as earned_comm_paise
+      FROM financial_ledger
+      WHERE UPPER(user_id) = UPPER($1)
+        AND channel = $2
+        AND (
+          type = 'commission'
+          OR (type = 'adjustment' AND reference_type = 'REVERSAL')
+        )
+    `, [merchantId, channel]);
+    const earnedCommPaise = BigInt(earnedCommRes.rows[0]?.earned_comm_paise || 0);
+    if (reqPaise > earnedCommPaise) {
+      const earnedRs = (Number(earnedCommPaise) / 100).toFixed(2);
+      const reqRs = (Number(reqPaise) / 100).toFixed(2);
+      informationalFlag = `[COMMISSION_EXCEEDS_EARNED: Requested Rs ${reqRs} exceeds earned channel commission Rs ${earnedRs}]`;
+    }
   }
 
   // 1. Idempotency Check
@@ -277,6 +322,8 @@ export async function processWithdrawalRequest(client, {
     referenceType: 'WITHDRAWAL',
     channel,
     metadata: {
+      payout_type: cleanPayoutType,
+      utr: cleanUtr,
       beneficiary_id: beneficiary.id,
       bank_name: beneficiary.bank_name,
       account_number_masked: beneficiary.account_number.slice(-4),
@@ -289,12 +336,14 @@ export async function processWithdrawalRequest(client, {
   });
 
   // 7. Insert withdrawal record
+  const typedRemarks = (restParams.remarks || restParams.admin_remark || restParams.notes || '').toString().trim() || null;
+  const finalRemark = [informationalFlag, typedRemarks].filter(Boolean).join(' ') || null;
   const amountRupees = (Number(reqPaise) / 100).toFixed(2);
   await client.query(`
     INSERT INTO withdrawals (
       id, merchant_id, amount_paise, amount, fee_paise, net_payout_paise,
-      beneficiary_id, channel, settlement_type, payout_type, status, utr, created_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', $11, NOW())
+      beneficiary_id, channel, settlement_type, payout_type, status, utr, admin_remark, created_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'PENDING', $11, $12, NOW())
   `, [
     withdrawalId,
     merchantId,
@@ -306,7 +355,8 @@ export async function processWithdrawalRequest(client, {
     channel,
     quote.settlement_type,
     cleanPayoutType,
-    cleanUtr
+    cleanUtr,
+    finalRemark
   ]);
 
   const result = {
@@ -322,7 +372,8 @@ export async function processWithdrawalRequest(client, {
     withdrawal_mode: quote.settlement_type,
     payout_type: cleanPayoutType,
     status: 'PENDING',
-    utr: cleanUtr
+    utr: cleanUtr,
+    admin_remark: finalRemark
   };
 
   // 8. Store Idempotency Key

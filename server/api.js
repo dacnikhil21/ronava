@@ -2118,6 +2118,11 @@ export async function handleApiRequest(req, res) {
         }
       }
 
+      const rawSlip = (body.slip_number || body.slipNumber || body.ref_number || body.refNumber || body.utr || '').toString().trim();
+      if (!rawSlip) {
+        return sendJson(res, 400, { success: false, code: 'SLIP_UTR_REQUIRED', message: 'SLIP_UTR_REQUIRED: Paper slip UTR or transaction reference number is required when recording a swipe sale.' });
+      }
+
       const pool = getDbPool();
       const client = await pool.connect();
       try {
@@ -2126,8 +2131,8 @@ export async function handleApiRequest(req, res) {
           amountPaise,
           channel: cleanChannel,
           settlementMode,
-          refNumber: body.ref_number || body.refNumber || null,
-          slipNumber: body.slip_number || body.slipNumber || null,
+          refNumber: body.ref_number || body.refNumber || rawSlip,
+          slipNumber: body.slip_number || body.slipNumber || rawSlip,
           notes: body.notes || null,
           idempotencyKey,
           createdBy
@@ -2448,10 +2453,30 @@ export async function handleApiRequest(req, res) {
           return sendJson(res, 400, { success: false, message: 'Withdrawal amount must be a positive number.' });
         }
 
+        const reqPayoutType = body.payout_type || body.payoutType || body.payout_purpose || null;
+        if (!reqPayoutType) {
+          return sendJson(res, 400, { success: false, code: 'PAYOUT_TYPE_REQUIRED', message: 'PAYOUT_TYPE_REQUIRED: Payout type is required (REGULAR or COMMISSION).' });
+        }
+        const cleanReqType = reqPayoutType.toString().trim().toUpperCase();
+        if (cleanReqType !== 'REGULAR' && cleanReqType !== 'COMMISSION') {
+          return sendJson(res, 400, { success: false, code: 'PAYOUT_TYPE_REQUIRED', message: 'PAYOUT_TYPE_REQUIRED: Payout type must be either REGULAR or COMMISSION.' });
+        }
+        if (caller.role === 'MERCHANT' && cleanReqType === 'COMMISSION') {
+          return sendJson(res, 400, { success: false, code: 'MERCHANT_COMMISSION_DISALLOWED', message: 'MERCHANT_COMMISSION_DISALLOWED: Merchants cannot request commission payouts. Only regular sales settlements are permitted.' });
+        }
+        if (caller.role === 'ADMIN' || targetMerchantId.toUpperCase() === 'ADM001') {
+          return sendJson(res, 400, { success: false, code: 'ADMIN_WITHDRAWAL_DISALLOWED', message: 'ADMIN_WITHDRAWAL_DISALLOWED: Administrator accounts cannot request withdrawals.' });
+        }
+
+        const rawUtrVal = body.utr !== undefined ? body.utr : (body.utr_number !== undefined ? body.utr_number : (body.ref_number || ''));
+        const userUtr = (rawUtrVal !== null && rawUtrVal !== undefined && String(rawUtrVal).trim() !== '') ? String(rawUtrVal).trim() : null;
+
+        if (cleanReqType === 'REGULAR' && !userUtr) {
+          return sendJson(res, 400, { success: false, code: 'UTR_REQUIRED_FOR_REGULAR', message: 'UTR_REQUIRED_FOR_REGULAR: Slip UTR or reference number is required for regular settlements.' });
+        }
+
         const createdBy = caller.id;
         const idempotencyKey = req.headers['idempotency-key'] || body.idempotency_key || null;
-
-        const userUtr = (body.utr || body.utr_number || body.ref_number || '').toString().trim().toUpperCase() || null;
 
         const result = await withTransaction(async (client) => {
           return await processWithdrawalRequest(client, {
@@ -2464,8 +2489,10 @@ export async function handleApiRequest(req, res) {
             holderName: body.holder_name || body.beneficiary_name || body.customer_name,
             channel: body.channel || body.provider,
             settlementType: (body.settlement_type || body.settlementType || 'T1').toUpperCase(),
-            payoutType: body.payout_type || body.payoutType || 'REGULAR',
+            payoutType: cleanReqType,
             utr: userUtr,
+            remarks: body.remarks || body.notes || body.admin_remark || null,
+            enforceUtr: true,
             idempotencyKey,
             createdBy
           });
