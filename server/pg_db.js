@@ -248,6 +248,20 @@ export async function initPostgresSchema() {
         hasErrors = true;
         console.error('[Migration Error withdrawals.payout_type]:', e.message);
       });
+      await client.query(`
+        DO $$
+        BEGIN
+          ALTER TABLE withdrawals ALTER COLUMN payout_type SET NOT NULL;
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'chk_withdrawals_payout_type'
+          ) THEN
+            ALTER TABLE withdrawals ADD CONSTRAINT chk_withdrawals_payout_type CHECK (payout_type IN ('REGULAR', 'COMMISSION'));
+          END IF;
+        END $$;
+      `).catch(e => {
+        hasErrors = true;
+        console.error('[Migration Error chk_withdrawals_payout_type]:', e.message);
+      });
       await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ`).catch(e => {
         hasErrors = true;
         console.error('[Migration Error transactions.verified_at]:', e.message);

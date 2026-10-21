@@ -234,7 +234,7 @@ export async function resetTestDatabase(targetUrl) {
         beneficiary_id TEXT NOT NULL REFERENCES beneficiaries(id),
         channel VARCHAR(50) NOT NULL,
         settlement_type VARCHAR(50) NOT NULL DEFAULT 'T1',
-        payout_type VARCHAR(50) NOT NULL DEFAULT 'REGULAR',
+        payout_type VARCHAR(50) NOT NULL DEFAULT 'REGULAR' CHECK (payout_type IN ('REGULAR', 'COMMISSION')),
         status VARCHAR(50) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'SUBMITTED_TO_BANK', 'COMPLETED', 'APPROVED', 'REJECTED')),
         utr TEXT,
         batch_id TEXT,
